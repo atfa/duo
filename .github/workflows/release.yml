@@ -47,4 +47,7 @@ jobs:
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" artifacts/*.tar.gz --repo "$GITHUB_REPOSITORY" --generate-notes --verify-tag
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null || \
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes --verify-tag
+          gh release upload "$GITHUB_REF_NAME" artifacts/*.tar.gz --repo "$GITHUB_REPOSITORY" --clobber
