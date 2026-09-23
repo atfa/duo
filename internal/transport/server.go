@@ -26,14 +26,19 @@ type Server struct {
 	handler Handler
 
 	listener net.Listener
+	ready    chan struct{}
+	once     sync.Once
 }
 
 func NewServer(addr string) *Server {
 	return &Server{
 		addr:    addr,
 		clients: make(map[protocol.AgentID]*Client),
+		ready:   make(chan struct{}),
 	}
 }
+
+func (s *Server) Ready() <-chan struct{} { return s.ready }
 
 func (s *Server) SetHandler(handler Handler) {
 	s.handler = handler
@@ -45,6 +50,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		return err
 	}
 	s.listener = listener
+	s.once.Do(func() { close(s.ready) })
 
 	go func() {
 		<-ctx.Done()

@@ -1,261 +1,159 @@
-# Duo
+# Duo v0.3-alpha
 
-> A two-peer coding-agent runtime for Pi.
+**Two peer Pi coding agents in one terminal.**
 
-[![Status](https://img.shields.io/badge/status-v0.2--alpha-orange)](./ROADMAP.md)
-[![CI](https://github.com/atfa/duo/actions/workflows/ci.yml/badge.svg)](https://github.com/atfa/duo/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+Duo v0.3 keeps the v0.2 collaboration runtime (shared plan, dual sign-off, isolated Git worktrees, review, integration, harness) and adds the first integrated terminal UI.
 
-**Duo lets two Pi coding agents work as peers instead of treating one as a planner and the other as a subordinate worker.** They can discuss a shared plan, exchange live peer messages, work in isolated Git worktrees, cross-review each other's results, and jointly sign off before integration.
+## What changed in v0.3
 
-Duo is currently an experimental headless runtime. A side-by-side terminal UI is planned for the next milestone.
+- `duo` can be launched from inside a Git repository: `cd project && duo`.
+- Duo creates Austin/Tony worktrees automatically.
+- Duo launches **two real interactive Pi TUI processes** in hidden pseudo-terminals.
+- The default terminal shows three areas: Austin summary, Tony summary, and the Duo composer/status area.
+- `Ctrl+A` opens Austin's real Pi TUI; `Ctrl+T` opens Tony's real Pi TUI.
+- Clicking either top header (`[↗]`) also opens that agent's native Pi terminal on terminals that report SGR mouse clicks.
+- While inside native Pi, `/model`, `/settings`, `/tree`, extension UI, custom footer, etc. are handled by Pi itself.
+- Press `Ctrl+]` to detach from native Pi and return to Duo.
+- `Ctrl+Q` quits Duo and preserves worktrees.
 
-[中文说明](./README.zh-CN.md)
+This version intentionally does **not** reimplement Pi's slash commands.
 
-## Why Duo?
+## Install / upgrade
 
-Most multi-agent coding systems are hierarchical:
-
-```text
-Planner
- ├─ Worker A
- └─ Worker B
-```
-
-Duo is deliberately peer-to-peer:
-
-```text
-            Human
-              │
-              ▼
-            Austin
-              │ wakes
-              ▼
-Austin  ◄────────────►  Tony
-   │       live peer       │
-   │      communication    │
-   └──────────┬────────────┘
-              ▼
- PLAN → EXECUTE → REVIEW → INTEGRATE → DONE
-```
-
-The runtime owns coordination checkpoints. The agents still decide how to think, discuss, divide work, prototype, and revise their ideas.
-
-## What works in v0.2-alpha
-
-- **Single human entry** — normally prompt Austin only; Austin wakes Tony through `duo_send`.
-- **Live peer messaging** — messages are injected into the peer Pi session as steer messages, including while the peer is already working.
-- **Versioned shared Plan** — either agent can publish a complete plan; changing it invalidates both signatures.
-- **Optimistic PLAN work** — PLAN is not a file-write lock. Agents may inspect, prototype, test, or make provisional edits while discussion continues.
-- **Two isolated Git worktrees** — Austin and Tony work on separate branches created from the same base commit.
-- **Artifact-backed EXECUTE sign-off** — an agent can only mark execution complete with a clean worktree; Duo records the actual commit SHA.
-- **Cross-review evidence** — REVIEW approval is bound to the exact peer HEAD that was reviewed.
-- **Stale approval protection** — if a signed commit changes, the previous signature is revoked.
-- **Integration checkpoint** — after REVIEW, Tony's branch is merged into Austin's integration branch.
-- **Human-controlled final merge** — Duo never automatically merges the result back into the original user branch.
-- **Harness/watchdog** — if the project is unfinished and both agents become idle, Duo nudges Austin to continue.
-
-## Quick start
-
-### Requirements
-
-- Go 1.22+
-- Git
-- Pi installed and runnable as `pi`
-- A Git repository with at least one commit
-- A clean base worktree when Duo starts
-
-### Build and test
+From the Duo source directory:
 
 ```bash
-make test
+./scripts/install.sh
 ```
 
-Or without Make:
+This installs:
+
+- the current bridge at `~/.pi/agent/extensions/duo`
+- the `duo` binary at `~/.local/bin/duo`
+
+The installer disables bridge directories created by the earlier Duo prototypes (`duo-v02` / `duo-export.ts`) to avoid duplicate `duo_send` tool registration.
+
+If `~/.local/bin` is not already in your shell PATH:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+## Start
+
+Preferred:
+
+```bash
+cd /Users/atfa/fix/pet
+duo
+```
+
+Also supported:
+
+```bash
+duo /Users/atfa/fix/pet
+```
+
+If you are developing Duo itself without installing the binary:
+
+```bash
+./scripts/install-pi-extension.sh
+./scripts/run-core.sh /Users/atfa/fix/pet
+```
+
+Duo resolves the Git repository root even if you start it from a subdirectory.
+
+## Default UI
+
+Conceptually:
+
+```text
+┌ Austin · working                         [↗] ┬ Tony · idle                         [↗] ┐
+│ ... structured Duo summary ...               │ ... structured Duo summary ...          │
+│                                              │                                          │
+├──────────────────────────────────────────────┴──────────────────────────────────────────┤
+│ Duo · PLAN · Plan v1 · Austin ✓ · Tony ○                                               │
+│ Plan: ...                                                                               │
+│ ... Duo / harness / phase events ...                                                    │
+│ > user task                                                                             │
+└ Enter send · Ctrl+A Austin native · Ctrl+T Tony native · Ctrl+Q quit · Ctrl+] return ┘
+```
+
+The bottom input is **Duo's human entry point**. Text is sent to Austin. Austin's Duo system prompt tells Austin to wake Tony through `duo_send` and build a shared plan when collaboration is useful.
+
+## Native Pi mode
+
+Duo does not emulate Pi's control surface.
+
+Press:
+
+```text
+Ctrl+A   Austin native Pi
+Ctrl+T   Tony native Pi
+Ctrl+]   return to Duo
+```
+
+When native mode is active, keyboard bytes go directly to that agent's real Pi process. Therefore Pi remains responsible for `/model`, `/settings`, session controls, extension shortcuts, custom footer/UI, and any other native Pi functionality.
+
+The first native view is reconstructed from recent PTY output and Duo sends `Ctrl+L` to encourage Pi to repaint the hidden terminal.
+
+## Collaboration lifecycle
+
+```text
+PLAN -> EXECUTE -> REVIEW -> INTEGRATE -> DONE
+```
+
+PLAN is **not** a file-write lock. Both agents may investigate or make provisional changes in their private worktrees while negotiating. Formal sign-off controls the agreed plan and artifacts, not every edit operation.
+
+EXECUTE sign-off is bound to a clean commit SHA. REVIEW sign-off is bound to the peer HEAD actually reviewed. INTEGRATE sign-off is bound to Austin's clean integrated HEAD. Stale signatures are revoked automatically when the signed target changes.
+
+## Requirements
+
+- macOS or Linux
+- Git
+- Go 1.22+
+- Pi available as `pi` in PATH
+- the Unix `script` command (preinstalled on macOS and typical Linux distributions)
+
+To launch a non-default Pi command:
+
+```bash
+DUO_PI_COMMAND='pi --some-flag' duo
+```
+
+## Keyboard
+
+| Key | Action |
+|---|---|
+| Enter | send Duo composer text to Austin |
+| Ctrl+A | attach Austin native Pi |
+| Ctrl+T | attach Tony native Pi |
+| Ctrl+] | detach native Pi and return to Duo |
+| Ctrl+Q | quit Duo |
+| Backspace | edit Duo composer |
+
+## Known limitations of v0.3-alpha
+
+- The Duo composer is currently a single-line editor. Use native Pi mode for rich/multiline direct agent interaction.
+- Summary panes currently show structured assistant completions, peer messages, connection/phase events, and live working/idle state; they do not yet reproduce every token or rich tool card.
+- The hidden Pi terminal uses the OS `script` utility as a PTY host. Native attach is fullscreen takeover, not an embedded xterm emulator.
+- Native Pi process auto-restart is not implemented yet. If a Pi process exits, restart Duo.
+- Worktrees are preserved when Duo exits.
+- Duo does not merge the final integration branch into the human's original branch automatically.
+
+## Development validation
 
 ```bash
 go test ./...
 go build ./cmd/duo
 ```
 
-### Install the Pi extension
+The test suite includes Git worktree/integration tests and a PTY smoke test using `script`.
 
-If the old `pi-duo` extension is still enabled, disable it first because it may register overlapping tool names.
+## v0.3 next steps
 
-```bash
-mv ~/.pi/agent/extensions/pi-duo ~/.pi/agent/pi-duo.disabled
-```
-
-Then install Duo's modular Pi bridge:
-
-```bash
-./scripts/install-pi-extension.sh
-```
-
-### Start Duo against a repository
-
-```bash
-./scripts/run-core.sh /absolute/path/to/project
-```
-
-Duo creates two isolated worktrees and prints the exact launch commands for Tony and Austin.
-
-Start **Tony first and leave Tony idle**. Then start **Austin** and give the task only to Austin.
-
-Example task:
-
-```text
-Improve the current codebase.
-
-You focus on correctness, design and tests. Tony focuses on performance,
-complexity and implementation simplicity. First understand the task yourself,
-then wake Tony and ask for an independent view. Form a shared Plan, execute in
-parallel where useful, cross-review the result, and take the task through final
-integration.
-```
-
-## A real collaboration trace
-
-The following pattern has been validated in an actual run:
-
-```text
-Human → Austin
-
-Austin → Tony:
-"The UI feels dated. Give me an independent assessment before I lock a plan."
-
-Tony → Austin:
-"The UI is already fairly modern. The dated feeling comes from decorative
-noise, not typography or badges. I would remove/reduce the dot grid, corner
-ornaments, radius inconsistency and heavy shadows."
-
-Austin updated shared plan → v1
-Austin ✓
-Tony   ✓
-
-PLAN → EXECUTE
-Austin implements → commit 7bf559e
-Tony reviews that exact commit ✓
-
-EXECUTE → REVIEW → INTEGRATE
-Integrated HEAD ✓ Austin
-Integrated HEAD ✓ Tony
-
-DONE
-```
-
-The important part is not the exact phase timing. Agents may inspect or review early. **Phases are coordination checkpoints, not behavioral cages.**
-
-## Lifecycle
-
-```mermaid
-stateDiagram-v2
-    [*] --> PLAN
-    PLAN --> EXECUTE: Austin + Tony approve Plan vN
-    EXECUTE --> REVIEW: both sign clean commit artifacts
-    REVIEW --> INTEGRATE: both approve peer artifact
-    INTEGRATE --> DONE: both approve same integrated HEAD
-    DONE --> [*]
-```
-
-### PLAN
-
-Both agents can discuss, investigate, prototype, run tests, and even make provisional edits in their own worktrees. The shared Plan represents the current agreement, not a prohibition on thinking or acting before consensus.
-
-### EXECUTE
-
-Each agent works in its own branch/worktree. `ready=true` requires a clean worktree and records the current commit SHA as evidence.
-
-### REVIEW
-
-Each agent reviews the peer's current artifact. Review approval is tied to the exact peer HEAD. If that HEAD changes before phase completion, the stale approval is revoked.
-
-### INTEGRATE
-
-Duo merges Tony into Austin. Austin becomes the integration worktree. Conflicts are left visible for resolution rather than silently overwritten.
-
-### DONE
-
-Both agents have approved the same clean integrated HEAD. The original human branch remains untouched until the human chooses to merge.
-
-## Pi tools exposed by Duo
-
-| Tool | Purpose |
-|---|---|
-| `duo_send` | Send an important live message to the peer agent |
-| `duo_set_plan` | Publish a complete new version of the shared Plan |
-| `duo_set_status` | Sign or revoke readiness for the current phase |
-| `duo_status` | Read authoritative phase, Plan, signatures, evidence and workspace status |
-
-## Architecture
-
-```text
-┌──────────────────────┐               ┌──────────────────────┐
-│ Austin Pi            │               │ Tony Pi              │
-│ worktree A           │               │ worktree B           │
-│ duo/<session>/austin │               │ duo/<session>/tony   │
-└──────────┬───────────┘               └──────────┬───────────┘
-           │     thin Pi extension / TCP          │
-           └──────────────┬───────────────────────┘
-                          ▼
-                   ┌──────────────┐
-                   │   Duo Core   │
-                   │      Go      │
-                   ├──────────────┤
-                   │ protocol     │
-                   │ transport    │
-                   │ project      │
-                   │ coordinator  │
-                   │ harness      │
-                   │ workspace    │
-                   └──────┬───────┘
-                          ▼
-                    Git integration
-```
-
-See [docs/architecture.md](./docs/architecture.md) for the design boundaries and rationale.
-
-## Repository layout
-
-```text
-cmd/duo/                  executable and environment config
-internal/protocol/        wire protocol and agent identities
-internal/transport/       local TCP server and connection registry
-internal/project/         lifecycle, Plan, signatures and evidence
-internal/coordinator/     routing and phase transitions
-internal/harness/         idle/stall recovery
-internal/workspace/       Git worktree, artifact and integration logic
-pi-extension/             thin Pi adapter
-scripts/                  install/run helpers
-docs/                     architecture, demo and limitations
-```
-
-## Safety boundary
-
-Duo intentionally does **not** merge the result into your original branch. The integrated result stays on the Duo Austin branch. Inspect it, test it, then merge/cherry-pick it yourself.
-
-## Status
-
-Duo is **v0.2-alpha**. The collaboration model is working, but the project has not yet been hardened across a wide range of repositories and failure modes.
-
-Before relying on it for important work, read [Known limitations](./docs/known-limitations.md).
-
-## Roadmap
-
-The next major milestone is a terminal UI with:
-
-- Austin and Tony side by side;
-- one global human composer;
-- per-agent runtime status;
-- shared phase / Plan / evidence status;
-- worktree and Git change summaries.
-
-See [ROADMAP.md](./ROADMAP.md).
-
-## Relationship to Pi
-
-Duo uses Pi as the coding-agent runtime and extends it through a thin extension layer. Duo is a separate experimental project and is not presented as an official Pi project.
-
-## License
-
-MIT. See [LICENSE](./LICENSE).
+1. Better streaming summaries/tool-event cards in Austin/Tony panes.
+2. Process death detection + restart controls.
+3. Session persistence/resume.
+4. Better composer editing/history/multiline paste.
+5. More exact native PTY resize propagation; if necessary, replace the `script` host with a direct PTY implementation.

@@ -3,10 +3,10 @@ package harness
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"time"
 
+	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 )
@@ -28,16 +28,17 @@ type Monitor struct {
 	project *project.State
 	tracker *Tracker
 	sender  Sender
+	bus     *events.Bus
 
 	mu       sync.Mutex
 	lastWake time.Time
 }
 
-func NewMonitor(cfg Config, state *project.State, tracker *Tracker, sender Sender) *Monitor {
+func NewMonitor(cfg Config, state *project.State, tracker *Tracker, sender Sender, bus *events.Bus) *Monitor {
 	if cfg.TickInterval <= 0 {
 		cfg.TickInterval = 2 * time.Second
 	}
-	return &Monitor{cfg: cfg, project: state, tracker: tracker, sender: sender}
+	return &Monitor{cfg: cfg, project: state, tracker: tracker, sender: sender, bus: bus}
 }
 
 func (m *Monitor) Run(ctx context.Context) {
@@ -66,6 +67,9 @@ func (m *Monitor) maybeWake(ctx context.Context) {
 
 	austin := m.tracker.Snapshot(protocol.Austin)
 	tony := m.tracker.Snapshot(protocol.Tony)
+	if austin.HumanAttached || tony.HumanAttached {
+		return
+	}
 
 	latest := austin.LastActivity
 	if tony.LastActivity.After(latest) {
@@ -106,7 +110,9 @@ func (m *Monitor) maybeWake(ctx context.Context) {
 		state.String(),
 	)
 
-	fmt.Printf("[HARNESS] nudging Austin after %s without useful activity\n", quietFor.Round(time.Second))
+	if m.bus != nil {
+		m.bus.Emit(events.Event{Kind: events.KindHarness, Agent: protocol.Austin, Text: fmt.Sprintf("nudging Austin after %s without useful activity", quietFor.Round(time.Second))})
+	}
 	if err := m.sender.Send(ctx, protocol.Austin, protocol.Message{
 		Version:   1,
 		Type:      protocol.MsgHarnessPrompt,
@@ -114,7 +120,7 @@ func (m *Monitor) maybeWake(ctx context.Context) {
 		To:        protocol.Austin,
 		Text:      prompt,
 		Timestamp: time.Now().UnixMilli(),
-	}); err != nil {
-		log.Printf("harness send failed: %v", err)
+	}); err != nil && m.bus != nil {
+		m.bus.Emit(events.Event{Kind: events.KindError, Agent: protocol.Duo, Text: "harness send failed: " + err.Error()})
 	}
 }

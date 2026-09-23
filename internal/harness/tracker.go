@@ -11,6 +11,7 @@ type AgentRuntime struct {
 	Busy           bool
 	ProviderActive bool
 	ToolDepth      int
+	HumanAttached  bool
 	LastActivity   time.Time
 }
 
@@ -71,6 +72,14 @@ func (t *Tracker) Handle(agent protocol.AgentID, activity protocol.ActivityType)
 	case protocol.ActivityStream:
 		rt.Busy = true
 	}
+}
+
+func (t *Tracker) SetHumanAttached(agent protocol.AgentID, attached bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	rt := t.ensureLocked(agent)
+	rt.HumanAttached = attached
+	rt.LastActivity = time.Now()
 }
 
 func (t *Tracker) Snapshot(agent protocol.AgentID) AgentRuntime {

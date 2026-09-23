@@ -20,7 +20,7 @@ export function installLifecycle(pi: any, transport: DuoTransport, agent: AgentN
   let lastStreamActivityAt = 0;
 
   transport.setHandler((message: DuoMessage) => {
-    if (!["steer", "duo_notice", "harness_prompt"].includes(message.type)) return;
+    if (!["steer", "duo_notice", "harness_prompt", "human_prompt"].includes(message.type)) return;
     if (message.to && message.to.toLowerCase() !== agent.toLowerCase()) return;
     if (!message.text) return;
 

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
@@ -19,6 +20,7 @@ type Coordinator struct {
 	project   *project.State
 	tracker   *harness.Tracker
 	workspace workspace.Manager
+	bus       *events.Bus
 
 	integrationMu sync.RWMutex
 	integration   workspace.IntegrationResult
@@ -29,23 +31,52 @@ func New(
 	state *project.State,
 	tracker *harness.Tracker,
 	ws workspace.Manager,
+	bus *events.Bus,
 ) *Coordinator {
-	return &Coordinator{server: server, project: state, tracker: tracker, workspace: ws}
+	return &Coordinator{server: server, project: state, tracker: tracker, workspace: ws, bus: bus}
 }
+
+func (c *Coordinator) emit(kind events.Kind, agent, peer protocol.AgentID, text string) {
+	if c.bus == nil {
+		return
+	}
+	c.bus.Emit(events.Event{Kind: kind, Agent: agent, Peer: peer, Text: text})
+}
+
+// SubmitUserTask is the single human entry point used by the Duo TUI.
+// Austin receives the task and is responsible for waking Tony through duo_send.
+func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+	if !c.server.IsConnected(protocol.Austin) {
+		return fmt.Errorf("Austin is not connected yet")
+	}
+	c.project.MarkStarted()
+	c.tracker.Touch(protocol.Austin)
+	c.emit(events.KindUser, protocol.Duo, protocol.Austin, text)
+	return c.server.Send(ctx, protocol.Austin, protocol.Message{
+		Version: 1, Type: protocol.MsgHumanPrompt, From: protocol.Duo, To: protocol.Austin,
+		Text: "[Human task from Duo]\n\n" + text, Timestamp: time.Now().UnixMilli(),
+	})
+}
+
+func (c *Coordinator) StatusText(ctx context.Context) string { return c.statusText(ctx) }
 
 func (c *Coordinator) OnConnect(_ context.Context, client *transport.Client) {
 	c.tracker.Touch(client.Agent)
-	fmt.Printf("[DUO] %s connected\n", client.Agent)
+	c.emit(events.KindSystem, client.Agent, "", fmt.Sprintf("%s connected", client.Agent))
 }
 
 func (c *Coordinator) OnDisconnect(client *transport.Client) {
-	fmt.Printf("[DUO] %s disconnected\n", client.Agent)
+	c.emit(events.KindSystem, client.Agent, "", fmt.Sprintf("%s disconnected", client.Agent))
 }
 
 func (c *Coordinator) OnMessage(ctx context.Context, client *transport.Client, message protocol.Message) {
 	switch message.Type {
 	case protocol.MsgTest:
-		fmt.Printf("[%s] TEST: %s\n", client.Agent, message.Text)
+		c.emit(events.KindSystem, client.Agent, "", "TEST: "+message.Text)
 
 	case protocol.MsgActivity:
 		c.handleActivity(client.Agent, message)
@@ -84,7 +115,7 @@ func (c *Coordinator) handleAssistant(agent protocol.AgentID, message protocol.M
 		return
 	}
 	c.tracker.Touch(agent)
-	fmt.Printf("\n[%s]\n%s\n\n", agent, message.Text)
+	c.emit(events.KindAssistant, agent, "", message.Text)
 }
 
 func (c *Coordinator) handlePeerMessage(ctx context.Context, client *transport.Client, message protocol.Message) {
@@ -100,7 +131,7 @@ func (c *Coordinator) handlePeerMessage(ctx context.Context, client *transport.C
 	}
 
 	c.tracker.Touch(from)
-	fmt.Printf("\n[DUO] %s → %s\n%s\n\n", from, to, message.Text)
+	c.emit(events.KindPeer, from, to, message.Text)
 
 	err := c.server.Send(ctx, to, protocol.Message{
 		Version:   1,
@@ -126,7 +157,7 @@ func (c *Coordinator) handleSetPlan(ctx context.Context, client *transport.Clien
 	}
 
 	c.tracker.Touch(client.Agent)
-	fmt.Printf("[DUO] %s updated shared plan → v%d; both signatures reset\n", client.Agent, snap.PlanVersion)
+	c.emit(events.KindSystem, client.Agent, "", fmt.Sprintf("updated shared plan → v%d; both signatures reset", snap.PlanVersion))
 	_ = c.respond(ctx, client, message.RequestID, true,
 		fmt.Sprintf("Shared plan updated to v%d. Both signatures were reset.", snap.PlanVersion), c.statusText(ctx))
 
@@ -183,7 +214,7 @@ func (c *Coordinator) handleSetStatus(ctx context.Context, client *transport.Cli
 	peer := protocol.PeerOf(client.Agent)
 
 	if tr.Advanced {
-		fmt.Printf("[DUO] %s complete by dual sign-off → %s\n", tr.Previous, tr.Next)
+		c.emit(events.KindSystem, protocol.Duo, "", fmt.Sprintf("%s complete by dual sign-off → %s", tr.Previous, tr.Next))
 
 		integrationText := ""
 		if tr.Next == project.PhaseIntegrate {
@@ -302,7 +333,7 @@ func (c *Coordinator) invalidateStaleApprovals(ctx context.Context, snap project
 				reason = "signed target is no longer clean/reviewable; readiness revoked"
 			}
 			c.project.RevokeReady(signer, reason)
-			fmt.Printf("[DUO] revoked stale %s signature from %s\n", snap.Phase, signer)
+			c.emit(events.KindSystem, signer, "", fmt.Sprintf("revoked stale %s signature", snap.Phase))
 		}
 	}
 	return nil
@@ -312,7 +343,7 @@ func (c *Coordinator) beginIntegration(ctx context.Context) string {
 	result, err := c.workspace.IntegrateTonyIntoAustin(ctx)
 	if err != nil {
 		text := "Integration could not start automatically: " + err.Error()
-		fmt.Printf("[DUO] %s\n", text)
+		c.emit(events.KindError, protocol.Duo, "", text)
 		return text
 	}
 
@@ -325,7 +356,7 @@ func (c *Coordinator) beginIntegration(ctx context.Context) string {
 			"Git merge started in Austin's worktree but has conflicts. Austin must resolve them in %s, commit the resolution, run validation, and then sign INTEGRATE. Tony must review Austin's final integrated HEAD before signing.",
 			result.AustinPath,
 		)
-		fmt.Printf("[DUO] integration conflict in %s\n", result.AustinPath)
+		c.emit(events.KindSystem, protocol.Duo, "", "integration conflict in "+result.AustinPath)
 		return text
 	}
 
@@ -334,7 +365,7 @@ func (c *Coordinator) beginIntegration(ctx context.Context) string {
 		result.AustinBranch,
 		shortSHA(result.Head),
 	)
-	fmt.Printf("[DUO] integration merge complete → %s@%s\n", result.AustinBranch, shortSHA(result.Head))
+	c.emit(events.KindSystem, protocol.Duo, "", fmt.Sprintf("integration merge complete → %s@%s", result.AustinBranch, shortSHA(result.Head)))
 	return text
 }
 

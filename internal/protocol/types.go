@@ -45,6 +45,7 @@ const (
 	MsgSteer            MessageType = "steer"
 	MsgDuoNotice        MessageType = "duo_notice"
 	MsgHarnessPrompt    MessageType = "harness_prompt"
+	MsgHumanPrompt      MessageType = "human_prompt"
 	MsgSetPlan          MessageType = "set_plan"
 	MsgSetStatus        MessageType = "set_status"
 	MsgGetStatus        MessageType = "get_status"
