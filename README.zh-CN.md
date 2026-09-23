@@ -4,7 +4,16 @@
 
 **Duo 让两个 Pi coding agent 以平级伙伴的方式协作，而不是把一个 Agent 设为 Planner、另一个设为 subordinate worker。** 两个 Agent 可以共同讨论计划、实时互发消息、在隔离的 Git worktree 中执行、交叉 Review，并在集成前共同签字确认。
 
-当前版本为 **v0.3.2**，提供集成式双栏 TUI、原生 Pi 终端切换、动态端口和会话隔离。
+当前版本为 **v0.3.3**，提供集成式双栏 TUI、原生 Pi 终端切换、动态端口和会话隔离，并修复了 resize 时的渲染拖尾问题。
+
+## v0.3.3 已实现
+
+- **Resize 渲染硬化**：窗口尺寸变化、原生 Pi 返回和布局变化都会先整屏清除，不再在大尺寸变小时残留旧边框和画面。
+- **不再虚构终端尺寸**：删除 60×18 的强制 clamp；小于 60×18 时输出受限的 `Terminal too small` 提示，不会换行或滚屏。
+- **Synchronized Output**：每帧用 `CSI ?2026 h/l` 包裹，并在写帧期间临时关闭 autowrap。
+- **Resize 合并**：连续 SIGWINCH 只保留最新尺寸，PTY 与 TUI 各只更新一次。
+- **统一 Renderer Scheduler**：约 60 FPS，只有 dirty 才重绘；idle 时不再周期性 repaint，spinner 只在 Agent 忙时更新。
+- **进程状态语义**：区分 `exited` 与 `failed`，Duo 主动停止显示为正常退出。
 
 [English README](./README.md)
 
@@ -142,7 +151,7 @@ Duo 已经具备完整双 Agent 协作闭环和集成式 TUI。目前仍固定�
 
 ## 下一步
 
-v0.3.2 直接使用 Go 管理的 PTY，不再依赖 Unix `script`；SIGWINCH 会同步 Austin/Tony 的 PTY 尺寸（包括未 attach 时）。退出的 Agent 可通过 Ctrl+R 重启 Austin、Ctrl+Y 重启 Tony；运行中的 Agent 不会被强杀。默认 session 名为时间戳加 8 位随机十六进制后缀，显式 `DUO_SESSION` 保持原值。后续重点是历史滚动、多行输入和持久化恢复。
+v0.3.3 重构了 TUI renderer：resize、原生 Pi 返回和布局变化强制 full clear；layout 使用真实终端尺寸；帧使用 synchronized output 与 autowrap 保护；SIGWINCH 合并后只画一帧；idle 时几乎零重绘。之前 v0.3.2 已直接使用 Go 管理的 PTY，SIGWINCH 会同步 Austin/Tony 的 PTY 尺寸（包括未 attach 时）。退出的 Agent 可通过 Ctrl+R 重启 Austin、Ctrl+Y 重启 Tony；运行中的 Agent 不会被强杀。后续重点是历史滚动、多行输入和持久化恢复。
 
 详见 [ROADMAP.md](./ROADMAP.md)。
 

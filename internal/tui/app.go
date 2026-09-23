@@ -30,23 +30,12 @@ func (a *App) Run(ctx context.Context) error {
 	_, _ = tty.File.WriteString(terminal.EnterAltScreen + terminal.HideCursor + terminal.MouseOn + terminal.ClearHome)
 	defer func() { _, _ = tty.File.WriteString(terminal.ResetOuterModes + terminal.ExitAltScreen) }()
 
+	a.renderer = newRenderer(frameInterval, tty.File, a.buildFrame)
+
 	a.syncSize()
 	winch := make(chan os.Signal, 1)
 	signal.Notify(winch, syscall.SIGWINCH)
 	defer signal.Stop(winch)
-	sizes := make(chan [2]int, 1)
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case size := <-sizes:
-				if err := a.agents.ResizeAll(size[0], size[1]); err != nil {
-					a.bus.Emit(events.Event{Kind: events.KindError, Agent: protocol.Duo, Text: err.Error()})
-				}
-			}
-		}
-	}()
 	eventCh, cancelSub := a.bus.Subscribe(256)
 	defer cancelSub()
 
@@ -55,8 +44,8 @@ func (a *App) Run(ctx context.Context) error {
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
 
-	a.add(protocol.Duo, "Duo v0.3.2 ready. Type a task and press Enter; Austin will wake Tony when collaboration is needed.")
-	a.render()
+	a.add(protocol.Duo, "Duo v0.3.3 ready. Type a task and press Enter; Austin will wake Tony when collaboration is needed.")
+	a.requestFullClear()
 
 	for {
 		select {
@@ -68,7 +57,7 @@ func (a *App) Run(ctx context.Context) error {
 				return nil
 			}
 			a.route(ev)
-			a.render()
+			a.markDirty()
 		case b, ok := <-inputCh:
 			if !ok {
 				return nil
@@ -82,8 +71,6 @@ func (a *App) Run(ctx context.Context) error {
 				}
 				if detach {
 					a.leaveNative()
-					a.render()
-					continue
 				}
 				continue
 			}
@@ -95,7 +82,7 @@ func (a *App) Run(ctx context.Context) error {
 				if err := a.enterNative(action.attach); err != nil {
 					a.add(protocol.Duo, "ERROR: "+err.Error())
 					a.status = err.Error()
-					a.render()
+					a.markDirty()
 				}
 				continue
 			}
@@ -111,28 +98,27 @@ func (a *App) Run(ctx context.Context) error {
 			if action.submit {
 				a.submit(ctx)
 			}
-			a.render()
+			a.markDirty()
 		case <-winch:
-			a.width, a.height = tty.Size()
-			size := [2]int{a.width, a.height}
-			select {
-			case sizes <- size:
-			default:
-				select {
-				case <-sizes:
-				default:
-				}
-				select {
-				case sizes <- size:
-				default:
-				}
-			}
-			a.render()
+			a.resize()
+		case <-a.renderer.dueChan():
+			a.renderer.flush()
 		case <-tick.C:
-			a.frame++
-			a.render()
+			a.spinnerTick()
 		}
 	}
+}
+
+// resize applies the latest host terminal size to the agent PTYs and schedules
+// one full-clear frame. Any intermediate SIGWINCH sizes are intentionally
+// dropped; only the most recent size matters.
+func (a *App) resize() {
+	w, h := a.tty.Size()
+	a.width, a.height = w, h
+	if err := a.agents.ResizeAll(w, h); err != nil {
+		a.bus.Emit(events.Event{Kind: events.KindError, Agent: protocol.Duo, Text: err.Error()})
+	}
+	a.requestFullClear()
 }
 
 func (a *App) syncSize() {
@@ -186,6 +172,7 @@ func (a *App) leaveNative() {
 	a.syncSize()
 	a.nativeDetachBuf = nil
 	_, _ = a.tty.File.WriteString(terminal.ResetOuterModes + terminal.EnterAltScreen + terminal.HideCursor + terminal.MouseOn + terminal.ClearHome)
+	a.requestFullClear()
 }
 
 // nativeDetach reports whether b returns to Duo and whether it still belongs to Pi input.

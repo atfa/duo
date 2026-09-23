@@ -23,6 +23,7 @@ type ProcessState int
 const (
 	ProcessStarting ProcessState = iota
 	ProcessRunning
+	ProcessStopping
 	ProcessExited
 	ProcessFailed
 )
@@ -41,6 +42,7 @@ type Session struct {
 	attached io.Writer
 	state    ProcessState
 	started  bool
+	stopping bool
 	stopped  chan struct{}
 	waitErr  error
 	size     pty.Winsize
@@ -56,7 +58,7 @@ func NewSession(cfg Config) *Session {
 func (s *Session) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.started && (s.state == ProcessStarting || s.state == ProcessRunning) {
+	if s.started && (s.state == ProcessStarting || s.state == ProcessRunning || s.state == ProcessStopping) {
 		return fmt.Errorf("%s is already running", s.cfg.Agent)
 	}
 	if ctx.Err() != nil {
@@ -79,6 +81,7 @@ func (s *Session) Start(ctx context.Context) error {
 	s.cmd = cmd
 	s.ptmx = ptmx
 	s.started = true
+	s.stopping = false
 	s.state = ProcessRunning
 	s.waitErr = nil
 	s.recent = nil
@@ -98,7 +101,15 @@ func (s *Session) Start(ctx context.Context) error {
 		_ = ptmx.Close()
 		s.mu.Lock()
 		s.waitErr = err
-		s.state = ProcessExited
+		switch {
+		case s.stopping, err == nil:
+			// A Duo-initiated stop (SIGTERM/SIGKILL) is a normal shutdown even
+			// though Wait reports a signal error.
+			s.state = ProcessExited
+		default:
+			s.state = ProcessFailed
+		}
+		s.stopping = false
 		close(done)
 		s.mu.Unlock()
 	}()
@@ -163,11 +174,15 @@ func (s *Session) Resize(cols, rows int) error {
 	return nil
 }
 func (s *Session) Stop() {
-	s.mu.RLock()
+	s.mu.Lock()
 	cmd := s.cmd
 	done := s.stopped
 	running := s.state == ProcessRunning
-	s.mu.RUnlock()
+	if running {
+		s.state = ProcessStopping
+		s.stopping = true
+	}
+	s.mu.Unlock()
 	if !running || cmd == nil {
 		return
 	}

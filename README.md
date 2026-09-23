@@ -1,8 +1,17 @@
-# Duo v0.3.2
+# Duo v0.3.3
 
 **Two peer Pi coding agents in one terminal.**
 
-Duo v0.3.2 combines the peer collaboration runtime with an integrated terminal UI and isolated, authenticated local sessions.
+Duo v0.3.3 combines the peer collaboration runtime with an integrated terminal UI and isolated, authenticated local sessions.
+
+## What changed in v0.3.3
+
+- Hardened TUI redraw: resize, native-attach re-entry and layout changes now force one full-screen clear instead of overwriting the previous frame in place, which removes border trails and visual residue when dragging a terminal window.
+- Removed the fake 60×18 minimum terminal size. Duo lays out on the real geometry and shows a bounded `Terminal too small` notice below 60×18 instead of wrapping or scrolling.
+- Frames are wrapped in DEC synchronized output (`CSI ?2026 h/l`) and autowrap is disabled for the duration of a frame write.
+- SIGWINCH is coalesced: a burst of resize signals collapses into one latest-size PTY update and one frame.
+- Rendering goes through a dirty scheduler at about 60 FPS; an idle Duo does not repaint, and the spinner only animates while an agent is busy.
+- Process state distinguishes `exited` from `failed`, and a Duo-initiated stop is reported as a normal exit.
 
 ## What changed in v0.3
 
@@ -147,10 +156,11 @@ DUO_PI_COMMAND='pi --some-flag' duo
 | Ctrl+Q | quit Duo |
 | Backspace | edit Duo composer |
 
-## Known limitations of v0.3.2
+## Known limitations of v0.3.3
 
 - The Duo composer is currently a single-line editor. Use native Pi mode for rich/multiline direct agent interaction.
 - Summary panes currently show structured assistant completions, peer messages, connection/phase events, and live working/idle state; they do not yet reproduce every token or rich tool card.
+- A frame is redrawn from scratch at up to about 60 FPS; there is no partial-damage or diff-based update. This is intentional for a UI of this size and keeps redraw correctness simple.
 - Duo owns direct PTYs for both interactive Pi processes; SIGWINCH propagates terminal size to both, even while detached. Native attach is fullscreen takeover, not an embedded xterm emulator.
 - Exited Pi processes can be manually restarted with Ctrl+R (Austin) or Ctrl+Y (Tony), retaining their worktrees and bridge identity. Running agents cannot be restarted; automatic crash restart is not implemented.
 - Worktrees are preserved when Duo exits.

@@ -46,6 +46,15 @@ Primary goal: make the existing runtime observable and controllable without movi
 - [x] direct PTY ownership and SIGWINCH resize propagation
 - [x] random suffix for default session IDs
 
+## v0.3.3 — TUI renderer hardening
+
+- [x] full clear on resize / layout change / alternate-screen re-entry
+- [x] real terminal geometry with a bounded too-small notice
+- [x] synchronized output and per-frame autowrap protection
+- [x] SIGWINCH coalescing and a dirty renderer scheduler
+- [x] idle TUI no longer repaints; spinner gated on agent activity
+- [x] `exited` vs `failed` process state
+
 ## v0.4 — durability and configurability
 
 - [ ] persistent session state

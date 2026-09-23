@@ -21,17 +21,69 @@ const (
 	ansiError  = "\x1b[31m"
 )
 
-func (a *App) render() {
-	if a.native != "" || a.tty == nil {
-		return
+const (
+	minWidth  = 60
+	minHeight = 18
+)
+
+// buildFrame returns one complete, self-contained frame. It never writes to the
+// terminal and never emits more rows or columns than the real terminal size.
+func (a *App) buildFrame(mode renderMode) string {
+	if a.native != "" {
+		return ""
 	}
 	w, h := a.width, a.height
-	if w < 60 {
-		w = 60
+
+	var b strings.Builder
+	b.WriteString(terminal.BeginSync)
+	b.WriteString(terminal.HideCursor)
+	if mode == renderFullClear {
+		b.WriteString(terminal.ClearHome)
 	}
-	if h < 18 {
-		h = 18
+	b.WriteString(terminal.Home)
+	b.WriteString(terminal.AutoWrapOff)
+
+	if w < minWidth || h < minHeight {
+		a.writeTooSmall(&b, w, h)
+	} else {
+		a.writeLayout(&b, w, h)
+		row, col := inputCursor(w, h, string(a.input))
+		b.WriteString(fmt.Sprintf("\x1b[%d;%dH", row, col))
 	}
+
+	// Restore autowrap while the cursor is already parked, so enabling it can
+	// never turn a full-width last line into a wrap or scroll.
+	b.WriteString(terminal.AutoWrapOn)
+	b.WriteString(terminal.ShowCursor)
+	b.WriteString(terminal.EndSync)
+	return b.String()
+}
+
+// writeTooSmall renders a bounded notice instead of inventing a terminal size.
+// Every line is clipped and padded to the real width, and the number of lines
+// never exceeds the real height.
+func (a *App) writeTooSmall(b *strings.Builder, w, h int) {
+	lines := []string{
+		"Duo",
+		"",
+		"Terminal too small",
+		fmt.Sprintf("Minimum: %d×%d", minWidth, minHeight),
+		fmt.Sprintf("Current: %d×%d", w, h),
+	}
+	if h < len(lines) {
+		lines = lines[:maxInt(h, 0)]
+	}
+	for i, line := range lines {
+		if i > 0 {
+			b.WriteString("\r\n")
+		}
+		b.WriteString(fit(line, w))
+	}
+}
+
+// writeLayout draws the full Duo UI for the given real terminal geometry. It
+// leaves the last terminal row unused and does not emit a trailing newline.
+func (a *App) writeLayout(b *strings.Builder, w, h int) {
 	duoH := 7
 	topH := h - duoH
 	leftW := (w - 1) / 2
@@ -44,8 +96,6 @@ func (a *App) render() {
 	aTitle := fmt.Sprintf(" Austin · %s ", agentState(a.server.IsConnected(protocol.Austin), ar, a.frame, a.processState(protocol.Austin)))
 	tTitle := fmt.Sprintf(" Tony · %s ", agentState(a.server.IsConnected(protocol.Tony), tr, a.frame, a.processState(protocol.Tony)))
 
-	var b strings.Builder
-	b.WriteString(terminal.HideCursor + terminal.Home)
 	b.WriteString(paint(ansiBorder, "┌") + paint(ansiTitle, header(aTitle, leftW-1)) + paint(ansiBorder, "┬") + paint(ansiTitle, header(tTitle, rightW-1)) + paint(ansiBorder, "┐") + "\r\n")
 
 	contentRows := topH - 2
@@ -84,10 +134,6 @@ func (a *App) render() {
 	b.WriteString(paint(ansiBorder, "│") + paint(ansiStatus, " > ") + fitTail(input, w-6) + paint(ansiBorder, " │\r\n"))
 	help := " Enter send · Ctrl+A/T native · Ctrl+R Austin restart · Ctrl+Y Tony restart · Ctrl+Q quit · Ctrl+] / Ctrl+\\ return "
 	b.WriteString(paint(ansiBorder, "└") + paint(ansiHint, fit(help, w-2, "─")) + paint(ansiBorder, "┘"))
-
-	row, col := inputCursor(w, h, string(a.input))
-	b.WriteString(fmt.Sprintf("\x1b[%d;%dH%s", row, col, terminal.ShowCursor))
-	_, _ = a.tty.File.WriteString(b.String())
 }
 
 func paint(code, text string) string {
@@ -111,6 +157,10 @@ func (a *App) processState(id protocol.AgentID) agent.ProcessState {
 func agentState(connected bool, runtime harness.AgentRuntime, frame int, states ...agent.ProcessState) string {
 	if len(states) > 0 {
 		switch states[0] {
+		case agent.ProcessStarting:
+			return "starting"
+		case agent.ProcessStopping:
+			return "stopping"
 		case agent.ProcessExited:
 			return "exited [Restart]"
 		case agent.ProcessFailed:
@@ -133,15 +183,13 @@ func agentState(connected bool, runtime harness.AgentRuntime, frame int, states 
 	return "idle"
 }
 
-// inputCursor returns the 1-based terminal position for the input insertion point.
+// inputCursor returns the 1-based terminal position for the input insertion
+// point, using the real terminal size (never an invented minimum).
 func inputCursor(width, height int, input string) (row, col int) {
-	if width < 60 {
-		width = 60
-	}
-	if height < 18 {
-		height = 18
-	}
 	inputWidth := width - 6
+	if inputWidth < 1 {
+		inputWidth = 1
+	}
 	visible := tailContent(input, inputWidth)
 	col = 5 + displayWidth(visible)
 	return height - 2, col

@@ -2,7 +2,7 @@
 
 ## Current trust model
 
-Duo v0.3.1 is designed for a **trusted local development machine**.
+Duo v0.3.3 is designed for a **trusted local development machine**.
 
 The Go core listens on an OS-assigned localhost port. Each run gives its Pi processes a random session token, and the core rejects clients with the wrong session, token or agent identity. The local protocol is not encrypted and should not be exposed to an untrusted network.
 

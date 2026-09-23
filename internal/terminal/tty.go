@@ -47,13 +47,26 @@ func (t *TTY) Close() error {
 }
 
 const (
-	EnterAltScreen  = "\x1b[?1049h"
-	ExitAltScreen   = "\x1b[?1049l"
-	HideCursor      = "\x1b[?25l"
-	ShowCursor      = "\x1b[?25h"
-	ClearHome       = "\x1b[2J\x1b[H"
-	Home            = "\x1b[H"
-	MouseOn         = "\x1b[?1000h\x1b[?1006h"
-	MouseOff        = "\x1b[?1000l\x1b[?1006l"
+	EnterAltScreen = "\x1b[?1049h"
+	ExitAltScreen  = "\x1b[?1049l"
+	HideCursor     = "\x1b[?25l"
+	ShowCursor     = "\x1b[?25h"
+	ClearHome      = "\x1b[2J\x1b[H"
+	Home           = "\x1b[H"
+	MouseOn        = "\x1b[?1000h\x1b[?1006h"
+	MouseOff       = "\x1b[?1000l\x1b[?1006l"
+
+	// BeginSync/EndSync wrap a frame in a DEC synchronized update. Terminals
+	// that do not implement them ignore the sequences, so no capability
+	// detection is needed.
+	BeginSync = "\x1b[?2026h"
+	EndSync   = "\x1b[?2026l"
+
+	// AutoWrapOff/AutoWrapOn bound a frame write so a line that exactly fills
+	// the terminal width cannot wrap the cursor or scroll the screen. They are
+	// restored within the same frame write.
+	AutoWrapOff = "\x1b[?7l"
+	AutoWrapOn  = "\x1b[?7h"
+
 	ResetOuterModes = "\x1b[<u\x1b[>4;0m\x1b[?2004l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1004l\x1b[?1006l\x1b[?7h\x1b[?25h"
 )

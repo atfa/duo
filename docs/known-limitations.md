@@ -1,4 +1,4 @@
-# Known limitations — v0.3.2
+# Known limitations — v0.3.3
 
 Duo is an experimental runtime. The collaboration model works, but the current release intentionally leaves several areas unfinished.
 
@@ -15,6 +15,8 @@ Duo targets Pi. The Go core is structured so other adapters could be added later
 Duo provides side-by-side summary panes and one global human composer. Rich Pi features still run in the native Pi terminal reached through `Ctrl+A` or `Ctrl+T`; the summary panes are not terminal emulators.
 
 The composer is currently single-line, and pane history does not yet support scrolling.
+
+Frames are rebuilt from scratch (no partial-damage/diff updates) and capped at about 60 FPS by the renderer scheduler. This keeps redraw correctness easy to reason about, but very large terminals do redraw the whole screen on each dirty frame rather than only the changed regions.
 
 ## In-memory collaboration state
 
@@ -48,7 +50,7 @@ Each Duo run uses a dynamic localhost port and a random session token. This isol
 
 ## PTY and process recovery
 
-Native Pi sessions use direct Go-owned PTYs; host SIGWINCH resizes both Pi PTYs. Manual restart is available for exited agents, but automatic crash restart is not implemented. Reattach replays at most 1 MiB of raw output, not a reconstructed terminal screen.
+Native Pi sessions use direct Go-owned PTYs; host SIGWINCH is coalesced and resizes both Pi PTYs, even while detached. Manual restart is available for exited agents, but automatic crash restart is not implemented. Reattach replays at most 1 MiB of raw output, not a reconstructed terminal screen. Below 60×18 Duo shows a bounded too-small notice rather than rendering a full UI.
 
 ## Harness is heuristic
 

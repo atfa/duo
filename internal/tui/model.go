@@ -34,6 +34,8 @@ type App struct {
 
 	tty *terminal.TTY
 
+	renderer *renderer
+
 	width  int
 	height int
 	input  []byte
@@ -59,6 +61,44 @@ func New(
 	bus *events.Bus,
 ) *App {
 	return &App{coord: coord, state: state, tracker: tracker, ws: ws, server: server, agents: agents, bus: bus}
+}
+
+// markDirty schedules a frame for the next renderer tick.
+func (a *App) markDirty() {
+	if a.renderer != nil {
+		a.renderer.markDirty(false)
+	}
+}
+
+// requestFullClear schedules a frame that first clears the whole screen. It is
+// required whenever the previous frame may no longer cover the terminal
+// (resize, layout change, alternate-screen re-entry).
+func (a *App) requestFullClear() {
+	if a.renderer != nil {
+		a.renderer.markDirty(true)
+	}
+}
+
+// spinnerActive reports whether either agent is doing animated work.
+func (a *App) spinnerActive() bool {
+	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		rt := a.tracker.Snapshot(id)
+		if rt.Busy || rt.ProviderActive || rt.ToolDepth > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// spinnerTick advances the spinner only while work is visible, so an idle Duo
+// does not repaint periodically.
+func (a *App) spinnerTick() bool {
+	if !a.spinnerActive() {
+		return false
+	}
+	a.frame++
+	a.markDirty()
+	return true
 }
 
 func (a *App) route(event events.Event) {
