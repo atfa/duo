@@ -2,6 +2,13 @@
 
 All notable project milestones are documented here.
 
+## v0.4.3 — 2026-09
+
+Test lifecycle and release validation hardening.
+
+- Coordinator E2E teardown now deterministically joins clients, server goroutines and Git worktree cleanup before temporary directories are removed.
+- Main and tagged CI continue to gate the four-platform release archives.
+
 ## v0.4.2 — 2026-09
 
 Reliability fixes for delivery and releases.

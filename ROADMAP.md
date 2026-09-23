@@ -71,6 +71,12 @@ After a Duo Core, Austin or Tony crash the user must be able to continue the ori
 - [x] Go/Pi bridge protocol version validation
 - [x] failure-injection tests for the recovery path
 
+## v0.4.3 — test lifecycle and release validation
+
+- [x] deterministic coordinator E2E teardown
+- [x] explicit server/client/worktree lifecycle joins
+- [x] main and tagged release validation
+
 ## v0.4.2 — delivery reliability
 
 - [x] request/response-synchronized coordinator E2E tests

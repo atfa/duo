@@ -1,8 +1,13 @@
-# Duo v0.4.2
+# Duo v0.4.3
 
 **Two peer Pi coding agents in one terminal.**
 
-Duo v0.4.2 combines the peer collaboration runtime with an integrated terminal UI, isolated local sessions, and durable sessions that survive a crash — and hands the finished artifact back to the repository you launched it from.
+Duo v0.4.3 combines the peer collaboration runtime with an integrated terminal UI, isolated local sessions, and durable sessions that survive a crash — and hands the finished artifact back to the repository you launched it from.
+
+## What changed in v0.4.3
+
+- **Deterministic test lifecycle.** Coordinator E2E tests now explicitly join server, client, background-task, and Git worktree teardown before temporary directories are removed.
+- **Release validation hardening.** Main and tagged CI continue to gate the four-platform release archives with the full test suite and vet checks.
 
 ## What changed in v0.4.2
 
@@ -268,7 +273,7 @@ go build ./cmd/duo
 
 The test suite includes Git worktree/integration tests and direct PTY supervisor tests.
 
-## v0.4.2 next steps
+## v0.4.3 next steps
 
 v0.4.1 made the final artifact reach your repository. Still open: configurable agent names/roles, per-agent model/provider selection, a configurable integration strategy, and a polished worktree cleanup workflow. Automatic crash restart of Duo itself remains out of scope until the durable session semantics have seen real use.
 

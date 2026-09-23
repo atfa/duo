@@ -28,9 +28,10 @@ type Server struct {
 	clients map[protocol.AgentID]*Client
 	handler Handler
 
-	listener net.Listener
-	ready    chan struct{}
-	once     sync.Once
+	listener    net.Listener
+	ready       chan struct{}
+	once        sync.Once
+	connections sync.WaitGroup
 }
 
 func NewServer(addr, sessionID, token string) *Server {
@@ -74,11 +75,17 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 		conn, err := listener.Accept()
 		if err != nil {
 			if ctx.Err() != nil {
+				s.CloseAll()
+				s.connections.Wait()
 				return nil
 			}
 			return err
 		}
-		go s.handleConnection(ctx, conn)
+		s.connections.Add(1)
+		go func() {
+			defer s.connections.Done()
+			s.handleConnection(ctx, conn)
+		}()
 	}
 }
 

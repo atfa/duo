@@ -3,6 +3,7 @@ package coordinator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -26,6 +27,11 @@ import (
 
 const e2eSession = "delivery-e2e"
 
+func initE2ERepo(t *testing.T) string {
+	t.Helper()
+	return initE2ERepoAt(t, t.TempDir())
+}
+
 // TestDeliveryEndToEndDeliversResultFile is the most important v0.4.1
 // regression: a full PLAN → EXECUTE → REVIEW → INTEGRATE lifecycle that writes
 // result.md must end with result.md present in the original repository, the
@@ -33,17 +39,15 @@ const e2eSession = "delivery-e2e"
 func TestDeliveryEndToEndDeliversResultFile(t *testing.T) {
 	ctx := context.Background()
 
-	repo := initE2ERepo(t)
+	runtime := startE2E(t, ctx)
+	repo := runtime.repo
 	baseCommit := gitHead(t, repo)
 
-	set, store, coord, state, server, addr := startE2E(t, ctx, repo)
+	set, store, coord, state, server := runtime.set, runtime.store, runtime.coord, runtime.state, runtime.server
 	_ = coord
-	_ = server
 
-	austin := dialAgent(t, addr, protocol.Austin)
-	defer austin.Close()
-	tony := dialAgent(t, addr, protocol.Tony)
-	defer tony.Close()
+	austin := runtime.dialAgent(t, protocol.Austin)
+	tony := runtime.dialAgent(t, protocol.Tony)
 	waitFor(t, func() bool { return server.IsConnected(protocol.Austin) && server.IsConnected(protocol.Tony) }, "both agents to connect")
 
 	// PLAN
@@ -122,15 +126,14 @@ func TestDeliveryEndToEndDeliversResultFile(t *testing.T) {
 func TestDeliveryEndToEndStaysPendingWhenRepositoryChanged(t *testing.T) {
 	ctx := context.Background()
 
-	repo := initE2ERepo(t)
+	runtime := startE2E(t, ctx)
+	repo := runtime.repo
 	baseCommit := gitHead(t, repo)
 
-	set, store, _, state, server, addr := startE2E(t, ctx, repo)
+	set, store, state, server := runtime.set, runtime.store, runtime.state, runtime.server
 
-	austin := dialAgent(t, addr, protocol.Austin)
-	defer austin.Close()
-	tony := dialAgent(t, addr, protocol.Tony)
-	defer tony.Close()
+	austin := runtime.dialAgent(t, protocol.Austin)
+	tony := runtime.dialAgent(t, protocol.Tony)
 	waitFor(t, func() bool { return server.IsConnected(protocol.Austin) && server.IsConnected(protocol.Tony) }, "both agents to connect")
 
 	request(t, austin, protocol.Message{Version: protocol.Version, Type: protocol.MsgSetPlan, Plan: "Create result.md"})
@@ -197,12 +200,11 @@ func TestDeliveryEndToEndStaysPendingWhenRepositoryChanged(t *testing.T) {
 // handoff under simultaneous final signatures and repeated network retries.
 func TestConcurrentAndDuplicateFinalSignAttemptsDeliveryOnce(t *testing.T) {
 	ctx := context.Background()
-	repo := initE2ERepo(t)
-	set, store, _, state, server, addr := startE2E(t, ctx, repo)
-	austin := dialAgent(t, addr, protocol.Austin)
-	defer austin.Close()
-	tony := dialAgent(t, addr, protocol.Tony)
-	defer tony.Close()
+	runtime := startE2E(t, ctx)
+	repo := runtime.repo
+	set, store, state, server := runtime.set, runtime.store, runtime.state, runtime.server
+	austin := runtime.dialAgent(t, protocol.Austin)
+	tony := runtime.dialAgent(t, protocol.Tony)
 	waitFor(t, func() bool { return server.IsConnected(protocol.Austin) && server.IsConnected(protocol.Tony) }, "both agents to connect")
 
 	request(t, austin, protocol.Message{Version: protocol.Version, Type: protocol.MsgSetPlan, Plan: "Create result.md"})
@@ -276,21 +278,29 @@ func TestConcurrentAndDuplicateFinalSignAttemptsDeliveryOnce(t *testing.T) {
 	}
 }
 
+type e2eRuntime struct {
+	repo       string
+	workspace  *workspace.GitManager
+	set        workspace.Set
+	store      *sessionstore.Store
+	coord      *Coordinator
+	state      *project.State
+	server     *transport.Server
+	cancel     context.CancelFunc
+	serverDone <-chan struct{}
+	agents     []*testAgent
+}
+
 // startE2E wires a real Coordinator, Store and transport server over a real Git
 // repository with prepared worktrees.
-func startE2E(t *testing.T, ctx context.Context, repo string) (
-	workspace.Set,
-	*sessionstore.Store,
-	*Coordinator,
-	*project.State,
-	*transport.Server,
-	string,
-) {
+func startE2E(t *testing.T, ctx context.Context) *e2eRuntime {
 	t.Helper()
+	root := t.TempDir()
+	repo := initE2ERepoAt(t, filepath.Join(root, "repo"))
 
 	ws := workspace.NewGitManager(workspace.GitConfig{
 		Repository: repo,
-		Root:       filepath.Join(t.TempDir(), "worktrees"),
+		Root:       filepath.Join(root, "worktrees"),
 		Session:    e2eSession,
 	})
 	set, err := ws.Prepare(ctx)
@@ -298,7 +308,7 @@ func startE2E(t *testing.T, ctx context.Context, repo string) (
 		t.Fatal(err)
 	}
 
-	store, err := sessionstore.New(t.TempDir(), "repo-e2e", e2eSession)
+	store, err := sessionstore.New(filepath.Join(root, "session"), "repo-e2e", e2eSession)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -341,17 +351,43 @@ func startE2E(t *testing.T, ctx context.Context, repo string) (
 		defer close(serverDone)
 		_ = server.ListenAndServe(serverCtx)
 	}()
-	t.Cleanup(func() {
-		cancel()
-		select {
-		case <-serverDone:
-		case <-time.After(5 * time.Second):
-			t.Error("coordinator test server did not stop")
-		}
-	})
 	<-server.Ready()
 
-	return set, store, coord, state, server, server.Addr()
+	runtime := &e2eRuntime{
+		repo: repo, workspace: ws, set: set, store: store, coord: coord, state: state,
+		server: server, cancel: cancel, serverDone: serverDone,
+	}
+	t.Cleanup(func() { runtime.Close(t) })
+	return runtime
+}
+
+func (r *e2eRuntime) dialAgent(t *testing.T, agent protocol.AgentID) *testAgent {
+	t.Helper()
+	client := dialAgent(t, r.server.Addr(), agent)
+	r.agents = append(r.agents, client)
+	return client
+}
+
+func (r *e2eRuntime) Close(t *testing.T) {
+	t.Helper()
+	for _, agent := range r.agents {
+		if err := agent.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			t.Error(err)
+		}
+	}
+	r.cancel()
+	<-r.serverDone
+	if err := r.workspace.Cleanup(context.Background()); err != nil {
+		t.Error(err)
+	}
+	if output, err := exec.Command("git", "-C", r.repo, "worktree", "prune").CombinedOutput(); err != nil {
+		t.Errorf("git worktree prune: %v\n%s", err, output)
+	}
+	for _, wt := range []workspace.Worktree{r.set.Austin, r.set.Tony} {
+		if _, err := os.Stat(wt.Path); !os.IsNotExist(err) {
+			t.Errorf("worktree remains at %s: %v", wt.Path, err)
+		}
+	}
 }
 
 func coordDelivery(t *testing.T, store *sessionstore.Store) sessionstore.Delivery {
@@ -363,9 +399,11 @@ func coordDelivery(t *testing.T, store *sessionstore.Store) sessionstore.Deliver
 	return snap.Delivery
 }
 
-func initE2ERepo(t *testing.T) string {
+func initE2ERepoAt(t *testing.T, repo string) string {
 	t.Helper()
-	repo := t.TempDir()
+	if err := os.MkdirAll(repo, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	e2eRun(t, repo, "git", "init")
 	e2eRun(t, repo, "git", "config", "user.email", "duo@example.invalid")
 	e2eRun(t, repo, "git", "config", "user.name", "Duo Test")
