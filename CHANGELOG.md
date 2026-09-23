@@ -2,6 +2,21 @@
 
 All notable project milestones are documented here.
 
+## v0.4.1 — 2026-09
+
+Deliverable handoff. INTEGRATE sign-off no longer means only "agreed": `DONE` now means the integrated artifact has been delivered back into the repository the user launched Duo from.
+
+- Final sign-off in INTEGRATE records approval (`readyForDelivery`) but keeps the session in INTEGRATE; `DONE` is a separate, explicit transition that runs after delivery.
+- On a dual INTEGRATE sign-off Duo delivers the whole final integrated HEAD into the user's original repository, never a per-file copy.
+- Delivery is fast-forward only: Duo refuses a dirty repository, a different checked-out branch, a diverged history or a detached HEAD, and never runs `reset --hard`, `checkout -f`, `clean`, `merge --no-ff` or `rebase` on the user's repository.
+- A refused delivery keeps the session in INTEGRATE with both signatures intact, records a `pending` delivery checkpoint, and prints the exact `duo apply <session-id>` command.
+- `duo apply [session-id]` retries a blocked delivery with the same safety rules; on a repository with a single pending delivery it needs no arguments.
+- The final approval and pending-delivery checkpoint are persisted before Git is touched, so a crash between the fast-forward and the DONE write is reconciled on the next `duo --resume` or `duo apply`.
+- A v0.4.0 session already marked `DONE` can still be handed off with `duo apply`, resolving the final HEAD from the recorded delivery, integration head, Austin worktree or Austin branch.
+- `DONE` keeps both final signatures and reports the target branch, final HEAD and applied HEAD instead of claiming the original branch was untouched.
+- The INTEGRATE prompt now gives Austin an explicit final-tree cleanup duty and Tony a repository-hygiene review, so collaboration-only artifacts do not ship.
+- The harness stops nudging once INTEGRATE is dual-signed and delivery is in progress.
+
 ## v0.4.0 — 2026-09
 
 Durable Duo sessions and crash recovery. After a Duo Core, Austin or Tony crash Duo can continue the original task instead of silently restarting at PLAN.

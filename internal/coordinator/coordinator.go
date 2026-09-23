@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/atfa/duo/internal/delivery"
 	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/project"
@@ -26,6 +27,9 @@ type Coordinator struct {
 
 	integrationMu sync.RWMutex
 	integration   workspace.IntegrationResult
+
+	deliveryMu sync.RWMutex
+	delivery   sessionstore.Delivery
 
 	// Durable session state. EnableDurability must be called once, before the
 	// event loop starts, after any resume has restored the project state.
@@ -78,6 +82,22 @@ func (c *Coordinator) CurrentIntegration() workspace.IntegrationResult {
 	c.integrationMu.RLock()
 	defer c.integrationMu.RUnlock()
 	return c.integration
+}
+
+// SetDelivery records the durable delivery checkpoint so it becomes part of
+// every snapshot. It is set before the original repository is touched, so a
+// crash can be reconciled idempotently on resume.
+func (c *Coordinator) SetDelivery(d sessionstore.Delivery) {
+	c.deliveryMu.Lock()
+	c.delivery = d
+	c.deliveryMu.Unlock()
+}
+
+// CurrentDelivery is the last known delivery checkpoint.
+func (c *Coordinator) CurrentDelivery() sessionstore.Delivery {
+	c.deliveryMu.RLock()
+	defer c.deliveryMu.RUnlock()
+	return c.delivery
 }
 
 // persist writes the current snapshot. It ignores the snapshot passed by the
@@ -337,6 +357,11 @@ func (c *Coordinator) handleSetStatus(ctx context.Context, client *transport.Cli
 		})
 	}
 
+	if tr.ReadyForDelivery {
+		c.handleFinalApproval(ctx, client, message, snap)
+		return
+	}
+
 	if tr.Advanced {
 		c.recordEvent("phase_transition", map[string]any{
 			"from": string(tr.Previous),
@@ -391,6 +416,175 @@ func (c *Coordinator) handleSetStatus(ctx context.Context, client *transport.Cli
 		Text:      notice,
 		Timestamp: time.Now().UnixMilli(),
 	})
+}
+
+// handleFinalApproval runs the delivery transaction after both agents signed
+// INTEGRATE. The final approval is already durable at this point; Duo now hands
+// the exact approved artifact back to the user's repository and only then marks
+// the project DONE.
+func (c *Coordinator) handleFinalApproval(
+	ctx context.Context,
+	client *transport.Client,
+	message protocol.Message,
+	snap project.Snapshot,
+) {
+	c.recordEvent("final_approval", map[string]any{
+		"austin": snap.Evidence[protocol.Austin],
+		"tony":   snap.Evidence[protocol.Tony],
+	})
+	c.emit(events.KindSystem, protocol.Duo, "", "both agents approved the final integrated HEAD; Duo is delivering it to the original repository")
+
+	_ = c.respond(ctx, client, message.RequestID, true,
+		"Both agents approved the final integrated HEAD. Duo is delivering the result to the original repository before marking DONE.",
+		c.statusText(ctx))
+
+	c.broadcastFinalApproval(ctx, snap)
+	c.deliverFinal(ctx, snap)
+}
+
+// deliverFinal performs the delivery transaction. It never resets approvals and
+// never marks DONE unless the artifact actually landed in the user's repo.
+func (c *Coordinator) deliverFinal(ctx context.Context, snap project.Snapshot) {
+	set := c.workspace.Set()
+
+	finalHead, err := c.workspace.Head(ctx, protocol.Austin)
+	if err != nil || strings.TrimSpace(finalHead) == "" {
+		reason := "cannot resolve the final integrated HEAD"
+		if err != nil {
+			reason += ": " + err.Error()
+		}
+		c.markDeliveryPending(ctx, sessionstore.Delivery{}, reason)
+		return
+	}
+
+	// Whoever signed INTEGRATE signed this exact HEAD. If it moved between the
+	// two signatures, the approvals are no longer about one artifact.
+	for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		if strings.TrimSpace(snap.Evidence[agent]) != finalHead {
+			c.project.RevokeReady(agent, "final integrated HEAD changed before delivery; readiness revoked")
+			c.recordEvent("signature_revoked", map[string]any{
+				"agent":  string(agent),
+				"phase":  string(project.PhaseIntegrate),
+				"reason": "final integrated HEAD changed before delivery",
+			})
+			c.markDeliveryPending(ctx, sessionstore.Delivery{}, "the final integrated HEAD changed before delivery; both agents must sign again")
+			return
+		}
+	}
+
+	now := time.Now().UTC()
+	pending := sessionstore.Delivery{
+		Status:       sessionstore.DeliveryPending,
+		FinalHead:    finalHead,
+		FinalBranch:  set.Austin.Branch,
+		TargetRepo:   set.Repository,
+		TargetBranch: set.BaseBranch,
+		AttemptedAt:  &now,
+	}
+
+	// Persist the final approval and the pending delivery checkpoint before
+	// touching the original repository. If Duo crashes after this point, resume
+	// can prove the approval happened and re-run an idempotent delivery.
+	c.SetDelivery(pending)
+	c.persistNow("final approval")
+	c.recordEvent("delivery_attempt", map[string]any{
+		"finalHead":    finalHead,
+		"finalBranch":  set.Austin.Branch,
+		"targetRepo":   set.Repository,
+		"targetBranch": set.BaseBranch,
+	})
+	c.logf("delivering %s back to %s@%s", shortSHA(finalHead), set.Repository, set.BaseBranch)
+
+	manager := delivery.Manager{
+		Repository:  set.Repository,
+		BaseBranch:  set.BaseBranch,
+		BaseCommit:  set.BaseCommit,
+		FinalBranch: set.Austin.Branch,
+		FinalHead:   finalHead,
+	}
+
+	result, err := manager.Deliver(ctx)
+	if err != nil {
+		c.markDeliveryPending(ctx, pending, "delivery failed: "+err.Error())
+		return
+	}
+	if !result.Applied {
+		c.markDeliveryPending(ctx, pending, result.Check.Reason)
+		return
+	}
+
+	c.completeDelivery(ctx, pending, result)
+}
+
+// markDeliveryPending records a blocked delivery without ever claiming DONE and
+// without modifying the user's working tree.
+func (c *Coordinator) markDeliveryPending(ctx context.Context, record sessionstore.Delivery, reason string) {
+	record.Status = sessionstore.DeliveryPending
+	record.Reason = strings.TrimSpace(reason)
+	if record.AttemptedAt == nil {
+		now := time.Now().UTC()
+		record.AttemptedAt = &now
+	}
+	c.SetDelivery(record)
+	c.persistNow("delivery pending")
+	c.recordEvent("delivery_pending", map[string]any{
+		"reason":    record.Reason,
+		"finalHead": record.FinalHead,
+	})
+	c.logf("delivery pending: %s", record.Reason)
+	c.emit(events.KindError, protocol.Duo, "",
+		"Agent work is complete, but delivery is pending: "+record.Reason+
+			". No user files were overwritten. After resolving the original repository, run `duo apply`.")
+	c.notifyDeliveryPending(ctx, record)
+}
+
+// completeDelivery persists the applied checkpoint, performs the explicit
+// INTEGRATE → DONE transition and tells both agents that the hand-off is done.
+func (c *Coordinator) completeDelivery(ctx context.Context, record sessionstore.Delivery, result delivery.Result) {
+	now := time.Now().UTC()
+
+	// The delivered tree is the final integration result, so any recorded merge
+	// conflict is resolved by definition.
+	c.clearIntegrationConflict(ctx)
+
+	applied := record
+	applied.Status = sessionstore.DeliveryApplied
+	applied.AppliedHead = result.Check.CurrentHead
+	applied.Reason = ""
+	applied.CompletedAt = &now
+	c.SetDelivery(applied)
+	c.persistNow("delivery applied")
+
+	done, err := c.project.Complete()
+	if err != nil {
+		c.markDeliveryPending(ctx, applied, "delivery applied but DONE transition failed: "+err.Error())
+		return
+	}
+	c.persistNow("project complete")
+
+	c.recordEvent("delivery_applied", map[string]any{
+		"finalHead":    applied.FinalHead,
+		"appliedHead":  applied.AppliedHead,
+		"targetRepo":   applied.TargetRepo,
+		"targetBranch": applied.TargetBranch,
+		"changedFiles": len(result.Changes),
+	})
+	c.logf("delivered %s to %s@%s (%d changed file(s))",
+		shortSHA(applied.AppliedHead), applied.TargetRepo, applied.TargetBranch, len(result.Changes))
+	c.emit(events.KindSystem, protocol.Duo, "",
+		fmt.Sprintf("delivery complete → %s@%s", applied.TargetBranch, shortSHA(applied.AppliedHead)))
+	c.reportChanges(result.Changes)
+	c.broadcastPhaseAdvance(ctx, project.PhaseIntegrate, project.PhaseDone, done, "")
+}
+
+// reportChanges records the delivered change set for auditability.
+func (c *Coordinator) reportChanges(changes []delivery.Change) {
+	files := make([]string, 0, len(changes))
+	for _, change := range changes {
+		files = append(files, change.String())
+	}
+	c.recordEvent("delivery_changes", map[string]any{"files": files})
+	c.logf("delivered change set:\n%s", delivery.Summary(changes))
 }
 
 func (c *Coordinator) evidenceForReady(

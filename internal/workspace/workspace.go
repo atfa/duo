@@ -103,6 +103,7 @@ type Manager interface {
 	Prepare(context.Context) (Set, error)
 	Set() Set
 	Status(context.Context, protocol.AgentID) (Status, error)
+	Head(context.Context, protocol.AgentID) (string, error)
 	CaptureArtifact(context.Context, protocol.AgentID) (Artifact, error)
 	IntegrateTonyIntoAustin(context.Context) (IntegrationResult, error)
 	Cleanup(context.Context) error

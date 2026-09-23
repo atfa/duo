@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -25,7 +26,7 @@ import (
 	"github.com/atfa/duo/internal/workspace"
 )
 
-const version = "v0.4.0"
+const version = "v0.4.1"
 
 func main() {
 	if len(os.Args) > 1 {
@@ -36,14 +37,34 @@ func main() {
 		case "-h", "--help", "help":
 			fmt.Println("Duo " + version)
 			fmt.Println("Usage: duo [git-repository] [--resume [session-id]]")
+			fmt.Println("       duo apply [session-id]")
 			fmt.Println()
 			fmt.Println("  duo                    start a new durable session")
 			fmt.Println("  duo --resume           resume this repository's unfinished session")
 			fmt.Println("  duo --resume <id>      resume one specific session (required if several are unfinished)")
+			fmt.Println("  duo apply              deliver a pending final result to this repository")
+			fmt.Println("  duo apply <id>         apply one specific session's final result")
 			fmt.Println()
 			fmt.Println("Run with no path from inside a Git repository: cd project && duo")
 			return
 		}
+	}
+
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	// `duo apply` is a small, self-contained transaction that never starts
+	// agents, so it is handled before the interactive configuration.
+	if len(os.Args) > 1 && os.Args[1] == "apply" {
+		err := runApply(ctx, os.Args[2:])
+		switch {
+		case err == nil || ctx.Err() != nil:
+		case errors.Is(err, errDeliveryPending):
+			os.Exit(1)
+		default:
+			log.Fatal(err)
+		}
+		return
 	}
 
 	cfg, err := loadConfig(os.Args[1:])
@@ -53,9 +74,6 @@ func main() {
 	if err := cfg.validate(); err != nil {
 		log.Fatal(err)
 	}
-
-	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer cancel()
 
 	if err := run(ctx, cfg); err != nil && ctx.Err() == nil {
 		log.Fatal(err)
@@ -97,6 +115,7 @@ type runtime struct {
 
 	piSessions  map[protocol.AgentID]string
 	integration workspace.IntegrationResult
+	delivery    sessionstore.Delivery
 	resume      bool
 }
 
@@ -104,8 +123,10 @@ type runtime struct {
 // integration result is empty, which is exactly right for a fresh session.
 func (r *runtime) composeSnapshot(coord *coordinator.Coordinator) sessionstore.Snapshot {
 	integration := r.integration
+	deliveryState := r.delivery
 	if coord != nil {
 		integration = coord.CurrentIntegration()
+		deliveryState = coord.CurrentDelivery()
 	}
 	return recovery.Compose(recovery.ComposeInput{
 		DuoVersion:  version,
@@ -119,6 +140,7 @@ func (r *runtime) composeSnapshot(coord *coordinator.Coordinator) sessionstore.S
 		Worktrees:   r.set,
 		PiSessions:  r.piSessions,
 		Integration: integration,
+		Delivery:    deliveryState,
 	})
 }
 
@@ -203,6 +225,7 @@ func (r *runtime) serve(ctx context.Context) error {
 	bus := events.NewBus()
 	coord := coordinator.New(server, r.state, tracker, r.ws, bus)
 	coord.SetIntegration(r.integration)
+	coord.SetDelivery(r.delivery)
 	coord.EnableDurability(coordinator.Durability{
 		Store:  r.store,
 		Events: r.journal,

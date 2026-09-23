@@ -4,7 +4,16 @@
 
 **Duo 让两个 Pi coding agent 以平级伙伴的方式协作，而不是把一个 Agent 设为 Planner、另一个设为 subordinate worker。** 两个 Agent 可以共同讨论计划、实时互发消息、在隔离的 Git worktree 中执行、交叉 Review，并在集成前共同签字确认。
 
-当前版本为 **v0.4.0**，提供集成式双栏 TUI、原生 Pi 终端切换、动态端口和会话隔离，并实现了可崩溃恢复的持久化会话（`duo --resume`）。
+当前版本为 **v0.4.1**，提供集成式双栏 TUI、原生 Pi 终端切换、动态端口和会话隔离，实现了可崩溃恢复的持久化会话（`duo --resume`），并会把最终集成结果安全交付回你启动 Duo 的原始仓库。
+
+## v0.4.1 已实现
+
+- **DONE 意味着“已交付”**：INTEGRATE 双方签字只记录最终批准，不再直接结束；Duo 先把整个最终集成 HEAD 交付回你的原始仓库，然后才把会话标记为 `DONE`。
+- **只做 fast-forward**：交付只允许快进。仓库有未提交改动、处于其他分支、历史已分叉或处于 detached HEAD 时，Duo 会拒绝执行，并绝不会对你的仓库运行 `reset --hard`、`checkout -f`、`clean`、`merge --no-ff` 或 `rebase`。
+- **`duo apply [session-id]`**：交付受阻时会话保持 INTEGRATE、双方签字保留，并写入 `pending` 交付 checkpoint，同时打印重试命令。仓库中只有一个待交付会话时，`duo apply` 可省略参数。
+- **崩溃安全**：最终批准和待交付 checkpoint 会在触碰 Git 之前先持久化，因此快进与 DONE 写入之间崩溃可在下次 `duo --resume` 或 `duo apply` 时对账恢复。
+- **最终树清洁**：INTEGRATE 提示词要求 Austin 清理仅用于协作的临时产物，并要求 Tony 做仓库卫生审查，避免这些文件被交付。
+- **兼容 v0.4.0 会话**：v0.4.0 已经标记 `DONE` 的会话仍可用 `duo apply` 完成交付。
 
 ## v0.4.0 已实现
 
@@ -66,7 +75,7 @@ Duo Core 负责的是少量可靠的“制度”：阶段、签字、成果证�
 - **REVIEW 签字绑定实际 peer HEAD**：对方提交发生变化时，旧签字自动失效。
 - **完整生命周期**：`PLAN → EXECUTE → REVIEW → INTEGRATE → DONE`。
 - **自动 Integration**：REVIEW 通过后将 Tony 分支合并到 Austin integration branch。
-- **不会自动修改用户原始分支**：最终是否 merge 回去由用户自己决定。
+- **安全交付回原始仓库**：INTEGRATE 双方签字后，Duo 把最终集成 HEAD 快进到你的原始分支；不安全时保留双方签字并给出 `duo apply` 重试命令。
 - **Harness/Watchdog**：任务未完成但双方都陷入 idle 时，Duo 会主动唤醒 Austin 推进任务。
 - **集成式 TUI**：并排显示 Austin/Tony 摘要、运行状态、共享 Plan 和统一输入框。
 - **原生 Pi 模式**：`Ctrl+A` / `Ctrl+T` 进入对应 Pi，`Ctrl+]` / `Ctrl+\` 返回 Duo。
@@ -138,11 +147,11 @@ DONE
 
 ### INTEGRATE
 
-Duo 将 Tony merge 到 Austin。冲突显式保留给 Austin 解决，不会静默覆盖。
+Duo 将 Tony merge 到 Austin。冲突显式保留给 Austin 解决，不会静默覆盖。双方签字表示**最终批准**，但不直接结束会话：Duo 随后把最终集成 HEAD 交付回你的原始仓库。
 
 ### DONE
 
-双方对同一个 clean integrated HEAD 签字。用户原分支仍保持原样。
+只有在交付成功后才进入 DONE：你的原始分支已被快进到最终集成 HEAD。若交付不安全（脏仓库、分支不符、历史分叉、detached HEAD），会话保持 INTEGRATE，双方签字保留，并打印 `duo apply <session-id>` 重试命令。
 
 ## 四个核心工具
 
@@ -155,13 +164,13 @@ Duo 将 Tony merge 到 Austin。冲突显式保留给 Austin 解决，不会静�
 
 ## 当前定位
 
-Duo 已经具备完整双 Agent 协作闭环、集成式 TUI，以及可崩溃恢复的持久化会话。目前仍固定为两名 Agent，主要面向 macOS/Linux + Git + Pi；尚未实现 Duo 自身的自动崩溃重启和跨机器迁移会话。
+Duo 已经具备完整双 Agent 协作闭环、集成式 TUI、可崩溃恢复的持久化会话，以及把最终结果安全交付回原始仓库的能力。目前仍固定为两名 Agent，主要面向 macOS/Linux + Git + Pi；交付仅支持 fast-forward，尚未实现 Duo 自身的自动崩溃重启和跨机器迁移会话。
 
 详细限制见 [docs/known-limitations.md](./docs/known-limitations.md)。
 
 ## 下一步
 
-v0.4.0 让会话变持久：Duo Core、Austin 或 Tony 崩溃后可以用 `duo --resume` 继续原任务，恢复时会用 Git 重新验证 worktree 和 merge 状态，并撤销失效签字，不会静默退回 PLAN。v0.3.3 重构了 TUI renderer：resize、原生 Pi 返回和布局变化强制 full clear；layout 使用真实终端尺寸；帧使用 synchronized output 与 autowrap 保护；SIGWINCH 合并后只画一帧；idle 时几乎零重绘。退出的 Agent 可通过 Ctrl+R 重启 Austin、Ctrl+Y 重启 Tony。后续重点是 Agent 名称/角色与模型配置、集成策略配置、历史滚动和多行输入。
+v0.4.1 让 `DONE` 真正代表“最终产物已经回到你的仓库”：INTEGRATE 双方签字后，Duo 以 fast-forward 方式把整个最终集成 HEAD 交付回原始分支，不安全时保留签字并给出 `duo apply` 重试命令；快进与 DONE 写入之间崩溃也能对账恢复。v0.4.0 让会话变持久（可用 `duo --resume` 继续原任务）。后续重点是 Agent 名称/角色与模型配置、集成策略配置、worktree 生命周期清理、历史滚动和多行输入。
 
 详见 [ROADMAP.md](./ROADMAP.md)。
 

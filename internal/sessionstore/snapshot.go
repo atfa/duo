@@ -29,6 +29,35 @@ type Integration struct {
 	MergedTony string `json:"mergedTony"`
 }
 
+// Delivery statuses. The empty status means "never attempted", which is the
+// zero value for every v0.4.0 snapshot, so legacy sessions load unchanged.
+const (
+	DeliveryPending = "pending"
+	DeliveryApplied = "applied"
+	DeliveryBlocked = "blocked"
+)
+
+// Delivery is the durable checkpoint for handing the final Duo artifact back to
+// the repository the user launched Duo from. It is a small optional extension
+// to schema version 1: old snapshots simply decode to the zero value.
+type Delivery struct {
+	Status      string `json:"status"`
+	FinalHead   string `json:"finalHead"`
+	FinalBranch string `json:"finalBranch"`
+
+	TargetRepo   string `json:"targetRepo,omitempty"`
+	TargetBranch string `json:"targetBranch,omitempty"`
+
+	AppliedHead string `json:"appliedHead,omitempty"`
+	Reason      string `json:"reason,omitempty"`
+
+	AttemptedAt *time.Time `json:"attemptedAt,omitempty"`
+	CompletedAt *time.Time `json:"completedAt,omitempty"`
+}
+
+// Applied reports whether the final artifact is already in the user's repo.
+func (d Delivery) Applied() bool { return d.Status == DeliveryApplied }
+
 // Snapshot is the durable checkpoint for one Duo session. It combines the
 // project domain state with workspace, Pi session identity and integration
 // state. Git remains the ground truth for artifacts and evidence.
@@ -55,6 +84,7 @@ type Snapshot struct {
 	PiSessions map[protocol.AgentID]string   `json:"piSessions"`
 
 	Integration Integration `json:"integration"`
+	Delivery    Delivery    `json:"delivery"`
 
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
@@ -63,6 +93,36 @@ type Snapshot struct {
 func (s Snapshot) Worktree(agent protocol.AgentID) (Worktree, bool) {
 	wt, ok := s.Worktrees[agent]
 	return wt, ok
+}
+
+// NeedsDelivery reports whether this session has an agent-approved artifact that
+// has not been handed back to the user's repository yet. It covers the normal
+// INTEGRATE dual sign-off, a delivery that was interrupted mid-transaction, and
+// legacy v0.4.0 snapshots that reached DONE without any delivery record at all.
+func (s Snapshot) NeedsDelivery() bool {
+	if s.Delivery.Applied() {
+		return false
+	}
+	switch s.Phase {
+	case "INTEGRATE":
+		return s.Ready[protocol.Austin] && s.Ready[protocol.Tony]
+	case "DONE":
+		// v0.4.0 marked DONE as soon as both agents signed, without ever
+		// touching the user's repository. Integration.Head or a recorded
+		// delivery head is the evidence that there is something to apply.
+		return strings.TrimSpace(s.Integration.Head) != "" || strings.TrimSpace(s.Delivery.FinalHead) != ""
+	default:
+		return false
+	}
+}
+
+// FinalHead resolves the artifact this session considers final, preferring the
+// durable delivery record over the integration checkpoint.
+func (s Snapshot) FinalHead() string {
+	if head := strings.TrimSpace(s.Delivery.FinalHead); head != "" {
+		return head
+	}
+	return strings.TrimSpace(s.Integration.Head)
 }
 
 // RepoID derives a stable, collision-resistant store name from the absolute

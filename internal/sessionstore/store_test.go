@@ -117,6 +117,114 @@ func TestLoadReportsMissingAndCorruptState(t *testing.T) {
 	}
 }
 
+// TestLegacySnapshotWithoutDeliveryStillLoads proves the Delivery checkpoint is
+// a backward-compatible addition to schema version 1: a v0.4.0 snapshot that
+// never wrote a delivery field loads unchanged and is still discoverable as a
+// session that needs delivery.
+func TestLegacySnapshotWithoutDeliveryStillLoads(t *testing.T) {
+	store := newTestStore(t, "legacy-1")
+	legacy := `{
+  "schemaVersion": 1,
+  "duoVersion": "v0.4.0",
+  "sessionId": "legacy-1",
+  "repoId": "repo-1234",
+  "repository": "/tmp/repo",
+  "baseBranch": "main",
+  "baseCommit": "aaaa1111",
+  "phase": "DONE",
+  "plan": "plan",
+  "planVersion": 1,
+  "started": true,
+  "ready": {"Austin": true, "Tony": true},
+  "evidence": {"Austin": "bbbb2222", "Tony": "bbbb2222"},
+  "worktrees": {},
+  "piSessions": {},
+  "integration": {"started": true, "conflicted": false, "head": "bbbb2222", "mergedTony": "cccc3333"},
+  "createdAt": "2024-01-01T00:00:00Z",
+  "updatedAt": "2024-01-01T00:00:00Z"
+}`
+	if err := os.WriteFile(store.StatePath(), []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	snap, err := store.Load()
+	if err != nil {
+		t.Fatalf("a v0.4.0 snapshot must still load: %v", err)
+	}
+	if snap.SchemaVersion != SchemaVersion {
+		t.Fatalf("schemaVersion = %d, want %d", snap.SchemaVersion, SchemaVersion)
+	}
+	if snap.Delivery.Status != "" {
+		t.Fatalf("legacy snapshot must decode delivery to zero value: %+v", snap.Delivery)
+	}
+	if !snap.NeedsDelivery() {
+		t.Fatal("legacy DONE session with an integration head must be deliverable")
+	}
+	if snap.FinalHead() != "bbbb2222" {
+		t.Fatalf("FinalHead = %q, want the integration head", snap.FinalHead())
+	}
+}
+
+// TestDeliveryCheckpointRoundTrips covers the new optional delivery fields.
+func TestDeliveryCheckpointRoundTrips(t *testing.T) {
+	store := newTestStore(t, "session-delivery")
+	now := time.Now().UTC().Truncate(time.Second)
+
+	snap := testSnapshot("session-delivery")
+	snap.Phase = "DONE"
+	snap.Delivery = Delivery{
+		Status:       DeliveryApplied,
+		FinalHead:    "deadbeef",
+		FinalBranch:  "duo/s/austin",
+		TargetRepo:   "/tmp/repo",
+		TargetBranch: "main",
+		AppliedHead:  "deadbeef",
+		AttemptedAt:  &now,
+		CompletedAt:  &now,
+	}
+	if err := store.Save(snap); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Delivery.Status != DeliveryApplied || !got.Delivery.Applied() {
+		t.Fatalf("delivery status lost: %+v", got.Delivery)
+	}
+	if got.Delivery.AppliedHead != "deadbeef" || got.Delivery.TargetBranch != "main" {
+		t.Fatalf("delivery fields lost: %+v", got.Delivery)
+	}
+	if got.Delivery.CompletedAt == nil || !got.Delivery.CompletedAt.Equal(now) {
+		t.Fatalf("delivery timestamps lost: %+v", got.Delivery)
+	}
+	if got.NeedsDelivery() {
+		t.Fatal("an applied delivery must not need delivery")
+	}
+}
+
+// TestNeedsDeliveryOnlyForApprovedOrDeliveredSessions pins the discovery rule
+// that `duo apply` relies on.
+func TestNeedsDeliveryOnlyForApprovedOrDeliveredSessions(t *testing.T) {
+	base := testSnapshot("s")
+	base.Phase = "INTEGRATE"
+	base.Ready = map[protocol.AgentID]bool{protocol.Austin: true, protocol.Tony: false}
+	if base.NeedsDelivery() {
+		t.Fatal("a single INTEGRATE signature must not trigger delivery")
+	}
+
+	base.Ready[protocol.Tony] = true
+	if !base.NeedsDelivery() {
+		t.Fatal("a dual-signed INTEGRATE must trigger delivery")
+	}
+
+	base.Phase = "EXECUTE"
+	if base.NeedsDelivery() {
+		t.Fatal("earlier phases must never trigger delivery")
+	}
+}
+
 // TestLoadRejectsUnsupportedSchemaVersion makes a silent reset to PLAN
 // impossible when an older Duo reads a newer checkpoint.
 func TestLoadRejectsUnsupportedSchemaVersion(t *testing.T) {

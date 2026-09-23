@@ -1,8 +1,17 @@
-# Duo v0.4.0
+# Duo v0.4.1
 
 **Two peer Pi coding agents in one terminal.**
 
-Duo v0.4.0 combines the peer collaboration runtime with an integrated terminal UI, isolated local sessions, and durable sessions that survive a crash.
+Duo v0.4.1 combines the peer collaboration runtime with an integrated terminal UI, isolated local sessions, and durable sessions that survive a crash — and now hands the finished artifact back to the repository you launched it from.
+
+## What changed in v0.4.1
+
+- **DONE means delivered.** Dual sign-off in INTEGRATE records the final approval but no longer declares the work finished. Duo then delivers the entire final integrated HEAD into your original repository and only then marks the session `DONE`.
+- **Safe by construction.** Delivery is a fast-forward only. Duo refuses when your repository has uncommitted changes, is on a different branch, has diverged, or is in detached HEAD, and never runs `reset --hard`, `checkout -f`, `clean`, `merge --no-ff` or `rebase` on your repository.
+- **`duo apply [session-id]`.** If delivery is blocked, Duo keeps the session in INTEGRATE with both signatures intact, writes a `pending` delivery checkpoint, and prints the exact command to retry. On a repository with one pending delivery, `duo apply` needs no arguments.
+- **Crash-safe handoff.** The final approval and pending-delivery checkpoint are persisted before Git is touched, so a crash between the fast-forward and the `DONE` write is reconciled on the next `duo --resume` or `duo apply`.
+- **Final-tree hygiene.** The INTEGRATE prompt gives Austin an explicit final-tree cleanup duty and Tony a repository-hygiene review, so collaboration-only artifacts do not ship.
+- **v0.4.0 sessions still deliver.** A session already marked `DONE` by v0.4.0 can be handed off with `duo apply`.
 
 ## What changed in v0.4.0
 
@@ -175,6 +184,34 @@ PLAN is **not** a file-write lock. Both agents may investigate or make provision
 
 EXECUTE sign-off is bound to a clean commit SHA. REVIEW sign-off is bound to the peer HEAD actually reviewed. INTEGRATE sign-off is bound to Austin's clean integrated HEAD. Stale signatures are revoked automatically when the signed target changes.
 
+INTEGRATE sign-off is the **final approval**, not the end of the run. Once both agents sign, Duo delivers the integrated HEAD into the repository you started from; only then does the phase become `DONE`. If delivery is unsafe, the session stays in INTEGRATE with both signatures and tells you how to retry.
+
+## Deliver the final result
+
+When Austin and Tony both sign INTEGRATE, Duo hands the whole final integrated HEAD back to your original repository:
+
+1. it re-checks that your repository has not changed while Duo worked;
+2. it fast-forwards your recorded branch to the final integrated HEAD;
+3. it records the applied HEAD and only then marks the session `DONE`.
+
+Delivery never rewrites your history. Duo will not run `reset --hard`, `checkout -f`, `clean`, `merge --no-ff` or `rebase` on your repository. It refuses to act when:
+
+- your repository has uncommitted or untracked changes,
+- your repository is on a different branch than the one Duo recorded,
+- your branch has diverged from the Duo base commit, or
+- your repository is in detached HEAD state.
+
+When delivery is blocked, Duo stays in INTEGRATE with both signatures preserved, writes a `pending` delivery checkpoint, and tells you exactly what to do:
+
+```bash
+cd /path/to/your/repo
+duo apply
+```
+
+`duo apply` re-runs the same safe handoff. With no argument it uses the repository's single pending delivery and lists the candidates when there is more than one. It is also how a session marked `DONE` by v0.4.0 is handed off.
+
+If your branch cannot be fast-forwarded, Duo leaves your repository untouched and prints the final HEAD so you can finish the merge or cherry-pick yourself.
+
 ## Requirements
 
 - macOS or Linux
@@ -202,7 +239,7 @@ DUO_PI_COMMAND='pi --some-flag' duo
 | Ctrl+Q | quit Duo |
 | Backspace | edit Duo composer |
 
-## Known limitations of v0.4.0
+## Known limitations of v0.4.1
 
 - Duo persists collaboration state and validates it against Git, but it does not reconstruct an agent's *reasoning*. If a crash lands mid-task, the agents resume with their own Pi history and the shared Plan, exactly as a human reopening the terminal would.
 - Recovery is conservative by design: when it cannot prove an approval is still valid, it revokes the approval rather than trusting it. Expect a re-sign-off after a crash, not a silent pass.
@@ -213,8 +250,8 @@ DUO_PI_COMMAND='pi --some-flag' duo
 - A frame is redrawn from scratch at up to about 60 FPS; there is no partial-damage or diff-based update. This is intentional for a UI of this size and keeps redraw correctness simple.
 - Duo owns direct PTYs for both interactive Pi processes; SIGWINCH propagates terminal size to both, even while detached. Native attach is fullscreen takeover, not an embedded xterm emulator.
 - Exited Pi processes can be manually restarted with Ctrl+R (Austin) or Ctrl+Y (Tony), retaining their worktrees and bridge identity. Running agents cannot be restarted; automatic crash restart is not implemented.
-- Worktrees are preserved when Duo exits.
-- Duo does not merge the final integration branch into the human's original branch automatically.
+- Worktrees are preserved when Duo exits; automatic worktree deletion is still not implemented.
+- Delivery is fast-forward only. Duo will not create a merge commit, rebase or overwrite your history; if your branch diverged or you changed it while Duo worked, Duo stops and leaves your repository untouched. Finish the handoff manually from the printed final HEAD, then re-run `duo apply`.
 
 ## Development validation
 
@@ -225,12 +262,12 @@ go build ./cmd/duo
 
 The test suite includes Git worktree/integration tests and direct PTY supervisor tests.
 
-## v0.4 next steps
+## v0.4.2 next steps
 
-v0.4.0 made sessions durable. Still open: configurable agent names/roles, per-agent model/provider selection, a configurable integration strategy, and a polished worktree cleanup workflow. Automatic crash restart of Duo itself remains out of scope until the durable session semantics have seen real use.
+v0.4.1 made the final artifact reach your repository. Still open: configurable agent names/roles, per-agent model/provider selection, a configurable integration strategy, and a polished worktree cleanup workflow. Automatic crash restart of Duo itself remains out of scope until the durable session semantics have seen real use.
 
 1. Better streaming summaries/tool-event cards in Austin/Tony panes.
 2. Improve native PTY replay beyond the recent raw output buffer.
-3. Session persistence/resume.
+3. Polished worktree lifecycle cleanup and pruning.
 4. Better composer editing/history/multiline paste.
 5. Session persistence and recovery after Duo restarts.

@@ -77,6 +77,7 @@ type ComposeInput struct {
 	Worktrees   workspace.Set
 	PiSessions  map[protocol.AgentID]string
 	Integration workspace.IntegrationResult
+	Delivery    sessionstore.Delivery
 }
 
 // Compose turns live domain, workspace and Pi state into the snapshot that is
@@ -105,6 +106,7 @@ func Compose(in ComposeInput) sessionstore.Snapshot {
 			Head:       in.Integration.Head,
 			MergedTony: in.Integration.MergedTony,
 		},
+		Delivery:  in.Delivery,
 		CreatedAt: in.CreatedAt,
 	}
 

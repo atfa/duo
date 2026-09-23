@@ -71,6 +71,20 @@ After a Duo Core, Austin or Tony crash the user must be able to continue the ori
 - [x] Go/Pi bridge protocol version validation
 - [x] failure-injection tests for the recovery path
 
+## v0.4.1 — deliverable handoff
+
+`DONE` must mean the final Git artifact reached the user, not merely that two agents agreed.
+
+- [x] INTEGRATE dual sign-off records final approval instead of ending the run
+- [x] whole final integrated HEAD delivered into the user's original repository
+- [x] fast-forward-only safety: refuse dirty, wrong-branch, diverged and detached repositories
+- [x] `pending` delivery checkpoint that preserves both signatures
+- [x] `duo apply [session-id]` to retry a blocked handoff
+- [x] crash-window reconciliation between the fast-forward and the DONE write
+- [x] v0.4.0 `DONE` sessions handed off via `duo apply`
+- [x] DONE reports target branch, final HEAD and applied HEAD, keeping both signatures
+- [x] INTEGRATE final-tree cleanup duty for Austin and hygiene review for Tony
+
 ## v0.4 — configurability (remaining)
 
 - [ ] configurable agent names/roles
@@ -91,5 +105,5 @@ After a Duo Core, Austin or Tony crash the user must be able to continue the ori
 - replacing Pi's coding-agent runtime;
 - building a large hierarchical swarm;
 - forcing every agent action through a central scheduler;
-- automatic merging into the user's original branch;
+- automatic merge commits, rebases or history rewriting in the user's original repository (the v0.4.1 handoff is fast-forward only and refuses to guess);
 - adding complex task graphs before they are proven necessary.

@@ -67,6 +67,11 @@ type Transition struct {
 	Advanced bool
 	Previous Phase
 	Next     Phase
+	// ReadyForDelivery is set when both agents sign INTEGRATE. Unlike earlier
+	// phases this does not advance the phase: agent work is complete, but the
+	// final artifact still has to be handed back to the user's repository before
+	// the project can be considered DONE.
+	ReadyForDelivery bool
 }
 
 type State struct {
@@ -201,12 +206,21 @@ func (s *State) SetReady(agent protocol.AgentID, ready bool, note, evidence stri
 
 	transition := Transition{Previous: previous, Next: previous}
 	if s.ready[protocol.Austin] && s.ready[protocol.Tony] {
-		if next, ok := s.phase.Next(); ok {
-			s.phase = next
-			s.resetApprovalsLocked()
-			s.lastMutation = time.Now()
-			transition.Advanced = true
-			transition.Next = next
+		switch s.phase {
+		case PhaseIntegrate:
+			// INTEGRATE is the final agent phase. Dual sign-off records final
+			// approval and deliberately keeps both signatures: they describe the
+			// artifact that still has to be delivered, and they stay visible in
+			// DONE as the final approval history.
+			transition.ReadyForDelivery = true
+		default:
+			if next, ok := s.phase.Next(); ok {
+				s.phase = next
+				s.resetApprovalsLocked()
+				s.lastMutation = time.Now()
+				transition.Advanced = true
+				transition.Next = next
+			}
 		}
 	}
 
@@ -214,6 +228,38 @@ func (s *State) SetReady(agent protocol.AgentID, ready bool, note, evidence stri
 	s.mu.Unlock()
 	notify(hook, snap)
 	return snap, transition, nil
+}
+
+// Complete performs the explicit INTEGRATE → DONE transition after the final
+// artifact has been handed back to the user's repository. It requires a real
+// dual sign-off on INTEGRATE and intentionally keeps both signatures and their
+// evidence, so DONE records the final approval history instead of an empty one.
+func (s *State) Complete() (Snapshot, error) {
+	s.mu.Lock()
+
+	if s.phase != PhaseIntegrate {
+		snap := s.snapshotLocked()
+		s.mu.Unlock()
+		return snap, fmt.Errorf("%w: delivery can only complete from INTEGRATE", ErrWrongPhase)
+	}
+	if !s.ready[protocol.Austin] || !s.ready[protocol.Tony] {
+		snap := s.snapshotLocked()
+		s.mu.Unlock()
+		return snap, fmt.Errorf("%w: final delivery requires both agents to have signed INTEGRATE", ErrWrongPhase)
+	}
+	if strings.TrimSpace(s.evidence[protocol.Austin]) == "" || strings.TrimSpace(s.evidence[protocol.Tony]) == "" {
+		snap := s.snapshotLocked()
+		s.mu.Unlock()
+		return snap, fmt.Errorf("%w: final delivery requires signed evidence from both agents", ErrWrongPhase)
+	}
+
+	s.phase = PhaseDone
+	s.lastMutation = time.Now()
+
+	snap, hook := s.snapshotLocked(), s.onChange
+	s.mu.Unlock()
+	notify(hook, snap)
+	return snap, nil
 }
 
 func (s *State) RevokeReady(agent protocol.AgentID, note string) Snapshot {

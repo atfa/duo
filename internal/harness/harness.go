@@ -76,6 +76,14 @@ func (m *Monitor) maybeWake(ctx context.Context) {
 		return
 	}
 
+	// Once both agents have signed INTEGRATE, agent work is over: the remaining
+	// step is Duo Core delivering the artifact to the user's repository. Nudging
+	// Austin here would ask it to redo work that is already complete, whether
+	// delivery is still pending or has just been handed back.
+	if state.Phase == project.PhaseIntegrate && state.Ready[protocol.Austin] && state.Ready[protocol.Tony] {
+		return
+	}
+
 	austin := m.tracker.Snapshot(protocol.Austin)
 	tony := m.tracker.Snapshot(protocol.Tony)
 	if austin.HumanAttached || tony.HumanAttached {

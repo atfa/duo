@@ -81,6 +81,23 @@ func runResume(ctx context.Context, cfg config, root, repoID, baseDir string) er
 	})
 	logger.Printf("recovered: %s", result.Report.String())
 
+	// If both agents already approved INTEGRATE, the agent phase is over: the
+	// only remaining step is an idempotent hand-off to the user's repository.
+	// Reconcile it before starting any Pi process.
+	outcome, stop, err := reconcileDelivery(ctx, store, ws, journal, reconciled)
+	if err != nil {
+		return fmt.Errorf("deliver session %s: %w", snap.SessionID, err)
+	}
+	if stop {
+		logger.Printf("session %s: phase=%s delivery=%s", outcome.Snapshot.SessionID, outcome.Snapshot.Phase, outcome.Snapshot.Delivery.Status)
+		if outcome.Applied {
+			printDeliverySuccess(outcome)
+		} else {
+			printDeliveryPending(outcome)
+		}
+		return nil
+	}
+
 	piSessions, err := piSessionIDs(reconciled.PiSessions)
 	if err != nil {
 		return err
@@ -110,7 +127,8 @@ func runResume(ctx context.Context, cfg config, root, repoID, baseDir string) er
 			MergedTony:   reconciled.Integration.MergedTony,
 			Conflicted:   reconciled.Integration.Conflicted,
 		},
-		resume: true,
+		delivery: reconciled.Delivery,
+		resume:   true,
 	}
 
 	// Record the Pi identities actually in use, including any newly generated

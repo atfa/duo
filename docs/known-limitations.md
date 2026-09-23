@@ -1,4 +1,4 @@
-# Known limitations — v0.4.0
+# Known limitations — v0.4.1
 
 Duo is an experimental runtime. The collaboration model works, but the current release intentionally leaves several areas unfinished.
 
@@ -17,6 +17,10 @@ Duo provides side-by-side summary panes and one global human composer. Rich Pi f
 The composer is currently single-line, and pane history does not yet support scrolling.
 
 Frames are rebuilt from scratch (no partial-damage/diff updates) and capped at about 60 FPS by the renderer scheduler. This keeps redraw correctness easy to reason about, but very large terminals do redraw the whole screen on each dirty frame rather than only the changed regions.
+
+## Intentionally shipped artifacts depend on the agent prompt
+
+Duo asks Austin to clean collaboration-only artifacts out of the final tree and asks Tony to reject a dirty final tree during INTEGRATE. This is a prompt-level obligation, not a repository rule: if both agents sign INTEGRATE over a tree that still contains scratch files, Duo delivers that tree faithfully. The integrated commit is auditable after the fact, but Duo does not independently classify files as confidential or temporary.
 
 ## Durable state is a checkpoint, not a transcript
 
@@ -46,9 +50,11 @@ Tony is merged into Austin and Austin becomes the integration worktree. This is 
 
 Conflicts remain in Austin's worktree for the agents/human to resolve. Duo does not attempt low-level automatic conflict resolution behind the user's back.
 
-## No automatic merge to the human branch
+## Delivery is fast-forward only
 
-This is intentional rather than a bug. The integrated Duo branch must be reviewed and merged/cherry-picked by the human.
+Duo does deliver the final integrated HEAD back into the user's original repository, but only as a fast-forward on the branch it recorded when the session started. It refuses to act on a dirty, wrong-branch, diverged or detached repository, and it never runs `reset --hard`, `checkout -f`, `clean`, `merge --no-ff` or `rebase` on the user's repository. When the branch cannot be fast-forwarded, Duo leaves the repository untouched, keeps the session in INTEGRATE with both signatures, records a `pending` delivery, and reports the final HEAD so the user can finish the merge or cherry-pick manually before re-running `duo apply`.
+
+Delivery is also all-or-nothing at the branch level: it moves the recorded branch to the final integrated commit, so it does not support partial or per-file handoff.
 
 ## POSIX-oriented scripts
 
