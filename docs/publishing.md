@@ -25,16 +25,22 @@ llm
 local-first
 ```
 
-Suggested first tag:
+Current release tag:
 
 ```text
-v0.2.0-alpha.1
+v0.3.1
 ```
 
-Suggested release title:
+Release title:
 
 ```text
-Duo v0.2-alpha — first public headless peer runtime
+Duo v0.3.1 — runtime hardening and binary installers
+```
+
+Pushing a `v*` tag builds macOS and Linux archives for amd64 and arm64 and publishes them through GitHub Actions. Users can install the latest release with:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash
 ```
 
 Recommended repository settings before announcement:

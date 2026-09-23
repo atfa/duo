@@ -2,9 +2,9 @@
 
 ## Current trust model
 
-Duo v0.2-alpha is designed for a **trusted local development machine**.
+Duo v0.3.1 is designed for a **trusted local development machine**.
 
-The Go core listens on localhost by default and the Pi extension connects to it over local TCP. v0.2 does not implement authentication or encryption for the Duo protocol and should not be exposed directly to an untrusted network.
+The Go core listens on an OS-assigned localhost port. Each run gives its Pi processes a random session token, and the core rejects clients with the wrong session, token or agent identity. The local protocol is not encrypted and should not be exposed to an untrusted network.
 
 ## Agent capabilities
 

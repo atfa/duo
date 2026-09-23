@@ -22,6 +22,8 @@ type Config struct {
 	Dir     string
 	Host    string
 	Port    string
+	Session string
+	Token   string
 	Command string
 }
 
@@ -34,6 +36,7 @@ type Session struct {
 	recent   []byte
 	attached io.Writer
 	started  bool
+	exited   bool
 	stopped  chan struct{}
 	waitErr  error
 }
@@ -58,9 +61,12 @@ func (s *Session) Start(ctx context.Context) error {
 	}
 	cmd.Dir = s.cfg.Dir
 	cmd.Env = append(os.Environ(),
+		"DUO_ACTIVE=1",
 		"DUO_AGENT="+string(s.cfg.Agent),
 		"DUO_HOST="+s.cfg.Host,
 		"DUO_PORT="+s.cfg.Port,
+		"DUO_SESSION="+s.cfg.Session,
+		"DUO_TOKEN="+s.cfg.Token,
 		"TERM=xterm-256color",
 	)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -81,12 +87,14 @@ func (s *Session) Start(ctx context.Context) error {
 	s.cmd = cmd
 	s.stdin = stdin
 	s.started = true
+	s.exited = false
 
 	go s.readLoop(stdout)
 	go func() {
 		err := cmd.Wait()
 		s.mu.Lock()
 		s.waitErr = err
+		s.exited = true
 		select {
 		case <-s.stopped:
 		default:
@@ -107,7 +115,7 @@ func scriptCommand(ctx context.Context, command string) (*exec.Cmd, error) {
 	case "linux":
 		return exec.CommandContext(ctx, "script", "-q", "-f", "-c", "exec "+command, "/dev/null"), nil
 	default:
-		return nil, fmt.Errorf("Duo v0.3.0-alpha.1 PTY supervisor currently supports macOS and Linux, not %s", runtime.GOOS)
+		return nil, fmt.Errorf("Duo v0.3.1 PTY supervisor currently supports macOS and Linux, not %s", runtime.GOOS)
 	}
 }
 
@@ -161,7 +169,7 @@ func (s *Session) Detach() {
 func (s *Session) Running() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.started && s.cmd != nil && s.cmd.Process != nil && s.waitErr == nil
+	return s.started && !s.exited && s.cmd != nil && s.cmd.Process != nil
 }
 
 func (s *Session) Stop() {

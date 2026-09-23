@@ -15,6 +15,8 @@ export class DuoTransport {
     private readonly agent: AgentName,
     private readonly host: string,
     private readonly port: number,
+    private readonly sessionId: string,
+    private readonly token: string,
   ) {}
 
   setHandler(handler: (message: DuoMessage) => void) {
@@ -34,6 +36,8 @@ export class DuoTransport {
         version: 1,
         type: "hello",
         agent: this.agent,
+        sessionId: this.sessionId,
+        token: this.token,
         timestamp: Date.now(),
       });
     });

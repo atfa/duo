@@ -35,7 +35,7 @@ func (a *App) Run(ctx context.Context) error {
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
 
-	a.add(protocol.Duo, "Duo v0.3.0-alpha.1 ready. Type a task and press Enter; Austin will wake Tony when collaboration is needed.")
+	a.add(protocol.Duo, "Duo v0.3.1 ready. Type a task and press Enter; Austin will wake Tony when collaboration is needed.")
 	a.render()
 
 	for {
@@ -49,7 +49,10 @@ func (a *App) Run(ctx context.Context) error {
 			}
 			a.route(ev)
 			a.render()
-		case b := <-inputCh:
+		case b, ok := <-inputCh:
+			if !ok {
+				return nil
+			}
 			if a.native != "" {
 				detach, forward := a.nativeDetach(b)
 				if forward {

@@ -5,6 +5,8 @@ type Message struct {
 	Type    MessageType `json:"type"`
 
 	RequestID string `json:"requestId,omitempty"`
+	SessionID string `json:"sessionId,omitempty"`
+	Token     string `json:"token,omitempty"`
 
 	Agent AgentID `json:"agent,omitempty"`
 	From  AgentID `json:"from,omitempty"`

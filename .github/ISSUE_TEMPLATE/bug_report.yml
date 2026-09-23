@@ -5,12 +5,12 @@ labels: [bug]
 body:
   - type: markdown
     attributes:
-      value: Thanks for helping test Duo. v0.2 is experimental, so detailed runtime context is especially useful.
+      value: Thanks for helping test Duo. Detailed runtime context is especially useful.
   - type: input
     id: duo-version
     attributes:
       label: Duo version / commit
-      placeholder: v0.2.0-alpha.1 or git SHA
+      placeholder: v0.3.1 or git SHA
     validations:
       required: true
   - type: input

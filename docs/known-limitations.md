@@ -1,4 +1,4 @@
-# Known limitations — v0.2-alpha
+# Known limitations — v0.3.1
 
 Duo is an experimental runtime. The collaboration model works, but the current release intentionally leaves several areas unfinished.
 
@@ -8,11 +8,13 @@ The runtime currently assumes exactly two agents named **Austin** and **Tony**. 
 
 ## Pi-specific adapter
 
-v0.2 targets Pi. The Go core is structured so other adapters could be added later, but no second agent runtime is currently supported.
+Duo targets Pi. The Go core is structured so other adapters could be added later, but no second agent runtime is currently supported.
 
-## Headless only
+## Terminal UI scope
 
-There is no integrated TUI yet. You run Duo Core plus two Pi terminals. The planned v0.3 UI will provide side-by-side agent panes and one global human composer.
+Duo provides side-by-side summary panes and one global human composer. Rich Pi features still run in the native Pi terminal reached through `Ctrl+A` or `Ctrl+T`; the summary panes are not terminal emulators.
+
+The composer is currently single-line, and pane history does not yet support scrolling.
 
 ## In-memory collaboration state
 
@@ -26,7 +28,7 @@ Worktrees are preserved when Duo stops so unfinished work is not destroyed. Auto
 
 ## Integration is intentionally asymmetric
 
-In v0.2, Tony is merged into Austin and Austin becomes the integration worktree. This is simple and deterministic but not yet configurable.
+Tony is merged into Austin and Austin becomes the integration worktree. This is simple and deterministic but not yet configurable.
 
 ## Merge conflicts are not automatically solved by the core
 
@@ -42,7 +44,11 @@ The supplied helper scripts are Bash-oriented and have primarily been exercised 
 
 ## Local TCP trust model
 
-The bridge uses a localhost TCP endpoint and currently assumes a trusted local development environment. Authentication, encryption and remote/multi-host operation are not goals of v0.2.
+Each Duo run uses a dynamic localhost port and a random session token. This isolates ordinary Pi processes and concurrent Duo projects, but the protocol is not designed for remote or untrusted networks.
+
+## PTY and process recovery
+
+Native Pi sessions currently use the platform `script` utility. Terminal resize is not propagated directly to the hidden PTY, and an exited Pi process requires restarting Duo; automatic agent restart is not implemented yet.
 
 ## Harness is heuristic
 
@@ -54,4 +60,4 @@ Duo supplies coordination infrastructure; it does not make model judgment infall
 
 ## Plan is intentionally lightweight
 
-The shared Plan is currently a versioned text artifact rather than a full structured task graph. This is deliberate for v0.2; richer task/artifact tracking may be added only if real usage proves it useful.
+The shared Plan is currently a versioned text artifact rather than a full structured task graph. This is deliberate; richer task/artifact tracking may be added only if real usage proves it useful.

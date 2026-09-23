@@ -5,6 +5,9 @@ export type DuoMessage = {
   type: string;
   requestId?: string;
 
+  sessionId?: string;
+  token?: string;
+
   agent?: string;
   from?: string;
   to?: string;

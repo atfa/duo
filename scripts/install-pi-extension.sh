@@ -21,5 +21,5 @@ fi
 rm -rf "$DEST"
 cp -R "$ROOT/pi-extension" "$DEST"
 
-echo "Installed Duo v0.3.0-alpha.1 Pi bridge to: $DEST"
+echo "Installed Duo v0.3.1 Pi bridge to: $DEST"
 echo "Restart any running Pi processes before starting Duo."

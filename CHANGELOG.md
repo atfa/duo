@@ -2,6 +2,24 @@
 
 All notable project milestones are documented here.
 
+## v0.3.1 — 2026-09
+
+Runtime hardening and first binary release.
+
+### Fixed
+
+- included the previously ignored `cmd/duo` CLI entrypoint in source releases;
+- made the installed Pi bridge opt-in for Duo-launched sessions;
+- isolated concurrent Duo runs with dynamic ports, session IDs and random tokens;
+- stopped reporting normally exited Pi processes as running;
+- stopped the TUI cleanly when terminal input closes;
+- aligned CI and documentation with the integrated TUI release.
+
+### Added
+
+- macOS and Linux release archives for amd64 and arm64;
+- one-command release installer for the binary and Pi extension.
+
 ## v0.3.0-alpha.1 — 2026-09
 
 First integrated terminal UI preview.

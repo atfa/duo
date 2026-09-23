@@ -23,14 +23,24 @@ Duo's roadmap is deliberately incremental. The project should add infrastructure
 
 Primary goal: make the existing runtime observable and controllable without moving business logic into the UI.
 
-- [ ] Austin and Tony side-by-side panes
-- [ ] one global human composer
-- [ ] per-agent runtime state (working / waiting / ready / blocked)
-- [ ] shared phase + Plan version + signatures
+- [x] Austin and Tony side-by-side panes
+- [x] one global human composer
+- [x] per-agent runtime state (connecting / working / thinking / tool / idle)
+- [x] shared phase + Plan version + signatures
 - [ ] Git/worktree status and change summary
-- [ ] peer-message visibility
-- [ ] harness events and recovery visibility
-- [ ] clear final integrated branch/commit handoff
+- [x] peer-message visibility
+- [x] harness events and recovery visibility
+- [x] clear final integrated branch/commit handoff
+
+## v0.3.1 — runtime hardening
+
+- [x] Pi extension opt-in
+- [x] dynamic localhost port per Duo run
+- [x] session ID and random-token connection validation
+- [x] process-exit detection
+- [x] macOS/Linux binary releases and curl installer
+- [ ] restart controls for exited agents
+- [ ] direct PTY ownership and SIGWINCH resize propagation
 
 ## v0.4 — durability and configurability
 

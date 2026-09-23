@@ -7,16 +7,26 @@ import { registerProjectStatusTool } from "./tools/project-status";
 import { registerSendTool } from "./tools/send";
 import { registerStatusTool } from "./tools/status";
 
-const HOST = process.env.DUO_HOST ?? "127.0.0.1";
-const PORT = Number(process.env.DUO_PORT ?? "8765");
-const AGENT = (process.env.DUO_AGENT ?? "Austin") as AgentName;
-
 export default function (pi: any) {
+  if (process.env.DUO_ACTIVE !== "1") return;
+
+  const agent = process.env.DUO_AGENT;
+  const host = process.env.DUO_HOST;
+  const port = Number(process.env.DUO_PORT);
+  const sessionId = process.env.DUO_SESSION;
+  const token = process.env.DUO_TOKEN;
+
+  if (!host || !Number.isInteger(port) || port <= 0 || !sessionId || !token) {
+    throw new Error(
+      "DUO_HOST, DUO_PORT, DUO_SESSION, and DUO_TOKEN are required when DUO_ACTIVE=1",
+    );
+  }
+  const AGENT = agent as AgentName;
   if (AGENT !== "Austin" && AGENT !== "Tony") {
     throw new Error(`DUO_AGENT must be Austin or Tony, got: ${AGENT}`);
   }
 
-  const transport = new DuoTransport(AGENT, HOST, PORT);
+  const transport = new DuoTransport(AGENT, host, port, sessionId, token);
 
   installDuoPrompt(pi, AGENT);
   installLifecycle(pi, transport, AGENT);

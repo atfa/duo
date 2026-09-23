@@ -74,7 +74,7 @@ func (a *App) hitNativeButton(x, y int) protocol.AgentID {
 		return ""
 	}
 	leftW := (a.width - 1) / 2
-	// The whole header is deliberately clickable in v0.3.0-alpha.1; [↗] is the visual affordance.
+	// The whole header is deliberately clickable in v0.3.1; [↗] is the visual affordance.
 	if x >= 2 && x <= leftW {
 		return protocol.Austin
 	}

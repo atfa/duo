@@ -3,6 +3,7 @@ package transport
 import (
 	"bufio"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -19,7 +20,9 @@ type Handler interface {
 }
 
 type Server struct {
-	addr string
+	addr      string
+	sessionID string
+	token     string
 
 	mu      sync.RWMutex
 	clients map[protocol.AgentID]*Client
@@ -30,15 +33,24 @@ type Server struct {
 	once     sync.Once
 }
 
-func NewServer(addr string) *Server {
+func NewServer(addr, sessionID, token string) *Server {
 	return &Server{
-		addr:    addr,
-		clients: make(map[protocol.AgentID]*Client),
-		ready:   make(chan struct{}),
+		addr:      addr,
+		sessionID: sessionID,
+		token:     token,
+		clients:   make(map[protocol.AgentID]*Client),
+		ready:     make(chan struct{}),
 	}
 }
 
 func (s *Server) Ready() <-chan struct{} { return s.ready }
+
+func (s *Server) Addr() string {
+	if s.listener == nil {
+		return s.addr
+	}
+	return s.listener.Addr().String()
+}
 
 func (s *Server) SetHandler(handler Handler) {
 	s.handler = handler
@@ -98,8 +110,11 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 
 		if message.Type == protocol.MsgHello {
 			agent := protocol.CanonicalAgent(string(message.Agent))
-			if agent == "" {
-				continue
+			validAgent := agent == protocol.Austin || agent == protocol.Tony
+			validToken := subtle.ConstantTimeCompare([]byte(message.Token), []byte(s.token)) == 1
+			if !validAgent || message.SessionID != s.sessionID || !validToken {
+				log.Printf("rejecting unauthorized Duo hello from %s", conn.RemoteAddr())
+				return
 			}
 			client.Agent = agent
 			s.register(client)

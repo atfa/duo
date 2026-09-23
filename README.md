@@ -1,8 +1,8 @@
-# Duo v0.3.0-alpha.1
+# Duo v0.3.1
 
 **Two peer Pi coding agents in one terminal.**
 
-Duo v0.3.0-alpha.1 keeps the v0.2 collaboration runtime (shared plan, dual sign-off, isolated Git worktrees, review, integration, harness) and adds the first integrated terminal UI.
+Duo v0.3.1 combines the peer collaboration runtime with an integrated terminal UI and isolated, authenticated local sessions.
 
 ## What changed in v0.3
 
@@ -22,6 +22,16 @@ Duo v0.3.0-alpha.1 keeps the v0.2 collaboration runtime (shared plan, dual sign-
 This version intentionally does **not** reimplement Pi's slash commands.
 
 ## Install / upgrade
+
+Install the latest macOS or Linux release (amd64 or arm64):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash
+```
+
+This installs the `duo` binary at `~/.local/bin/duo` and the opt-in Pi bridge at `~/.pi/agent/extensions/duo`. The bridge stays inactive during ordinary `pi` sessions and is enabled only for Pi processes launched by Duo.
+
+To build from source instead:
 
 From the Duo source directory:
 
@@ -64,7 +74,7 @@ If you are developing Duo itself without installing the binary:
 ./scripts/run-core.sh /Users/atfa/fix/pet
 ```
 
-Duo resolves the Git repository root even if you start it from a subdirectory.
+Duo resolves the Git repository root even if you start it from a subdirectory. Each run uses an OS-assigned localhost port plus a random session token, so separate Duo projects do not share agent connections.
 
 ## Default UI
 
@@ -114,9 +124,10 @@ EXECUTE sign-off is bound to a clean commit SHA. REVIEW sign-off is bound to the
 
 - macOS or Linux
 - Git
-- Go 1.22+
 - Pi available as `pi` in PATH
 - the Unix `script` command (preinstalled on macOS and typical Linux distributions)
+
+Building from source additionally requires Go 1.22+.
 
 To launch a non-default Pi command:
 
@@ -135,7 +146,7 @@ DUO_PI_COMMAND='pi --some-flag' duo
 | Ctrl+Q | quit Duo |
 | Backspace | edit Duo composer |
 
-## Known limitations of v0.3.0-alpha.1
+## Known limitations of v0.3.1
 
 - The Duo composer is currently a single-line editor. Use native Pi mode for rich/multiline direct agent interaction.
 - Summary panes currently show structured assistant completions, peer messages, connection/phase events, and live working/idle state; they do not yet reproduce every token or rich tool card.

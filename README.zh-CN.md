@@ -4,7 +4,7 @@
 
 **Duo 让两个 Pi coding agent 以平级伙伴的方式协作，而不是把一个 Agent 设为 Planner、另一个设为 subordinate worker。** 两个 Agent 可以共同讨论计划、实时互发消息、在隔离的 Git worktree 中执行、交叉 Review，并在集成前共同签字确认。
 
-当前版本为 **v0.2-alpha / experimental**，已经完成无界面协作闭环，下一阶段计划开发双栏 TUI。
+当前版本为 **v0.3.1**，提供集成式双栏 TUI、原生 Pi 终端切换、动态端口和会话隔离。
 
 [English README](./README.md)
 
@@ -36,7 +36,7 @@ Austin  ◄──────────►  Tony
 
 Duo Core 负责的是少量可靠的“制度”：阶段、签字、成果证据、worktree、harness 和集成。至于如何讨论、如何分工、是否提前做实验，仍由 Austin 和 Tony 自主决定。
 
-## v0.2-alpha 已实现
+## v0.3.1 已实现
 
 - **单一用户入口**：通常只给 Austin 输入任务，Austin 用 `duo_send` 主动唤醒 Tony。
 - **实时 Peer Message**：消息以 Pi steer 注入，Peer 即使正在工作也能收到。
@@ -49,20 +49,21 @@ Duo Core 负责的是少量可靠的“制度”：阶段、签字、成果证�
 - **自动 Integration**：REVIEW 通过后将 Tony 分支合并到 Austin integration branch。
 - **不会自动修改用户原始分支**：最终是否 merge 回去由用户自己决定。
 - **Harness/Watchdog**：任务未完成但双方都陷入 idle 时，Duo 会主动唤醒 Austin 推进任务。
+- **集成式 TUI**：并排显示 Austin/Tony 摘要、运行状态、共享 Plan 和统一输入框。
+- **原生 Pi 模式**：`Ctrl+A` / `Ctrl+T` 进入对应 Pi，`Ctrl+]` / `Ctrl+\` 返回 Duo。
+- **会话隔离**：每次启动使用动态 localhost 端口和随机 token；普通 Pi 不会激活 Duo bridge。
 
 ## 快速开始
 
-要求：Go 1.22+、Git、可运行的 `pi`，以及至少有一个 commit 的干净 Git 仓库。
+要求：Git、可运行的 `pi`，以及至少有一个 commit 的 Git 仓库。
 
 ```bash
-make test
-./scripts/install-pi-extension.sh
-./scripts/run-core.sh /absolute/path/to/project
+curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash
+cd /path/to/project
+duo
 ```
 
-Duo 会打印 Tony/Austin 两个 Pi 的准确启动命令。
-
-**先启动 Tony，不给 Tony 输入任务；再启动 Austin，只给 Austin 输入用户任务。**
+从源码构建还需要 Go 1.22+，可运行 `./scripts/install.sh`。
 
 例如：
 
@@ -135,26 +136,13 @@ Duo 将 Tony merge 到 Austin。冲突显式保留给 Austin 解决，不会静�
 
 ## 当前定位
 
-Duo 已经验证了完整的 headless 双 Agent 协作闭环，但目前仍属于 alpha：固定两名 Agent、主要在 macOS/Linux + Git + Pi 场景验证，暂时没有 session persistence/resume 和正式 TUI。
+Duo 已经具备完整双 Agent 协作闭环和集成式 TUI。目前仍固定为两名 Agent，主要面向 macOS/Linux + Git + Pi，尚未实现 session persistence/resume 和 Agent 自动重启。
 
 详细限制见 [docs/known-limitations.md](./docs/known-limitations.md)。
 
 ## 下一步
 
-v0.3 重点是 TUI：
-
-```text
-┌ Austin ───────────────┬ Tony ──────────────────┐
-│                       │                        │
-│ assistant / tools     │ assistant / tools      │
-│                       │                        │
-├───────────────────────┼────────────────────────┤
-│ EXECUTE · working     │ EXECUTE · ready        │
-├───────────────────────┴────────────────────────┤
-│ Plan v3 · Austin ✓ · Tony ✓                   │
-│ >                                             │
-└────────────────────────────────────────────────┘
-```
+下一阶段重点是 Agent 自动重启、直接 PTY 与 resize、历史滚动、多行输入和持久化恢复。
 
 详见 [ROADMAP.md](./ROADMAP.md)。
 
