@@ -30,10 +30,13 @@ type Coordinator struct {
 
 	deliveryMu sync.RWMutex
 	delivery   sessionstore.Delivery
+	// deliveryTxnMu serializes the complete handoff transaction for this
+	// coordinator/session. Delivery is rare, so a session-wide lock is enough.
+	deliveryTxnMu sync.Mutex
 
 	// Durable session state. EnableDurability must be called once, before the
 	// event loop starts, after any resume has restored the project state.
-	durable   *sessionstore.Store
+	durable   snapshotStore
 	journal   *sessionstore.EventLog
 	log       *sessionstore.Logger
 	compose   func(project.Snapshot) sessionstore.Snapshot
@@ -42,10 +45,14 @@ type Coordinator struct {
 
 // Durability wires a session store into the coordinator.
 type Durability struct {
-	Store   *sessionstore.Store
+	Store   snapshotStore
 	Events  *sessionstore.EventLog
 	Log     *sessionstore.Logger
 	Compose func(project.Snapshot) sessionstore.Snapshot
+}
+
+type snapshotStore interface {
+	Save(sessionstore.Snapshot) error
 }
 
 func New(
@@ -89,6 +96,12 @@ func (c *Coordinator) CurrentIntegration() workspace.IntegrationResult {
 // crash can be reconciled idempotently on resume.
 func (c *Coordinator) SetDelivery(d sessionstore.Delivery) {
 	c.deliveryMu.Lock()
+	// An applied checkpoint for the same final artifact is monotonic. An older
+	// concurrent transaction must never turn it back into pending.
+	if c.delivery.Applied() && c.delivery.FinalHead == d.FinalHead && !d.Applied() {
+		c.deliveryMu.Unlock()
+		return
+	}
 	c.delivery = d
 	c.deliveryMu.Unlock()
 }
@@ -120,17 +133,26 @@ func (c *Coordinator) persist(_ project.Snapshot) {
 // persistNow forces a snapshot write for state that lives outside
 // project.State, such as the integration result.
 func (c *Coordinator) persistNow(reason string) {
-	if c.durable == nil || c.compose == nil {
-		return
-	}
-	c.persistMu.Lock()
-	defer c.persistMu.Unlock()
-	if err := c.durable.Save(c.compose(c.project.Snapshot())); err != nil {
+	if err := c.persistStrict(reason); err != nil {
 		if c.log != nil {
 			c.log.Printf("failed to persist session state after %s: %v", reason, err)
 		}
 		c.emit(events.KindError, protocol.Duo, "", "failed to persist session state: "+err.Error())
 	}
+}
+
+// persistStrict is for delivery checkpoints. Callers must stop before Git when
+// it fails, because an unrecorded handoff cannot be safely recovered.
+func (c *Coordinator) persistStrict(reason string) error {
+	if c.durable == nil || c.compose == nil {
+		return nil
+	}
+	c.persistMu.Lock()
+	defer c.persistMu.Unlock()
+	if err := c.durable.Save(c.compose(c.project.Snapshot())); err != nil {
+		return fmt.Errorf("persist %s: %w", reason, err)
+	}
+	return nil
 }
 
 func (c *Coordinator) recordEvent(eventType string, fields map[string]any) {
@@ -315,6 +337,13 @@ func (c *Coordinator) handleSetStatus(ctx context.Context, client *transport.Cli
 	}
 
 	snapBefore := c.project.Snapshot()
+	// A retried final-status message can arrive after synchronous delivery has
+	// completed. Reject it without running stale-evidence reconciliation, which
+	// would otherwise erase the final approval history kept in DONE.
+	if snapBefore.Phase == project.PhaseDone {
+		_ = c.respond(ctx, client, message.RequestID, false, project.ErrProjectDone.Error(), c.statusText(ctx))
+		return
+	}
 	evidence := ""
 
 	if *message.Ready {
@@ -324,6 +353,10 @@ func (c *Coordinator) handleSetStatus(ctx context.Context, client *transport.Cli
 		}
 		// Re-read because stale signatures may have been revoked.
 		snapBefore = c.project.Snapshot()
+		if snapBefore.Phase == project.PhaseDone {
+			_ = c.respond(ctx, client, message.RequestID, false, project.ErrProjectDone.Error(), c.statusText(ctx))
+			return
+		}
 		var err error
 		evidence, err = c.evidenceForReady(ctx, client.Agent, snapBefore.Phase, snapBefore)
 		if err != nil {
@@ -444,7 +477,32 @@ func (c *Coordinator) handleFinalApproval(
 
 // deliverFinal performs the delivery transaction. It never resets approvals and
 // never marks DONE unless the artifact actually landed in the user's repo.
-func (c *Coordinator) deliverFinal(ctx context.Context, snap project.Snapshot) {
+func (c *Coordinator) deliverFinal(ctx context.Context, _ project.Snapshot) {
+	c.deliveryTxnMu.Lock()
+	defer c.deliveryTxnMu.Unlock()
+
+	// Do not trust the state that caused this call: a duplicate/reconnect may
+	// have completed delivery while this handler waited for the transaction.
+	snap := c.project.Snapshot()
+	currentDelivery := c.CurrentDelivery()
+	if snap.Phase == project.PhaseDone {
+		return
+	}
+	if currentDelivery.Applied() {
+		if snap.Phase == project.PhaseIntegrate {
+			if _, err := c.project.Complete(); err != nil {
+				c.logf("complete applied delivery: %v", err)
+				return
+			}
+			if err := c.persistStrict("project complete"); err != nil {
+				c.logf("persist completed applied delivery: %v", err)
+			}
+		}
+		return
+	}
+	if snap.Phase != project.PhaseIntegrate || !snap.Ready[protocol.Austin] || !snap.Ready[protocol.Tony] {
+		return
+	}
 	set := c.workspace.Set()
 
 	finalHead, err := c.workspace.Head(ctx, protocol.Austin)
@@ -453,7 +511,9 @@ func (c *Coordinator) deliverFinal(ctx context.Context, snap project.Snapshot) {
 		if err != nil {
 			reason += ": " + err.Error()
 		}
-		c.markDeliveryPending(ctx, sessionstore.Delivery{}, reason)
+		if err := c.markDeliveryPending(ctx, currentDelivery, reason); err != nil {
+			c.logf("persist unresolved delivery: %v", err)
+		}
 		return
 	}
 
@@ -467,7 +527,9 @@ func (c *Coordinator) deliverFinal(ctx context.Context, snap project.Snapshot) {
 				"phase":  string(project.PhaseIntegrate),
 				"reason": "final integrated HEAD changed before delivery",
 			})
-			c.markDeliveryPending(ctx, sessionstore.Delivery{}, "the final integrated HEAD changed before delivery; both agents must sign again")
+			if err := c.markDeliveryPending(ctx, sessionstore.Delivery{}, "the final integrated HEAD changed before delivery; both agents must sign again"); err != nil {
+				c.logf("persist revoked delivery: %v", err)
+			}
 			return
 		}
 	}
@@ -486,7 +548,11 @@ func (c *Coordinator) deliverFinal(ctx context.Context, snap project.Snapshot) {
 	// touching the original repository. If Duo crashes after this point, resume
 	// can prove the approval happened and re-run an idempotent delivery.
 	c.SetDelivery(pending)
-	c.persistNow("final approval")
+	if err := c.persistStrict("pending delivery checkpoint"); err != nil {
+		c.logf("delivery not started: %v", err)
+		c.emit(events.KindError, protocol.Duo, "", "delivery not started: "+err.Error())
+		return
+	}
 	c.recordEvent("delivery_attempt", map[string]any{
 		"finalHead":    finalHead,
 		"finalBranch":  set.Austin.Branch,
@@ -505,20 +571,29 @@ func (c *Coordinator) deliverFinal(ctx context.Context, snap project.Snapshot) {
 
 	result, err := manager.Deliver(ctx)
 	if err != nil {
-		c.markDeliveryPending(ctx, pending, "delivery failed: "+err.Error())
+		if persistErr := c.markDeliveryPending(ctx, pending, "delivery failed: "+err.Error()); persistErr != nil {
+			c.logf("persist failed delivery: %v", persistErr)
+		}
 		return
 	}
 	if !result.Applied {
-		c.markDeliveryPending(ctx, pending, result.Check.Reason)
+		if err := c.markDeliveryPending(ctx, pending, result.Check.Reason); err != nil {
+			c.logf("persist pending delivery: %v", err)
+		}
 		return
 	}
 
-	c.completeDelivery(ctx, pending, result)
+	if err := c.completeDelivery(ctx, pending, result); err != nil {
+		c.logf("complete delivery: %v", err)
+	}
 }
 
 // markDeliveryPending records a blocked delivery without ever claiming DONE and
 // without modifying the user's working tree.
-func (c *Coordinator) markDeliveryPending(ctx context.Context, record sessionstore.Delivery, reason string) {
+func (c *Coordinator) markDeliveryPending(ctx context.Context, record sessionstore.Delivery, reason string) error {
+	if current := c.CurrentDelivery(); current.Applied() && current.FinalHead == record.FinalHead {
+		return nil
+	}
 	record.Status = sessionstore.DeliveryPending
 	record.Reason = strings.TrimSpace(reason)
 	if record.AttemptedAt == nil {
@@ -526,7 +601,11 @@ func (c *Coordinator) markDeliveryPending(ctx context.Context, record sessionsto
 		record.AttemptedAt = &now
 	}
 	c.SetDelivery(record)
-	c.persistNow("delivery pending")
+	if err := c.persistStrict("delivery pending checkpoint"); err != nil {
+		c.logf("persist delivery pending: %v", err)
+		c.emit(events.KindError, protocol.Duo, "", "failed to persist delivery checkpoint: "+err.Error())
+		return err
+	}
 	c.recordEvent("delivery_pending", map[string]any{
 		"reason":    record.Reason,
 		"finalHead": record.FinalHead,
@@ -536,11 +615,12 @@ func (c *Coordinator) markDeliveryPending(ctx context.Context, record sessionsto
 		"Agent work is complete, but delivery is pending: "+record.Reason+
 			". No user files were overwritten. After resolving the original repository, run `duo apply`.")
 	c.notifyDeliveryPending(ctx, record)
+	return nil
 }
 
 // completeDelivery persists the applied checkpoint, performs the explicit
 // INTEGRATE → DONE transition and tells both agents that the hand-off is done.
-func (c *Coordinator) completeDelivery(ctx context.Context, record sessionstore.Delivery, result delivery.Result) {
+func (c *Coordinator) completeDelivery(ctx context.Context, record sessionstore.Delivery, result delivery.Result) error {
 	now := time.Now().UTC()
 
 	// The delivered tree is the final integration result, so any recorded merge
@@ -553,14 +633,22 @@ func (c *Coordinator) completeDelivery(ctx context.Context, record sessionstore.
 	applied.Reason = ""
 	applied.CompletedAt = &now
 	c.SetDelivery(applied)
-	c.persistNow("delivery applied")
+	if err := c.persistStrict("delivery applied checkpoint"); err != nil {
+		c.logf("persist delivery applied: %v", err)
+		c.emit(events.KindError, protocol.Duo, "", "delivery applied but its checkpoint could not be persisted: "+err.Error())
+		return err
+	}
 
 	done, err := c.project.Complete()
 	if err != nil {
-		c.markDeliveryPending(ctx, applied, "delivery applied but DONE transition failed: "+err.Error())
-		return
+		if persistErr := c.markDeliveryPending(ctx, applied, "delivery applied but DONE transition failed: "+err.Error()); persistErr != nil {
+			return fmt.Errorf("complete delivery: %w (persist pending: %v)", err, persistErr)
+		}
+		return fmt.Errorf("complete delivery: %w", err)
 	}
-	c.persistNow("project complete")
+	if err := c.persistStrict("project complete"); err != nil {
+		return err
+	}
 
 	c.recordEvent("delivery_applied", map[string]any{
 		"finalHead":    applied.FinalHead,
@@ -575,6 +663,7 @@ func (c *Coordinator) completeDelivery(ctx context.Context, record sessionstore.
 		fmt.Sprintf("delivery complete → %s@%s", applied.TargetBranch, shortSHA(applied.AppliedHead)))
 	c.reportChanges(result.Changes)
 	c.broadcastPhaseAdvance(ctx, project.PhaseIntegrate, project.PhaseDone, done, "")
+	return nil
 }
 
 // reportChanges records the delivered change set for auditability.

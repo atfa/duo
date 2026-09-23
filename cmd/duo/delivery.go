@@ -33,6 +33,19 @@ func deliverAndPersist(
 	ws *workspace.GitManager,
 	snap sessionstore.Snapshot,
 ) (deliveryOutcome, error) {
+	// Applied is monotonic for this final artifact. A stale caller must reconcile
+	// DONE, never replace it with a new pending checkpoint or re-run Git.
+	if snap.Delivery.Applied() {
+		if snap.Phase == string(project.PhaseIntegrate) {
+			if err := completeSnapshot(&snap); err != nil {
+				return deliveryOutcome{Snapshot: snap}, err
+			}
+			if err := store.Save(snap); err != nil {
+				return deliveryOutcome{Snapshot: snap}, fmt.Errorf("persist reconciled DONE checkpoint: %w", err)
+			}
+		}
+		return deliveryOutcome{Snapshot: snap, Applied: true}, nil
+	}
 	finalHead, err := resolveFinalHead(ctx, ws, snap)
 	if err != nil {
 		return deliveryOutcome{Snapshot: snap}, err
@@ -64,12 +77,16 @@ func deliverAndPersist(
 	result, err := manager.Deliver(ctx)
 	if err != nil {
 		snap.Delivery = failedDelivery(pending, "delivery failed: "+err.Error())
-		_ = store.Save(snap)
+		if saveErr := store.Save(snap); saveErr != nil {
+			return deliveryOutcome{Snapshot: snap, Result: result}, fmt.Errorf("persist failed delivery checkpoint: %w", saveErr)
+		}
 		return deliveryOutcome{Snapshot: snap, Result: result, Applied: false, Reason: snap.Delivery.Reason}, nil
 	}
 	if !result.Applied {
 		snap.Delivery = failedDelivery(pending, result.Check.Reason)
-		_ = store.Save(snap)
+		if saveErr := store.Save(snap); saveErr != nil {
+			return deliveryOutcome{Snapshot: snap, Result: result}, fmt.Errorf("persist pending delivery checkpoint: %w", saveErr)
+		}
 		return deliveryOutcome{Snapshot: snap, Result: result, Applied: false, Reason: snap.Delivery.Reason}, nil
 	}
 

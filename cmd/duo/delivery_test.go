@@ -72,6 +72,23 @@ func TestReconcileDeliveryReconcilesCrashWindow(t *testing.T) {
 	}
 }
 
+func TestDeliverAndPersistDoesNotRegressAppliedCheckpoint(t *testing.T) {
+	store := newDeliveryStore(t)
+	snap := sessionstore.Snapshot{
+		SessionID: "delivery-test",
+		Phase:     string(project.PhaseDone),
+		Delivery:  sessionstore.Delivery{Status: sessionstore.DeliveryApplied, FinalHead: "final", AppliedHead: "final"},
+	}
+	ws := workspace.NewGitManager(workspace.GitConfig{})
+	outcome, err := deliverAndPersist(context.Background(), store, ws, snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !outcome.Applied || !outcome.Snapshot.Delivery.Applied() {
+		t.Fatalf("applied delivery regressed: %+v", outcome.Snapshot.Delivery)
+	}
+}
+
 // TestReconcileDeliveryAppliesLegacyDoneSession covers v0.4.0 snapshots that
 // were marked DONE without any delivery: `duo apply` still hands the artifact
 // back using the recorded integration head.

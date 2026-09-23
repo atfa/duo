@@ -2,6 +2,16 @@
 
 All notable project milestones are documented here.
 
+## v0.4.2 — 2026-09
+
+Reliability fixes for delivery and releases.
+
+- Coordinator end-to-end tests now wait for matching request/response acknowledgements instead of treating independent TCP writes as ordered.
+- INTEGRATE final approval is edge-triggered; duplicate `ready=true` messages are idempotent and cannot trigger delivery again.
+- Each session serializes the complete delivery transaction, rechecks current state under the transaction lock, and treats an applied checkpoint for the same final HEAD as monotonic.
+- Critical pending, applied and DONE checkpoints fail closed; a failed pending write prevents any original-repository mutation.
+- Tagged release builds now require `go test ./...`, `go vet ./...`, and a normal binary build before archives publish.
+
 ## v0.4.1 — 2026-09
 
 Deliverable handoff. INTEGRATE sign-off no longer means only "agreed": `DONE` now means the integrated artifact has been delivered back into the repository the user launched Duo from.

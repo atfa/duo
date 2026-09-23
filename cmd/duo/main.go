@@ -26,7 +26,7 @@ import (
 	"github.com/atfa/duo/internal/workspace"
 )
 
-const version = "v0.4.1"
+const version = "v0.4.2"
 
 func main() {
 	if len(os.Args) > 1 {

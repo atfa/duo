@@ -71,6 +71,14 @@ After a Duo Core, Austin or Tony crash the user must be able to continue the ori
 - [x] Go/Pi bridge protocol version validation
 - [x] failure-injection tests for the recovery path
 
+## v0.4.2 — delivery reliability
+
+- [x] request/response-synchronized coordinator E2E tests
+- [x] edge-triggered, idempotent final approval
+- [x] serialized and monotonic delivery checkpoints
+- [x] fail-closed critical delivery persistence
+- [x] release workflow test gate
+
 ## v0.4.1 — deliverable handoff
 
 `DONE` must mean the final Git artifact reached the user, not merely that two agents agreed.

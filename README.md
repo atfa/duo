@@ -1,8 +1,14 @@
-# Duo v0.4.1
+# Duo v0.4.2
 
 **Two peer Pi coding agents in one terminal.**
 
-Duo v0.4.1 combines the peer collaboration runtime with an integrated terminal UI, isolated local sessions, and durable sessions that survive a crash — and now hands the finished artifact back to the repository you launched it from.
+Duo v0.4.2 combines the peer collaboration runtime with an integrated terminal UI, isolated local sessions, and durable sessions that survive a crash — and hands the finished artifact back to the repository you launched it from.
+
+## What changed in v0.4.2
+
+- **Reliable final approval.** INTEGRATE approval is edge-triggered: repeated `ready=true` status messages are idempotent and cannot start delivery twice.
+- **Serialized, fail-closed handoff.** One session runs one delivery transaction at a time; applied checkpoints never regress to pending, and a required checkpoint write failure stops before the original repository is changed.
+- **Release gate.** A tagged release runs tests, vet and a build before archives can be published.
 
 ## What changed in v0.4.1
 

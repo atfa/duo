@@ -102,6 +102,29 @@ func TestIntegrateDualSignRequiresDeliveryBeforeDone(t *testing.T) {
 	}
 }
 
+func TestIntegrateFinalApprovalIsEdgeTriggered(t *testing.T) {
+	s := NewState()
+	advanceTo(t, s, PhaseIntegrate)
+
+	if _, tr, err := s.SetReady(protocol.Austin, true, "ok", "head"); err != nil || tr.ReadyForDelivery {
+		t.Fatalf("Austin sign = %+v, %v", tr, err)
+	}
+	if _, tr, err := s.SetReady(protocol.Tony, true, "ok", "head"); err != nil || !tr.ReadyForDelivery {
+		t.Fatalf("Tony sign = %+v, %v", tr, err)
+	}
+	for _, agent := range []protocol.AgentID{protocol.Tony, protocol.Austin} {
+		if _, tr, err := s.SetReady(agent, true, "retry", "head"); err != nil || tr.ReadyForDelivery {
+			t.Fatalf("duplicate %s sign = %+v, %v", agent, tr, err)
+		}
+	}
+	if _, _, err := s.SetReady(protocol.Tony, false, "revoke", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, tr, err := s.SetReady(protocol.Tony, true, "again", "head"); err != nil || !tr.ReadyForDelivery {
+		t.Fatalf("renewed Tony sign = %+v, %v", tr, err)
+	}
+}
+
 // TestCompleteRequiresSignedIntegrateAndKeepsSignatures proves DONE is only
 // reachable from a signed INTEGRATE and that the final signatures remain
 // visible in DONE instead of being reset to empty circles.

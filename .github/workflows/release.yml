@@ -9,7 +9,19 @@ permissions:
   contents: write
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - run: go test ./...
+      - run: go vet ./...
+      - run: CGO_ENABLED=0 go build ./cmd/duo
+
   build:
+    needs: test
     strategy:
       matrix:
         os: [linux, darwin]

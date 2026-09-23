@@ -194,6 +194,7 @@ func (s *State) SetReady(agent protocol.AgentID, ready bool, note, evidence stri
 	}
 
 	previous := s.phase
+	wasReady := s.ready[agent]
 	s.ready[agent] = ready
 	s.notes[agent] = strings.TrimSpace(note)
 	if ready {
@@ -212,7 +213,9 @@ func (s *State) SetReady(agent protocol.AgentID, ready bool, note, evidence stri
 			// approval and deliberately keeps both signatures: they describe the
 			// artifact that still has to be delivered, and they stay visible in
 			// DONE as the final approval history.
-			transition.ReadyForDelivery = true
+			// Final approval is an edge, not a level: retries of an already
+			// accepted status must not start a second delivery transaction.
+			transition.ReadyForDelivery = !wasReady && ready
 		default:
 			if next, ok := s.phase.Next(); ok {
 				s.phase = next

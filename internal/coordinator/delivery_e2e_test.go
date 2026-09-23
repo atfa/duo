@@ -3,11 +3,14 @@ package coordinator
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -41,12 +44,10 @@ func TestDeliveryEndToEndDeliversResultFile(t *testing.T) {
 	defer austin.Close()
 	tony := dialAgent(t, addr, protocol.Tony)
 	defer tony.Close()
-	go drain(austin)
-	go drain(tony)
 	waitFor(t, func() bool { return server.IsConnected(protocol.Austin) && server.IsConnected(protocol.Tony) }, "both agents to connect")
 
 	// PLAN
-	send(t, austin, protocol.Message{Version: protocol.Version, Type: protocol.MsgSetPlan, Plan: "Create result.md containing hello Duo"})
+	request(t, austin, protocol.Message{Version: protocol.Version, Type: protocol.MsgSetPlan, Plan: "Create result.md containing hello Duo"})
 	sign(t, austin)
 	sign(t, tony)
 	waitPhase(t, state, project.PhaseExecute)
@@ -130,11 +131,9 @@ func TestDeliveryEndToEndStaysPendingWhenRepositoryChanged(t *testing.T) {
 	defer austin.Close()
 	tony := dialAgent(t, addr, protocol.Tony)
 	defer tony.Close()
-	go drain(austin)
-	go drain(tony)
 	waitFor(t, func() bool { return server.IsConnected(protocol.Austin) && server.IsConnected(protocol.Tony) }, "both agents to connect")
 
-	send(t, austin, protocol.Message{Version: protocol.Version, Type: protocol.MsgSetPlan, Plan: "Create result.md"})
+	request(t, austin, protocol.Message{Version: protocol.Version, Type: protocol.MsgSetPlan, Plan: "Create result.md"})
 	sign(t, austin)
 	sign(t, tony)
 	waitPhase(t, state, project.PhaseExecute)
@@ -191,6 +190,89 @@ func TestDeliveryEndToEndStaysPendingWhenRepositoryChanged(t *testing.T) {
 	}
 	if !strings.Contains(persisted.Delivery.Reason, "uncommitted") {
 		t.Fatalf("pending reason = %q", persisted.Delivery.Reason)
+	}
+}
+
+// TestConcurrentAndDuplicateFinalSignAttemptsDeliveryOnce covers a successful
+// handoff under simultaneous final signatures and repeated network retries.
+func TestConcurrentAndDuplicateFinalSignAttemptsDeliveryOnce(t *testing.T) {
+	ctx := context.Background()
+	repo := initE2ERepo(t)
+	set, store, _, state, server, addr := startE2E(t, ctx, repo)
+	austin := dialAgent(t, addr, protocol.Austin)
+	defer austin.Close()
+	tony := dialAgent(t, addr, protocol.Tony)
+	defer tony.Close()
+	waitFor(t, func() bool { return server.IsConnected(protocol.Austin) && server.IsConnected(protocol.Tony) }, "both agents to connect")
+
+	request(t, austin, protocol.Message{Version: protocol.Version, Type: protocol.MsgSetPlan, Plan: "Create result.md"})
+	sign(t, austin)
+	sign(t, tony)
+	writeAndCommit(t, set.Austin.Path, "result.md", "hello Duo\n", "add result.md")
+	writeAndCommit(t, set.Tony.Path, "tony-draft.md", "scratch\n", "tony draft")
+	sign(t, austin)
+	sign(t, tony)
+	sign(t, austin)
+	sign(t, tony)
+	waitPhase(t, state, project.PhaseIntegrate)
+	finalHead := gitHead(t, set.Austin.Path)
+
+	// Two independent connections submit the final signatures concurrently.
+	// Extra retries race with the delivery; once DONE is durable they may be
+	// refused as already complete, but must never start another delivery.
+	const retries = 20
+	errs := make(chan error, 2+2*retries)
+	var wg sync.WaitGroup
+	for _, client := range []*testAgent{austin, tony} {
+		wg.Add(1)
+		go func(client *testAgent) {
+			defer wg.Done()
+			ready := true
+			_, err := client.request(protocol.Message{Version: protocol.Version, Type: protocol.MsgSetStatus, Ready: &ready, Note: "ok"})
+			errs <- err
+		}(client)
+	}
+	for i := 0; i < retries; i++ {
+		for _, client := range []*testAgent{austin, tony} {
+			wg.Add(1)
+			go func(client *testAgent) {
+				defer wg.Done()
+				ready := true
+				_, err := client.request(protocol.Message{Version: protocol.Version, Type: protocol.MsgSetStatus, Ready: &ready, Note: "retry"})
+				errs <- err
+			}(client)
+		}
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil && !strings.Contains(err.Error(), "project is already DONE") && !strings.Contains(err.Error(), "phase DONE") {
+			t.Fatal(err)
+		}
+	}
+	waitPhase(t, state, project.PhaseDone)
+	if got := state.Snapshot(); !got.Ready[protocol.Austin] || !got.Ready[protocol.Tony] || got.Evidence[protocol.Austin] != finalHead || got.Evidence[protocol.Tony] != finalHead {
+		t.Fatalf("final state corrupted: %+v", got)
+	}
+	if got := gitHead(t, repo); got != finalHead {
+		t.Fatalf("original HEAD = %s, want %s", got, finalHead)
+	}
+	events, err := os.ReadFile(store.EventsPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attempts := strings.Count(string(events), `"type":"delivery_attempt"`); attempts != 1 {
+		t.Fatalf("delivery attempts = %d, want 1", attempts)
+	}
+	if applied := strings.Count(string(events), `"type":"delivery_applied"`); applied != 1 {
+		t.Fatalf("delivery applied events = %d, want 1", applied)
+	}
+	persisted, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Delivery.Status != sessionstore.DeliveryApplied {
+		t.Fatalf("delivery = %+v, want applied", persisted.Delivery)
 	}
 }
 
@@ -253,7 +335,20 @@ func startE2E(t *testing.T, ctx context.Context, repo string) (
 	})
 	server.SetHandler(coord)
 
-	go func() { _ = server.ListenAndServe(ctx) }()
+	serverCtx, cancel := context.WithCancel(ctx)
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		_ = server.ListenAndServe(serverCtx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-serverDone:
+		case <-time.After(5 * time.Second):
+			t.Error("coordinator test server did not stop")
+		}
+	})
 	<-server.Ready()
 
 	return set, store, coord, state, server, server.Addr()
@@ -280,41 +375,73 @@ func initE2ERepo(t *testing.T) string {
 	return repo
 }
 
-func dialAgent(t *testing.T, addr string, agent protocol.AgentID) net.Conn {
+type testAgent struct {
+	conn net.Conn
+	enc  *json.Encoder
+	dec  *json.Decoder
+	mu   sync.Mutex
+	seq  atomic.Uint64
+}
+
+func dialAgent(t *testing.T, addr string, agent protocol.AgentID) *testAgent {
 	t.Helper()
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := json.NewEncoder(conn).Encode(protocol.Message{
+	client := &testAgent{conn: conn, enc: json.NewEncoder(conn), dec: json.NewDecoder(conn)}
+	if err := client.enc.Encode(protocol.Message{
 		Version: protocol.Version, Type: protocol.MsgHello,
 		Agent: agent, SessionID: e2eSession, Token: "e2e-token",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	return conn
+	return client
 }
 
-func drain(conn net.Conn) {
-	buf := make([]byte, 4096)
-	for {
-		if _, err := conn.Read(buf); err != nil {
-			return
-		}
-	}
-}
+func (c *testAgent) Close() error { return c.conn.Close() }
 
-func send(t *testing.T, conn net.Conn, message protocol.Message) {
+// request waits for its own response because Austin and Tony use independent
+// TCP streams: a completed write is not a cross-connection happens-before.
+func request(t *testing.T, c *testAgent, message protocol.Message) protocol.Message {
 	t.Helper()
-	if err := json.NewEncoder(conn).Encode(message); err != nil {
+	response, err := c.request(message)
+	if err != nil {
 		t.Fatal(err)
 	}
+	return response
 }
 
-func sign(t *testing.T, conn net.Conn) {
+func (c *testAgent) request(message protocol.Message) (protocol.Message, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	message.RequestID = fmt.Sprintf("test-%d", c.seq.Add(1))
+	if err := c.enc.Encode(message); err != nil {
+		return protocol.Message{}, err
+	}
+	if err := c.conn.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		return protocol.Message{}, err
+	}
+	defer func() { _ = c.conn.SetReadDeadline(time.Time{}) }()
+	for {
+		var response protocol.Message
+		if err := c.dec.Decode(&response); err != nil {
+			return protocol.Message{}, err
+		}
+		if response.Type != protocol.MsgResponse || response.RequestID != message.RequestID {
+			continue
+		}
+		if !response.OK {
+			return response, fmt.Errorf("request %s failed: %s", message.Type, response.Text)
+		}
+		return response, nil
+	}
+}
+
+func sign(t *testing.T, conn *testAgent) {
 	t.Helper()
 	ready := true
-	send(t, conn, protocol.Message{Version: protocol.Version, Type: protocol.MsgSetStatus, Ready: &ready, Note: "ok"})
+	request(t, conn, protocol.Message{Version: protocol.Version, Type: protocol.MsgSetStatus, Ready: &ready, Note: "ok"})
 }
 
 func waitPhase(t *testing.T, state *project.State, phase project.Phase) {
