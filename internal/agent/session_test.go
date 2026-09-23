@@ -3,7 +3,6 @@ package agent
 import (
 	"bytes"
 	"context"
-	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -11,10 +10,7 @@ import (
 	"github.com/atfa/duo/internal/protocol"
 )
 
-func TestSessionRunsInsideScriptPTY(t *testing.T) {
-	if _, err := exec.LookPath("script"); err != nil {
-		t.Skip("script not installed")
-	}
+func TestSessionRunsInsidePTY(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	s := NewSession(Config{

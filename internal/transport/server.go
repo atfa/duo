@@ -86,9 +86,9 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	client := newClient(conn)
 
 	defer func() {
-		s.unregister(client)
+		current := s.unregister(client)
 		_ = client.Close()
-		if s.handler != nil && client.Agent != "" {
+		if s.handler != nil && current {
 			s.handler.OnDisconnect(client)
 		}
 	}()
@@ -150,9 +150,9 @@ func (s *Server) register(client *Client) {
 	s.clients[client.Agent] = client
 }
 
-func (s *Server) unregister(client *Client) {
+func (s *Server) unregister(client *Client) bool {
 	if client.Agent == "" {
-		return
+		return false
 	}
 
 	s.mu.Lock()
@@ -160,7 +160,9 @@ func (s *Server) unregister(client *Client) {
 
 	if s.clients[client.Agent] == client {
 		delete(s.clients, client.Agent)
+		return true
 	}
+	return false
 }
 
 func (s *Server) Send(ctx context.Context, agent protocol.AgentID, message protocol.Message) error {

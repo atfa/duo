@@ -82,6 +82,12 @@ func (t *Tracker) SetHumanAttached(agent protocol.AgentID, attached bool) {
 	rt.LastActivity = time.Now()
 }
 
+func (t *Tracker) Reset(agent protocol.AgentID) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.agents[agent] = &AgentRuntime{LastActivity: time.Now()}
+}
+
 func (t *Tracker) Snapshot(agent protocol.AgentID) AgentRuntime {
 	t.mu.RLock()
 	defer t.mu.RUnlock()

@@ -8,9 +8,10 @@ import (
 )
 
 type inputAction struct {
-	submit bool
-	quit   bool
-	attach protocol.AgentID
+	submit  bool
+	quit    bool
+	attach  protocol.AgentID
+	restart protocol.AgentID
 }
 
 func (a *App) handleByte(b byte) inputAction {
@@ -35,6 +36,10 @@ func (a *App) handleByte(b byte) inputAction {
 		return inputAction{attach: protocol.Austin}
 	case 20: // Ctrl+T
 		return inputAction{attach: protocol.Tony}
+	case 18: // Ctrl+R: restart Austin (failed/exited only)
+		return inputAction{restart: protocol.Austin}
+	case 25: // Ctrl+Y: restart Tony (failed/exited only)
+		return inputAction{restart: protocol.Tony}
 	case 17: // Ctrl+Q
 		return inputAction{quit: true}
 	case 13, 10:

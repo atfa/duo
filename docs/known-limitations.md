@@ -1,4 +1,4 @@
-# Known limitations — v0.3.1
+# Known limitations — v0.3.2
 
 Duo is an experimental runtime. The collaboration model works, but the current release intentionally leaves several areas unfinished.
 
@@ -48,7 +48,7 @@ Each Duo run uses a dynamic localhost port and a random session token. This isol
 
 ## PTY and process recovery
 
-Native Pi sessions currently use the platform `script` utility. Terminal resize is not propagated directly to the hidden PTY, and an exited Pi process requires restarting Duo; automatic agent restart is not implemented yet.
+Native Pi sessions use direct Go-owned PTYs; host SIGWINCH resizes both Pi PTYs. Manual restart is available for exited agents, but automatic crash restart is not implemented. Reattach replays at most 1 MiB of raw output, not a reconstructed terminal screen.
 
 ## Harness is heuristic
 

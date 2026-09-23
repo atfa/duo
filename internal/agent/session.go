@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -11,130 +10,119 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 
 	"github.com/atfa/duo/internal/protocol"
+	"github.com/creack/pty"
 )
 
 const recentLimit = 1 << 20
 
+type ProcessState int
+
+const (
+	ProcessStarting ProcessState = iota
+	ProcessRunning
+	ProcessExited
+	ProcessFailed
+)
+
 type Config struct {
-	Agent   protocol.AgentID
-	Dir     string
-	Host    string
-	Port    string
-	Session string
-	Token   string
-	Command string
+	Agent                                    protocol.AgentID
+	Dir, Host, Port, Session, Token, Command string
 }
 
 type Session struct {
-	cfg Config
-
+	cfg      Config
 	mu       sync.RWMutex
 	cmd      *exec.Cmd
-	stdin    io.WriteCloser
+	ptmx     *os.File
 	recent   []byte
 	attached io.Writer
+	state    ProcessState
 	started  bool
-	exited   bool
 	stopped  chan struct{}
 	waitErr  error
+	size     pty.Winsize
 }
 
 func NewSession(cfg Config) *Session {
 	if strings.TrimSpace(cfg.Command) == "" {
 		cfg.Command = "pi"
 	}
-	return &Session{cfg: cfg, stopped: make(chan struct{})}
+	return &Session{cfg: cfg, size: pty.Winsize{Cols: 80, Rows: 24}}
 }
 
 func (s *Session) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.started {
-		return nil
+	if s.started && (s.state == ProcessStarting || s.state == ProcessRunning) {
+		return fmt.Errorf("%s is already running", s.cfg.Agent)
 	}
-
-	cmd, err := scriptCommand(ctx, s.cfg.Command)
-	if err != nil {
-		return err
+	if ctx.Err() != nil {
+		return fmt.Errorf("start %s: %w", s.cfg.Agent, ctx.Err())
 	}
+	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+		return fmt.Errorf("%s: unsupported platform %s", s.cfg.Agent, runtime.GOOS)
+	}
+	s.state = ProcessStarting
+	// A shell preserves the existing DUO_PI_COMMAND behavior (including arguments).
+	cmd := exec.Command("sh", "-lc", "exec "+s.cfg.Command)
 	cmd.Dir = s.cfg.Dir
-	cmd.Env = append(os.Environ(),
-		"DUO_ACTIVE=1",
-		"DUO_AGENT="+string(s.cfg.Agent),
-		"DUO_HOST="+s.cfg.Host,
-		"DUO_PORT="+s.cfg.Port,
-		"DUO_SESSION="+s.cfg.Session,
-		"DUO_TOKEN="+s.cfg.Token,
-		"TERM=xterm-256color",
-	)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	stdin, err := cmd.StdinPipe()
+	cmd.Env = append(os.Environ(), "DUO_ACTIVE=1", "DUO_AGENT="+string(s.cfg.Agent), "DUO_HOST="+s.cfg.Host, "DUO_PORT="+s.cfg.Port, "DUO_SESSION="+s.cfg.Session, "DUO_TOKEN="+s.cfg.Token, "TERM=xterm-256color")
+	ptmx, err := pty.StartWithSize(cmd, &s.size)
 	if err != nil {
-		return err
-	}
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return err
-	}
-	cmd.Stderr = cmd.Stdout
-
-	if err := cmd.Start(); err != nil {
-		return err
+		s.state = ProcessFailed
+		s.waitErr = err
+		return fmt.Errorf("start %s PTY: %w", s.cfg.Agent, err)
 	}
 	s.cmd = cmd
-	s.stdin = stdin
+	s.ptmx = ptmx
 	s.started = true
-	s.exited = false
-
-	go s.readLoop(stdout)
+	s.state = ProcessRunning
+	s.waitErr = nil
+	s.recent = nil
+	s.stopped = make(chan struct{})
+	done := s.stopped
+	readerDone := make(chan struct{})
+	go func() { s.readLoop(ptmx, done); close(readerDone) }()
 	go func() {
 		err := cmd.Wait()
+		// The reader owns the PTY until EOF; close only after wait to unblock reads.
+		select {
+		case <-readerDone:
+		case <-time.After(100 * time.Millisecond):
+			_ = ptmx.Close()
+			<-readerDone
+		}
+		_ = ptmx.Close()
 		s.mu.Lock()
 		s.waitErr = err
-		s.exited = true
-		select {
-		case <-s.stopped:
-		default:
-			close(s.stopped)
-		}
+		s.state = ProcessExited
+		close(done)
 		s.mu.Unlock()
 	}()
 	return nil
 }
 
-func scriptCommand(ctx context.Context, command string) (*exec.Cmd, error) {
-	if _, err := exec.LookPath("script"); err != nil {
-		return nil, fmt.Errorf("required command 'script' was not found in PATH: %w", err)
-	}
-	switch runtime.GOOS {
-	case "darwin":
-		return exec.CommandContext(ctx, "script", "-q", "-t", "0", "/dev/null", "sh", "-lc", "exec "+command), nil
-	case "linux":
-		return exec.CommandContext(ctx, "script", "-q", "-f", "-c", "exec "+command, "/dev/null"), nil
-	default:
-		return nil, fmt.Errorf("Duo v0.3.1 PTY supervisor currently supports macOS and Linux, not %s", runtime.GOOS)
-	}
-}
-
-func (s *Session) readLoop(r io.Reader) {
+func (s *Session) readLoop(r io.Reader, done <-chan struct{}) {
 	buf := make([]byte, 32*1024)
 	for {
 		n, err := r.Read(buf)
 		if n > 0 {
 			chunk := append([]byte(nil), buf[:n]...)
 			s.mu.Lock()
-			s.recent = append(s.recent, chunk...)
-			if len(s.recent) > recentLimit {
-				s.recent = append([]byte(nil), s.recent[len(s.recent)-recentLimit:]...)
+			// A previous reader must never write into a restarted process's buffer.
+			if s.stopped == done {
+				s.recent = append(s.recent, chunk...)
+				if len(s.recent) > recentLimit {
+					s.recent = append([]byte(nil), s.recent[len(s.recent)-recentLimit:]...)
+				}
+				if s.attached != nil {
+					_, _ = s.attached.Write(chunk)
+				}
 			}
-			w := s.attached
 			s.mu.Unlock()
-			if w != nil {
-				_, _ = w.Write(chunk)
-			}
 		}
 		if err != nil {
 			return
@@ -144,55 +132,53 @@ func (s *Session) readLoop(r io.Reader) {
 
 func (s *Session) Write(data []byte) error {
 	s.mu.RLock()
-	stdin := s.stdin
-	s.mu.RUnlock()
-	if stdin == nil {
+	defer s.mu.RUnlock()
+	if s.state != ProcessRunning || s.ptmx == nil {
 		return fmt.Errorf("%s session is not running", s.cfg.Agent)
 	}
-	_, err := stdin.Write(data)
+	_, err := s.ptmx.Write(data)
 	return err
 }
-
 func (s *Session) Attach(w io.Writer) []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.attached = w
 	return append([]byte(nil), s.recent...)
 }
-
-func (s *Session) Detach() {
+func (s *Session) Detach()             { s.mu.Lock(); s.attached = nil; s.mu.Unlock() }
+func (s *Session) State() ProcessState { s.mu.RLock(); defer s.mu.RUnlock(); return s.state }
+func (s *Session) Running() bool       { return s.State() == ProcessRunning }
+func (s *Session) Resize(cols, rows int) error {
+	if cols <= 0 || rows <= 0 {
+		return fmt.Errorf("%s: invalid PTY size %dx%d", s.cfg.Agent, cols, rows)
+	}
 	s.mu.Lock()
-	s.attached = nil
-	s.mu.Unlock()
+	defer s.mu.Unlock()
+	s.size = pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)}
+	if s.state == ProcessRunning {
+		if err := pty.Setsize(s.ptmx, &s.size); err != nil {
+			return fmt.Errorf("resize %s PTY: %w", s.cfg.Agent, err)
+		}
+	}
+	return nil
 }
-
-func (s *Session) Running() bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.started && !s.exited && s.cmd != nil && s.cmd.Process != nil
-}
-
 func (s *Session) Stop() {
 	s.mu.RLock()
 	cmd := s.cmd
+	done := s.stopped
+	running := s.state == ProcessRunning
 	s.mu.RUnlock()
-	if cmd == nil || cmd.Process == nil {
+	if !running || cmd == nil {
 		return
 	}
-	pgid, err := syscall.Getpgid(cmd.Process.Pid)
-	if err == nil {
-		_ = syscall.Kill(-pgid, syscall.SIGTERM)
-	} else {
-		_ = cmd.Process.Signal(syscall.SIGTERM)
+	// The process group includes the shell's descendants; do not rely on CommandContext,
+	// which only kills the immediate child.
+	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		<-done
 	}
 }
-
-func (s *Session) WaitError() error {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.waitErr
-}
-
-func stripNUL(in []byte) []byte { return bytes.ReplaceAll(in, []byte{0}, nil) }
-
-var _ = stripNUL
+func (s *Session) WaitError() error { s.mu.RLock(); defer s.mu.RUnlock(); return s.waitErr }

@@ -6,6 +6,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/atfa/duo/internal/agent"
 	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/terminal"
@@ -40,8 +41,8 @@ func (a *App) render() {
 	ar := a.tracker.Snapshot(protocol.Austin)
 	tr := a.tracker.Snapshot(protocol.Tony)
 
-	aTitle := fmt.Sprintf(" Austin · %s ", agentState(a.server.IsConnected(protocol.Austin), ar, a.frame))
-	tTitle := fmt.Sprintf(" Tony · %s ", agentState(a.server.IsConnected(protocol.Tony), tr, a.frame))
+	aTitle := fmt.Sprintf(" Austin · %s ", agentState(a.server.IsConnected(protocol.Austin), ar, a.frame, a.processState(protocol.Austin)))
+	tTitle := fmt.Sprintf(" Tony · %s ", agentState(a.server.IsConnected(protocol.Tony), tr, a.frame, a.processState(protocol.Tony)))
 
 	var b strings.Builder
 	b.WriteString(terminal.HideCursor + terminal.Home)
@@ -81,7 +82,7 @@ func (a *App) render() {
 		input = "(" + a.status + ")"
 	}
 	b.WriteString(paint(ansiBorder, "│") + paint(ansiStatus, " > ") + fitTail(input, w-6) + paint(ansiBorder, " │\r\n"))
-	help := " Enter send · Ctrl+A Austin native · Ctrl+T Tony native · click [↗] · Ctrl+Q quit · Ctrl+] / Ctrl+\\ return "
+	help := " Enter send · Ctrl+A/T native · Ctrl+R Austin restart · Ctrl+Y Tony restart · Ctrl+Q quit · Ctrl+] / Ctrl+\\ return "
 	b.WriteString(paint(ansiBorder, "└") + paint(ansiHint, fit(help, w-2, "─")) + paint(ansiBorder, "┘"))
 
 	row, col := inputCursor(w, h, string(a.input))
@@ -100,7 +101,22 @@ func paintEntry(line entry, width int) string {
 	return paint(ansiError, fit(line.text, width))
 }
 
-func agentState(connected bool, runtime harness.AgentRuntime, frame int) string {
+func (a *App) processState(id protocol.AgentID) agent.ProcessState {
+	if s, ok := a.agents.Session(id); ok {
+		return s.State()
+	}
+	return agent.ProcessFailed
+}
+
+func agentState(connected bool, runtime harness.AgentRuntime, frame int, states ...agent.ProcessState) string {
+	if len(states) > 0 {
+		switch states[0] {
+		case agent.ProcessExited:
+			return "exited [Restart]"
+		case agent.ProcessFailed:
+			return "failed [Restart]"
+		}
+	}
 	if !connected {
 		return "connecting"
 	}

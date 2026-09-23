@@ -70,6 +70,7 @@ func (c *Coordinator) OnConnect(_ context.Context, client *transport.Client) {
 }
 
 func (c *Coordinator) OnDisconnect(client *transport.Client) {
+	c.tracker.Reset(client.Agent)
 	c.emit(events.KindSystem, client.Agent, "", fmt.Sprintf("%s disconnected", client.Agent))
 }
 

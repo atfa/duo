@@ -2,6 +2,13 @@
 
 All notable project milestones are documented here.
 
+## v0.3.2 — 2026-09
+
+- Replaced the external `script` host with direct Go-owned Austin/Tony PTYs; detached agents continue running and retain recent raw output.
+- Propagated SIGWINCH to both PTYs, including detached processes.
+- Added manual restart of exited agents (Ctrl+R Austin, Ctrl+Y Tony) without changing worktrees or bridge credentials.
+- Added a random hex suffix to automatically generated Duo session IDs.
+
 ## v0.3.1 — 2026-09
 
 Runtime hardening and first binary release.

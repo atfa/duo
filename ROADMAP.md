@@ -39,8 +39,12 @@ Primary goal: make the existing runtime observable and controllable without movi
 - [x] session ID and random-token connection validation
 - [x] process-exit detection
 - [x] macOS/Linux binary releases and curl installer
-- [ ] restart controls for exited agents
-- [ ] direct PTY ownership and SIGWINCH resize propagation
+
+## v0.3.2 — runtime / PTY hardening
+
+- [x] manual restart controls for exited agents
+- [x] direct PTY ownership and SIGWINCH resize propagation
+- [x] random suffix for default session IDs
 
 ## v0.4 — durability and configurability
 

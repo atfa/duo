@@ -4,7 +4,7 @@
 
 **Duo 让两个 Pi coding agent 以平级伙伴的方式协作，而不是把一个 Agent 设为 Planner、另一个设为 subordinate worker。** 两个 Agent 可以共同讨论计划、实时互发消息、在隔离的 Git worktree 中执行、交叉 Review，并在集成前共同签字确认。
 
-当前版本为 **v0.3.1**，提供集成式双栏 TUI、原生 Pi 终端切换、动态端口和会话隔离。
+当前版本为 **v0.3.2**，提供集成式双栏 TUI、原生 Pi 终端切换、动态端口和会话隔离。
 
 [English README](./README.md)
 
@@ -36,7 +36,7 @@ Austin  ◄──────────►  Tony
 
 Duo Core 负责的是少量可靠的“制度”：阶段、签字、成果证据、worktree、harness 和集成。至于如何讨论、如何分工、是否提前做实验，仍由 Austin 和 Tony 自主决定。
 
-## v0.3.1 已实现
+## v0.3.2 已实现
 
 - **单一用户入口**：通常只给 Austin 输入任务，Austin 用 `duo_send` 主动唤醒 Tony。
 - **实时 Peer Message**：消息以 Pi steer 注入，Peer 即使正在工作也能收到。
@@ -136,13 +136,13 @@ Duo 将 Tony merge 到 Austin。冲突显式保留给 Austin 解决，不会静�
 
 ## 当前定位
 
-Duo 已经具备完整双 Agent 协作闭环和集成式 TUI。目前仍固定为两名 Agent，主要面向 macOS/Linux + Git + Pi，尚未实现 session persistence/resume 和 Agent 自动重启。
+Duo 已经具备完整双 Agent 协作闭环和集成式 TUI。目前仍固定为两名 Agent，主要面向 macOS/Linux + Git + Pi；尚未实现 session persistence/resume 和自动崩溃重启。
 
 详细限制见 [docs/known-limitations.md](./docs/known-limitations.md)。
 
 ## 下一步
 
-下一阶段重点是 Agent 自动重启、直接 PTY 与 resize、历史滚动、多行输入和持久化恢复。
+v0.3.2 直接使用 Go 管理的 PTY，不再依赖 Unix `script`；SIGWINCH 会同步 Austin/Tony 的 PTY 尺寸（包括未 attach 时）。退出的 Agent 可通过 Ctrl+R 重启 Austin、Ctrl+Y 重启 Tony；运行中的 Agent 不会被强杀。默认 session 名为时间戳加 8 位随机十六进制后缀，显式 `DUO_SESSION` 保持原值。后续重点是历史滚动、多行输入和持久化恢复。
 
 详见 [ROADMAP.md](./ROADMAP.md)。
 

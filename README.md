@@ -1,8 +1,8 @@
-# Duo v0.3.1
+# Duo v0.3.2
 
 **Two peer Pi coding agents in one terminal.**
 
-Duo v0.3.1 combines the peer collaboration runtime with an integrated terminal UI and isolated, authenticated local sessions.
+Duo v0.3.2 combines the peer collaboration runtime with an integrated terminal UI and isolated, authenticated local sessions.
 
 ## What changed in v0.3
 
@@ -74,7 +74,7 @@ If you are developing Duo itself without installing the binary:
 ./scripts/run-core.sh /Users/atfa/fix/pet
 ```
 
-Duo resolves the Git repository root even if you start it from a subdirectory. Each run uses an OS-assigned localhost port plus a random session token, so separate Duo projects do not share agent connections.
+Duo resolves the Git repository root even if you start it from a subdirectory. Each run uses an OS-assigned localhost port plus a random session token, so separate Duo projects do not share agent connections. Automatically generated session names use a timestamp plus an eight-digit random hex suffix; explicit `DUO_SESSION` values are unchanged.
 
 ## Default UI
 
@@ -125,7 +125,7 @@ EXECUTE sign-off is bound to a clean commit SHA. REVIEW sign-off is bound to the
 - macOS or Linux
 - Git
 - Pi available as `pi` in PATH
-- the Unix `script` command (preinstalled on macOS and typical Linux distributions)
+- no Unix `script` command: Duo owns both Pi PTYs directly (macOS/Linux)
 
 Building from source additionally requires Go 1.22+.
 
@@ -143,15 +143,16 @@ DUO_PI_COMMAND='pi --some-flag' duo
 | Ctrl+A | attach Austin native Pi |
 | Ctrl+T | attach Tony native Pi |
 | Ctrl+] / Ctrl+\\ | detach native Pi and return to Duo |
+| Ctrl+R / Ctrl+Y | restart exited Austin / Tony |
 | Ctrl+Q | quit Duo |
 | Backspace | edit Duo composer |
 
-## Known limitations of v0.3.1
+## Known limitations of v0.3.2
 
 - The Duo composer is currently a single-line editor. Use native Pi mode for rich/multiline direct agent interaction.
 - Summary panes currently show structured assistant completions, peer messages, connection/phase events, and live working/idle state; they do not yet reproduce every token or rich tool card.
-- The hidden Pi terminal uses the OS `script` utility as a PTY host. Native attach is fullscreen takeover, not an embedded xterm emulator.
-- Native Pi process auto-restart is not implemented yet. If a Pi process exits, restart Duo.
+- Duo owns direct PTYs for both interactive Pi processes; SIGWINCH propagates terminal size to both, even while detached. Native attach is fullscreen takeover, not an embedded xterm emulator.
+- Exited Pi processes can be manually restarted with Ctrl+R (Austin) or Ctrl+Y (Tony), retaining their worktrees and bridge identity. Running agents cannot be restarted; automatic crash restart is not implemented.
 - Worktrees are preserved when Duo exits.
 - Duo does not merge the final integration branch into the human's original branch automatically.
 
@@ -162,12 +163,12 @@ go test ./...
 go build ./cmd/duo
 ```
 
-The test suite includes Git worktree/integration tests and a PTY smoke test using `script`.
+The test suite includes Git worktree/integration tests and direct PTY supervisor tests.
 
 ## v0.3 next steps
 
 1. Better streaming summaries/tool-event cards in Austin/Tony panes.
-2. Process death detection + restart controls.
+2. Improve native PTY replay beyond the recent raw output buffer.
 3. Session persistence/resume.
 4. Better composer editing/history/multiline paste.
-5. More exact native PTY resize propagation; if necessary, replace the `script` host with a direct PTY implementation.
+5. Session persistence and recovery after Duo restarts.

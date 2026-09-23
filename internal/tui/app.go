@@ -4,10 +4,14 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
+	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/terminal"
 )
@@ -26,7 +30,23 @@ func (a *App) Run(ctx context.Context) error {
 	_, _ = tty.File.WriteString(terminal.EnterAltScreen + terminal.HideCursor + terminal.MouseOn + terminal.ClearHome)
 	defer func() { _, _ = tty.File.WriteString(terminal.ResetOuterModes + terminal.ExitAltScreen) }()
 
-	a.width, a.height = tty.Size()
+	a.syncSize()
+	winch := make(chan os.Signal, 1)
+	signal.Notify(winch, syscall.SIGWINCH)
+	defer signal.Stop(winch)
+	sizes := make(chan [2]int, 1)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case size := <-sizes:
+				if err := a.agents.ResizeAll(size[0], size[1]); err != nil {
+					a.bus.Emit(events.Event{Kind: events.KindError, Agent: protocol.Duo, Text: err.Error()})
+				}
+			}
+		}
+	}()
 	eventCh, cancelSub := a.bus.Subscribe(256)
 	defer cancelSub()
 
@@ -35,7 +55,7 @@ func (a *App) Run(ctx context.Context) error {
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
 
-	a.add(protocol.Duo, "Duo v0.3.1 ready. Type a task and press Enter; Austin will wake Tony when collaboration is needed.")
+	a.add(protocol.Duo, "Duo v0.3.2 ready. Type a task and press Enter; Austin will wake Tony when collaboration is needed.")
 	a.render()
 
 	for {
@@ -79,18 +99,47 @@ func (a *App) Run(ctx context.Context) error {
 				}
 				continue
 			}
+			if action.restart != "" {
+				if err := a.agents.Restart(ctx, action.restart); err != nil {
+					a.status = err.Error()
+					a.addError(protocol.Duo, err.Error())
+				} else {
+					a.tracker.Reset(action.restart)
+					a.status = string(action.restart) + " restarted"
+				}
+			}
 			if action.submit {
 				a.submit(ctx)
 			}
 			a.render()
-		case <-tick.C:
-			a.frame++
-			w, h := tty.Size()
-			if w != a.width || h != a.height {
-				a.width, a.height = w, h
+		case <-winch:
+			a.width, a.height = tty.Size()
+			size := [2]int{a.width, a.height}
+			select {
+			case sizes <- size:
+			default:
+				select {
+				case <-sizes:
+				default:
+				}
+				select {
+				case sizes <- size:
+				default:
+				}
 			}
 			a.render()
+		case <-tick.C:
+			a.frame++
+			a.render()
 		}
+	}
+}
+
+func (a *App) syncSize() {
+	w, h := a.tty.Size()
+	a.width, a.height = w, h
+	if err := a.agents.ResizeAll(w, h); err != nil {
+		a.status = err.Error()
 	}
 }
 
@@ -113,6 +162,7 @@ func (a *App) enterNative(agent protocol.AgentID) error {
 	if !ok || !s.Running() {
 		return fmt.Errorf("%s native Pi session is not running", agent)
 	}
+	a.syncSize()
 	a.native = agent
 	a.nativeDetachBuf = nil
 	a.tracker.SetHumanAttached(agent, true)
@@ -133,6 +183,7 @@ func (a *App) leaveNative() {
 	}
 	a.tracker.SetHumanAttached(a.native, false)
 	a.native = ""
+	a.syncSize()
 	a.nativeDetachBuf = nil
 	_, _ = a.tty.File.WriteString(terminal.ResetOuterModes + terminal.EnterAltScreen + terminal.HideCursor + terminal.MouseOn + terminal.ClearHome)
 }

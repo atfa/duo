@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -36,7 +38,10 @@ func loadConfig(args []string) config {
 		repo = abs
 	}
 
-	session := envString("DUO_SESSION", time.Now().Format("20060102-150405"))
+	session := strings.TrimSpace(os.Getenv("DUO_SESSION"))
+	if session == "" {
+		session = defaultSession()
+	}
 
 	return config{
 		listen:         envString("DUO_LISTEN", "127.0.0.1:0"),
@@ -53,6 +58,14 @@ func loadConfig(args []string) config {
 		baseRef:      envString("DUO_BASE_REF", "HEAD"),
 		piCommand:    envString("DUO_PI_COMMAND", "pi"),
 	}
+}
+
+func defaultSession() string {
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		panic(fmt.Errorf("generate Duo session: %w", err))
+	}
+	return time.Now().Format("20060102-150405") + "-" + hex.EncodeToString(b)
 }
 
 func (c config) validate() error {
