@@ -1,10 +1,11 @@
 package tui
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/atfa/duo/internal/protocol"
@@ -23,7 +24,7 @@ func (a *App) Run(ctx context.Context) error {
 		return err
 	}
 	_, _ = tty.File.WriteString(terminal.EnterAltScreen + terminal.HideCursor + terminal.MouseOn + terminal.ClearHome)
-	defer func() { _, _ = tty.File.WriteString(terminal.MouseOff + terminal.ShowCursor + terminal.ExitAltScreen) }()
+	defer func() { _, _ = tty.File.WriteString(terminal.ResetOuterModes + terminal.ExitAltScreen) }()
 
 	a.width, a.height = tty.Size()
 	eventCh, cancelSub := a.bus.Subscribe(256)
@@ -80,6 +81,7 @@ func (a *App) Run(ctx context.Context) error {
 			}
 			a.render()
 		case <-tick.C:
+			a.frame++
 			w, h := tty.Size()
 			if w != a.width || h != a.height {
 				a.width, a.height = w, h
@@ -116,8 +118,6 @@ func (a *App) enterNative(agent protocol.AgentID) error {
 	if len(recent) > 0 {
 		_, _ = a.tty.File.Write(recent)
 	}
-	// Pi/Ink normally repaints on Ctrl+L. This also makes a long-hidden PTY usable immediately.
-	_ = s.Write([]byte{0x0c})
 	return nil
 }
 
@@ -131,29 +131,56 @@ func (a *App) leaveNative() {
 	a.tracker.SetHumanAttached(a.native, false)
 	a.native = ""
 	a.nativeDetachBuf = nil
-	_, _ = a.tty.File.WriteString(terminal.EnterAltScreen + terminal.HideCursor + terminal.MouseOn + terminal.ClearHome)
-}
-
-var nativeDetachSequences = [][]byte{
-	[]byte("\x1b[93;5u"),    // CSI-u Ctrl+]
-	[]byte("\x1b[27;5;93~"), // xterm modifyOtherKeys Ctrl+]
+	_, _ = a.tty.File.WriteString(terminal.ResetOuterModes + terminal.EnterAltScreen + terminal.HideCursor + terminal.MouseOn + terminal.ClearHome)
 }
 
 // nativeDetach reports whether b returns to Duo and whether it still belongs to Pi input.
 func (a *App) nativeDetach(b byte) (detach, forward bool) {
-	if b == 0x1d { // legacy Ctrl+]
+	if b == 0x1c || b == 0x1d { // legacy Ctrl+\\ and Ctrl+]
 		a.nativeDetachBuf = nil
 		return true, false
 	}
 	a.nativeDetachBuf = append(a.nativeDetachBuf, b)
-	if len(a.nativeDetachBuf) > len(nativeDetachSequences[1]) {
+	if len(a.nativeDetachBuf) > 32 {
 		a.nativeDetachBuf = a.nativeDetachBuf[1:]
 	}
-	for _, seq := range nativeDetachSequences {
-		if bytes.HasSuffix(a.nativeDetachBuf, seq) {
-			a.nativeDetachBuf = nil
-			return true, true
-		}
+	if (b == 'u' || b == '~') && nativeDetachSequence(a.nativeDetachBuf) {
+		a.nativeDetachBuf = nil
+		return true, true
 	}
 	return false, true
+}
+
+func nativeDetachSequence(buf []byte) bool {
+	i := strings.LastIndex(string(buf), "\x1b[")
+	if i < 0 {
+		return false
+	}
+	seq := string(buf[i+2:])
+	if strings.HasSuffix(seq, "u") {
+		parts := strings.Split(strings.TrimSuffix(seq, "u"), ";")
+		if len(parts) != 2 {
+			return false
+		}
+		if !nativeDetachCodepoint(parts[0]) {
+			return false
+		}
+		modifier, _, _ := strings.Cut(parts[1], ":")
+		return ctrlModifier(modifier)
+	}
+	if strings.HasSuffix(seq, "~") {
+		parts := strings.Split(strings.TrimSuffix(seq, "~"), ";")
+		return len(parts) == 3 && parts[0] == "27" && ctrlModifier(parts[1]) && nativeDetachCodepoint(parts[2])
+	}
+	return false
+}
+
+func nativeDetachCodepoint(s string) bool {
+	codepoint, err := strconv.Atoi(s)
+	return err == nil && (codepoint == 92 || codepoint == 93 || codepoint == 12305) // \, ], 】
+}
+
+func ctrlModifier(s string) bool {
+	modifier, err := strconv.Atoi(s)
+	return err == nil && modifier > 0 && (modifier-1)&4 != 0
 }

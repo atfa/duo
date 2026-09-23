@@ -6,6 +6,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/terminal"
 )
@@ -30,11 +31,11 @@ func (a *App) render() {
 	ar := a.tracker.Snapshot(protocol.Austin)
 	tr := a.tracker.Snapshot(protocol.Tony)
 
-	aTitle := fmt.Sprintf(" Austin · %s ", agentState(a.server.IsConnected(protocol.Austin), ar.Busy))
-	tTitle := fmt.Sprintf(" Tony · %s ", agentState(a.server.IsConnected(protocol.Tony), tr.Busy))
+	aTitle := fmt.Sprintf(" Austin · %s ", agentState(a.server.IsConnected(protocol.Austin), ar, a.frame))
+	tTitle := fmt.Sprintf(" Tony · %s ", agentState(a.server.IsConnected(protocol.Tony), tr, a.frame))
 
 	var b strings.Builder
-	b.WriteString(terminal.Home)
+	b.WriteString(terminal.HideCursor + terminal.Home)
 	b.WriteString("┌" + header(aTitle, leftW-1) + "┬" + header(tTitle, rightW-1) + "┐\r\n")
 
 	contentRows := topH - 2
@@ -71,20 +72,43 @@ func (a *App) render() {
 		input = "(" + a.status + ")"
 	}
 	b.WriteString("│ > " + fitTail(input, w-6) + " │\r\n")
-	help := " Enter send · Ctrl+A Austin native · Ctrl+T Tony native · click [↗] · Ctrl+Q quit · Ctrl+] return from native "
+	help := " Enter send · Ctrl+A Austin native · Ctrl+T Tony native · click [↗] · Ctrl+Q quit · Ctrl+] / Ctrl+\\ return "
 	b.WriteString("└" + fit(help, w-2, "─") + "┘")
 
+	row, col := inputCursor(w, h, string(a.input))
+	b.WriteString(fmt.Sprintf("\x1b[%d;%dH%s", row, col, terminal.ShowCursor))
 	_, _ = a.tty.File.WriteString(b.String())
 }
 
-func agentState(connected, busy bool) string {
+func agentState(connected bool, runtime harness.AgentRuntime, frame int) string {
 	if !connected {
 		return "connecting"
 	}
-	if busy {
-		return "working"
+	spinner := []string{"|", "/", "-", "\\"}[frame%4]
+	if runtime.ToolDepth > 0 {
+		return "tool " + spinner
+	}
+	if runtime.ProviderActive {
+		return "thinking " + spinner
+	}
+	if runtime.Busy {
+		return "working " + spinner
 	}
 	return "idle"
+}
+
+// inputCursor returns the 1-based terminal position for the input insertion point.
+func inputCursor(width, height int, input string) (row, col int) {
+	if width < 60 {
+		width = 60
+	}
+	if height < 18 {
+		height = 18
+	}
+	inputWidth := width - 6
+	visible := tailContent(input, inputWidth)
+	col = 5 + displayWidth(visible)
+	return height - 2, col
 }
 
 func paneLines(entries []entry, width, rows int) []string {
@@ -165,8 +189,12 @@ func fit(s string, width int, fillOpt ...string) string {
 }
 
 func fitTail(s string, width int) string {
+	return fit(tailContent(s, width), width)
+}
+
+func tailContent(s string, width int) string {
 	if displayWidth(s) <= width {
-		return fit(s, width)
+		return s
 	}
 	runes := []rune(s)
 	used := 0
@@ -179,7 +207,7 @@ func fitTail(s string, width int) string {
 		used += rw
 		i--
 	}
-	return fit("…"+string(runes[i:]), width)
+	return "…" + string(runes[i:])
 }
 
 func displayWidth(s string) int {

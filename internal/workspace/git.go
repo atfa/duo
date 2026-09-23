@@ -28,6 +28,11 @@ type GitManager struct {
 	set Set
 }
 
+const initialCommitSteps = `  # Review or create .gitignore before adding files.
+  git add .
+  git commit --allow-empty -m "Initial commit"
+  duo`
+
 func NewGitManager(cfg GitConfig) *GitManager {
 	return &GitManager{cfg: cfg}
 }
@@ -42,7 +47,7 @@ func (m *GitManager) Prepare(ctx context.Context) (Set, error) {
 
 	root, err := gitOutput(ctx, repo, "rev-parse", "--show-toplevel")
 	if err != nil {
-		return Set{}, fmt.Errorf("DUO_REPO is not a Git worktree: %w", err)
+		return Set{}, fmt.Errorf("Duo requires an existing Git repository and will not initialize one automatically.\n\nTo prepare this directory:\n  git init\n%s\n\nGit check failed: %w", initialCommitSteps, err)
 	}
 	root, err = filepath.Abs(strings.TrimSpace(root))
 	if err != nil {
@@ -56,11 +61,15 @@ func (m *GitManager) Prepare(ctx context.Context) (Set, error) {
 	}
 
 	baseRef := strings.TrimSpace(m.cfg.BaseRef)
+	defaultBaseRef := baseRef == "" || baseRef == "HEAD"
 	if baseRef == "" {
 		baseRef = "HEAD"
 	}
 	baseCommit, err := gitOutput(ctx, root, "rev-parse", baseRef+"^{commit}")
 	if err != nil {
+		if defaultBaseRef {
+			return Set{}, fmt.Errorf("Duo requires at least one commit and will not create one automatically.\n\nTo prepare this repository:\n%s", initialCommitSteps)
+		}
 		return Set{}, fmt.Errorf("resolve base ref %q: %w", baseRef, err)
 	}
 	baseCommit = strings.TrimSpace(baseCommit)

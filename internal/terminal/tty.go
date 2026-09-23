@@ -90,4 +90,7 @@ const (
 	Home           = "\x1b[H"
 	MouseOn        = "\x1b[?1000h\x1b[?1006h"
 	MouseOff       = "\x1b[?1000l\x1b[?1006l"
+	// ResetOuterModes undoes terminal modes a native Pi session can leave enabled.
+	// It is intentionally separate from alternate-screen handling.
+	ResetOuterModes = "\x1b[<u\x1b[>4;0m\x1b[?2004l\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1004l\x1b[?1006l\x1b[?7h\x1b[?25h"
 )

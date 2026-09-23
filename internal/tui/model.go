@@ -41,6 +41,7 @@ type App struct {
 	austin []entry
 	tony   []entry
 	duo    []entry
+	frame  int
 
 	native          protocol.AgentID
 	escBuf          []byte
@@ -68,7 +69,7 @@ func (a *App) route(event events.Event) {
 	case events.KindAssistant:
 		a.add(event.Agent, text)
 	case events.KindPeer:
-		a.add(event.Agent, fmt.Sprintf("→ %s: %s", event.Peer, text))
+		a.add(event.Agent, fmt.Sprintf("→ %s: sent", event.Peer))
 		a.add(event.Peer, fmt.Sprintf("← %s: %s", event.Agent, text))
 	case events.KindUser:
 		a.add(protocol.Duo, "Human → Austin: "+text)

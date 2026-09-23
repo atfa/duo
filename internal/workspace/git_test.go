@@ -73,6 +73,74 @@ func TestCaptureArtifactRejectsDirtyWorktree(t *testing.T) {
 	}
 }
 
+func TestGitManagerPrepareRequiresExistingRepository(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte("not a repository\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := NewGitManager(GitConfig{Repository: dir, Session: "test"}).Prepare(context.Background())
+	if err == nil {
+		t.Fatal("expected repository error")
+	}
+	for _, want := range []string{
+		"requires an existing Git repository",
+		"will not initialize one automatically",
+		"git init",
+		".gitignore",
+		"git add .",
+		`git commit --allow-empty -m "Initial commit"`,
+		"duo",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error missing %q:\n%s", want, err)
+		}
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, ".git")); !os.IsNotExist(statErr) {
+		t.Fatalf("Prepare created .git: %v", statErr)
+	}
+}
+
+func TestGitManagerPrepareRequiresInitialCommit(t *testing.T) {
+	ctx := context.Background()
+	repo := t.TempDir()
+	run(t, repo, "git", "init")
+
+	_, err := NewGitManager(GitConfig{Repository: repo, Session: "test", BaseRef: "HEAD"}).Prepare(ctx)
+	if err == nil {
+		t.Fatal("expected initial-commit error")
+	}
+	for _, want := range []string{
+		"requires at least one commit",
+		"will not create one automatically",
+		".gitignore",
+		"git add .",
+		`git commit --allow-empty -m "Initial commit"`,
+		"duo",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error missing %q:\n%s", want, err)
+		}
+	}
+
+	cmd := exec.CommandContext(ctx, "git", "rev-parse", "--verify", "HEAD^{commit}")
+	cmd.Dir = repo
+	if output, verifyErr := cmd.CombinedOutput(); verifyErr == nil {
+		t.Fatalf("Prepare created a commit: %s", output)
+	}
+}
+
+func TestGitManagerPrepareKeepsCustomBaseRefError(t *testing.T) {
+	_, err := NewGitManager(GitConfig{
+		Repository: initRepo(t),
+		Session:    "test",
+		BaseRef:    "not-a-ref",
+	}).Prepare(context.Background())
+	if err == nil || !strings.Contains(err.Error(), `resolve base ref "not-a-ref"`) {
+		t.Fatalf("expected base-ref error, got %v", err)
+	}
+}
+
 func initRepo(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()

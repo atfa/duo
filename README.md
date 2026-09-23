@@ -13,7 +13,7 @@ Duo v0.3 keeps the v0.2 collaboration runtime (shared plan, dual sign-off, isola
 - `Ctrl+A` opens Austin's real Pi TUI; `Ctrl+T` opens Tony's real Pi TUI.
 - Clicking either top header (`[↗]`) also opens that agent's native Pi terminal on terminals that report SGR mouse clicks.
 - While inside native Pi, `/model`, `/settings`, `/tree`, extension UI, custom footer, etc. are handled by Pi itself.
-- Press `Ctrl+]` to detach from native Pi and return to Duo.
+- Press `Ctrl+]` or `Ctrl+\\` to detach from native Pi and return to Duo.
 - `Ctrl+Q` quits Duo and preserves worktrees.
 
 This version intentionally does **not** reimplement Pi's slash commands.
@@ -76,7 +76,7 @@ Conceptually:
 │ Plan: ...                                                                               │
 │ ... Duo / harness / phase events ...                                                    │
 │ > user task                                                                             │
-└ Enter send · Ctrl+A Austin native · Ctrl+T Tony native · Ctrl+Q quit · Ctrl+] return ┘
+└ Enter send · Ctrl+A Austin native · Ctrl+T Tony native · Ctrl+Q quit · Ctrl+] / Ctrl+\\ return ┘
 ```
 
 The bottom input is **Duo's human entry point**. Text is sent to Austin. Austin's Duo system prompt tells Austin to wake Tony through `duo_send` and build a shared plan when collaboration is useful.
@@ -90,12 +90,12 @@ Press:
 ```text
 Ctrl+A   Austin native Pi
 Ctrl+T   Tony native Pi
-Ctrl+]   return to Duo
+Ctrl+] / Ctrl+\\   return to Duo
 ```
 
 When native mode is active, keyboard bytes go directly to that agent's real Pi process. Therefore Pi remains responsible for `/model`, `/settings`, session controls, extension shortcuts, custom footer/UI, and any other native Pi functionality.
 
-The first native view is reconstructed from recent PTY output and Duo sends `Ctrl+L` to encourage Pi to repaint the hidden terminal.
+The first native view is reconstructed from recent PTY output.
 
 ## Collaboration lifecycle
 
@@ -128,7 +128,7 @@ DUO_PI_COMMAND='pi --some-flag' duo
 | Enter | send Duo composer text to Austin |
 | Ctrl+A | attach Austin native Pi |
 | Ctrl+T | attach Tony native Pi |
-| Ctrl+] | detach native Pi and return to Duo |
+| Ctrl+] / Ctrl+\\ | detach native Pi and return to Duo |
 | Ctrl+Q | quit Duo |
 | Backspace | edit Duo composer |
 
