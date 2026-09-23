@@ -19,6 +19,7 @@ type config struct {
 	harness        harness.Config
 
 	repository   string
+	launchDir    string
 	worktreeRoot string
 	session      string
 	baseRef      string
@@ -74,15 +75,15 @@ func loadConfig(args []string) (config, error) {
 	}
 
 	cwd, _ := os.Getwd()
-	repo := strings.TrimSpace(os.Getenv("DUO_REPO"))
+	launch := strings.TrimSpace(os.Getenv("DUO_REPO"))
 	if parsed.repository != "" {
-		repo = parsed.repository
+		launch = parsed.repository
 	}
-	if repo == "" {
-		repo = cwd
+	if launch == "" {
+		launch = cwd
 	}
-	if abs, err := filepath.Abs(repo); err == nil {
-		repo = abs
+	if abs, err := filepath.Abs(launch); err == nil {
+		launch = abs
 	}
 
 	session := strings.TrimSpace(os.Getenv("DUO_SESSION"))
@@ -106,7 +107,8 @@ func loadConfig(args []string) (config, error) {
 		listen:         envString("DUO_LISTEN", "127.0.0.1:0"),
 		harnessEnabled: envBool("DUO_HARNESS", true),
 		harness:        harnessConfig,
-		repository:     repo,
+		repository:     launch,
+		launchDir:      launch,
 		worktreeRoot:   strings.TrimSpace(os.Getenv("DUO_WORKTREE_ROOT")),
 		session:        session,
 		baseRef:        envString("DUO_BASE_REF", "HEAD"),

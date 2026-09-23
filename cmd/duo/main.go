@@ -26,7 +26,7 @@ import (
 	"github.com/atfa/duo/internal/workspace"
 )
 
-const version = "v0.4.3"
+const version = "v0.4.4"
 
 func main() {
 	if len(os.Args) > 1 {
@@ -81,7 +81,11 @@ func main() {
 }
 
 func run(ctx context.Context, cfg config) error {
-	root, err := workspace.FindRoot(ctx, cfg.repository)
+	root, err := workspace.FindRoot(ctx, cfg.launchDir)
+	if err != nil {
+		return err
+	}
+	scope, err := workspace.ScopePath(root, cfg.launchDir)
 	if err != nil {
 		return err
 	}
@@ -94,7 +98,7 @@ func run(ctx context.Context, cfg config) error {
 	if cfg.resume {
 		return runResume(ctx, cfg, root, repoID, baseDir)
 	}
-	return runFresh(ctx, cfg, root, repoID, baseDir)
+	return runFresh(ctx, cfg, root, scope, repoID, baseDir)
 }
 
 // runtime holds everything a started session needs. Fresh and resumed sessions
@@ -145,9 +149,10 @@ func (r *runtime) composeSnapshot(coord *coordinator.Coordinator) sessionstore.S
 }
 
 // runFresh creates new worktrees, a new session store and a new checkpoint.
-func runFresh(ctx context.Context, cfg config, root, repoID, baseDir string) error {
+func runFresh(ctx context.Context, cfg config, root, scope, repoID, baseDir string) error {
 	ws := workspace.NewGitManager(workspace.GitConfig{
 		Repository: root,
+		ScopePath:  scope,
 		Root:       cfg.worktreeRoot,
 		Session:    cfg.session,
 		BaseRef:    cfg.baseRef,
@@ -194,11 +199,13 @@ func runFresh(ctx context.Context, cfg config, root, repoID, baseDir string) err
 		logger:     store.OpenLog(),
 		piSessions: piSessions,
 	}
-	r.logger.Printf("starting Duo %s session %s in %s", version, r.sessionID, root)
+	r.logger.Printf("starting Duo %s session %s repository=%s scope=%s", version, r.sessionID, root, set.ScopePath)
 	r.journal.Record("session_start", map[string]any{
 		"sessionId":  r.sessionID,
 		"phase":      string(project.PhasePlan),
 		"baseCommit": set.BaseCommit,
+		"repository": set.Repository,
+		"scope":      set.ScopePath,
 		"duoVersion": version,
 	})
 
@@ -269,21 +276,27 @@ func (r *runtime) serve(ctx context.Context) error {
 
 	for _, agentID := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
 		wt, ok := r.set.For(agentID)
-		if !ok || wt.Path == "" {
+		dir, hasDir, err := r.set.AgentDir(agentID)
+		if err != nil {
+			return err
+		}
+		if !ok || wt.Path == "" || !hasDir {
 			return fmt.Errorf("session has no worktree for %s", agentID)
 		}
 		session := agent.NewSession(agent.Config{
-			Agent:       agentID,
-			Dir:         wt.Path,
-			Host:        host,
-			Port:        port,
-			Session:     r.sessionID,
-			Token:       token,
-			Command:     r.cfg.piCommand,
-			PiSessionID: r.piSessions[agentID],
+			Agent:          agentID,
+			Dir:            dir,
+			RepositoryRoot: r.set.Repository,
+			ScopePath:      r.set.ScopePath,
+			Host:           host,
+			Port:           port,
+			Session:        r.sessionID,
+			Token:          token,
+			Command:        r.cfg.piCommand,
+			PiSessionID:    r.piSessions[agentID],
 		})
 		agents.Add(session)
-		r.logger.Printf("%s: dir=%s piSession=%s command=%s", agentID, wt.Path, session.PiSessionID(), session.EffectiveCommand())
+		r.logger.Printf("%s: worktree=%s cwd=%s piSession=%s command=%s", agentID, wt.Path, dir, session.PiSessionID(), session.EffectiveCommand())
 	}
 
 	if err := agents.StartAll(ctx); err != nil {

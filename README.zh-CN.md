@@ -4,7 +4,13 @@
 
 **Duo 让两个 Pi coding agent 以平级伙伴的方式协作，而不是把一个 Agent 设为 Planner、另一个设为 subordinate worker。** 两个 Agent 可以共同讨论计划、实时互发消息、在隔离的 Git worktree 中执行、交叉 Review，并在集成前共同签字确认。
 
-当前版本为 **v0.4.3**，提供集成式双栏 TUI、原生 Pi 终端切换、动态端口和会话隔离，实现了可崩溃恢复的持久化会话（`duo --resume`），并会把最终集成结果安全交付回你启动 Duo 的原始仓库。
+当前版本为 **v0.4.4**，提供集成式双栏 TUI、原生 Pi 终端切换、动态端口和会话隔离，实现了可崩溃恢复的持久化会话（`duo --resume`），并会把最终集成结果安全交付回你启动 Duo 的原始仓库。
+
+从子目录启动时，Duo 仍以外层 Git repository 作为 branch、worktree 和 delivery 的 Git 边界，但 Austin/Tony 会从各自 worktree 中对应的启动子目录开始工作。例如 `cd repo/packages/web && duo` 的 Agent 默认工作目录是 `packages/web`。
+
+## v0.4.4 启动目录工作 Scope
+
+- **保留启动目录 scope**：Git ownership 仍是 repository root；Austin/Tony 则从启动目录对应的 repository-relative 目录开始。scope 会持久化，resume 与 restart 后不变。
 
 ## v0.4.3 测试生命周期与发布验证
 

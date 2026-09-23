@@ -68,6 +68,7 @@ type Snapshot struct {
 	SessionID  string `json:"sessionId"`
 	RepoID     string `json:"repoId"`
 	Repository string `json:"repository"`
+	ScopePath  string `json:"scopePath,omitempty"`
 	BaseBranch string `json:"baseBranch"`
 	BaseCommit string `json:"baseCommit"`
 

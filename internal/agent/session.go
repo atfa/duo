@@ -48,6 +48,7 @@ func (s ProcessState) String() string {
 type Config struct {
 	Agent                                    protocol.AgentID
 	Dir, Host, Port, Session, Token, Command string
+	RepositoryRoot, ScopePath                string
 	// PiSessionID is Duo's stable identity for this agent's Pi conversation. It
 	// is persisted per session and reused verbatim across restarts and resumes.
 	PiSessionID string
@@ -137,7 +138,7 @@ func (s *Session) Start(ctx context.Context) error {
 	// and expands "$DUO_PI_SESSION_ID" safely.
 	cmd := exec.Command("sh", "-lc", "exec "+s.commandLine())
 	cmd.Dir = s.cfg.Dir
-	cmd.Env = append(os.Environ(), "DUO_ACTIVE=1", "DUO_AGENT="+string(s.cfg.Agent), "DUO_HOST="+s.cfg.Host, "DUO_PORT="+s.cfg.Port, "DUO_SESSION="+s.cfg.Session, "DUO_TOKEN="+s.cfg.Token, "DUO_PI_SESSION_ID="+s.cfg.PiSessionID, "TERM=xterm-256color")
+	cmd.Env = append(os.Environ(), "DUO_ACTIVE=1", "DUO_AGENT="+string(s.cfg.Agent), "DUO_HOST="+s.cfg.Host, "DUO_PORT="+s.cfg.Port, "DUO_SESSION="+s.cfg.Session, "DUO_TOKEN="+s.cfg.Token, "DUO_PI_SESSION_ID="+s.cfg.PiSessionID, "DUO_REPOSITORY_ROOT="+s.cfg.RepositoryRoot, "DUO_SCOPE_PATH="+s.cfg.ScopePath, "TERM=xterm-256color")
 	ptmx, err := pty.StartWithSize(cmd, &s.size)
 	if err != nil {
 		s.state = ProcessFailed

@@ -3,6 +3,8 @@ package workspace
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/atfa/duo/internal/protocol"
@@ -21,8 +23,106 @@ type Set struct {
 	BaseCommit string
 	Session    string
 	Root       string
-	Austin     Worktree
-	Tony       Worktree
+	// ScopePath is the repository-relative default directory for agents.
+	// The empty value is the legacy spelling of the repository root.
+	ScopePath string
+	Austin    Worktree
+	Tony      Worktree
+}
+
+// AgentDir returns an agent's scoped working directory. It validates persisted
+// scope state before joining it to a worktree.
+func (s Set) AgentDir(agent protocol.AgentID) (string, bool, error) {
+	wt, ok := s.For(agent)
+	if !ok || strings.TrimSpace(wt.Path) == "" {
+		return "", false, nil
+	}
+	dir, err := ScopedPath(wt.Path, s.ScopePath)
+	return dir, true, err
+}
+
+// ScopedPath safely maps a repository-relative scope into a worktree.
+func ScopedPath(worktreeRoot, scope string) (string, error) {
+	root, err := filepath.Abs(strings.TrimSpace(worktreeRoot))
+	if err != nil {
+		return "", err
+	}
+	scope = strings.TrimSpace(scope)
+	if scope == "" || scope == "." {
+		return root, nil
+	}
+	if filepath.IsAbs(scope) {
+		return "", fmt.Errorf("cannot use Duo scope %q: must be repository-relative", scope)
+	}
+	clean := filepath.Clean(scope)
+	if clean == "." || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("cannot use Duo scope %q: escapes the repository", scope)
+	}
+	path := filepath.Join(root, clean)
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return "", fmt.Errorf("cannot use Duo scope %q: escapes the repository", scope)
+	}
+	canonicalRoot, err := canonicalPath(root)
+	if err != nil {
+		return "", err
+	}
+	current := root
+	for _, part := range strings.Split(clean, string(filepath.Separator)) {
+		current = filepath.Join(current, part)
+		if _, err := os.Lstat(current); os.IsNotExist(err) {
+			continue
+		} else if err != nil {
+			return "", err
+		}
+		resolved, err := filepath.EvalSymlinks(current)
+		if err != nil {
+			return "", fmt.Errorf("cannot use Duo scope %q: resolve path: %w", scope, err)
+		}
+		resolved = filepath.Clean(resolved)
+		inside, err := filepath.Rel(canonicalRoot, resolved)
+		if err != nil || inside == ".." || strings.HasPrefix(inside, ".."+string(filepath.Separator)) || filepath.IsAbs(inside) {
+			return "", fmt.Errorf("cannot use Duo scope %q: escapes the repository", scope)
+		}
+	}
+	return path, nil
+}
+
+// ScopePath derives a safe, repository-relative scope from the launch target.
+func ScopePath(repositoryRoot, launchDir string) (string, error) {
+	repo, err := canonicalPath(repositoryRoot)
+	if err != nil {
+		return "", err
+	}
+	launch, err := canonicalPath(launchDir)
+	if err != nil {
+		return "", err
+	}
+	rel, err := filepath.Rel(repo, launch)
+	if err != nil {
+		return "", err
+	}
+	if rel == "." {
+		return ".", nil
+	}
+	if filepath.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("launch directory %s is outside repository %s", launchDir, repositoryRoot)
+	}
+	return rel, nil
+}
+
+func canonicalPath(path string) (string, error) {
+	abs, err := filepath.Abs(strings.TrimSpace(path))
+	if err != nil {
+		return "", err
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return filepath.Clean(resolved), nil
+	}
+	if _, err := os.Stat(abs); err != nil {
+		return "", err
+	}
+	return filepath.Clean(abs), nil
 }
 
 func (s Set) For(agent protocol.AgentID) (Worktree, bool) {
@@ -38,8 +138,9 @@ func (s Set) For(agent protocol.AgentID) (Worktree, bool) {
 
 func (s Set) String() string {
 	return fmt.Sprintf(
-		"Workspace:\n- repo: %s\n- base: %s (%s)\n- session: %s\n- Austin: %s [%s]\n- Tony: %s [%s]",
+		"Workspace:\n- repo: %s\n- scope: %s\n- base: %s (%s)\n- session: %s\n- Austin: %s [%s]\n- Tony: %s [%s]",
 		s.Repository,
+		effectiveScope(s.ScopePath),
 		s.BaseBranch,
 		shortSHA(s.BaseCommit),
 		s.Session,
@@ -48,6 +149,13 @@ func (s Set) String() string {
 		s.Tony.Path,
 		s.Tony.Branch,
 	)
+}
+
+func effectiveScope(scope string) string {
+	if strings.TrimSpace(scope) == "" {
+		return "."
+	}
+	return scope
 }
 
 type Status struct {

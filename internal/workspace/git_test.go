@@ -52,6 +52,93 @@ func TestGitManagerPrepareCaptureAndIntegrate(t *testing.T) {
 	}
 }
 
+func TestScopePath(t *testing.T) {
+	repo := t.TempDir()
+	for _, tc := range []struct {
+		launch string
+		want   string
+	}{
+		{repo, "."},
+		{filepath.Join(repo, "code1"), "code1"},
+		{filepath.Join(repo, "a", "b"), filepath.Join("a", "b")},
+	} {
+		if err := os.MkdirAll(tc.launch, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		got, err := ScopePath(repo, tc.launch)
+		if err != nil || got != tc.want {
+			t.Fatalf("ScopePath(%q, %q) = %q, %v; want %q", repo, tc.launch, got, err, tc.want)
+		}
+	}
+	if _, err := ScopePath(repo, t.TempDir()); err == nil {
+		t.Fatal("outside launch directory was accepted")
+	}
+}
+
+func TestScopedPathRejectsEscape(t *testing.T) {
+	root := t.TempDir()
+	for _, scope := range []string{"../outside", "../../x", filepath.Join(root, "absolute")} {
+		if _, err := ScopedPath(root, scope); err == nil {
+			t.Fatalf("scope %q was accepted", scope)
+		}
+	}
+}
+
+func TestScopedPathRejectsSymlinkEscape(t *testing.T) {
+	root, outside := t.TempDir(), t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(root, "link")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if _, err := ScopedPath(root, filepath.Join("link", "x")); err == nil {
+		t.Fatal("scope through outside symlink was accepted")
+	}
+}
+
+func TestPrepareCreatesEmptyScopeDirectories(t *testing.T) {
+	repo := initRepo(t)
+	if err := os.Mkdir(filepath.Join(repo, "code1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m := NewGitManager(GitConfig{Repository: repo, ScopePath: "code1", Root: filepath.Join(t.TempDir(), "worktrees"), Session: "scope"})
+	set, err := m.Prepare(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		dir, ok, err := set.AgentDir(agent)
+		if err != nil || !ok {
+			t.Fatalf("AgentDir(%s) = %q, %t, %v", agent, dir, ok, err)
+		}
+		if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+			t.Fatalf("scoped dir %s missing: %v", dir, err)
+		}
+	}
+}
+
+func TestAgentDirAtRootScopeIsWorktreeRoot(t *testing.T) {
+	set := Set{ScopePath: ".", Austin: Worktree{Path: t.TempDir()}, Tony: Worktree{Path: t.TempDir()}}
+	for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		wt, _ := set.For(agent)
+		dir, ok, err := set.AgentDir(agent)
+		if err != nil || !ok || dir != wt.Path {
+			t.Fatalf("AgentDir(%s) = %q, %t, %v; want %q", agent, dir, ok, err, wt.Path)
+		}
+	}
+}
+
+func TestPrepareRejectsScopeFileCollision(t *testing.T) {
+	repo := initRepo(t)
+	if err := os.WriteFile(filepath.Join(repo, "code1"), []byte("not a directory\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(t, repo, "git", "add", "code1")
+	run(t, repo, "git", "commit", "-m", "add scope file")
+	_, err := NewGitManager(GitConfig{Repository: repo, ScopePath: "code1", Root: filepath.Join(t.TempDir(), "worktrees"), Session: "collision"}).Prepare(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "path exists but is not a directory") {
+		t.Fatalf("scope file collision error = %v", err)
+	}
+}
+
 func TestCaptureArtifactRejectsDirtyWorktree(t *testing.T) {
 	ctx := context.Background()
 	repo := initRepo(t)

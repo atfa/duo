@@ -42,7 +42,7 @@ func runResume(ctx context.Context, cfg config, root, repoID, baseDir string) er
 
 	logger := store.OpenLog()
 	journal := store.OpenEvents()
-	logger.Printf("resuming Duo session %s from %s (persisted phase %s)", snap.SessionID, store.StatePath(), snap.Phase)
+	logger.Printf("resuming Duo session %s from %s (persisted phase %s repository=%s scope=%s)", snap.SessionID, store.StatePath(), snap.Phase, snap.Repository, effectiveScope(snap.ScopePath))
 
 	set := setFromSnapshot(snap)
 	ws := workspace.NewGitManager(workspace.GitConfig{Repository: snap.Repository})
@@ -196,8 +196,8 @@ func formatCandidates(items []sessionstore.Summary) string {
 			fmt.Fprintf(&b, "  … and %d more\n", len(items)-i)
 			break
 		}
-		fmt.Fprintf(&b, "  %s  phase=%s  updated=%s\n",
-			item.SessionID, item.Snapshot.Phase, item.Snapshot.UpdatedAt.Local().Format(time.RFC3339))
+		fmt.Fprintf(&b, "  %s  phase=%s  scope=%s  updated=%s\n",
+			item.SessionID, item.Snapshot.Phase, effectiveScope(item.Snapshot.ScopePath), item.Snapshot.UpdatedAt.Local().Format(time.RFC3339))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }
@@ -222,6 +222,7 @@ func setFromSnapshot(snap sessionstore.Snapshot) workspace.Set {
 		BaseBranch: snap.BaseBranch,
 		BaseCommit: snap.BaseCommit,
 		Session:    snap.SessionID,
+		ScopePath:  effectiveScope(snap.ScopePath),
 	}
 	if wt, ok := snap.Worktree(protocol.Austin); ok {
 		set.Austin = workspace.Worktree{Agent: protocol.Austin, Path: wt.Path, Branch: wt.Branch}
@@ -233,6 +234,13 @@ func setFromSnapshot(snap sessionstore.Snapshot) workspace.Set {
 		set.Root = filepath.Dir(set.Austin.Path)
 	}
 	return set
+}
+
+func effectiveScope(scope string) string {
+	if strings.TrimSpace(scope) == "" {
+		return "."
+	}
+	return scope
 }
 
 // piSessionIDs returns the stable Pi session identity for each agent, reusing

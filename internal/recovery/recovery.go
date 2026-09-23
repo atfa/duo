@@ -89,6 +89,7 @@ func Compose(in ComposeInput) sessionstore.Snapshot {
 		SessionID:     in.SessionID,
 		RepoID:        in.RepoID,
 		Repository:    in.Repository,
+		ScopePath:     in.Worktrees.ScopePath,
 		BaseBranch:    in.BaseBranch,
 		BaseCommit:    in.BaseCommit,
 		Phase:         string(in.Project.Phase),

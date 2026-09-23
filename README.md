@@ -1,8 +1,12 @@
-# Duo v0.4.3
+# Duo v0.4.4
 
 **Two peer Pi coding agents in one terminal.**
 
-Duo v0.4.3 combines the peer collaboration runtime with an integrated terminal UI, isolated local sessions, and durable sessions that survive a crash — and hands the finished artifact back to the repository you launched it from.
+Duo v0.4.4 combines the peer collaboration runtime with an integrated terminal UI, isolated local sessions, and durable sessions that survive a crash — and hands the finished artifact back to the repository you launched it from.
+
+## What changed in v0.4.4
+
+- **Launch-directory scope.** Git ownership stays at the repository root, while Austin and Tony start in the repository-relative directory from which Duo was launched. The scope persists across resume and restart.
 
 ## What changed in v0.4.3
 
@@ -112,7 +116,7 @@ If you are developing Duo itself without installing the binary:
 ./scripts/run-core.sh /Users/atfa/fix/pet
 ```
 
-Duo resolves the Git repository root even if you start it from a subdirectory. Each run uses an OS-assigned localhost port plus a random session token, so separate Duo projects do not share agent connections. Automatically generated session names use a timestamp plus an eight-digit random hex suffix; explicit `DUO_SESSION` values are unchanged.
+Duo uses the enclosing Git repository as its Git boundary while preserving the directory you launched it from as Austin and Tony's default working scope. For example, `cd repo/packages/web && duo` keeps Git branches, worktrees and delivery at `repo`, while both agents start in `packages/web` within their private worktrees. Each run uses an OS-assigned localhost port plus a random session token, so separate Duo projects do not share agent connections. Automatically generated session names use a timestamp plus an eight-digit random hex suffix; explicit `DUO_SESSION` values are unchanged.
 
 ## Resume a session
 

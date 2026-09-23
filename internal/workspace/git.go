@@ -18,6 +18,7 @@ import (
 
 type GitConfig struct {
 	Repository string
+	ScopePath  string
 	Root       string
 	Session    string
 	BaseRef    string
@@ -109,6 +110,10 @@ func (m *GitManager) Prepare(ctx context.Context) (Set, error) {
 		BaseCommit: baseCommit,
 		Session:    session,
 		Root:       workspaceRoot,
+		ScopePath:  m.cfg.ScopePath,
+	}
+	if _, err := ScopedPath(root, set.ScopePath); err != nil {
+		return Set{}, err
 	}
 
 	for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
@@ -126,9 +131,30 @@ func (m *GitManager) Prepare(ctx context.Context) (Set, error) {
 			set.Tony = wt
 		}
 	}
-
 	m.set = set
+	for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		if err := m.ensureScopedDir(agent); err != nil {
+			return Set{}, err
+		}
+	}
+
 	return set, nil
+}
+
+func (m *GitManager) ensureScopedDir(agent protocol.AgentID) error {
+	dir, ok, err := m.set.AgentDir(agent)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("unknown agent: %s", agent)
+	}
+	if st, err := os.Stat(dir); err == nil && !st.IsDir() {
+		return fmt.Errorf("cannot use Duo scope %q: path exists but is not a directory", effectiveScope(m.set.ScopePath))
+	} else if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return os.MkdirAll(dir, 0o755)
 }
 
 func (m *GitManager) ensureWorktree(
@@ -411,7 +437,7 @@ func (m *GitManager) Validate(ctx context.Context, agent protocol.AgentID) error
 			return fmt.Errorf("%s worktree is on branch %q, expected %q", agent, strings.TrimSpace(actualBranch), wt.Branch)
 		}
 	}
-	return nil
+	return m.ensureScopedDir(agent)
 }
 
 func gitOutput(ctx context.Context, dir string, args ...string) (string, error) {

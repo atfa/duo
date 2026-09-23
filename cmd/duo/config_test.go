@@ -1,11 +1,15 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"testing"
 	"time"
 
 	"github.com/atfa/duo/internal/protocol"
+	"github.com/atfa/duo/internal/sessionstore"
+	"github.com/atfa/duo/internal/workspace"
 )
 
 func TestSessionID(t *testing.T) {
@@ -29,6 +33,41 @@ func TestSessionID(t *testing.T) {
 	}
 	if got.session != "abc" {
 		t.Fatalf("explicit session = %q", got.session)
+	}
+}
+
+func TestLoadConfigLaunchTargetPrecedence(t *testing.T) {
+	root := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	env := filepath.Join(root, "env")
+	cli := filepath.Join(root, "cli")
+	t.Setenv("DUO_REPO", env)
+	cfg, err := loadConfig([]string{cli})
+	if err != nil || cfg.launchDir != cli {
+		t.Fatalf("CLI launch target = %q, %v", cfg.launchDir, err)
+	}
+	cfg, err = loadConfig(nil)
+	if err != nil || cfg.launchDir != env {
+		t.Fatalf("environment launch target = %q, %v", cfg.launchDir, err)
+	}
+	t.Setenv("DUO_REPO", "")
+	cfg, err = loadConfig(nil)
+	if err != nil || !workspace.SamePath(cfg.launchDir, root) {
+		t.Fatalf("cwd launch target = %q, %v", cfg.launchDir, err)
+	}
+}
+
+func TestSetFromLegacySnapshotUsesRootScope(t *testing.T) {
+	set := setFromSnapshot(sessionstore.Snapshot{Repository: "/tmp/repo"})
+	if set.ScopePath != "." {
+		t.Fatalf("legacy scope = %q, want .", set.ScopePath)
 	}
 }
 

@@ -20,6 +20,9 @@ PEER ROLE:
 - You also have an isolated worktree, so you may explore or prototype independently without overwriting Austin's files.
 `.trim();
 
+    const repositoryRoot = process.env.DUO_REPOSITORY_ROOT || "(unknown)";
+    const scopePath = process.env.DUO_SCOPE_PATH || ".";
+
     event.systemPromptOptions.sections["duo"] = `
 You are ${agent}, one of two peer coding agents coordinated by Duo Core.
 
@@ -29,7 +32,8 @@ PLAN -> EXECUTE -> REVIEW -> INTEGRATE -> DONE
 ${bootstrap}
 
 WORKTREE MODEL:
-- Your current working directory is your private Git worktree/branch created by Duo Core.
+- Repository root: ${repositoryRoot}
+- Your current working directory is the ${scopePath} scope in your private Git worktree/branch created by Duo Core. Treat it as the human's default task scope, but you may inspect or modify other repository paths when the task genuinely requires it.
 - Never directly edit the peer's worktree. Communicate through duo_send and inspect peer commits/branches with Git when reviewing.
 - Concurrent edits are safe because Austin and Tony have separate worktrees. A merge conflict is an integration problem, not a reason to serialize all work.
 

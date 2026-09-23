@@ -119,6 +119,49 @@ func TestDeliveryEndToEndDeliversResultFile(t *testing.T) {
 	}
 }
 
+func TestDeliveryEndToEndDeliversScopedResultFile(t *testing.T) {
+	ctx := context.Background()
+	runtime := startE2EWithScope(t, ctx, "code1")
+	set, repo := runtime.set, runtime.repo
+	for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		wt, _ := set.For(agent)
+		dir, ok, err := set.AgentDir(agent)
+		if err != nil || !ok || dir != filepath.Join(wt.Path, "code1") {
+			t.Fatalf("%s scoped directory = %q, %t, %v", agent, dir, ok, err)
+		}
+	}
+	austin := runtime.dialAgent(t, protocol.Austin)
+	tony := runtime.dialAgent(t, protocol.Tony)
+	waitFor(t, func() bool {
+		return runtime.server.IsConnected(protocol.Austin) && runtime.server.IsConnected(protocol.Tony)
+	}, "both agents to connect")
+	request(t, austin, protocol.Message{Version: protocol.Version, Type: protocol.MsgSetPlan, Plan: "Create scoped index.html"})
+	sign(t, austin)
+	sign(t, tony)
+	waitPhase(t, runtime.state, project.PhaseExecute)
+	austinDir, _, _ := set.AgentDir(protocol.Austin)
+	tonyDir, _, _ := set.AgentDir(protocol.Tony)
+	writeAndCommit(t, austinDir, "index.html", "hello scoped Duo\n", "add scoped page")
+	writeAndCommit(t, tonyDir, "tony-draft.md", "scratch\n", "tony draft")
+	sign(t, austin)
+	sign(t, tony)
+	waitPhase(t, runtime.state, project.PhaseReview)
+	beforeMerge := gitHead(t, set.Austin.Path)
+	sign(t, austin)
+	sign(t, tony)
+	waitPhase(t, runtime.state, project.PhaseIntegrate)
+	waitFor(t, func() bool { return gitHead(t, set.Austin.Path) != beforeMerge }, "Tony's work to be merged into Austin")
+	sign(t, austin)
+	sign(t, tony)
+	waitPhase(t, runtime.state, project.PhaseDone)
+	if data, err := os.ReadFile(filepath.Join(repo, "code1", "index.html")); err != nil || string(data) != "hello scoped Duo\n" {
+		t.Fatalf("scoped delivery = %q, %v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "index.html")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected repository-root index.html: %v", err)
+	}
+}
+
 // TestDeliveryEndToEndStaysPendingWhenRepositoryChanged proves the safety half:
 // if the user's repository changed while Duo worked, Duo preserves the user's
 // work, stays in INTEGRATE with both signatures, records a pending delivery and
@@ -294,12 +337,22 @@ type e2eRuntime struct {
 // startE2E wires a real Coordinator, Store and transport server over a real Git
 // repository with prepared worktrees.
 func startE2E(t *testing.T, ctx context.Context) *e2eRuntime {
+	return startE2EWithScope(t, ctx, ".")
+}
+
+func startE2EWithScope(t *testing.T, ctx context.Context, scope string) *e2eRuntime {
 	t.Helper()
 	root := t.TempDir()
 	repo := initE2ERepoAt(t, filepath.Join(root, "repo"))
+	if scope != "." {
+		if err := os.MkdirAll(filepath.Join(repo, scope), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	ws := workspace.NewGitManager(workspace.GitConfig{
 		Repository: repo,
+		ScopePath:  scope,
 		Root:       filepath.Join(root, "worktrees"),
 		Session:    e2eSession,
 	})
