@@ -101,6 +101,13 @@ func TestDeliveryEndToEndDeliversResultFile(t *testing.T) {
 		t.Fatalf("DONE evidence = %+v, want %s", snap.Evidence, finalHead)
 	}
 
+	// State becomes observable as DONE before its synchronous persistence hook
+	// has necessarily reached the atomic rename. Wait for that durable boundary,
+	// rather than racing a valid previous checkpoint with the write in flight.
+	waitFor(t, func() bool {
+		snap, err := store.Load()
+		return err == nil && snap.Phase == string(project.PhaseDone)
+	}, "durable DONE checkpoint")
 	persisted, err := store.Load()
 	if err != nil {
 		t.Fatal(err)
