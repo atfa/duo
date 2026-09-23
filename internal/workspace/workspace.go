@@ -92,6 +92,13 @@ type IntegrationResult struct {
 	Message      string
 }
 
+// MergeState reports an in-progress merge in an agent worktree.
+type MergeState struct {
+	InProgress bool
+	MergeHead  string
+	Conflicted bool
+}
+
 type Manager interface {
 	Prepare(context.Context) (Set, error)
 	Set() Set

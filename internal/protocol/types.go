@@ -36,6 +36,11 @@ func PeerOf(agent AgentID) AgentID {
 
 type MessageType string
 
+// Version is the Duo bridge wire-protocol version. It is independent of the Duo
+// binary version and must match pi-extension/protocol.ts (PROTOCOL_VERSION).
+// The server rejects any hello whose version does not match exactly.
+const Version = 1
+
 const (
 	MsgHello            MessageType = "hello"
 	MsgTest             MessageType = "test"

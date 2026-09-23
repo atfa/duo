@@ -4,7 +4,17 @@
 
 **Duo 让两个 Pi coding agent 以平级伙伴的方式协作，而不是把一个 Agent 设为 Planner、另一个设为 subordinate worker。** 两个 Agent 可以共同讨论计划、实时互发消息、在隔离的 Git worktree 中执行、交叉 Review，并在集成前共同签字确认。
 
-当前版本为 **v0.3.3**，提供集成式双栏 TUI、原生 Pi 终端切换、动态端口和会话隔离，并修复了 resize 时的渲染拖尾问题。
+当前版本为 **v0.4.0**，提供集成式双栏 TUI、原生 Pi 终端切换、动态端口和会话隔离，并实现了可崩溃恢复的持久化会话（`duo --resume`）。
+
+## v0.4.0 已实现
+
+- **持久化会话**：Phase、Plan 版本、签字、证据、worktree 记录和 Pi 会话身份都会写入 `~/.duo/sessions/<repo-id>/<session-id>/state.json`，采用原子写入（临时文件 → `fsync` → rename → 目录 `fsync`），崩溃后不会留下半个 checkpoint。
+- **`duo --resume [session-id]`**：不指定 id 时恢复该仓库唯一未完成的会话；存在多个时列出候选而不是猜测。会话不存在修复选项时也会给出明确提示。
+- **Git 是唯一真相**：resume 会重新检查两个 worktree、发现中断中或已完成的 merge，并撤销所有证据已失效的签字。会话不会静默退回到 PLAN，旧签字不会被当成仍然有效。
+- **脏 worktree 可恢复**：未提交的修改不会阻塞 resume；Duo 会报告它、只撤销因此失效的签字，并且不会动你的文件。
+- **Pi 身份稳定**：通过 `--session-id`，Austin 和 Tony 在重启后仍保留各自的 Pi 对话历史。
+- **同一会话单一进程**：每个会话使用 advisory `flock`，并提供诊断日志 `events.jsonl` 和会脱敏 token 的 `duo.log`。
+- 修复了 macOS 上 resume 误判自身 worktree 的路径比较 bug（Git 返回 `/private/var/...`，而持久化的是 `/var/...`）。
 
 ## v0.3.3 已实现
 
@@ -145,13 +155,13 @@ Duo 将 Tony merge 到 Austin。冲突显式保留给 Austin 解决，不会静�
 
 ## 当前定位
 
-Duo 已经具备完整双 Agent 协作闭环和集成式 TUI。目前仍固定为两名 Agent，主要面向 macOS/Linux + Git + Pi；尚未实现 session persistence/resume 和自动崩溃重启。
+Duo 已经具备完整双 Agent 协作闭环、集成式 TUI，以及可崩溃恢复的持久化会话。目前仍固定为两名 Agent，主要面向 macOS/Linux + Git + Pi；尚未实现 Duo 自身的自动崩溃重启和跨机器迁移会话。
 
 详细限制见 [docs/known-limitations.md](./docs/known-limitations.md)。
 
 ## 下一步
 
-v0.3.3 重构了 TUI renderer：resize、原生 Pi 返回和布局变化强制 full clear；layout 使用真实终端尺寸；帧使用 synchronized output 与 autowrap 保护；SIGWINCH 合并后只画一帧；idle 时几乎零重绘。之前 v0.3.2 已直接使用 Go 管理的 PTY，SIGWINCH 会同步 Austin/Tony 的 PTY 尺寸（包括未 attach 时）。退出的 Agent 可通过 Ctrl+R 重启 Austin、Ctrl+Y 重启 Tony；运行中的 Agent 不会被强杀。后续重点是历史滚动、多行输入和持久化恢复。
+v0.4.0 让会话变持久：Duo Core、Austin 或 Tony 崩溃后可以用 `duo --resume` 继续原任务，恢复时会用 Git 重新验证 worktree 和 merge 状态，并撤销失效签字，不会静默退回 PLAN。v0.3.3 重构了 TUI renderer：resize、原生 Pi 返回和布局变化强制 full clear；layout 使用真实终端尺寸；帧使用 synchronized output 与 autowrap 保护；SIGWINCH 合并后只画一帧；idle 时几乎零重绘。退出的 Agent 可通过 Ctrl+R 重启 Austin、Ctrl+Y 重启 Tony。后续重点是 Agent 名称/角色与模型配置、集成策略配置、历史滚动和多行输入。
 
 详见 [ROADMAP.md](./ROADMAP.md)。
 

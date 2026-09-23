@@ -11,11 +11,43 @@ import (
 type Manager struct {
 	mu       sync.RWMutex
 	sessions map[protocol.AgentID]*Session
+	observer Observer
 }
+
+// LifecycleEvent describes an agent process lifecycle transition. It exists so
+// the durable log can record what happened to each agent without the agent
+// package knowing about persistence.
+type LifecycleEvent struct {
+	Kind  string // agent_start, agent_start_failed, agent_restart, agent_exit
+	Agent protocol.AgentID
+	State ProcessState
+	Err   error
+}
+
+type Observer func(LifecycleEvent)
 
 func NewManager() *Manager { return &Manager{sessions: make(map[protocol.AgentID]*Session)} }
 
+// SetObserver installs a listener for agent lifecycle events.
+func (m *Manager) SetObserver(observer Observer) {
+	m.mu.Lock()
+	m.observer = observer
+	m.mu.Unlock()
+}
+
+func (m *Manager) observe(event LifecycleEvent) {
+	m.mu.RLock()
+	observer := m.observer
+	m.mu.RUnlock()
+	if observer != nil {
+		observer(event)
+	}
+}
+
 func (m *Manager) Add(session *Session) {
+	session.cfg.OnExit = func(event ExitEvent) {
+		m.observe(LifecycleEvent{Kind: "agent_exit", Agent: event.Agent, State: event.State, Err: event.Err})
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.sessions[session.cfg.Agent] = session
@@ -28,9 +60,11 @@ func (m *Manager) StartAll(ctx context.Context) error {
 			return fmt.Errorf("missing %s session", agent)
 		}
 		if err := s.Start(ctx); err != nil {
+			m.observe(LifecycleEvent{Kind: "agent_start_failed", Agent: agent, State: s.State(), Err: err})
 			m.StopAll()
 			return fmt.Errorf("start %s: %w", agent, err)
 		}
+		m.observe(LifecycleEvent{Kind: "agent_start", Agent: agent, State: s.State()})
 	}
 	return nil
 }
@@ -61,7 +95,9 @@ func (m *Manager) Restart(ctx context.Context, agent protocol.AgentID) error {
 	if s.Running() {
 		return fmt.Errorf("%s is still running; restart refused", agent)
 	}
-	return s.Start(ctx)
+	err := s.Start(ctx)
+	m.observe(LifecycleEvent{Kind: "agent_restart", Agent: agent, State: s.State(), Err: err})
+	return err
 }
 
 func (m *Manager) StopAll() {

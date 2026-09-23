@@ -11,6 +11,8 @@ import (
 	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
+	"github.com/atfa/duo/internal/recovery"
+	"github.com/atfa/duo/internal/sessionstore"
 	"github.com/atfa/duo/internal/transport"
 	"github.com/atfa/duo/internal/workspace"
 )
@@ -24,6 +26,22 @@ type Coordinator struct {
 
 	integrationMu sync.RWMutex
 	integration   workspace.IntegrationResult
+
+	// Durable session state. EnableDurability must be called once, before the
+	// event loop starts, after any resume has restored the project state.
+	durable   *sessionstore.Store
+	journal   *sessionstore.EventLog
+	log       *sessionstore.Logger
+	compose   func(project.Snapshot) sessionstore.Snapshot
+	persistMu sync.Mutex
+}
+
+// Durability wires a session store into the coordinator.
+type Durability struct {
+	Store   *sessionstore.Store
+	Events  *sessionstore.EventLog
+	Log     *sessionstore.Logger
+	Compose func(project.Snapshot) sessionstore.Snapshot
 }
 
 func New(
@@ -34,6 +52,78 @@ func New(
 	bus *events.Bus,
 ) *Coordinator {
 	return &Coordinator{server: server, project: state, tracker: tracker, workspace: ws, bus: bus}
+}
+
+// EnableDurability attaches persistent session state and an event journal. It
+// installs the project persistence hook, so it must be called after a resume
+// has finished restoring state; otherwise recovery would immediately write back.
+func (c *Coordinator) EnableDurability(d Durability) {
+	c.durable = d.Store
+	c.journal = d.Events
+	c.log = d.Log
+	c.compose = d.Compose
+	c.project.SetPersistence(c.persist)
+}
+
+// SetIntegration records the integration outcome so it is part of every
+// snapshot. Recovery uses it to know whether a merge already happened.
+func (c *Coordinator) SetIntegration(result workspace.IntegrationResult) {
+	c.integrationMu.Lock()
+	c.integration = result
+	c.integrationMu.Unlock()
+}
+
+// CurrentIntegration is the last known integration outcome.
+func (c *Coordinator) CurrentIntegration() workspace.IntegrationResult {
+	c.integrationMu.RLock()
+	defer c.integrationMu.RUnlock()
+	return c.integration
+}
+
+// persist writes the current snapshot. It ignores the snapshot passed by the
+// hook and re-reads live state under a mutex, so concurrent Austin/Tony message
+// handlers can never write an older snapshot over a newer one.
+func (c *Coordinator) persist(_ project.Snapshot) {
+	if c.durable == nil || c.compose == nil {
+		return
+	}
+	c.persistMu.Lock()
+	defer c.persistMu.Unlock()
+	if err := c.durable.Save(c.compose(c.project.Snapshot())); err != nil {
+		if c.log != nil {
+			c.log.Printf("failed to persist session state: %v", err)
+		}
+		c.emit(events.KindError, protocol.Duo, "", "failed to persist session state: "+err.Error())
+	}
+}
+
+// persistNow forces a snapshot write for state that lives outside
+// project.State, such as the integration result.
+func (c *Coordinator) persistNow(reason string) {
+	if c.durable == nil || c.compose == nil {
+		return
+	}
+	c.persistMu.Lock()
+	defer c.persistMu.Unlock()
+	if err := c.durable.Save(c.compose(c.project.Snapshot())); err != nil {
+		if c.log != nil {
+			c.log.Printf("failed to persist session state after %s: %v", reason, err)
+		}
+		c.emit(events.KindError, protocol.Duo, "", "failed to persist session state: "+err.Error())
+	}
+}
+
+func (c *Coordinator) recordEvent(eventType string, fields map[string]any) {
+	if c.journal == nil {
+		return
+	}
+	c.journal.Record(eventType, fields)
+}
+
+func (c *Coordinator) logf(format string, args ...any) {
+	if c.log != nil {
+		c.log.Printf(format, args...)
+	}
 }
 
 func (c *Coordinator) emit(kind events.Kind, agent, peer protocol.AgentID, text string) {
@@ -66,11 +156,13 @@ func (c *Coordinator) StatusText(ctx context.Context) string { return c.statusTe
 
 func (c *Coordinator) OnConnect(_ context.Context, client *transport.Client) {
 	c.tracker.Touch(client.Agent)
+	c.recordEvent("bridge_connect", map[string]any{"agent": string(client.Agent)})
 	c.emit(events.KindSystem, client.Agent, "", fmt.Sprintf("%s connected", client.Agent))
 }
 
 func (c *Coordinator) OnDisconnect(client *transport.Client) {
 	c.tracker.Reset(client.Agent)
+	c.recordEvent("bridge_disconnect", map[string]any{"agent": string(client.Agent)})
 	c.emit(events.KindSystem, client.Agent, "", fmt.Sprintf("%s disconnected", client.Agent))
 }
 
@@ -169,6 +261,10 @@ func (c *Coordinator) handleSetPlan(ctx context.Context, client *transport.Clien
 	}
 
 	c.tracker.Touch(client.Agent)
+	c.recordEvent("plan_updated", map[string]any{
+		"agent":       string(client.Agent),
+		"planVersion": snap.PlanVersion,
+	})
 	c.emit(events.KindSystem, client.Agent, "", fmt.Sprintf("updated shared plan → v%d; both signatures reset", snap.PlanVersion))
 	_ = c.respond(ctx, client, message.RequestID, true,
 		fmt.Sprintf("Shared plan updated to v%d. Both signatures were reset.", snap.PlanVersion), c.statusText(ctx))
@@ -225,12 +321,36 @@ func (c *Coordinator) handleSetStatus(ctx context.Context, client *transport.Cli
 	c.tracker.Touch(client.Agent)
 	peer := protocol.PeerOf(client.Agent)
 
+	// A signature is an assertion about a specific artifact in a specific phase;
+	// record exactly what was signed so the journal can be audited.
+	if *message.Ready {
+		c.recordEvent("signature", map[string]any{
+			"agent":    string(client.Agent),
+			"phase":    string(snap.Phase),
+			"evidence": evidence,
+		})
+	} else {
+		c.recordEvent("signature_revoked", map[string]any{
+			"agent": string(client.Agent),
+			"phase": string(snap.Phase),
+			"note":  message.Note,
+		})
+	}
+
 	if tr.Advanced {
+		c.recordEvent("phase_transition", map[string]any{
+			"from": string(tr.Previous),
+			"to":   string(tr.Next),
+		})
+		c.logf("phase advanced %s → %s", tr.Previous, tr.Next)
 		c.emit(events.KindSystem, protocol.Duo, "", fmt.Sprintf("%s complete by dual sign-off → %s", tr.Previous, tr.Next))
 
 		integrationText := ""
 		if tr.Next == project.PhaseIntegrate {
 			integrationText = c.beginIntegration(ctx)
+		}
+		if tr.Next == project.PhaseDone {
+			c.clearIntegrationConflict(ctx)
 		}
 
 		_ = c.respond(ctx, client, message.RequestID, true,
@@ -279,35 +399,9 @@ func (c *Coordinator) evidenceForReady(
 	phase project.Phase,
 	snap project.Snapshot,
 ) (string, error) {
-	switch phase {
-	case project.PhasePlan:
-		return fmt.Sprintf("plan-v%d", snap.PlanVersion), nil
-
-	case project.PhaseExecute:
-		artifact, err := c.workspace.CaptureArtifact(ctx, agent)
-		if err != nil {
-			return "", err
-		}
-		return artifact.Commit, nil
-
-	case project.PhaseReview:
-		peer := protocol.PeerOf(agent)
-		artifact, err := c.workspace.CaptureArtifact(ctx, peer)
-		if err != nil {
-			return "", fmt.Errorf("cannot sign REVIEW until %s has a clean reviewable worktree: %w", peer, err)
-		}
-		return artifact.Commit, nil
-
-	case project.PhaseIntegrate:
-		artifact, err := c.workspace.CaptureArtifact(ctx, protocol.Austin)
-		if err != nil {
-			return "", fmt.Errorf("integration branch is not ready for sign-off: %w", err)
-		}
-		return artifact.Commit, nil
-
-	default:
-		return "", fmt.Errorf("cannot sign phase %s", phase)
-	}
+	// Live signing and crash recovery share one rule so a resumed session can
+	// never revoke a signature that signing would have considered valid.
+	return recovery.ExpectedEvidence(ctx, c.workspace, phase, agent, snap.PlanVersion)
 }
 
 // invalidateStaleApprovals makes a signature mean something concrete.
@@ -319,32 +413,18 @@ func (c *Coordinator) invalidateStaleApprovals(ctx context.Context, snap project
 		if !snap.Ready[signer] {
 			continue
 		}
-		var expected string
-		var err error
-
-		switch snap.Phase {
-		case project.PhasePlan:
-			expected = fmt.Sprintf("plan-v%d", snap.PlanVersion)
-		case project.PhaseExecute:
-			var artifact workspace.Artifact
-			artifact, err = c.workspace.CaptureArtifact(ctx, signer)
-			expected = artifact.Commit
-		case project.PhaseReview:
-			var artifact workspace.Artifact
-			artifact, err = c.workspace.CaptureArtifact(ctx, protocol.PeerOf(signer))
-			expected = artifact.Commit
-		case project.PhaseIntegrate:
-			var artifact workspace.Artifact
-			artifact, err = c.workspace.CaptureArtifact(ctx, protocol.Austin)
-			expected = artifact.Commit
-		}
-
+		expected, err := recovery.ExpectedEvidence(ctx, c.workspace, snap.Phase, signer, snap.PlanVersion)
 		if err != nil || strings.TrimSpace(expected) == "" || expected != snap.Evidence[signer] {
 			reason := "signed target changed; readiness revoked"
 			if err != nil {
 				reason = "signed target is no longer clean/reviewable; readiness revoked"
 			}
 			c.project.RevokeReady(signer, reason)
+			c.recordEvent("signature_revoked", map[string]any{
+				"agent":  string(signer),
+				"phase":  string(snap.Phase),
+				"reason": reason,
+			})
 			c.emit(events.KindSystem, signer, "", fmt.Sprintf("revoked stale %s signature", snap.Phase))
 		}
 	}
@@ -352,18 +432,24 @@ func (c *Coordinator) invalidateStaleApprovals(ctx context.Context, snap project
 }
 
 func (c *Coordinator) beginIntegration(ctx context.Context) string {
+	c.recordEvent("merge_started", map[string]any{"phase": string(project.PhaseReview)})
+
 	result, err := c.workspace.IntegrateTonyIntoAustin(ctx)
 	if err != nil {
+		c.recordEvent("merge_failed", map[string]any{"error": err.Error()})
 		text := "Integration could not start automatically: " + err.Error()
 		c.emit(events.KindError, protocol.Duo, "", text)
 		return text
 	}
 
-	c.integrationMu.Lock()
-	c.integration = result
-	c.integrationMu.Unlock()
+	c.SetIntegration(result)
 
 	if result.Conflicted {
+		c.recordEvent("merge_conflict", map[string]any{
+			"head":       result.Head,
+			"mergedTony": result.MergedTony,
+		})
+		c.persistNow("merge conflict")
 		text := fmt.Sprintf(
 			"Git merge started in Austin's worktree but has conflicts. Austin must resolve them in %s, commit the resolution, run validation, and then sign INTEGRATE. Tony must review Austin's final integrated HEAD before signing.",
 			result.AustinPath,
@@ -372,6 +458,12 @@ func (c *Coordinator) beginIntegration(ctx context.Context) string {
 		return text
 	}
 
+	c.recordEvent("merge_complete", map[string]any{
+		"head":       result.Head,
+		"mergedTony": result.MergedTony,
+	})
+	c.persistNow("integration merge")
+
 	text := fmt.Sprintf(
 		"Tony branch merged into Austin integration branch %s. Integrated HEAD is %s. Austin should run final validation; Tony should review this integrated branch. Both sign INTEGRATE only after the final HEAD is acceptable.",
 		result.AustinBranch,
@@ -379,6 +471,26 @@ func (c *Coordinator) beginIntegration(ctx context.Context) string {
 	)
 	c.emit(events.KindSystem, protocol.Duo, "", fmt.Sprintf("integration merge complete → %s@%s", result.AustinBranch, shortSHA(result.Head)))
 	return text
+}
+
+// clearIntegrationConflict marks the integration as resolved once both agents
+// have signed the final integrated HEAD, so a resumed session never reports a
+// stale conflict.
+func (c *Coordinator) clearIntegrationConflict(ctx context.Context) {
+	status, err := c.workspace.Status(ctx, protocol.Austin)
+	if err != nil {
+		c.logf("could not confirm integrated HEAD after DONE: %v", err)
+		return
+	}
+	c.integrationMu.Lock()
+	c.integration.Conflicted = false
+	if status.Head != "" {
+		c.integration.Head = status.Head
+	}
+	result := c.integration
+	c.integrationMu.Unlock()
+	c.recordEvent("integration_resolved", map[string]any{"head": result.Head})
+	c.persistNow("integration resolved")
 }
 
 func (c *Coordinator) handleGetStatus(ctx context.Context, client *transport.Client, message protocol.Message) {

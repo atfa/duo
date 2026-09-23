@@ -112,6 +112,10 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 			agent := protocol.CanonicalAgent(string(message.Agent))
 			validAgent := agent == protocol.Austin || agent == protocol.Tony
 			validToken := subtle.ConstantTimeCompare([]byte(message.Token), []byte(s.token)) == 1
+			if message.Version != protocol.Version {
+				log.Printf("rejecting Duo hello from %s: bridge protocol version %d is not supported (need %d)", conn.RemoteAddr(), message.Version, protocol.Version)
+				return
+			}
 			if !validAgent || message.SessionID != s.sessionID || !validToken {
 				log.Printf("rejecting unauthorized Duo hello from %s", conn.RemoteAddr())
 				return

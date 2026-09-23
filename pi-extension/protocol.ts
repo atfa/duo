@@ -1,7 +1,13 @@
 export type AgentName = "Austin" | "Tony";
 
+/**
+ * Duo bridge wire-protocol version. Must match `protocol.Version` in the Go
+ * runtime (internal/protocol). Independent of the Duo binary version.
+ */
+export const PROTOCOL_VERSION = 1;
+
 export type DuoMessage = {
-  version: 1;
+  version: typeof PROTOCOL_VERSION;
   type: string;
   requestId?: string;
 

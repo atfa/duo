@@ -141,7 +141,7 @@ func (m *GitManager) ensureWorktree(
 ) (Worktree, error) {
 	if st, err := os.Stat(path); err == nil && st.IsDir() {
 		actualRoot, err := gitOutput(ctx, path, "rev-parse", "--show-toplevel")
-		if err != nil || filepath.Clean(strings.TrimSpace(actualRoot)) != filepath.Clean(path) {
+		if err != nil || !SamePath(strings.TrimSpace(actualRoot), path) {
 			return Worktree{}, fmt.Errorf("existing worktree path is not the expected Git worktree: %s", path)
 		}
 		actualBranch, err := gitOutput(ctx, path, "branch", "--show-current")
@@ -288,6 +288,128 @@ func (m *GitManager) Cleanup(ctx context.Context) error {
 	}
 	if len(errs) > 0 {
 		return errors.New(strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+// FindRoot resolves a repository path to its Git top-level directory without
+// touching the worktree. It is used before Duo decides fresh vs resume.
+func FindRoot(ctx context.Context, repository string) (string, error) {
+	repo := strings.TrimSpace(repository)
+	if repo == "" {
+		repo = "."
+	}
+	root, err := gitOutput(ctx, repo, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", fmt.Errorf("Duo requires an existing Git repository: %w", err)
+	}
+	abs, err := filepath.Abs(strings.TrimSpace(root))
+	if err != nil {
+		return "", err
+	}
+	return abs, nil
+}
+
+// SamePath reports whether two paths denote the same location. Git reports
+// resolved paths (on macOS /tmp is really /private/tmp), so a session recorded
+// through one spelling must still validate against the other.
+func SamePath(a, b string) bool {
+	if filepath.Clean(a) == filepath.Clean(b) {
+		return true
+	}
+	resolvedA, errA := filepath.EvalSymlinks(a)
+	resolvedB, errB := filepath.EvalSymlinks(b)
+	if errA != nil || errB != nil {
+		return false
+	}
+	return filepath.Clean(resolvedA) == filepath.Clean(resolvedB)
+}
+
+// Restore installs a previously persisted workspace set without touching Git or
+// creating worktrees. Recovery validates it separately.
+func (m *GitManager) Restore(set Set) { m.set = set }
+
+// Head returns the current commit of an agent worktree.
+func (m *GitManager) Head(ctx context.Context, agent protocol.AgentID) (string, error) {
+	wt, ok := m.set.For(agent)
+	if !ok {
+		return "", fmt.Errorf("unknown agent: %s", agent)
+	}
+	head, err := gitOutput(ctx, wt.Path, "rev-parse", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(head), nil
+}
+
+// MergeState describes an interrupted or completed merge in a worktree.
+// During a conflicted merge, HEAD still points at the pre-merge commit and
+// MERGE_HEAD holds the commit being merged in, which is what crash recovery
+// needs to avoid duplicating the merge.
+func (m *GitManager) MergeState(ctx context.Context, agent protocol.AgentID) (MergeState, error) {
+	wt, ok := m.set.For(agent)
+	if !ok {
+		return MergeState{}, fmt.Errorf("unknown agent: %s", agent)
+	}
+	mergeHead, err := gitOutput(ctx, wt.Path, "rev-parse", "-q", "--verify", "MERGE_HEAD")
+	mergeHead = strings.TrimSpace(mergeHead)
+	if err != nil || mergeHead == "" {
+		return MergeState{Conflicted: hasMergeConflicts(ctx, wt.Path)}, nil
+	}
+	return MergeState{
+		InProgress: true,
+		MergeHead:  mergeHead,
+		Conflicted: hasMergeConflicts(ctx, wt.Path),
+	}, nil
+}
+
+// IsAncestor reports whether ancestor is reachable from descendant.
+func (m *GitManager) IsAncestor(ctx context.Context, agent protocol.AgentID, ancestor, descendant string) (bool, error) {
+	wt, ok := m.set.For(agent)
+	if !ok {
+		return false, fmt.Errorf("unknown agent: %s", agent)
+	}
+	if strings.TrimSpace(ancestor) == "" || strings.TrimSpace(descendant) == "" {
+		return false, nil
+	}
+	cmd := exec.CommandContext(ctx, "git", "-C", wt.Path, "merge-base", "--is-ancestor", ancestor, descendant)
+	err := cmd.Run()
+	if err == nil {
+		return true, nil
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return false, nil
+	}
+	return false, fmt.Errorf("git merge-base --is-ancestor: %w", err)
+}
+
+// Validate checks that an agent worktree exists and is the expected Git worktree
+// on the expected branch. Dirty content is allowed and reported separately.
+func (m *GitManager) Validate(ctx context.Context, agent protocol.AgentID) error {
+	wt, ok := m.set.For(agent)
+	if !ok {
+		return fmt.Errorf("unknown agent: %s", agent)
+	}
+	if strings.TrimSpace(wt.Path) == "" {
+		return fmt.Errorf("%s worktree path is not recorded in the session state", agent)
+	}
+	st, err := os.Stat(wt.Path)
+	if err != nil || !st.IsDir() {
+		return fmt.Errorf("%s worktree is missing at %s; restore it or start a new Duo session", agent, wt.Path)
+	}
+	actualRoot, err := gitOutput(ctx, wt.Path, "rev-parse", "--show-toplevel")
+	if err != nil || !SamePath(strings.TrimSpace(actualRoot), wt.Path) {
+		return fmt.Errorf("%s worktree at %s is not a Git worktree", agent, wt.Path)
+	}
+	if wt.Branch != "" {
+		actualBranch, err := gitOutput(ctx, wt.Path, "branch", "--show-current")
+		if err != nil {
+			return err
+		}
+		if strings.TrimSpace(actualBranch) != wt.Branch {
+			return fmt.Errorf("%s worktree is on branch %q, expected %q", agent, strings.TrimSpace(actualBranch), wt.Branch)
+		}
 	}
 	return nil
 }

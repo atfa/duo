@@ -1,4 +1,5 @@
 import net from "node:net";
+import { PROTOCOL_VERSION } from "./protocol";
 import type { AgentName, DuoMessage, PendingRequest } from "./protocol";
 
 export class DuoTransport {
@@ -33,7 +34,7 @@ export class DuoTransport {
     socket.on("connect", () => {
       this.connected = true;
       this.send({
-        version: 1,
+        version: PROTOCOL_VERSION,
         type: "hello",
         agent: this.agent,
         sessionId: this.sessionId,

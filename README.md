@@ -1,8 +1,17 @@
-# Duo v0.3.3
+# Duo v0.4.0
 
 **Two peer Pi coding agents in one terminal.**
 
-Duo v0.3.3 combines the peer collaboration runtime with an integrated terminal UI and isolated, authenticated local sessions.
+Duo v0.4.0 combines the peer collaboration runtime with an integrated terminal UI, isolated local sessions, and durable sessions that survive a crash.
+
+## What changed in v0.4.0
+
+- **Durable sessions.** Phase, Plan version, signatures, evidence, worktree record and Pi session identity are persisted to `~/.duo/sessions/<repo-id>/<session-id>/state.json` on every state change, written atomically so a crash can never leave a half-written checkpoint.
+- **`duo --resume [session-id]`.** Continue an interrupted session instead of starting over. With no id, Duo resumes the repository's only unfinished session and lists the candidates when there is more than one.
+- **Git is the ground truth.** Resume re-checks both worktrees, notices an interrupted or already-completed merge, and revokes every signature whose evidence no longer matches. A session never slips backwards to PLAN and an old approval is never treated as still valid.
+- **Dirty worktrees are recoverable.** Uncommitted work does not block resume; Duo reports it, revokes only the signatures it invalidates, and leaves your files alone.
+- **Stable Pi identity.** Austin and Tony keep their own Pi conversation across a restart via `--session-id`.
+- **One process per session.** An advisory lock, plus a diagnostic journal (`events.jsonl`) and a redacting log (`duo.log`), make concurrent or crashed runs auditable.
 
 ## What changed in v0.3.3
 
@@ -85,6 +94,43 @@ If you are developing Duo itself without installing the binary:
 
 Duo resolves the Git repository root even if you start it from a subdirectory. Each run uses an OS-assigned localhost port plus a random session token, so separate Duo projects do not share agent connections. Automatically generated session names use a timestamp plus an eight-digit random hex suffix; explicit `DUO_SESSION` values are unchanged.
 
+## Resume a session
+
+If Duo, Austin or Tony was killed, or the machine crashed, do not start a new session — resume the old one:
+
+```bash
+cd /Users/atfa/fix/pet
+duo --resume
+```
+
+To choose a specific session, or when several sessions are unfinished:
+
+```bash
+duo --resume duo-20260914-8f31c0a2
+```
+
+Bare `duo --resume` picks the only unfinished session for this repository; if there is more than one it lists them instead of guessing, and if there is none it tells you so.
+
+On resume Duo:
+
+1. takes the session lock, so two Duo processes cannot drive the same session;
+2. restores the checkpoint into the state machine;
+3. validates that the recorded worktrees still exist, are Git worktrees, and are on the expected branches — existing worktrees are reused, never recreated;
+4. re-derives the truth from Git (worktree HEADs, an interrupted `MERGE_HEAD`, the Austin/Tony integration result);
+5. revokes stale signatures and applies the reconciled state **before** agents start, so a crash during startup cannot resurrect an old approval;
+6. restarts Austin and Tony with their previous Pi session identity in the same worktrees.
+
+While `duo` runs, a session is considered active. Quitting Duo with `Ctrl+Q` preserves the session and prints the exact resume command.
+
+Session files live in `~/.duo/sessions/`:
+
+```text
+state.json    versioned session checkpoint (atomic writes)
+events.jsonl  diagnostic journal of phase, signature and merge events
+duo.log       lifecycle log; session tokens are redacted
+lock          advisory flock, released automatically if Duo dies
+```
+
 ## Default UI
 
 Conceptually:
@@ -156,8 +202,12 @@ DUO_PI_COMMAND='pi --some-flag' duo
 | Ctrl+Q | quit Duo |
 | Backspace | edit Duo composer |
 
-## Known limitations of v0.3.3
+## Known limitations of v0.4.0
 
+- Duo persists collaboration state and validates it against Git, but it does not reconstruct an agent's *reasoning*. If a crash lands mid-task, the agents resume with their own Pi history and the shared Plan, exactly as a human reopening the terminal would.
+- Recovery is conservative by design: when it cannot prove an approval is still valid, it revokes the approval rather than trusting it. Expect a re-sign-off after a crash, not a silent pass.
+- Automatic crash restart is still not implemented. Duo restarts Austin and Tony when it starts, and `Ctrl+R` / `Ctrl+Y` restart an exited agent, but a dead Duo Core needs a manual `duo --resume`.
+- Session files are per-machine and per-repository-path; the state is not portable across machines or across a moved checkout.
 - The Duo composer is currently a single-line editor. Use native Pi mode for rich/multiline direct agent interaction.
 - Summary panes currently show structured assistant completions, peer messages, connection/phase events, and live working/idle state; they do not yet reproduce every token or rich tool card.
 - A frame is redrawn from scratch at up to about 60 FPS; there is no partial-damage or diff-based update. This is intentional for a UI of this size and keeps redraw correctness simple.
@@ -175,7 +225,9 @@ go build ./cmd/duo
 
 The test suite includes Git worktree/integration tests and direct PTY supervisor tests.
 
-## v0.3 next steps
+## v0.4 next steps
+
+v0.4.0 made sessions durable. Still open: configurable agent names/roles, per-agent model/provider selection, a configurable integration strategy, and a polished worktree cleanup workflow. Automatic crash restart of Duo itself remains out of scope until the durable session semantics have seen real use.
 
 1. Better streaming summaries/tool-event cards in Austin/Tony panes.
 2. Improve native PTY replay beyond the recent raw output buffer.

@@ -1,4 +1,4 @@
-# Known limitations — v0.3.3
+# Known limitations — v0.4.0
 
 Duo is an experimental runtime. The collaboration model works, but the current release intentionally leaves several areas unfinished.
 
@@ -18,11 +18,21 @@ The composer is currently single-line, and pane history does not yet support scr
 
 Frames are rebuilt from scratch (no partial-damage/diff updates) and capped at about 60 FPS by the renderer scheduler. This keeps redraw correctness easy to reason about, but very large terminals do redraw the whole screen on each dirty frame rather than only the changed regions.
 
-## In-memory collaboration state
+## Durable state is a checkpoint, not a transcript
 
-Project phase, Plan signatures and runtime activity are currently process-local. A Duo Core restart does not yet provide full session resume/recovery semantics.
+Collaboration state now survives a crash. Phase, Plan version, signatures, evidence, the worktree record and per-agent Pi session identity are persisted to `~/.duo/sessions/<repo-id>/<session-id>/state.json` and validated against Git when a session is resumed.
 
-Git worktrees and branches remain on disk, but the collaboration state machine itself is not persisted as a durable session database.
+What is persisted is the *state machine*, not the agents' reasoning. A resumed Austin or Tony keeps its own Pi conversation history and the shared Plan, but Duo does not summarize or replay what was in flight. Recovery is also deliberately conservative: it revokes any signature it cannot prove is still valid, so a crash can legitimately cost a re-sign-off.
+
+Recovery repairs bookkeeping; it never rewrites your Git history and never discards uncommitted files. A dirty worktree is reported, not cleaned.
+
+## Session state is local and path-bound
+
+`~/.duo/sessions/` is per machine and keyed by repository path, so a session is not portable across machines and does not follow a moved or renamed checkout.
+
+## No automatic crash restart
+
+Duo restarts Austin and Tony when it starts, and an exited agent can be restarted with `Ctrl+R` / `Ctrl+Y`. A dead Duo Core still requires a human to run `duo --resume`; Duo does not supervise or resurrect itself.
 
 ## Worktree cleanup is manual / conservative
 

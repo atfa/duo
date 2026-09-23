@@ -21,6 +21,10 @@ type Config struct {
 	StallThreshold time.Duration
 	Cooldown       time.Duration
 	TickInterval   time.Duration
+	// RecoveryGrace suppresses nudges for a while after a resumed session. Pi
+	// needs time to reconnect and reload context, and that must not look like an
+	// idle or stalled run.
+	RecoveryGrace time.Duration
 }
 
 type Monitor struct {
@@ -30,15 +34,16 @@ type Monitor struct {
 	sender  Sender
 	bus     *events.Bus
 
-	mu       sync.Mutex
-	lastWake time.Time
+	startedAt time.Time
+	mu        sync.Mutex
+	lastWake  time.Time
 }
 
 func NewMonitor(cfg Config, state *project.State, tracker *Tracker, sender Sender, bus *events.Bus) *Monitor {
 	if cfg.TickInterval <= 0 {
 		cfg.TickInterval = 2 * time.Second
 	}
-	return &Monitor{cfg: cfg, project: state, tracker: tracker, sender: sender, bus: bus}
+	return &Monitor{cfg: cfg, project: state, tracker: tracker, sender: sender, bus: bus, startedAt: time.Now()}
 }
 
 func (m *Monitor) Run(ctx context.Context) {
@@ -56,6 +61,12 @@ func (m *Monitor) Run(ctx context.Context) {
 }
 
 func (m *Monitor) maybeWake(ctx context.Context) {
+	// A resumed session gets a grace period: neither agent has reported activity
+	// yet, so an unguarded idle check would nudge immediately on startup.
+	if m.cfg.RecoveryGrace > 0 && time.Since(m.startedAt) < m.cfg.RecoveryGrace {
+		return
+	}
+
 	if !m.sender.IsConnected(protocol.Austin) || !m.sender.IsConnected(protocol.Tony) {
 		return
 	}

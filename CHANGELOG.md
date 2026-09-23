@@ -2,6 +2,24 @@
 
 All notable project milestones are documented here.
 
+## v0.4.0 — 2026-09
+
+Durable Duo sessions and crash recovery. After a Duo Core, Austin or Tony crash Duo can continue the original task instead of silently restarting at PLAN.
+
+- Persisted, versioned session snapshot in `~/.duo/sessions/<repo-id>/<session-id>/state.json`, written atomically (temp file → `fsync` → rename → directory `fsync`).
+- An unsupported `schemaVersion` is refused with an explicit error instead of being read best-effort.
+- `duo --resume [session-id]` reopens a session. Bare `duo --resume` picks the repository's single unfinished session; when several exist they are listed instead of guessed.
+- Existing worktrees are validated and reused, never recreated. A missing worktree fails with a clear message.
+- Git is the ground truth: on resume, worktree HEADs, an in-progress merge (`MERGE_HEAD`) and the integration result are re-checked, and every signature whose evidence no longer matches is revoked.
+- Recovery never moves a session backwards to PLAN and never repeats a merge that already completed or is still in progress.
+- A dirty worktree no longer blocks resume: recovery reports it and revokes only the signatures it invalidates, leaving uncommitted files untouched.
+- An advisory `flock` per session, with PID metadata for diagnostics, stops two Duo processes from driving the same session.
+- `events.jsonl` holds a diagnostic journal; `duo.log` holds lifecycle output and redacts session tokens.
+- Per-agent Pi session identity is stable across restarts via `--session-id`, so Austin and Tony keep their own Pi conversation history. `DUO_PI_COMMAND` is still honoured.
+- The bridge protocol version is now shared between the Go core and the Pi extension; mismatched clients are rejected.
+- A resumed session gets a harness grace period (`DUO_HARNESS_RESUME_GRACE_SECONDS`, default 45s) so reconnecting agents are not mistaken for stalled ones.
+- Fixed a path-comparison bug that made resume reject its own worktrees on macOS, where Git reports `/private/var/...` for a persisted `/var/...` path.
+
 ## v0.3.3 — 2026-09
 
 TUI renderer hardening; no agent, persistence, or collaboration changes.

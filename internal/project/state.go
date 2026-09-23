@@ -80,6 +80,10 @@ type State struct {
 	evidence     map[protocol.AgentID]string
 	started      bool
 	lastMutation time.Time
+
+	// onChange is invoked with the latest snapshot after every mutation. It is
+	// called outside the lock; the state itself never touches disk.
+	onChange func(Snapshot)
 }
 
 func NewState() *State {
@@ -131,8 +135,10 @@ func (s *State) snapshotLocked() Snapshot {
 
 func (s *State) MarkStarted() {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.started = true
+	snap, hook := s.snapshotLocked(), s.onChange
+	s.mu.Unlock()
+	notify(hook, snap)
 }
 
 func (s *State) SetPlan(agent protocol.AgentID, plan string) (Snapshot, error) {
@@ -145,10 +151,11 @@ func (s *State) SetPlan(agent protocol.AgentID, plan string) (Snapshot, error) {
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if s.phase != PhasePlan {
-		return s.snapshotLocked(), fmt.Errorf("%w: shared plan can only be changed during PLAN", ErrWrongPhase)
+		snap := s.snapshotLocked()
+		s.mu.Unlock()
+		return snap, fmt.Errorf("%w: shared plan can only be changed during PLAN", ErrWrongPhase)
 	}
 
 	s.plan = plan
@@ -157,7 +164,10 @@ func (s *State) SetPlan(agent protocol.AgentID, plan string) (Snapshot, error) {
 	s.started = true
 	s.lastMutation = time.Now()
 
-	return s.snapshotLocked(), nil
+	snap, hook := s.snapshotLocked(), s.onChange
+	s.mu.Unlock()
+	notify(hook, snap)
+	return snap, nil
 }
 
 func (s *State) SetReady(agent protocol.AgentID, ready bool, note, evidence string) (Snapshot, Transition, error) {
@@ -166,13 +176,16 @@ func (s *State) SetReady(agent protocol.AgentID, ready bool, note, evidence stri
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 
 	if s.phase == PhaseDone {
-		return s.snapshotLocked(), Transition{}, ErrProjectDone
+		snap := s.snapshotLocked()
+		s.mu.Unlock()
+		return snap, Transition{}, ErrProjectDone
 	}
 	if s.phase == PhasePlan && ready && strings.TrimSpace(s.plan) == "" {
-		return s.snapshotLocked(), Transition{}, ErrMissingPlan
+		snap := s.snapshotLocked()
+		s.mu.Unlock()
+		return snap, Transition{}, ErrMissingPlan
 	}
 
 	previous := s.phase
@@ -197,19 +210,70 @@ func (s *State) SetReady(agent protocol.AgentID, ready bool, note, evidence stri
 		}
 	}
 
-	return s.snapshotLocked(), transition, nil
+	snap, hook := s.snapshotLocked(), s.onChange
+	s.mu.Unlock()
+	notify(hook, snap)
+	return snap, transition, nil
 }
 
 func (s *State) RevokeReady(agent protocol.AgentID, note string) Snapshot {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if agent == protocol.Austin || agent == protocol.Tony {
 		s.ready[agent] = false
 		s.notes[agent] = strings.TrimSpace(note)
 		s.evidence[agent] = ""
 		s.lastMutation = time.Now()
 	}
-	return s.snapshotLocked()
+	snap, hook := s.snapshotLocked(), s.onChange
+	s.mu.Unlock()
+	notify(hook, snap)
+	return snap
+}
+
+// SetPersistence installs a callback invoked with the latest snapshot after
+// every domain mutation. The callback is called outside the state lock, so it
+// may perform I/O or take other locks. State stays a pure domain object and
+// never touches disk itself.
+func (s *State) SetPersistence(fn func(Snapshot)) {
+	s.mu.Lock()
+	s.onChange = fn
+	s.mu.Unlock()
+}
+
+// Restore replaces the whole domain state with a persisted snapshot. It is used
+// on resume, before persistence is enabled, so it does not cause a write-back.
+func (s *State) Restore(snap Snapshot) error {
+	switch snap.Phase {
+	case PhasePlan, PhaseExecute, PhaseReview, PhaseIntegrate, PhaseDone:
+	default:
+		return fmt.Errorf("unknown persisted phase %q", snap.Phase)
+	}
+	if snap.PlanVersion < 0 {
+		return fmt.Errorf("invalid persisted plan version %d", snap.PlanVersion)
+	}
+
+	s.mu.Lock()
+	s.phase = snap.Phase
+	s.plan = snap.Plan
+	s.planVersion = snap.PlanVersion
+	s.ready[protocol.Austin] = snap.Ready[protocol.Austin]
+	s.ready[protocol.Tony] = snap.Ready[protocol.Tony]
+	s.notes[protocol.Austin] = snap.Notes[protocol.Austin]
+	s.notes[protocol.Tony] = snap.Notes[protocol.Tony]
+	s.evidence[protocol.Austin] = snap.Evidence[protocol.Austin]
+	s.evidence[protocol.Tony] = snap.Evidence[protocol.Tony]
+	s.started = snap.Started
+	s.lastMutation = time.Now()
+	out, hook := s.snapshotLocked(), s.onChange
+	s.mu.Unlock()
+	notify(hook, out)
+	return nil
+}
+
+func notify(hook func(Snapshot), snap Snapshot) {
+	if hook != nil {
+		hook(snap)
+	}
 }
 
 func (s *State) resetApprovalsLocked() {

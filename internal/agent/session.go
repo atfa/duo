@@ -28,9 +28,38 @@ const (
 	ProcessFailed
 )
 
+func (s ProcessState) String() string {
+	switch s {
+	case ProcessStarting:
+		return "starting"
+	case ProcessRunning:
+		return "running"
+	case ProcessStopping:
+		return "stopping"
+	case ProcessExited:
+		return "exited"
+	case ProcessFailed:
+		return "failed"
+	default:
+		return "unknown"
+	}
+}
+
 type Config struct {
 	Agent                                    protocol.AgentID
 	Dir, Host, Port, Session, Token, Command string
+	// PiSessionID is Duo's stable identity for this agent's Pi conversation. It
+	// is persisted per session and reused verbatim across restarts and resumes.
+	PiSessionID string
+	// OnExit observes process termination for durable logging.
+	OnExit func(ExitEvent)
+}
+
+// ExitEvent is delivered once when an agent process ends.
+type ExitEvent struct {
+	Agent protocol.AgentID
+	State ProcessState
+	Err   error
 }
 
 type Session struct {
@@ -55,6 +84,42 @@ func NewSession(cfg Config) *Session {
 	return &Session{cfg: cfg, size: pty.Winsize{Cols: 80, Rows: 24}}
 }
 
+// sessionFlags are the Pi CLI flags that select or control a session. When
+// DUO_PI_COMMAND already contains one, Duo never injects its own --session-id,
+// so an explicit operator choice is preserved rather than overridden.
+func hasSessionFlag(command string) bool {
+	for _, token := range strings.Fields(command) {
+		switch token {
+		case "--session-id", "--session", "--continue", "--resume", "--fork", "--no-session", "-c", "-r":
+			return true
+		}
+		if strings.HasPrefix(token, "--session-id=") || strings.HasPrefix(token, "--session=") {
+			return true
+		}
+	}
+	return false
+}
+
+// commandLine is the shell command used to launch Pi. The stable Pi session id
+// travels through the environment as $DUO_PI_SESSION_ID and is expanded by the
+// shell, so an id can never break quoting or be read as shell syntax.
+func (s *Session) commandLine() string {
+	base := strings.TrimSpace(s.cfg.Command)
+	if base == "" {
+		base = "pi"
+	}
+	if strings.TrimSpace(s.cfg.PiSessionID) == "" || hasSessionFlag(base) {
+		return base
+	}
+	return base + ` --session-id "$DUO_PI_SESSION_ID"`
+}
+
+// EffectiveCommand returns the command Duo will actually run, for diagnostics.
+func (s *Session) EffectiveCommand() string { return s.commandLine() }
+
+// PiSessionID returns the stable Pi session identity for this agent.
+func (s *Session) PiSessionID() string { return s.cfg.PiSessionID }
+
 func (s *Session) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -68,10 +133,11 @@ func (s *Session) Start(ctx context.Context) error {
 		return fmt.Errorf("%s: unsupported platform %s", s.cfg.Agent, runtime.GOOS)
 	}
 	s.state = ProcessStarting
-	// A shell preserves the existing DUO_PI_COMMAND behavior (including arguments).
-	cmd := exec.Command("sh", "-lc", "exec "+s.cfg.Command)
+	// A shell preserves the existing DUO_PI_COMMAND behavior (including arguments)
+	// and expands "$DUO_PI_SESSION_ID" safely.
+	cmd := exec.Command("sh", "-lc", "exec "+s.commandLine())
 	cmd.Dir = s.cfg.Dir
-	cmd.Env = append(os.Environ(), "DUO_ACTIVE=1", "DUO_AGENT="+string(s.cfg.Agent), "DUO_HOST="+s.cfg.Host, "DUO_PORT="+s.cfg.Port, "DUO_SESSION="+s.cfg.Session, "DUO_TOKEN="+s.cfg.Token, "TERM=xterm-256color")
+	cmd.Env = append(os.Environ(), "DUO_ACTIVE=1", "DUO_AGENT="+string(s.cfg.Agent), "DUO_HOST="+s.cfg.Host, "DUO_PORT="+s.cfg.Port, "DUO_SESSION="+s.cfg.Session, "DUO_TOKEN="+s.cfg.Token, "DUO_PI_SESSION_ID="+s.cfg.PiSessionID, "TERM=xterm-256color")
 	ptmx, err := pty.StartWithSize(cmd, &s.size)
 	if err != nil {
 		s.state = ProcessFailed
@@ -109,9 +175,14 @@ func (s *Session) Start(ctx context.Context) error {
 		default:
 			s.state = ProcessFailed
 		}
+		final := s.state
 		s.stopping = false
 		close(done)
+		onExit := s.cfg.OnExit
 		s.mu.Unlock()
+		if onExit != nil {
+			onExit(ExitEvent{Agent: s.cfg.Agent, State: final, Err: err})
+		}
 	}()
 	return nil
 }

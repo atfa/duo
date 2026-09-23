@@ -55,10 +55,24 @@ Primary goal: make the existing runtime observable and controllable without movi
 - [x] idle TUI no longer repaints; spinner gated on agent activity
 - [x] `exited` vs `failed` process state
 
-## v0.4 — durability and configurability
+## v0.4.0 — durable sessions
 
-- [ ] persistent session state
-- [ ] resume after Duo Core restart
+After a Duo Core, Austin or Tony crash the user must be able to continue the original task rather than restart at PLAN.
+
+- [x] versioned session snapshot persisted atomically
+- [x] `duo --resume [session-id]`
+- [x] stable per-agent Pi session identity across restarts
+- [x] session lock (advisory `flock`) with stale-holder diagnostics
+- [x] reconciliation of checkpoint vs Git truth, revoking stale signatures
+- [x] dirty-worktree recovery that never fails and never discards files
+- [x] interrupted / already-completed merge detection (no duplicate merge)
+- [x] ordered recovery transaction applied before agents start
+- [x] diagnostic `events.jsonl` and token-redacting `duo.log`
+- [x] Go/Pi bridge protocol version validation
+- [x] failure-injection tests for the recovery path
+
+## v0.4 — configurability (remaining)
+
 - [ ] configurable agent names/roles
 - [ ] configurable model/provider per agent
 - [ ] configurable integration strategy
