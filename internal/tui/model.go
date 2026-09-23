@@ -18,8 +18,9 @@ import (
 )
 
 type entry struct {
-	at   time.Time
-	text string
+	at    time.Time
+	text  string
+	error bool
 }
 
 type App struct {
@@ -76,7 +77,14 @@ func (a *App) route(event events.Event) {
 	case events.KindHarness:
 		a.add(protocol.Duo, "Harness: "+text)
 	case events.KindError:
-		a.add(protocol.Duo, "ERROR: "+text)
+		if event.Agent == protocol.Austin || event.Agent == protocol.Tony {
+			a.addError(event.Agent, "ERROR: "+text)
+		}
+		label := "ERROR"
+		if event.Agent != "" && event.Agent != protocol.Duo {
+			label += " " + string(event.Agent)
+		}
+		a.addError(protocol.Duo, fmt.Sprintf("%s: %s", label, text))
 	default:
 		if event.Agent == protocol.Austin || event.Agent == protocol.Tony {
 			a.add(event.Agent, text)
@@ -87,6 +95,14 @@ func (a *App) route(event events.Event) {
 }
 
 func (a *App) add(agent protocol.AgentID, text string) {
+	a.addEntry(agent, text, false)
+}
+
+func (a *App) addError(agent protocol.AgentID, text string) {
+	a.addEntry(agent, text, true)
+}
+
+func (a *App) addEntry(agent protocol.AgentID, text string, isError bool) {
 	list := &a.duo
 	if agent == protocol.Austin {
 		list = &a.austin
@@ -94,7 +110,7 @@ func (a *App) add(agent protocol.AgentID, text string) {
 	if agent == protocol.Tony {
 		list = &a.tony
 	}
-	*list = append(*list, entry{at: time.Now(), text: text})
+	*list = append(*list, entry{at: time.Now(), text: text, error: isError})
 	if len(*list) > 200 {
 		*list = append([]entry(nil), (*list)[len(*list)-200:]...)
 	}

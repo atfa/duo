@@ -35,7 +35,7 @@ func (a *App) Run(ctx context.Context) error {
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
 
-	a.add(protocol.Duo, "Duo v0.3 ready. Type a task and press Enter; Austin will wake Tony when collaboration is needed.")
+	a.add(protocol.Duo, "Duo v0.3.0-alpha.1 ready. Type a task and press Enter; Austin will wake Tony when collaboration is needed.")
 	a.render()
 
 	for {

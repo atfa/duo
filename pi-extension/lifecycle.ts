@@ -50,6 +50,17 @@ export function installLifecycle(pi: any, transport: DuoTransport, agent: AgentN
     transport.sendActivity("provider_end");
   });
 
+  pi.on("after_provider_response", async (event: any) => {
+    if (typeof event?.status !== "number" || event.status < 400) return;
+    transport.send({
+      version: 1,
+      type: "agent_error",
+      agent,
+      text: `Provider request failed (${event.status})`,
+      timestamp: Date.now(),
+    });
+  });
+
   pi.on("tool_execution_start", async () => {
     transport.sendActivity("tool_start");
   });
@@ -67,7 +78,17 @@ export function installLifecycle(pi: any, transport: DuoTransport, agent: AgentN
   });
 
   pi.on("message_end", async (event: any) => {
-    const text = extractAssistantText(event.message);
+    const message = event?.message;
+    if (message?.role === "assistant" && (message.stopReason === "error" || message.errorMessage)) {
+      transport.send({
+        version: 1,
+        type: "agent_error",
+        agent,
+        text: message.errorMessage || `Request ${message.stopReason}`,
+        timestamp: Date.now(),
+      });
+    }
+    const text = extractAssistantText(message);
     if (text) lastAssistantText = text;
   });
 

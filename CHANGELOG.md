@@ -2,6 +2,18 @@
 
 All notable project milestones are documented here.
 
+## v0.3.0-alpha.1 — 2026-09
+
+First integrated terminal UI preview.
+
+### Added
+
+- integrated Duo TUI with Austin/Tony native Pi attach and detach;
+- animated agent status and standard ANSI colors;
+- full provider and agent error reporting, including HTTP 402/429 responses;
+- copy-pasteable Git setup guidance for non-Git and empty repositories;
+- terminal mode cleanup after native Pi sessions.
+
 ## v0.2-alpha — 2026-09
 
 First public experimental release candidate.

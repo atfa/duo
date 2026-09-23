@@ -1,8 +1,8 @@
-# Duo v0.3-alpha
+# Duo v0.3.0-alpha.1
 
 **Two peer Pi coding agents in one terminal.**
 
-Duo v0.3 keeps the v0.2 collaboration runtime (shared plan, dual sign-off, isolated Git worktrees, review, integration, harness) and adds the first integrated terminal UI.
+Duo v0.3.0-alpha.1 keeps the v0.2 collaboration runtime (shared plan, dual sign-off, isolated Git worktrees, review, integration, harness) and adds the first integrated terminal UI.
 
 ## What changed in v0.3
 
@@ -15,6 +15,9 @@ Duo v0.3 keeps the v0.2 collaboration runtime (shared plan, dual sign-off, isola
 - While inside native Pi, `/model`, `/settings`, `/tree`, extension UI, custom footer, etc. are handled by Pi itself.
 - Press `Ctrl+]` or `Ctrl+\\` to detach from native Pi and return to Duo.
 - `Ctrl+Q` quits Duo and preserves worktrees.
+- Provider errors such as HTTP 402/429 are shown in full and highlighted in red.
+- The TUI uses color for titles, borders, status, help, and error output.
+- Non-Git directories and empty repositories show copy-pasteable Git setup commands without initializing the repository automatically.
 
 This version intentionally does **not** reimplement Pi's slash commands.
 
@@ -132,7 +135,7 @@ DUO_PI_COMMAND='pi --some-flag' duo
 | Ctrl+Q | quit Duo |
 | Backspace | edit Duo composer |
 
-## Known limitations of v0.3-alpha
+## Known limitations of v0.3.0-alpha.1
 
 - The Duo composer is currently a single-line editor. Use native Pi mode for rich/multiline direct agent interaction.
 - Summary panes currently show structured assistant completions, peer messages, connection/phase events, and live working/idle state; they do not yet reproduce every token or rich tool card.

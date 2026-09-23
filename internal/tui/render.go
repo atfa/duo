@@ -11,6 +11,15 @@ import (
 	"github.com/atfa/duo/internal/terminal"
 )
 
+const (
+	ansiReset  = "\x1b[0m"
+	ansiBorder = "\x1b[36m"
+	ansiTitle  = "\x1b[1;36m"
+	ansiStatus = "\x1b[33m"
+	ansiHint   = "\x1b[2;37m"
+	ansiError  = "\x1b[31m"
+)
+
 func (a *App) render() {
 	if a.native != "" || a.tty == nil {
 		return
@@ -36,15 +45,15 @@ func (a *App) render() {
 
 	var b strings.Builder
 	b.WriteString(terminal.HideCursor + terminal.Home)
-	b.WriteString("┌" + header(aTitle, leftW-1) + "┬" + header(tTitle, rightW-1) + "┐\r\n")
+	b.WriteString(paint(ansiBorder, "┌") + paint(ansiTitle, header(aTitle, leftW-1)) + paint(ansiBorder, "┬") + paint(ansiTitle, header(tTitle, rightW-1)) + paint(ansiBorder, "┐") + "\r\n")
 
 	contentRows := topH - 2
 	left := paneLines(a.austin, leftW-1, contentRows)
 	right := paneLines(a.tony, rightW-1, contentRows)
 	for i := 0; i < contentRows; i++ {
-		b.WriteString("│" + fit(left[i], leftW-1) + "│" + fit(right[i], rightW-1) + "│\r\n")
+		b.WriteString(paint(ansiBorder, "│") + paintEntry(left[i], leftW-1) + paint(ansiBorder, "│") + paintEntry(right[i], rightW-1) + paint(ansiBorder, "│\r\n"))
 	}
-	b.WriteString("├" + strings.Repeat("─", leftW-1) + "┴" + strings.Repeat("─", rightW-1) + "┤\r\n")
+	b.WriteString(paint(ansiBorder, "├"+strings.Repeat("─", leftW-1)+"┴"+strings.Repeat("─", rightW-1)+"┤\r\n"))
 
 	readyA, readyT := "○", "○"
 	if snap.Ready[protocol.Austin] {
@@ -54,30 +63,41 @@ func (a *App) render() {
 		readyT = "✓"
 	}
 	status := fmt.Sprintf(" Duo · %s · Plan v%d · Austin %s · Tony %s ", snap.Phase, snap.PlanVersion, readyA, readyT)
-	b.WriteString("│" + fit(status, w-2) + "│\r\n")
+	b.WriteString(paint(ansiBorder, "│") + paint(ansiStatus, fit(status, w-2)) + paint(ansiBorder, "│\r\n"))
 
 	plan := strings.ReplaceAll(strings.TrimSpace(snap.Plan), "\n", " ")
 	if plan == "" {
 		plan = "No shared plan yet"
 	}
-	b.WriteString("│" + fit(" Plan: "+plan, w-2) + "│\r\n")
+	b.WriteString(paint(ansiBorder, "│") + paint(ansiHint, fit(" Plan: "+plan, w-2)) + paint(ansiBorder, "│\r\n"))
 
 	logs := paneLines(a.duo, w-4, 2)
 	for _, line := range logs {
-		b.WriteString("│ " + fit(line, w-4) + " │\r\n")
+		b.WriteString(paint(ansiBorder, "│ ") + paintEntry(line, w-4) + paint(ansiBorder, " │\r\n"))
 	}
 
 	input := string(a.input)
 	if a.status != "" && input == "" {
 		input = "(" + a.status + ")"
 	}
-	b.WriteString("│ > " + fitTail(input, w-6) + " │\r\n")
+	b.WriteString(paint(ansiBorder, "│") + paint(ansiStatus, " > ") + fitTail(input, w-6) + paint(ansiBorder, " │\r\n"))
 	help := " Enter send · Ctrl+A Austin native · Ctrl+T Tony native · click [↗] · Ctrl+Q quit · Ctrl+] / Ctrl+\\ return "
-	b.WriteString("└" + fit(help, w-2, "─") + "┘")
+	b.WriteString(paint(ansiBorder, "└") + paint(ansiHint, fit(help, w-2, "─")) + paint(ansiBorder, "┘"))
 
 	row, col := inputCursor(w, h, string(a.input))
 	b.WriteString(fmt.Sprintf("\x1b[%d;%dH%s", row, col, terminal.ShowCursor))
 	_, _ = a.tty.File.WriteString(b.String())
+}
+
+func paint(code, text string) string {
+	return code + text + ansiReset
+}
+
+func paintEntry(line entry, width int) string {
+	if !line.error {
+		return fit(line.text, width)
+	}
+	return paint(ansiError, fit(line.text, width))
 }
 
 func agentState(connected bool, runtime harness.AgentRuntime, frame int) string {
@@ -111,22 +131,24 @@ func inputCursor(width, height int, input string) (row, col int) {
 	return height - 2, col
 }
 
-func paneLines(entries []entry, width, rows int) []string {
-	var all []string
+func paneLines(entries []entry, width, rows int) []entry {
+	var all []entry
 	for _, e := range entries {
 		text := strings.TrimSpace(e.text)
 		for _, raw := range strings.Split(text, "\n") {
-			all = append(all, wrap(raw, width)...)
+			for _, line := range wrap(raw, width) {
+				all = append(all, entry{text: line, error: e.error})
+			}
 		}
-		all = append(all, "")
+		all = append(all, entry{})
 	}
-	if len(all) > 0 && all[len(all)-1] == "" {
+	if len(all) > 0 && all[len(all)-1].text == "" {
 		all = all[:len(all)-1]
 	}
 	if len(all) > rows {
 		all = all[len(all)-rows:]
 	}
-	out := make([]string, rows)
+	out := make([]entry, rows)
 	copy(out[rows-len(all):], all)
 	return out
 }

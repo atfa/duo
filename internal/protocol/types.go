@@ -41,6 +41,7 @@ const (
 	MsgTest             MessageType = "test"
 	MsgActivity         MessageType = "activity"
 	MsgAssistantMessage MessageType = "assistant_message"
+	MsgAgentError       MessageType = "agent_error"
 	MsgPeerMessage      MessageType = "peer_message"
 	MsgSteer            MessageType = "steer"
 	MsgDuoNotice        MessageType = "duo_notice"

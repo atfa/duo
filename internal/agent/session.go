@@ -107,7 +107,7 @@ func scriptCommand(ctx context.Context, command string) (*exec.Cmd, error) {
 	case "linux":
 		return exec.CommandContext(ctx, "script", "-q", "-f", "-c", "exec "+command, "/dev/null"), nil
 	default:
-		return nil, fmt.Errorf("Duo v0.3 PTY supervisor currently supports macOS and Linux, not %s", runtime.GOOS)
+		return nil, fmt.Errorf("Duo v0.3.0-alpha.1 PTY supervisor currently supports macOS and Linux, not %s", runtime.GOOS)
 	}
 }
 

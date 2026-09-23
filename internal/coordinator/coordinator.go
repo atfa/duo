@@ -84,6 +84,9 @@ func (c *Coordinator) OnMessage(ctx context.Context, client *transport.Client, m
 	case protocol.MsgAssistantMessage:
 		c.handleAssistant(client.Agent, message)
 
+	case protocol.MsgAgentError:
+		c.handleAgentError(client.Agent, message)
+
 	case protocol.MsgPeerMessage:
 		c.handlePeerMessage(ctx, client, message)
 
@@ -116,6 +119,14 @@ func (c *Coordinator) handleAssistant(agent protocol.AgentID, message protocol.M
 	}
 	c.tracker.Touch(agent)
 	c.emit(events.KindAssistant, agent, "", message.Text)
+}
+
+func (c *Coordinator) handleAgentError(agent protocol.AgentID, message protocol.Message) {
+	if strings.TrimSpace(message.Text) == "" {
+		return
+	}
+	c.tracker.Touch(agent)
+	c.emit(events.KindError, agent, "", message.Text)
 }
 
 func (c *Coordinator) handlePeerMessage(ctx context.Context, client *transport.Client, message protocol.Message) {

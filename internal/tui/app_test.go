@@ -61,6 +61,20 @@ func TestPeerRouteShowsFullTextOnlyToReceiver(t *testing.T) {
 	}
 }
 
+func TestErrorRouteMarksFullAgentDetail(t *testing.T) {
+	a := &App{}
+	a.route(events.Event{Kind: events.KindError, Agent: protocol.Austin, Text: "429 Too Many Requests"})
+	if got := a.austin[0].text; got != "ERROR: 429 Too Many Requests" {
+		t.Fatalf("Austin error = %q", got)
+	}
+	if !strings.Contains(a.duo[0].text, "429 Too Many Requests") {
+		t.Fatalf("Duo error = %q", a.duo[0].text)
+	}
+	if !a.austin[0].error || !a.duo[0].error {
+		t.Fatal("expected errors to be marked for red rendering")
+	}
+}
+
 func TestAgentStatePriorityAndAnimation(t *testing.T) {
 	if got := agentState(false, harness.AgentRuntime{Busy: true, ToolDepth: 1}, 0); got != "connecting" {
 		t.Fatalf("disconnected state = %q", got)
