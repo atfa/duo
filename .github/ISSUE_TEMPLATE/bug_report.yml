@@ -1,0 +1,57 @@
+name: Bug report
+description: Report a reproducible Duo runtime or coordination problem
+title: "[bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for helping test Duo. v0.2 is experimental, so detailed runtime context is especially useful.
+  - type: input
+    id: duo-version
+    attributes:
+      label: Duo version / commit
+      placeholder: v0.2.0-alpha.1 or git SHA
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: macOS 15, Go 1.24, Git 2.x, Pi 0.x
+    validations:
+      required: true
+  - type: dropdown
+    id: phase
+    attributes:
+      label: Phase when the problem occurred
+      options:
+        - PLAN
+        - EXECUTE
+        - REVIEW
+        - INTEGRATE
+        - DONE
+        - Startup / unknown
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Include the user prompt and important Austin/Tony actions if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Duo Core logs
+      render: text
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true

@@ -1,0 +1,23 @@
+name: Feature request
+description: Propose a focused improvement to Duo
+title: "[feature] "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What real collaboration problem are you trying to solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: principle
+    attributes:
+      label: Why this belongs in Duo Core
+      description: Explain why this requires deterministic runtime support rather than natural Austin/Tony collaboration.
