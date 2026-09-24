@@ -54,5 +54,9 @@ export default function (pi: any) {
     },
   });
 
-  transport.connect();
+  // Pi action APIs become available after extension loading. Starting the
+  // bridge here means Core's OnConnect is safe to use as injection readiness.
+  pi.on("session_start", async () => {
+    transport.connect();
+  });
 }
