@@ -1,8 +1,13 @@
-# Duo v0.4.5
+# Duo v0.4.6
 
 **Two peer Pi coding agents in one terminal.**
 
-Duo v0.4.5 combines the peer collaboration runtime with an integrated terminal UI, isolated local sessions, and durable sessions that survive a crash — and hands the finished artifact back to the repository you launched it from.
+Duo v0.4.6 combines the peer collaboration runtime with an integrated terminal UI, isolated local sessions, and durable sessions that survive a crash — and hands the finished artifact back to the repository you launched it from.
+
+## What changed in v0.4.6
+
+- **Operational TUI Help.** `Ctrl+/` opens a full, scrollable Help screen. Use `↑/↓`, `j/k`, `PgUp/PgDn`, `Home/End`, or `Esc`; `Ctrl+/` closes it. Native Pi keeps receiving `Ctrl+/` directly.
+- **Clearer main screen.** The composer now says `Duo → Austin >`, status has its own fixed row, and the footer keeps only `Enter Send · Ctrl+A/T Native · Ctrl+/ Help · Ctrl+Q Quit`.
 
 ## What changed in v0.4.5
 
@@ -171,11 +176,23 @@ Conceptually:
 │ Duo · PLAN · Plan v1 · Austin ✓ · Tony ○                                               │
 │ Plan: ...                                                                               │
 │ ... Duo / harness / phase events ...                                                    │
-│ > user task                                                                             │
-└ Enter send · Ctrl+A Austin native · Ctrl+T Tony native · Ctrl+Q quit · Ctrl+] / Ctrl+\\ return ┘
+│ Status:                                                                                 │
+│ Duo → Austin > user task                                                                │
+└ Enter Send · Ctrl+A/T Native · Ctrl+/ Help · Ctrl+Q Quit ──────────────────────────────┘
 ```
 
 The bottom input is **Duo's human entry point**. Text is sent to Austin. Austin's Duo system prompt tells Austin to wake Tony through `duo_send` and build a shared plan when collaboration is useful.
+
+## TUI Help
+
+Press `Ctrl+/` in the Duo main TUI for Quick Start, keyboard controls, lifecycle, Native Pi, resume/recovery, delivery, working scope, and agent status. Help wraps to the terminal width and supports `↑/↓`, `j/k`, `PgUp/PgDn`, `Home/End`, and `Esc`. It does not change the composer. `Ctrl+/` is deliberately not intercepted while attached to native Pi.
+
+| Key | Action |
+| --- | --- |
+| `Ctrl+/` | Open/close Duo Help |
+| `Enter` | Send task/message to Austin |
+| `Ctrl+A` / `Ctrl+T` | Open Austin/Tony native Pi |
+| `Ctrl+Q` | Quit Duo and preserve the session |
 
 ## Native Pi mode
 
@@ -255,6 +272,7 @@ DUO_PI_COMMAND='pi --some-flag' duo
 | Ctrl+T | attach Tony native Pi |
 | Ctrl+] / Ctrl+\\ | detach native Pi and return to Duo |
 | Ctrl+R / Ctrl+Y | restart exited Austin / Tony |
+| Ctrl+/ | open/close Duo Help |
 | Ctrl+Q | quit Duo |
 | Backspace | edit Duo composer |
 

@@ -41,10 +41,11 @@ func (a *App) Run(ctx context.Context) error {
 
 	inputCh := make(chan byte, 256)
 	go readBytes(tty.File, inputCh)
+	var escTimer <-chan time.Time
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
 
-	a.add(protocol.Duo, "Duo v0.4.5 ready. Type a task and press Enter; Austin will wake Tony when collaboration is needed.")
+	a.add(protocol.Duo, "Duo "+a.version+" ready. Type a task and press Enter; Austin will wake Tony when collaboration is needed.")
 	a.requestFullClear()
 
 	for {
@@ -75,32 +76,24 @@ func (a *App) Run(ctx context.Context) error {
 				continue
 			}
 			action := a.handleByte(b)
-			if action.quit {
+			if len(a.escBuf) > 0 {
+				escTimer = time.After(25 * time.Millisecond)
+			} else {
+				escTimer = nil
+			}
+			if a.applyAction(ctx, action) {
 				return nil
 			}
-			if action.attach != "" {
-				if err := a.enterNative(action.attach); err != nil {
-					a.add(protocol.Duo, "ERROR: "+err.Error())
-					a.status = err.Error()
-					a.markDirty()
-				}
-				continue
+			if action.kind == actionNone && len(a.escBuf) == 0 {
+				a.markDirty()
 			}
-			if action.restart != "" {
-				if err := a.agents.Restart(ctx, action.restart); err != nil {
-					a.status = err.Error()
-					a.addError(protocol.Duo, err.Error())
-				} else {
-					a.tracker.Reset(action.restart)
-					a.status = string(action.restart) + " restarted"
-				}
-			}
-			if action.submit {
-				a.submit(ctx)
-			}
-			a.markDirty()
 		case <-winch:
 			a.resize()
+		case <-escTimer:
+			escTimer = nil
+			if a.applyAction(ctx, a.handleEscapeTimeout()) {
+				return nil
+			}
 		case <-a.renderer.dueChan():
 			a.renderer.flush()
 		case <-tick.C:
@@ -109,12 +102,76 @@ func (a *App) Run(ctx context.Context) error {
 	}
 }
 
+// applyAction is the one place TUI-mode actions are applied. Native Pi input
+// bypasses it entirely in Run so Pi keeps ownership of its Ctrl+/ handling.
+func (a *App) applyAction(ctx context.Context, action inputAction) bool {
+	switch action.kind {
+	case actionNone:
+		return false
+	case actionQuit:
+		return true
+	case actionToggleHelp:
+		if a.view == viewHelp {
+			a.view = viewMain
+		} else {
+			a.view = viewHelp
+			a.clampHelpOffset()
+		}
+		a.requestFullClear()
+	case actionCloseHelp:
+		a.view = viewMain
+		a.requestFullClear()
+	case actionScrollUp:
+		a.scrollHelp(-1)
+		a.markDirty()
+	case actionScrollDown:
+		a.scrollHelp(1)
+		a.markDirty()
+	case actionPageUp:
+		a.scrollHelp(-a.helpVisibleRows())
+		a.markDirty()
+	case actionPageDown:
+		a.scrollHelp(a.helpVisibleRows())
+		a.markDirty()
+	case actionHome:
+		a.helpOffset = 0
+		a.markDirty()
+	case actionEnd:
+		a.helpOffset = a.maxHelpOffset()
+		a.markDirty()
+	case actionAttach:
+		if action.agent != "" {
+			if err := a.enterNative(action.agent); err != nil {
+				a.add(protocol.Duo, "ERROR: "+err.Error())
+				a.setStatus(err.Error(), true)
+				a.markDirty()
+			}
+		}
+	case actionRestart:
+		if err := a.agents.Restart(ctx, action.agent); err != nil {
+			a.setStatus(err.Error(), true)
+			a.addError(protocol.Duo, err.Error())
+		} else {
+			a.tracker.Reset(action.agent)
+			a.setStatus(string(action.agent)+" restarted", false)
+		}
+		a.markDirty()
+	case actionSubmit:
+		a.submit(ctx)
+		a.markDirty()
+	}
+	return false
+}
+
 // resize applies the latest host terminal size to the agent PTYs and schedules
 // one full-clear frame. Any intermediate SIGWINCH sizes are intentionally
 // dropped; only the most recent size matters.
 func (a *App) resize() {
 	w, h := a.tty.Size()
 	a.width, a.height = w, h
+	if a.view == viewHelp {
+		a.clampHelpOffset()
+	}
 	if err := a.agents.ResizeAll(w, h); err != nil {
 		a.bus.Emit(events.Event{Kind: events.KindError, Agent: protocol.Duo, Text: err.Error()})
 	}
@@ -125,7 +182,7 @@ func (a *App) syncSize() {
 	w, h := a.tty.Size()
 	a.width, a.height = w, h
 	if err := a.agents.ResizeAll(w, h); err != nil {
-		a.status = err.Error()
+		a.setStatus(err.Error(), true)
 	}
 }
 

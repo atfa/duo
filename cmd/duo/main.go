@@ -26,7 +26,7 @@ import (
 	"github.com/atfa/duo/internal/workspace"
 )
 
-const version = "v0.4.5"
+const version = "v0.4.6"
 
 func main() {
 	if len(os.Args) > 1 {
@@ -312,7 +312,7 @@ func (r *runtime) serve(ctx context.Context) error {
 		go monitor.Run(ctx)
 	}
 
-	app := tui.New(coord, r.state, tracker, r.ws, server, agents, bus)
+	app := tui.New(coord, r.state, tracker, r.ws, server, agents, bus, version)
 	if err := app.Run(ctx); err != nil && ctx.Err() == nil {
 		log.Printf("Duo TUI: %v", err)
 	}

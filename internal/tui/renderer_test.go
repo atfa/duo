@@ -22,6 +22,7 @@ func testApp(w, h int) *App {
 		agents:  agent.NewManager(),
 		width:   w,
 		height:  h,
+		version: "v0.4.6",
 	}
 	app.renderer = newRenderer(frameInterval, nil, app.buildFrame)
 	return app
@@ -172,5 +173,68 @@ func TestIdleSpinnerDoesNotRepaint(t *testing.T) {
 	}
 	if app.frame != 1 || !app.renderer.dirty {
 		t.Fatalf("busy tick did not schedule: frame=%d dirty=%v", app.frame, app.renderer.dirty)
+	}
+	app.view = viewHelp
+	app.renderer.dirty = false
+	if app.spinnerTick() || app.renderer.dirty {
+		t.Fatal("Help spinner tick must not repaint")
+	}
+}
+
+func TestHelpFrameFitsAndResizeClamps(t *testing.T) {
+	app := testApp(60, 18)
+	app.view = viewHelp
+	app.helpOffset = app.maxHelpOffset()
+	lines := visibleLines(app.buildFrame(renderFullClear))
+	if len(lines) > 18 {
+		t.Fatalf("Help frame has %d lines", len(lines))
+	}
+	for i, line := range lines {
+		if got := displayWidth(line); got > 60 {
+			t.Fatalf("Help line %d is %d columns: %q", i, got, line)
+		}
+	}
+	if !strings.Contains(strings.Join(lines, "\n"), "Duo Help · v0.4.6") {
+		t.Fatal("Help title is missing dynamic version")
+	}
+	if strings.Contains(app.buildFrame(renderNormal), terminal.ShowCursor) {
+		t.Fatal("Help frame must keep the cursor hidden")
+	}
+	app.width, app.height = 120, 35
+	app.clampHelpOffset()
+	if app.helpOffset < 0 || app.helpOffset > app.maxHelpOffset() {
+		t.Fatalf("resize offset %d invalid", app.helpOffset)
+	}
+	resized := visibleLines(app.buildFrame(renderFullClear))
+	if len(resized) > 35 {
+		t.Fatalf("resized Help frame has %d lines", len(resized))
+	}
+	for i, line := range resized {
+		if got := displayWidth(line); got > 120 {
+			t.Fatalf("resized Help line %d is %d columns", i, got)
+		}
+	}
+	for _, line := range app.helpLines(118)[app.helpOffset:minInt(app.helpOffset+app.helpVisibleRows(), len(app.helpLines(118)))] {
+		if line != "" {
+			if !strings.Contains(strings.Join(resized, "\n"), line) {
+				t.Fatalf("resized Help did not render visible content %q", line)
+			}
+			break
+		}
+	}
+}
+
+func TestMainStatusComposerAndFooter(t *testing.T) {
+	app := testApp(100, 30)
+	app.status = "Tony restarted"
+	frame := ansiPattern.ReplaceAllString(app.buildFrame(renderNormal), "")
+	if !strings.Contains(frame, "Status: Tony restarted") || !strings.Contains(frame, "Duo → Austin >") {
+		t.Fatalf("status/composer missing: %q", frame)
+	}
+	if strings.Contains(frame, "Duo → Austin > (Tony restarted)") {
+		t.Fatal("status was rendered as composer input")
+	}
+	if !strings.Contains(frame, "Enter Send · Ctrl+A/T Native · Ctrl+/ Help · Ctrl+Q Quit") {
+		t.Fatal("minimal footer is missing")
 	}
 }

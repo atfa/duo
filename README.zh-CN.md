@@ -4,7 +4,20 @@
 
 **Duo 让两个 Pi coding agent 以平级伙伴的方式协作，而不是把一个 Agent 设为 Planner、另一个设为 subordinate worker。** 两个 Agent 可以共同讨论计划、实时互发消息、在隔离的 Git worktree 中执行、交叉 Review，并在集成前共同签字确认。
 
-当前版本为 **v0.4.5**，提供集成式双栏 TUI、原生 Pi 终端切换、动态端口和会话隔离，实现了可崩溃恢复的持久化会话（`duo --resume`），并会把最终集成结果安全交付回你启动 Duo 的原始仓库。
+当前版本为 **v0.4.6**，提供集成式双栏 TUI、原生 Pi 终端切换、动态端口和会话隔离，实现了可崩溃恢复的持久化会话（`duo --resume`），并会把最终集成结果安全交付回你启动 Duo 的原始仓库。
+
+## v0.4.6 TUI Help 与可用性
+
+- `Ctrl+/` 打开/关闭完整、可滚动的 Duo Help；支持 `↑/↓`、`j/k`、`PgUp/PgDn`、`Home/End` 和 `Esc`。
+- 主界面 composer 明确为 `Duo → Austin >`，状态独占固定一行，footer 精简为 `Enter Send · Ctrl+A/T Native · Ctrl+/ Help · Ctrl+Q Quit`。
+- 原生 Pi 中 `Ctrl+/` 仍直接交给 Pi，不会打开 Duo Help。
+
+| 快捷键 | 操作 |
+| --- | --- |
+| `Ctrl+/` | 打开/关闭 Duo Help |
+| `Enter` | 向 Austin 发送任务/消息 |
+| `Ctrl+A` / `Ctrl+T` | 打开 Austin/Tony 原生 Pi |
+| `Ctrl+Q` | 退出 Duo 并保留 session |
 
 ## v0.4.5 Resume 协作唤醒
 

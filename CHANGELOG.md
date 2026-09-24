@@ -2,6 +2,14 @@
 
 All notable project milestones are documented here.
 
+## v0.4.6 — 2026-09
+
+TUI Help and usability polish; no collaboration, recovery, or delivery semantics changed.
+
+- Added a full alternate-screen Help view with wrapped content, keyboard scrolling, resize-safe clamping, and `Ctrl+/` / `Esc` close behavior.
+- Kept native Pi input passthrough intact, including `Ctrl+/`; only Duo main TUI handles Help.
+- Clarified the Austin-only human composer, separated transient status, and reduced persistent footer hints.
+
 ## v0.4.5 — 2026-09
 
 Resume collaboration wake-up.

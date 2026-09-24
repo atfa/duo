@@ -45,6 +45,8 @@ func (a *App) buildFrame(mode renderMode) string {
 
 	if w < minWidth || h < minHeight {
 		a.writeTooSmall(&b, w, h)
+	} else if a.view == viewHelp {
+		a.writeHelp(&b, w, h)
 	} else {
 		a.writeLayout(&b, w, h)
 		row, col := inputCursor(w, h, string(a.input))
@@ -54,7 +56,9 @@ func (a *App) buildFrame(mode renderMode) string {
 	// Restore autowrap while the cursor is already parked, so enabling it can
 	// never turn a full-width last line into a wrap or scroll.
 	b.WriteString(terminal.AutoWrapOn)
-	b.WriteString(terminal.ShowCursor)
+	if a.view == viewMain && w >= minWidth && h >= minHeight {
+		b.WriteString(terminal.ShowCursor)
+	}
 	b.WriteString(terminal.EndSync)
 	return b.String()
 }
@@ -84,7 +88,7 @@ func (a *App) writeTooSmall(b *strings.Builder, w, h int) {
 // writeLayout draws the full Duo UI for the given real terminal geometry. It
 // leaves the last terminal row unused and does not emit a trailing newline.
 func (a *App) writeLayout(b *strings.Builder, w, h int) {
-	duoH := 7
+	duoH := 8
 	topH := h - duoH
 	leftW := (w - 1) / 2
 	rightW := w - 1 - leftW
@@ -127,13 +131,16 @@ func (a *App) writeLayout(b *strings.Builder, w, h int) {
 		b.WriteString(paint(ansiBorder, "│ ") + paintEntry(line, w-4) + paint(ansiBorder, " │\r\n"))
 	}
 
-	input := string(a.input)
-	if a.status != "" && input == "" {
-		input = "(" + a.status + ")"
+	statusLine := " Status: " + a.status
+	statusColor := ansiStatus
+	if a.statusError {
+		statusColor = ansiError
 	}
-	b.WriteString(paint(ansiBorder, "│") + paint(ansiStatus, " > ") + fitTail(input, w-6) + paint(ansiBorder, " │\r\n"))
-	help := " Enter send · Ctrl+A/T native · Ctrl+R Austin restart · Ctrl+Y Tony restart · Ctrl+Q quit · Ctrl+] / Ctrl+\\ return "
-	b.WriteString(paint(ansiBorder, "└") + paint(ansiHint, fit(help, w-2, "─")) + paint(ansiBorder, "┘"))
+	b.WriteString(paint(ansiBorder, "│") + paint(statusColor, fit(statusLine, w-2)) + paint(ansiBorder, "│\r\n"))
+	prefix := composerPrefix()
+	inputWidth := maxInt(w-2-displayWidth(prefix), 1)
+	b.WriteString(paint(ansiBorder, "│") + paint(ansiStatus, prefix) + fitTail(string(a.input), inputWidth) + paint(ansiBorder, "│\r\n"))
+	b.WriteString(paint(ansiBorder, "└") + paint(ansiHint, fit(mainFooter(), w-2, "─")) + paint(ansiBorder, "┘"))
 }
 
 func paint(code, text string) string {
@@ -186,13 +193,40 @@ func agentState(connected bool, runtime harness.AgentRuntime, frame int, states 
 // inputCursor returns the 1-based terminal position for the input insertion
 // point, using the real terminal size (never an invented minimum).
 func inputCursor(width, height int, input string) (row, col int) {
-	inputWidth := width - 6
+	inputWidth := width - 2 - displayWidth(composerPrefix())
 	if inputWidth < 1 {
 		inputWidth = 1
 	}
 	visible := tailContent(input, inputWidth)
-	col = 5 + displayWidth(visible)
+	col = 2 + displayWidth(composerPrefix()) + displayWidth(visible)
 	return height - 2, col
+}
+
+func (a *App) writeHelp(b *strings.Builder, w, h int) {
+	contentWidth := w - 2
+	lines := a.helpLines(contentWidth)
+	a.clampHelpOffset()
+	visible := a.helpVisibleRows()
+	title := " Duo Help · " + a.version + " "
+	b.WriteString(paint(ansiBorder, "┌") + paint(ansiTitle, fit(title, contentWidth, "─")) + paint(ansiBorder, "┐\r\n"))
+	for i := 0; i < visible; i++ {
+		line := ""
+		if at := a.helpOffset + i; at < len(lines) {
+			line = lines[at]
+		}
+		color := ansiHint
+		if line != "" && !strings.HasPrefix(line, " ") {
+			color = ansiTitle
+		}
+		b.WriteString(paint(ansiBorder, "│") + paint(color, fit(line, contentWidth)) + paint(ansiBorder, "│\r\n"))
+	}
+	b.WriteString(paint(ansiBorder, "├") + paint(ansiBorder, strings.Repeat("─", contentWidth)) + paint(ansiBorder, "┤\r\n"))
+	first, last := a.helpOffset+1, minInt(a.helpOffset+visible, len(lines))
+	if len(lines) == 0 {
+		first, last = 0, 0
+	}
+	foot := fmt.Sprintf(" Lines %d–%d / %d · ↑↓/jk scroll · PgUp/PgDn · Esc close · Ctrl+Q quit ", first, last, len(lines))
+	b.WriteString(paint(ansiBorder, "└") + paint(ansiHint, fit(foot, contentWidth, "─")) + paint(ansiBorder, "┘"))
 }
 
 func paneLines(entries []entry, width, rows int) []entry {
@@ -334,6 +368,13 @@ func popRune(buf []byte) []byte {
 
 func maxInt(a, b int) int {
 	if a > b {
+		return a
+	}
+	return b
+}
+
+func minInt(a, b int) int {
+	if a < b {
 		return a
 	}
 	return b

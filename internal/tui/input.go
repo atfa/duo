@@ -7,11 +7,27 @@ import (
 	"github.com/atfa/duo/internal/protocol"
 )
 
+type actionKind int
+
+const (
+	actionNone actionKind = iota
+	actionSubmit
+	actionQuit
+	actionToggleHelp
+	actionCloseHelp
+	actionScrollUp
+	actionScrollDown
+	actionPageUp
+	actionPageDown
+	actionHome
+	actionEnd
+	actionAttach
+	actionRestart
+)
+
 type inputAction struct {
-	submit  bool
-	quit    bool
-	attach  protocol.AgentID
-	restart protocol.AgentID
+	kind  actionKind
+	agent protocol.AgentID
 }
 
 func (a *App) handleByte(b byte) inputAction {
@@ -21,35 +37,119 @@ func (a *App) handleByte(b byte) inputAction {
 			a.escBuf = nil
 			return inputAction{}
 		}
-		if b == 'M' || b == 'm' || b == '~' || (len(a.escBuf) >= 3 && ((b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z'))) {
+		if b == 'M' || b == 'm' || b == '~' || b == 'u' || (len(a.escBuf) >= 3 && ((b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z'))) {
 			seq := string(a.escBuf)
 			a.escBuf = nil
 			if x, y, ok := parseMouse(seq); ok {
-				return inputAction{attach: a.hitNativeButton(x, y)}
+				if a.view == viewMain {
+					return inputAction{kind: actionAttach, agent: a.hitNativeButton(x, y)}
+				}
+				return inputAction{}
 			}
+			return a.handleKey(decodeEscape(seq))
+		}
+		return inputAction{}
+	}
+	return a.handleKey(keyForByte(b))
+}
+
+// handleEscapeTimeout turns a bare Escape into a key after the input loop has
+// allowed a short window for a terminal escape sequence.
+func (a *App) handleEscapeTimeout() inputAction {
+	if string(a.escBuf) != "\x1b" {
+		return inputAction{}
+	}
+	a.escBuf = nil
+	return a.handleKey("esc")
+}
+
+func keyForByte(b byte) string {
+	switch b {
+	case 1:
+		return "ctrl-a"
+	case 20:
+		return "ctrl-t"
+	case 18:
+		return "ctrl-r"
+	case 25:
+		return "ctrl-y"
+	case 17:
+		return "ctrl-q"
+	case 31:
+		return "ctrl-slash"
+	case 13, 10:
+		return "enter"
+	case 127, 8:
+		return "backspace"
+	}
+	return string([]byte{b})
+}
+
+func decodeEscape(seq string) string {
+	switch seq {
+	case "\x1b[A":
+		return "up"
+	case "\x1b[B":
+		return "down"
+	case "\x1b[H", "\x1b[1~":
+		return "home"
+	case "\x1b[F", "\x1b[4~":
+		return "end"
+	case "\x1b[5~":
+		return "page-up"
+	case "\x1b[6~":
+		return "page-down"
+	case "\x1b[47;5u", "\x1b[27;5;47~":
+		return "ctrl-slash"
+	}
+	return ""
+}
+
+func (a *App) handleKey(key string) inputAction {
+	if key == "ctrl-q" {
+		return inputAction{kind: actionQuit}
+	}
+	if a.view == viewHelp {
+		switch key {
+		case "ctrl-slash":
+			return inputAction{kind: actionToggleHelp}
+		case "esc":
+			return inputAction{kind: actionCloseHelp}
+		case "up", "k":
+			return inputAction{kind: actionScrollUp}
+		case "down", "j":
+			return inputAction{kind: actionScrollDown}
+		case "page-up":
+			return inputAction{kind: actionPageUp}
+		case "page-down":
+			return inputAction{kind: actionPageDown}
+		case "home", "g":
+			return inputAction{kind: actionHome}
+		case "end", "G":
+			return inputAction{kind: actionEnd}
 		}
 		return inputAction{}
 	}
 
-	switch b {
-	case 1: // Ctrl+A
-		return inputAction{attach: protocol.Austin}
-	case 20: // Ctrl+T
-		return inputAction{attach: protocol.Tony}
-	case 18: // Ctrl+R: restart Austin (failed/exited only)
-		return inputAction{restart: protocol.Austin}
-	case 25: // Ctrl+Y: restart Tony (failed/exited only)
-		return inputAction{restart: protocol.Tony}
-	case 17: // Ctrl+Q
-		return inputAction{quit: true}
-	case 13, 10:
-		return inputAction{submit: true}
-	case 127, 8:
+	switch key {
+	case "ctrl-a":
+		return inputAction{kind: actionAttach, agent: protocol.Austin}
+	case "ctrl-t":
+		return inputAction{kind: actionAttach, agent: protocol.Tony}
+	case "ctrl-r":
+		return inputAction{kind: actionRestart, agent: protocol.Austin}
+	case "ctrl-y":
+		return inputAction{kind: actionRestart, agent: protocol.Tony}
+	case "ctrl-slash":
+		return inputAction{kind: actionToggleHelp}
+	case "enter":
+		return inputAction{kind: actionSubmit}
+	case "backspace":
 		a.input = popRune(a.input)
 	default:
-		if b >= 32 || b >= 0x80 {
-			a.input = append(a.input, b)
-			a.status = ""
+		if (len(key) == 1 && key[0] >= 32) || (len(key) == 1 && key[0] >= 0x80) {
+			a.input = append(a.input, key...)
+			a.setStatus("", false)
 		}
 	}
 	return inputAction{}
@@ -70,8 +170,7 @@ func parseMouse(seq string) (x, y int, ok bool) {
 	if err1 != nil || err2 != nil || err3 != nil || button != 0 {
 		return 0, 0, false
 	}
-	x, y = xv, yv
-	return x, y, true
+	return xv, yv, true
 }
 
 func (a *App) hitNativeButton(x, y int) protocol.AgentID {
@@ -79,7 +178,6 @@ func (a *App) hitNativeButton(x, y int) protocol.AgentID {
 		return ""
 	}
 	leftW := (a.width - 1) / 2
-	// The whole header is deliberately clickable in v0.3.1; [↗] is the visual affordance.
 	if x >= 2 && x <= leftW {
 		return protocol.Austin
 	}

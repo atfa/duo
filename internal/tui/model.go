@@ -36,10 +36,14 @@ type App struct {
 
 	renderer *renderer
 
-	width  int
-	height int
-	input  []byte
-	status string
+	width       int
+	height      int
+	input       []byte
+	status      string
+	statusError bool
+	version     string
+	view        viewMode
+	helpOffset  int
 
 	austin []entry
 	tony   []entry
@@ -59,8 +63,13 @@ func New(
 	server *transport.Server,
 	agents *agent.Manager,
 	bus *events.Bus,
+	version string,
 ) *App {
-	return &App{coord: coord, state: state, tracker: tracker, ws: ws, server: server, agents: agents, bus: bus}
+	return &App{coord: coord, state: state, tracker: tracker, ws: ws, server: server, agents: agents, bus: bus, version: version}
+}
+
+func (a *App) setStatus(text string, isError bool) {
+	a.status, a.statusError = text, isError
 }
 
 // markDirty schedules a frame for the next renderer tick.
@@ -93,7 +102,7 @@ func (a *App) spinnerActive() bool {
 // spinnerTick advances the spinner only while work is visible, so an idle Duo
 // does not repaint periodically.
 func (a *App) spinnerTick() bool {
-	if !a.spinnerActive() {
+	if a.view != viewMain || !a.spinnerActive() {
 		return false
 	}
 	a.frame++
@@ -163,9 +172,9 @@ func (a *App) submit(ctx context.Context) {
 	}
 	a.input = a.input[:0]
 	if err := a.coord.SubmitUserTask(ctx, text); err != nil {
-		a.status = err.Error()
+		a.setStatus(err.Error(), true)
 		a.add(protocol.Duo, "ERROR: "+err.Error())
 	} else {
-		a.status = "sent to Austin"
+		a.setStatus("sent to Austin", false)
 	}
 }
