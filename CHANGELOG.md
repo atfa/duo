@@ -2,6 +2,12 @@
 
 All notable project milestones are documented here.
 
+## v0.4.5 — 2026-09
+
+Resume collaboration wake-up.
+
+- A resumed runtime sends each reconnected Pi agent one phase-aware `resume_prompt`, derived from authoritative durable state; reconnects do not duplicate it and fresh sessions keep the Austin-only bootstrap.
+
 ## v0.4.3 — 2026-09
 
 Test lifecycle and release validation hardening.

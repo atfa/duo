@@ -26,7 +26,7 @@ import (
 	"github.com/atfa/duo/internal/workspace"
 )
 
-const version = "v0.4.4"
+const version = "v0.4.5"
 
 func main() {
 	if len(os.Args) > 1 {
@@ -241,6 +241,9 @@ func (r *runtime) serve(ctx context.Context) error {
 			return r.composeSnapshot(coord)
 		},
 	})
+	if r.resume {
+		coord.EnableResumeWake()
+	}
 	server.SetHandler(coord)
 
 	serverErr := make(chan error, 1)

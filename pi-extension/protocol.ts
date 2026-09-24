@@ -6,9 +6,14 @@ export type AgentName = "Austin" | "Tony";
  */
 export const PROTOCOL_VERSION = 1;
 
+export type DuoMessageType =
+  | "hello" | "test" | "activity" | "assistant_message" | "agent_error"
+  | "peer_message" | "steer" | "duo_notice" | "harness_prompt" | "human_prompt"
+  | "resume_prompt" | "set_plan" | "set_status" | "get_status" | "response";
+
 export type DuoMessage = {
   version: typeof PROTOCOL_VERSION;
-  type: string;
+  type: DuoMessageType;
   requestId?: string;
 
   sessionId?: string;

@@ -77,3 +77,51 @@ func TestDonePromptReportsRealDelivery(t *testing.T) {
 		t.Fatalf("DONE prompt still carries the old no-delivery wording:\n%s", prompt)
 	}
 }
+
+func TestResumePromptsArePhaseAware(t *testing.T) {
+	coord := promptCoordinator()
+	cases := []struct {
+		phase project.Phase
+		agent protocol.AgentID
+		want  []string
+	}{
+		{project.PhasePlan, protocol.Austin, []string{"Current phase: PLAN", "Shared plan version: v7", "coordinating the shared plan", "Do not merely acknowledge"}},
+		{project.PhaseExecute, protocol.Tony, []string{"Current phase: EXECUTE", "Continue your assigned EXECUTE work", "commit it", "Do not merely acknowledge"}},
+		{project.PhaseReview, protocol.Tony, []string{"Current phase: REVIEW", "cross-review", "current branch/HEAD", "Do not merely acknowledge"}},
+		{project.PhaseIntegrate, protocol.Austin, []string{"Current phase: INTEGRATE", "final integration validation", "current Austin integration worktree", "Do not merely acknowledge"}},
+		{project.PhaseIntegrate, protocol.Tony, []string{"Current phase: INTEGRATE", "independent review of Austin's current integrated HEAD", "Do not merely acknowledge"}},
+	}
+	for _, tc := range cases {
+		t.Run(string(tc.phase)+string(tc.agent), func(t *testing.T) {
+			coord.project.Restore(project.Snapshot{Phase: tc.phase, Plan: "authoritative plan", PlanVersion: 7})
+			got := coord.ResumePrompt(tc.agent)
+			for _, want := range append([]string{"[Duo session resumed]", "authoritative plan", "Austin ready:", "Tony ready:", "duo_status", "Working-directory scope:"}, tc.want...) {
+				if !strings.Contains(got, want) {
+					t.Fatalf("resume prompt missing %q:\n%s", want, got)
+				}
+			}
+		})
+	}
+}
+
+func TestResumeIntegratePromptHonorsPartialSignatures(t *testing.T) {
+	coord := promptCoordinator()
+	if err := coord.project.Restore(project.Snapshot{
+		Phase: project.PhaseIntegrate,
+		Ready: map[protocol.AgentID]bool{protocol.Austin: true, protocol.Tony: false},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	austin := coord.ResumePrompt(protocol.Austin)
+	tony := coord.ResumePrompt(protocol.Tony)
+	for _, want := range []string{"Austin ready: true", "Tony ready: false", "current Austin integration worktree", "Do not redo the whole task"} {
+		if !strings.Contains(austin, want) {
+			t.Fatalf("Austin partial-sign prompt missing %q:\n%s", want, austin)
+		}
+	}
+	for _, want := range []string{"Austin ready: true", "Tony ready: false", "independent review of Austin's current integrated HEAD", "Reject final approval"} {
+		if !strings.Contains(tony, want) {
+			t.Fatalf("Tony partial-sign prompt missing %q:\n%s", want, tony)
+		}
+	}
+}

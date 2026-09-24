@@ -52,6 +52,7 @@ const (
 	MsgDuoNotice        MessageType = "duo_notice"
 	MsgHarnessPrompt    MessageType = "harness_prompt"
 	MsgHumanPrompt      MessageType = "human_prompt"
+	MsgResumePrompt     MessageType = "resume_prompt"
 	MsgSetPlan          MessageType = "set_plan"
 	MsgSetStatus        MessageType = "set_status"
 	MsgGetStatus        MessageType = "get_status"

@@ -1,6 +1,6 @@
 import net from "node:net";
 import { PROTOCOL_VERSION } from "./protocol";
-import type { AgentName, DuoMessage, PendingRequest } from "./protocol";
+import type { AgentName, DuoMessage, DuoMessageType, PendingRequest } from "./protocol";
 
 export class DuoTransport {
   private socket: net.Socket | null = null;
@@ -90,7 +90,7 @@ export class DuoTransport {
   }
 
   request(
-    type: string,
+    type: DuoMessageType,
     payload: Partial<DuoMessage> = {},
     timeoutMs = 5000,
   ): Promise<DuoMessage> {

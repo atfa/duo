@@ -1,8 +1,12 @@
-# Duo v0.4.4
+# Duo v0.4.5
 
 **Two peer Pi coding agents in one terminal.**
 
-Duo v0.4.4 combines the peer collaboration runtime with an integrated terminal UI, isolated local sessions, and durable sessions that survive a crash — and hands the finished artifact back to the repository you launched it from.
+Duo v0.4.5 combines the peer collaboration runtime with an integrated terminal UI, isolated local sessions, and durable sessions that survive a crash — and hands the finished artifact back to the repository you launched it from.
+
+## What changed in v0.4.5
+
+- **Resume collaboration wake-up.** On `duo --resume`, Duo restores both Pi sessions and actively wakes each agent as its bridge reconnects with a phase-aware prompt. You do not need to send `continue` merely to restart collaboration; the human composer still targets Austin only.
 
 ## What changed in v0.4.4
 
@@ -142,7 +146,7 @@ On resume Duo:
 3. validates that the recorded worktrees still exist, are Git worktrees, and are on the expected branches — existing worktrees are reused, never recreated;
 4. re-derives the truth from Git (worktree HEADs, an interrupted `MERGE_HEAD`, the Austin/Tony integration result);
 5. revokes stale signatures and applies the reconciled state **before** agents start, so a crash during startup cannot resurrect an old approval;
-6. restarts Austin and Tony with their previous Pi session identity in the same worktrees.
+6. restarts Austin and Tony with their previous Pi session identity in the same worktrees, then actively wakes each agent as its bridge reconnects with the authoritative phase, plan and worktree scope. The human composer still sends only to Austin.
 
 While `duo` runs, a session is considered active. Quitting Duo with `Ctrl+Q` preserves the session and prints the exact resume command.
 

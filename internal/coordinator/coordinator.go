@@ -41,6 +41,10 @@ type Coordinator struct {
 	log       *sessionstore.Logger
 	compose   func(project.Snapshot) sessionstore.Snapshot
 	persistMu sync.Mutex
+
+	resumeWakeMu        sync.Mutex
+	resumeWakeEnabled   bool
+	resumeWakeAttempted map[protocol.AgentID]bool
 }
 
 // Durability wires a session store into the coordinator.
@@ -74,6 +78,15 @@ func (c *Coordinator) EnableDurability(d Durability) {
 	c.log = d.Log
 	c.compose = d.Compose
 	c.project.SetPersistence(c.persist)
+}
+
+// EnableResumeWake makes the next bridge connection for each agent receive one
+// runtime-local resume prompt. Fresh sessions deliberately never enable this.
+func (c *Coordinator) EnableResumeWake() {
+	c.resumeWakeMu.Lock()
+	c.resumeWakeEnabled = true
+	c.resumeWakeAttempted = make(map[protocol.AgentID]bool)
+	c.resumeWakeMu.Unlock()
 }
 
 // SetIntegration records the integration outcome so it is part of every
@@ -196,10 +209,36 @@ func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 
 func (c *Coordinator) StatusText(ctx context.Context) string { return c.statusText(ctx) }
 
-func (c *Coordinator) OnConnect(_ context.Context, client *transport.Client) {
+func (c *Coordinator) OnConnect(ctx context.Context, client *transport.Client) {
 	c.tracker.Touch(client.Agent)
 	c.recordEvent("bridge_connect", map[string]any{"agent": string(client.Agent)})
 	c.emit(events.KindSystem, client.Agent, "", fmt.Sprintf("%s connected", client.Agent))
+	c.wakeResumedAgent(ctx, client.Agent)
+}
+
+func (c *Coordinator) wakeResumedAgent(ctx context.Context, agent protocol.AgentID) {
+	c.resumeWakeMu.Lock()
+	if !c.resumeWakeEnabled || c.resumeWakeAttempted[agent] {
+		c.resumeWakeMu.Unlock()
+		return
+	}
+	c.resumeWakeAttempted[agent] = true
+	c.resumeWakeMu.Unlock()
+
+	snap := c.project.Snapshot()
+	if err := c.server.Send(ctx, agent, protocol.Message{
+		Version: protocol.Version, Type: protocol.MsgResumePrompt, From: protocol.Duo, To: agent,
+		Text: c.resumePrompt(agent, snap), Timestamp: time.Now().UnixMilli(),
+	}); err != nil {
+		c.recordEvent("resume_wake_failed", map[string]any{"agent": string(agent), "phase": string(snap.Phase), "planVersion": snap.PlanVersion, "error": err.Error()})
+		c.logf("resume wake for %s failed: %v", agent, err)
+		c.emit(events.KindError, protocol.Duo, agent, fmt.Sprintf("resume wake for %s failed: %v", agent, err))
+		return
+	}
+	c.tracker.Touch(agent)
+	c.recordEvent("resume_wake_sent", map[string]any{"agent": string(agent), "phase": string(snap.Phase), "planVersion": snap.PlanVersion})
+	c.logf("sent resume wake to %s (phase=%s planVersion=%d)", agent, snap.Phase, snap.PlanVersion)
+	c.emit(events.KindSystem, protocol.Duo, agent, fmt.Sprintf("sent resume wake to %s", agent))
 }
 
 func (c *Coordinator) OnDisconnect(client *transport.Client) {
