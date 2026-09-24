@@ -34,6 +34,10 @@ const initialCommitSteps = `  # Review or create .gitignore before adding files.
   git commit --allow-empty -m "Initial commit"
   duo`
 
+func existingRepositoryError(err error) error {
+	return fmt.Errorf("Duo requires an existing Git repository and will not initialize one automatically.\n\nTo prepare this directory:\n  git init\n%s\n\nGit check failed: %w", initialCommitSteps, err)
+}
+
 func NewGitManager(cfg GitConfig) *GitManager {
 	return &GitManager{cfg: cfg}
 }
@@ -48,7 +52,7 @@ func (m *GitManager) Prepare(ctx context.Context) (Set, error) {
 
 	root, err := gitOutput(ctx, repo, "rev-parse", "--show-toplevel")
 	if err != nil {
-		return Set{}, fmt.Errorf("Duo requires an existing Git repository and will not initialize one automatically.\n\nTo prepare this directory:\n  git init\n%s\n\nGit check failed: %w", initialCommitSteps, err)
+		return Set{}, existingRepositoryError(err)
 	}
 	root, err = filepath.Abs(strings.TrimSpace(root))
 	if err != nil {
@@ -327,7 +331,7 @@ func FindRoot(ctx context.Context, repository string) (string, error) {
 	}
 	root, err := gitOutput(ctx, repo, "rev-parse", "--show-toplevel")
 	if err != nil {
-		return "", fmt.Errorf("Duo requires an existing Git repository: %w", err)
+		return "", existingRepositoryError(err)
 	}
 	abs, err := filepath.Abs(strings.TrimSpace(root))
 	if err != nil {

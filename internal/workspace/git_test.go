@@ -188,6 +188,31 @@ func TestGitManagerPrepareRequiresExistingRepository(t *testing.T) {
 	}
 }
 
+func TestFindRootRequiresExistingRepository(t *testing.T) {
+	dir := t.TempDir()
+
+	_, err := FindRoot(context.Background(), dir)
+	if err == nil {
+		t.Fatal("expected repository error")
+	}
+	for _, want := range []string{
+		"requires an existing Git repository",
+		"will not initialize one automatically",
+		"git init",
+		".gitignore",
+		"git add .",
+		`git commit --allow-empty -m "Initial commit"`,
+		"duo",
+	} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error missing %q:\n%s", want, err)
+		}
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, ".git")); !os.IsNotExist(statErr) {
+		t.Fatalf("FindRoot created .git: %v", statErr)
+	}
+}
+
 func TestGitManagerPrepareRequiresInitialCommit(t *testing.T) {
 	ctx := context.Background()
 	repo := t.TempDir()
