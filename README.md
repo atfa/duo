@@ -126,7 +126,7 @@ Duo shows both agents side by side with their connection, process and working st
 
 The composer holds multiple lines and shows up to four at a time. Native attach is a fullscreen takeover: inside Pi, `/model`, `/settings`, `/tree` and all Pi shortcuts belong to Pi.
 
-Agent output is rendered as lightweight markdown: headings, blockquotes, links and bold/italic/code spans are styled, and markdown tables are drawn with real, aligned borders. A table wider than its pane is narrowed by wrapping the widest cells instead of truncating them.
+Agent output is rendered as lightweight markdown: headings, blockquotes, links and bold/italic/code spans are styled, and markdown tables are drawn with real, aligned borders. A table wider than its pane is narrowed by wrapping the widest cells instead of truncating them, and a wrapped list keeps a hanging indent so continuation lines stay under the item text.
 
 Mouse selection copies through the platform clipboard command, which today means `pbcopy` on macOS. On other platforms the selection still highlights but the copy step fails and Duo reports it in the status line.
 

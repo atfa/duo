@@ -123,6 +123,7 @@ After a Duo Core, Austin or Tony crash the user must be able to continue the ori
 ## v0.4.8 — readable output and resolvable delivery (in progress)
 
 - [x] markdown rendering in agent panes: styled headings, blockquotes, links and bold/italic/code spans
+- [x] wrapped markdown lists keep a hanging indent; nested lists indented by depth
 - [x] markdown tables drawn with real borders, aligned to the pane width
 - [x] narrow table cells wrapped instead of truncated
 - [x] mouse-drag selection in a pane with clipboard copy (`pbcopy`)
