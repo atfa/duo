@@ -26,7 +26,7 @@ type deliveryOutcome struct {
 // persists every checkpoint. The pending checkpoint (which records the exact
 // final HEAD) is written before the user's repository is touched, so a crash
 // between the fast-forward and the applied checkpoint can be reconciled on the
-// next run by observing that the original HEAD already equals FinalHead.
+// next run by observing that the original history already contains FinalHead.
 func deliverAndPersist(
 	ctx context.Context,
 	store *sessionstore.Store,
@@ -260,14 +260,7 @@ func printDeliveryPending(outcome deliveryOutcome) {
 	fmt.Println()
 	fmt.Println("No user files were overwritten.")
 	fmt.Println()
-	fmt.Println("After resolving the original repository, run:")
+	fmt.Println("To preserve both histories, merge the final result manually from the repository you launched Duo from:")
+	fmt.Printf("  git merge --no-ff %s\n", snap.Delivery.FinalHead)
 	fmt.Printf("  duo apply %s\n", snap.SessionID)
-	fmt.Println()
-	fmt.Println("To finish the handoff manually instead, from the repository you launched Duo from:")
-	fmt.Printf("  git merge --ff-only %s\n", snap.Delivery.FinalHead)
-	if base := strings.TrimSpace(snap.BaseCommit); base != "" {
-		fmt.Printf("  git cherry-pick %s..%s   # if it cannot fast-forward\n", base, snap.Delivery.FinalHead)
-	} else {
-		fmt.Printf("  git cherry-pick %s   # if it cannot fast-forward\n", snap.Delivery.FinalHead)
-	}
 }

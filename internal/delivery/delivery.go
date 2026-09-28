@@ -99,9 +99,14 @@ func (m Manager) Check(ctx context.Context) (Check, error) {
 	}
 	check.Clean = strings.TrimSpace(porcelain) == ""
 
-	// The exact artifact is already present: delivery is a no-op. This is the
-	// idempotency anchor that makes crash recovery safe.
-	if head == check.FinalHead {
+	// The final artifact is already part of the current history: delivery is a
+	// no-op. This also recognizes a user-resolved non-fast-forward merge.
+	// It is the idempotency anchor that makes crash recovery safe.
+	alreadyApplied, err := isAncestor(ctx, check.Repository, check.FinalHead, head)
+	if err != nil {
+		return check, err
+	}
+	if alreadyApplied {
 		check.AlreadyApplied = true
 		return check, nil
 	}

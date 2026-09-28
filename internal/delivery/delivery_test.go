@@ -237,6 +237,41 @@ func TestDeliverIsIdempotentWhenAlreadyApplied(t *testing.T) {
 	}
 }
 
+// TestDeliverRecognizesManualMerge preserves a user's concurrent commit while
+// accepting the final Duo artifact once the user has merged it manually.
+func TestDeliverRecognizesManualMerge(t *testing.T) {
+	ctx := context.Background()
+	repo := initRepo(t)
+	base := head(t, repo)
+	baseBranch := branch(t, repo)
+	final := produceFinal(t, repo, "duo/s/austin", "result.md", "hello Duo\n", "add result.md")
+
+	write(t, repo, "user.md", "user commit\n")
+	run(t, repo, "git", "add", "user.md")
+	run(t, repo, "git", "commit", "-m", "user commit")
+	run(t, repo, "git", "merge", "--no-ff", "--no-edit", final)
+	merged := head(t, repo)
+
+	res, err := (Manager{
+		Repository: repo, BaseBranch: baseBranch, BaseCommit: base,
+		FinalBranch: "duo/s/austin", FinalHead: final,
+	}).Deliver(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Applied || !res.Check.AlreadyApplied {
+		t.Fatalf("manual merge was not recognized: %+v", res.Check)
+	}
+	if got := head(t, repo); got != merged {
+		t.Fatalf("delivery moved manual merge HEAD to %s, want %s", got, merged)
+	}
+	for _, name := range []string{"result.md", "user.md"} {
+		if _, err := os.Stat(filepath.Join(repo, name)); err != nil {
+			t.Fatalf("manual merge did not preserve %s: %v", name, err)
+		}
+	}
+}
+
 // TestDeliverRefusesDetachedHead proves a detached original repository is left
 // alone.
 func TestDeliverRefusesDetachedHead(t *testing.T) {
