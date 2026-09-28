@@ -12,6 +12,7 @@ import (
 	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
+	"github.com/atfa/duo/internal/sessionstore"
 	"github.com/atfa/duo/internal/terminal"
 	"github.com/atfa/duo/internal/transport"
 	"github.com/atfa/duo/internal/workspace"
@@ -31,6 +32,7 @@ type App struct {
 	server  *transport.Server
 	agents  *agent.Manager
 	bus     *events.Bus
+	journal *sessionstore.EventLog
 
 	tty *terminal.TTY
 
@@ -67,8 +69,14 @@ func New(
 	agents *agent.Manager,
 	bus *events.Bus,
 	version string,
+	history []sessionstore.TUIEntry,
+	journal *sessionstore.EventLog,
 ) *App {
-	return &App{coord: coord, state: state, tracker: tracker, ws: ws, server: server, agents: agents, bus: bus, version: version}
+	a := &App{coord: coord, state: state, tracker: tracker, ws: ws, server: server, agents: agents, bus: bus, version: version, journal: journal}
+	for _, item := range history {
+		a.restoreEntry(item)
+	}
+	return a
 }
 
 func (a *App) setStatus(text string, isError bool) {
@@ -122,8 +130,16 @@ func (a *App) route(event events.Event) {
 	case events.KindAssistant:
 		a.add(event.Agent, text)
 	case events.KindPeer:
-		a.add(event.Agent, fmt.Sprintf("→ %s: sent", event.Peer))
-		a.add(event.Peer, fmt.Sprintf("← %s: %s", event.Agent, text))
+		sentDirection := "→"
+		if event.Agent == protocol.Tony {
+			sentDirection = "←"
+		}
+		a.add(event.Agent, fmt.Sprintf("%s %s: sent", sentDirection, event.Peer))
+		direction := "←"
+		if event.Peer == protocol.Tony {
+			direction = "→"
+		}
+		a.add(event.Peer, fmt.Sprintf("%s From %s:\n%s", direction, event.Agent, text))
 	case events.KindUser:
 		a.add(protocol.Duo, "Human → Austin: "+text)
 	case events.KindHarness:
@@ -155,6 +171,22 @@ func (a *App) addError(agent protocol.AgentID, text string) {
 }
 
 func (a *App) addEntry(agent protocol.AgentID, text string, isError bool) {
+	item := entry{at: time.Now(), text: text, error: isError}
+	a.appendEntry(agent, item)
+	if a.journal != nil {
+		a.journal.RecordTUIEntry(sessionstore.TUIEntry{Time: item.at, Pane: string(agent), Text: text, Error: isError})
+	}
+}
+
+func (a *App) restoreEntry(item sessionstore.TUIEntry) {
+	agent := protocol.AgentID(item.Pane)
+	if agent != protocol.Austin && agent != protocol.Tony && agent != protocol.Duo {
+		return
+	}
+	a.appendEntry(agent, entry{at: item.Time, text: item.Text, error: item.Error})
+}
+
+func (a *App) appendEntry(agent protocol.AgentID, item entry) {
 	list := &a.duo
 	if agent == protocol.Austin {
 		list = &a.austin
@@ -162,7 +194,7 @@ func (a *App) addEntry(agent protocol.AgentID, text string, isError bool) {
 	if agent == protocol.Tony {
 		list = &a.tony
 	}
-	*list = append(*list, entry{at: time.Now(), text: text, error: isError})
+	*list = append(*list, item)
 	if len(*list) > 200 {
 		*list = append([]entry(nil), (*list)[len(*list)-200:]...)
 	}

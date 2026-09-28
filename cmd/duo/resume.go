@@ -42,6 +42,7 @@ func runResume(ctx context.Context, cfg config, root, repoID, baseDir string) er
 
 	logger := store.OpenLog()
 	journal := store.OpenEvents()
+	tuiHistory := journal.TUIEntries()
 	logger.Printf("resuming Duo session %s from %s (persisted phase %s repository=%s scope=%s)", snap.SessionID, store.StatePath(), snap.Phase, snap.Repository, effectiveScope(snap.ScopePath))
 
 	set := setFromSnapshot(snap)
@@ -127,8 +128,9 @@ func runResume(ctx context.Context, cfg config, root, repoID, baseDir string) er
 			MergedTony:   reconciled.Integration.MergedTony,
 			Conflicted:   reconciled.Integration.Conflicted,
 		},
-		delivery: reconciled.Delivery,
-		resume:   true,
+		delivery:   reconciled.Delivery,
+		tuiHistory: tuiHistory,
+		resume:     true,
 	}
 
 	// Record the Pi identities actually in use, including any newly generated

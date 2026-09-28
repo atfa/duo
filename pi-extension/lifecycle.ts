@@ -15,6 +15,10 @@ function extractAssistantText(message: any): string | null {
   return text || null;
 }
 
+function isCompactionAbort(error: unknown): boolean {
+  return error === "This operation was aborted" || error === "Error: This operation was aborted";
+}
+
 export function installLifecycle(pi: any, transport: DuoTransport, agent: AgentName) {
   let lastAssistantText: string | null = null;
   let lastStreamActivityAt = 0;
@@ -79,12 +83,17 @@ export function installLifecycle(pi: any, transport: DuoTransport, agent: AgentN
 
   pi.on("message_end", async (event: any) => {
     const message = event?.message;
-    if (message?.role === "assistant" && (message.stopReason === "error" || message.errorMessage)) {
+    const errorMessage = message?.errorMessage || `Request ${message?.stopReason}`;
+    if (
+      message?.role === "assistant" &&
+      (message.stopReason === "error" || message.errorMessage) &&
+      !isCompactionAbort(errorMessage)
+    ) {
       transport.send({
         version: 1,
         type: "agent_error",
         agent,
-        text: message.errorMessage || `Request ${message.stopReason}`,
+        text: errorMessage,
         timestamp: Date.now(),
       });
     }

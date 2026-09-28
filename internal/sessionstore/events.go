@@ -1,6 +1,7 @@
 package sessionstore
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -21,6 +22,15 @@ type Event struct {
 type EventLog struct {
 	mu   sync.Mutex
 	path string
+}
+
+// TUIEntry is one persisted pane entry. It is intentionally separate from
+// audit events: only tui_entry records are ever restored into the interface.
+type TUIEntry struct {
+	Time  time.Time `json:"time"`
+	Pane  string    `json:"pane"`
+	Text  string    `json:"text"`
+	Error bool      `json:"error"`
 }
 
 func (s *Store) OpenEvents() *EventLog { return &EventLog{path: s.EventsPath()} }
@@ -57,4 +67,64 @@ func (l *EventLog) Append(event Event) error {
 // the session it describes.
 func (l *EventLog) Record(eventType string, fields map[string]any) {
 	_ = l.Append(Event{Type: eventType, Fields: fields})
+}
+
+// RecordTUIEntry records exactly what was added to a visible pane. It shares
+// the session journal so there is no second session history format.
+func (l *EventLog) RecordTUIEntry(entry TUIEntry) {
+	if entry.Time.IsZero() {
+		entry.Time = time.Now().UTC()
+	}
+	_ = l.Append(Event{Time: entry.Time, Type: "tui_entry", Fields: map[string]any{
+		"pane":  entry.Pane,
+		"text":  entry.Text,
+		"error": entry.Error,
+	}})
+}
+
+// TUIEntries returns the most recent 200 records for each pane. Older event
+// logs and individual malformed lines are ignored so a damaged transcript
+// cannot prevent a session from resuming.
+func (l *EventLog) TUIEntries() []TUIEntry {
+	f, err := os.Open(l.path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	var out []TUIEntry
+	counts := map[string]int{}
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 4<<10), 1<<20)
+	for scanner.Scan() {
+		var raw struct {
+			Time   time.Time `json:"time"`
+			Type   string    `json:"type"`
+			Fields struct {
+				Pane  string `json:"pane"`
+				Text  string `json:"text"`
+				Error bool   `json:"error"`
+			} `json:"fields"`
+		}
+		if json.Unmarshal(scanner.Bytes(), &raw) != nil || raw.Type != "tui_entry" || !validTUIPane(raw.Fields.Pane) {
+			continue
+		}
+		entry := TUIEntry{Time: raw.Time, Pane: raw.Fields.Pane, Text: raw.Fields.Text, Error: raw.Fields.Error}
+		out = append(out, entry)
+		counts[entry.Pane]++
+		if counts[entry.Pane] > 200 {
+			for i, candidate := range out {
+				if candidate.Pane == entry.Pane {
+					out = append(out[:i], out[i+1:]...)
+					break
+				}
+			}
+			counts[entry.Pane]--
+		}
+	}
+	return out
+}
+
+func validTUIPane(pane string) bool {
+	return pane == "Austin" || pane == "Tony" || pane == "Duo"
 }

@@ -120,6 +120,7 @@ type runtime struct {
 	piSessions  map[protocol.AgentID]string
 	integration workspace.IntegrationResult
 	delivery    sessionstore.Delivery
+	tuiHistory  []sessionstore.TUIEntry
 	resume      bool
 }
 
@@ -312,7 +313,7 @@ func (r *runtime) serve(ctx context.Context) error {
 		go monitor.Run(ctx)
 	}
 
-	app := tui.New(coord, r.state, tracker, r.ws, server, agents, bus, version)
+	app := tui.New(coord, r.state, tracker, r.ws, server, agents, bus, version, r.tuiHistory, r.journal)
 	if err := app.Run(ctx); err != nil && ctx.Err() == nil {
 		log.Printf("Duo TUI: %v", err)
 	}

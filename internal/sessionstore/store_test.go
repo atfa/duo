@@ -3,6 +3,7 @@ package sessionstore
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -374,6 +375,45 @@ func TestEventLogAppendsJSONLines(t *testing.T) {
 	}
 	if event.Type != "signature" || event.Fields["agent"] != "Austin" || event.Time.IsZero() {
 		t.Fatalf("unexpected event: %+v", event)
+	}
+}
+
+func TestEventLogRestoresTUIEntries(t *testing.T) {
+	store := newTestStore(t, "session-tui")
+	log := store.OpenEvents()
+	log.Record("signature", map[string]any{"agent": "Austin"})
+	log.RecordTUIEntry(TUIEntry{Time: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), Pane: "Austin", Text: "ERROR: stopped", Error: true})
+	log.RecordTUIEntry(TUIEntry{Pane: "Tony", Text: "working"})
+
+	entries := log.TUIEntries()
+	if len(entries) != 2 || entries[0].Pane != "Austin" || entries[0].Text != "ERROR: stopped" || !entries[0].Error {
+		t.Fatalf("restored entries = %+v", entries)
+	}
+	if entries[0].Time.IsZero() || entries[0].Time.Year() != 2026 {
+		t.Fatalf("restored time = %v", entries[0].Time)
+	}
+}
+
+func TestEventLogTUIEntriesKeeps200PerPaneAndIgnoresBadLines(t *testing.T) {
+	store := newTestStore(t, "session-tui-limit")
+	log := store.OpenEvents()
+	for i := range 201 {
+		log.RecordTUIEntry(TUIEntry{Pane: "Austin", Text: fmt.Sprintf("entry-%d", i)})
+	}
+	data, err := os.OpenFile(store.EventsPath(), os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := data.WriteString("{not JSON}\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := data.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	entries := log.TUIEntries()
+	if len(entries) != 200 || entries[0].Text != "entry-1" || entries[199].Text != "entry-200" {
+		t.Fatalf("retained entries = %d, first/last = %+v/%+v", len(entries), entries[0], entries[len(entries)-1])
 	}
 }
 

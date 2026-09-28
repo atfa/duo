@@ -19,6 +19,10 @@ const (
 	ansiStatus = "\x1b[33m"
 	ansiHint   = "\x1b[2;37m"
 	ansiError  = "\x1b[31m"
+	ansiBold   = "\x1b[1m"
+	ansiItalic = "\x1b[3m"
+	ansiCode   = "\x1b[2;36m"
+	ansiLink   = "\x1b[4;36m"
 )
 
 const (
@@ -105,8 +109,8 @@ func (a *App) writeLayout(b *strings.Builder, w, h int) {
 
 	contentRows := topH - 2
 	a.clampPaneOffsets(leftW-1, rightW-1, contentRows)
-	left := paneLinesAt(a.austin, leftW-1, contentRows, a.austinOffset)
-	right := paneLinesAt(a.tony, rightW-1, contentRows, a.tonyOffset)
+	left := styledPaneLinesAt(a.austin, leftW-1, contentRows, a.austinOffset)
+	right := styledPaneLinesAt(a.tony, rightW-1, contentRows, a.tonyOffset)
 	for i := 0; i < contentRows; i++ {
 		b.WriteString(paint(ansiBorder, "│") + paintEntry(left[i], leftW-1) + paint(ansiBorder, "│") + paintEntry(right[i], rightW-1) + paint(ansiBorder, "│\r\n"))
 	}
@@ -128,7 +132,7 @@ func (a *App) writeLayout(b *strings.Builder, w, h int) {
 	}
 	b.WriteString(paint(ansiBorder, "│") + paint(ansiHint, fit(" Plan: "+plan, w-2)) + paint(ansiBorder, "│\r\n"))
 
-	logs := paneLines(a.duo, w-4, 2)
+	logs := styledPaneLines(a.duo, w-4, 2)
 	for _, line := range logs {
 		b.WriteString(paint(ansiBorder, "│ ") + paintEntry(line, w-4) + paint(ansiBorder, " │\r\n"))
 	}
@@ -149,11 +153,21 @@ func paint(code, text string) string {
 	return code + text + ansiReset
 }
 
-func paintEntry(line entry, width int) string {
-	if !line.error {
-		return fit(line.text, width)
+func paintEntry(line paneLine, width int) string {
+	if line.error {
+		return paint(ansiError, fit(line.text(), width))
 	}
-	return paint(ansiError, fit(line.text, width))
+	var b strings.Builder
+	used := 0
+	for _, span := range line.spans {
+		if span.style == "" {
+			b.WriteString(span.text)
+		} else {
+			b.WriteString(paint(span.style, span.text))
+		}
+		used += displayWidth(span.text)
+	}
+	return b.String() + strings.Repeat(" ", maxInt(width-used, 0))
 }
 
 func (a *App) processState(id protocol.AgentID) agent.ProcessState {
@@ -226,33 +240,221 @@ func (a *App) writeHelp(b *strings.Builder, w, h int) {
 	b.WriteString(paint(ansiBorder, "└") + paint(ansiHint, fit(foot, contentWidth, "─")) + paint(ansiBorder, "┘"))
 }
 
-func paneLines(entries []entry, width, rows int) []entry { return paneLinesAt(entries, width, rows, 0) }
+func styledPaneLines(entries []entry, width, rows int) []paneLine {
+	return styledPaneLinesAt(entries, width, rows, 0)
+}
 
-func paneLinesAt(entries []entry, width, rows, offset int) []entry {
+func styledPaneLinesAt(entries []entry, width, rows, offset int) []paneLine {
 	all := wrappedPaneLines(entries, width)
 	start := maxInt(len(all)-rows-maxInt(offset, 0), 0)
 	end := minInt(start+rows, len(all))
 	all = all[start:end]
-	out := make([]entry, rows)
+	out := make([]paneLine, rows)
 	copy(out[rows-len(all):], all)
 	return out
 }
 
-func wrappedPaneLines(entries []entry, width int) []entry {
-	var all []entry
+// paneLines is retained for scrolling tests and callers that need plain text.
+func paneLinesAt(entries []entry, width, rows, offset int) []entry {
+	styled := styledPaneLinesAt(entries, width, rows, offset)
+	out := make([]entry, len(styled))
+	for i, line := range styled {
+		out[i] = entry{text: line.text(), error: line.error}
+	}
+	return out
+}
+
+type markdownSpan struct {
+	text  string
+	style string
+}
+
+type paneLine struct {
+	spans []markdownSpan
+	error bool
+}
+
+func (l paneLine) text() string {
+	var b strings.Builder
+	for _, span := range l.spans {
+		b.WriteString(span.text)
+	}
+	return b.String()
+}
+
+func wrappedPaneLines(entries []entry, width int) []paneLine {
+	var all []paneLine
 	for _, e := range entries {
 		text := strings.TrimSpace(e.text)
-		for _, raw := range strings.Split(text, "\n") {
-			for _, line := range wrap(raw, width) {
-				all = append(all, entry{text: line, error: e.error})
+		for _, line := range markdownLines(text) {
+			for _, wrapped := range wrapMarkdown(line, width) {
+				wrapped.error = e.error
+				all = append(all, wrapped)
 			}
 		}
-		all = append(all, entry{})
+		all = append(all, paneLine{})
 	}
-	if len(all) > 0 && all[len(all)-1].text == "" {
+	if len(all) > 0 && all[len(all)-1].text() == "" {
 		all = all[:len(all)-1]
 	}
 	return all
+}
+
+// markdownLines keeps terminal layout separate from styling: text is wrapped
+// before ANSI is added, so colored spans cannot affect width accounting.
+func markdownLines(text string) []paneLine {
+	var out []paneLine
+	inCode := false
+	for _, raw := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(raw)
+		if strings.HasPrefix(trimmed, "```") {
+			inCode = !inCode
+			continue
+		}
+		if inCode {
+			out = append(out, paneLine{spans: []markdownSpan{{text: raw, style: ansiCode}}})
+			continue
+		}
+		if isRule(trimmed) {
+			out = append(out, paneLine{spans: []markdownSpan{{text: "────────", style: ansiHint}}})
+			continue
+		}
+		prefix, body, style := "", raw, ""
+		if n := headingPrefix(raw); n > 0 {
+			prefix, body, style = strings.Repeat(" ", n-1), strings.TrimSpace(raw[n:]), ansiTitle
+		} else if strings.HasPrefix(trimmed, ">") {
+			prefix, body, style = "│ ", strings.TrimSpace(strings.TrimPrefix(trimmed, ">")), ansiHint
+		} else if marker, rest, ok := listPrefix(raw); ok {
+			prefix, body = marker, rest
+		}
+		spans := append([]markdownSpan{{text: prefix, style: style}}, markdownInline(body)...)
+		if style != "" {
+			for i := 1; i < len(spans); i++ {
+				if spans[i].style == "" {
+					spans[i].style = style
+				}
+			}
+		}
+		out = append(out, paneLine{spans: compactSpans(spans)})
+	}
+	return out
+}
+
+func headingPrefix(s string) int {
+	n := 0
+	for n < len(s) && s[n] == '#' {
+		n++
+	}
+	if n > 0 && n <= 6 && n < len(s) && s[n] == ' ' {
+		return n + 1
+	}
+	return 0
+}
+
+func isRule(s string) bool {
+	if len(s) < 3 {
+		return false
+	}
+	for _, r := range s {
+		if r != '-' && r != '*' && r != '_' && r != ' ' {
+			return false
+		}
+	}
+	return true
+}
+
+func listPrefix(s string) (marker, rest string, ok bool) {
+	t := strings.TrimLeft(s, " \t")
+	if len(t) >= 2 && (t[0] == '-' || t[0] == '*' || t[0] == '+') && t[1] == ' ' {
+		return "• ", t[2:], true
+	}
+	i := 0
+	for i < len(t) && t[i] >= '0' && t[i] <= '9' {
+		i++
+	}
+	if i > 0 && i+1 < len(t) && (t[i] == '.' || t[i] == ')') && t[i+1] == ' ' {
+		return t[:i+2], t[i+2:], true
+	}
+	return "", "", false
+}
+
+func markdownInline(s string) []markdownSpan {
+	var out []markdownSpan
+	for len(s) > 0 {
+		if strings.HasPrefix(s, "[") {
+			if end := strings.Index(s, "]("); end > 1 {
+				if close := strings.Index(s[end+2:], ")"); close >= 0 {
+					out = append(out, markdownSpan{text: s[1:end], style: ansiLink}, markdownSpan{text: " <" + s[end+2:end+2+close] + ">", style: ansiHint})
+					s = s[end+3+close:]
+					continue
+				}
+			}
+		}
+		matched := false
+		for _, token := range []struct{ mark, style string }{{"**", ansiBold}, {"__", ansiBold}, {"`", ansiCode}, {"*", ansiItalic}, {"_", ansiItalic}} {
+			if strings.HasPrefix(s, token.mark) {
+				if end := strings.Index(s[len(token.mark):], token.mark); end > 0 {
+					out = append(out, markdownSpan{text: s[len(token.mark) : len(token.mark)+end], style: token.style})
+					s = s[len(token.mark)+end+len(token.mark):]
+					matched = true
+					break
+				}
+			}
+		}
+		if matched {
+			continue
+		}
+		_, size := utf8.DecodeRuneInString(s)
+		out = append(out, markdownSpan{text: s[:size]})
+		s = s[size:]
+	}
+	return compactSpans(out)
+}
+
+func compactSpans(spans []markdownSpan) []markdownSpan {
+	var out []markdownSpan
+	for _, span := range spans {
+		if span.text == "" {
+			continue
+		}
+		if len(out) > 0 && out[len(out)-1].style == span.style {
+			out[len(out)-1].text += span.text
+		} else {
+			out = append(out, span)
+		}
+	}
+	return out
+}
+
+func wrapMarkdown(line paneLine, width int) []paneLine {
+	if width <= 1 {
+		return []paneLine{{}}
+	}
+	var out []paneLine
+	current := paneLine{}
+	used := 0
+	appendRune := func(r rune, style string) {
+		if len(current.spans) > 0 && current.spans[len(current.spans)-1].style == style {
+			current.spans[len(current.spans)-1].text += string(r)
+		} else {
+			current.spans = append(current.spans, markdownSpan{text: string(r), style: style})
+		}
+	}
+	for _, span := range line.spans {
+		for _, r := range span.text {
+			rw := runeWidth(r)
+			if used+rw > width && len(current.spans) > 0 {
+				out = append(out, current)
+				current, used = paneLine{}, 0
+			}
+			appendRune(r, span.style)
+			used += rw
+		}
+	}
+	if len(current.spans) > 0 || len(out) == 0 {
+		out = append(out, current)
+	}
+	return out
 }
 
 type composerLine struct {

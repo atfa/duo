@@ -82,6 +82,26 @@ func TestNormalFrameFitsRealTerminal(t *testing.T) {
 	}
 }
 
+func TestPaneMarkdownStylesWithoutBreakingFrameWidth(t *testing.T) {
+	app := testApp(100, 30)
+	app.austin = []entry{{text: "# 标题\n> **bold** and *italic* with `code`\n- [docs](https://example.com)\n1. first\n---\n```\n中文 code\n```"}}
+	frame := app.buildFrame(renderNormal)
+	if !strings.Contains(frame, ansiBold) || !strings.Contains(frame, ansiItalic) || !strings.Contains(frame, ansiCode) || !strings.Contains(frame, ansiLink) {
+		t.Fatalf("markdown styles missing from frame: %q", frame)
+	}
+	plain := ansiPattern.ReplaceAllString(frame, "")
+	for i, line := range strings.Split(plain, "\r\n") {
+		if got := displayWidth(line); got > 100 {
+			t.Fatalf("markdown line %d is %d columns: %q", i, got, line)
+		}
+	}
+	for _, want := range []string{"标题", "│ bold and italic with code", "• docs <https://example.com>", "1. first", "中文 code"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("markdown content %q missing from frame: %q", want, plain)
+		}
+	}
+}
+
 func TestFrameUsesSynchronizedOutput(t *testing.T) {
 	app := testApp(100, 30)
 	frame := app.buildFrame(renderNormal)

@@ -9,6 +9,7 @@ import (
 	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/protocol"
+	"github.com/atfa/duo/internal/sessionstore"
 )
 
 func TestNativeDetach(t *testing.T) {
@@ -71,8 +72,15 @@ func TestPeerRouteShowsFullTextOnlyToReceiver(t *testing.T) {
 	if got := a.austin[0].text; got != "→ Tony: sent" {
 		t.Fatalf("Austin message = %q", got)
 	}
-	if got := a.tony[0].text; got != "← Austin: "+strings.TrimSpace(text) {
+	if got := a.tony[0].text; got != "→ From Austin:\n"+strings.TrimSpace(text) {
 		t.Fatalf("Tony message = %q", got)
+	}
+	a.route(events.Event{Kind: events.KindPeer, Agent: protocol.Tony, Peer: protocol.Austin, Text: text})
+	if got := a.tony[1].text; got != "← Austin: sent" {
+		t.Fatalf("Tony message = %q", got)
+	}
+	if got := a.austin[1].text; got != "← From Tony:\n"+strings.TrimSpace(text) {
+		t.Fatalf("Austin message = %q", got)
 	}
 }
 
@@ -87,6 +95,20 @@ func TestErrorRouteMarksFullAgentDetail(t *testing.T) {
 	}
 	if !a.austin[0].error || !a.duo[0].error {
 		t.Fatal("expected errors to be marked for red rendering")
+	}
+}
+
+func TestNewRestoresPaneHistoryWithoutRewritingIt(t *testing.T) {
+	history := []sessionstore.TUIEntry{
+		{Pane: "Austin", Text: "previous output", Error: true},
+		{Pane: "Duo", Text: "previous status"},
+	}
+	a := New(nil, nil, nil, nil, nil, nil, nil, "test", history, nil)
+	if len(a.austin) != 1 || a.austin[0].text != "previous output" || !a.austin[0].error {
+		t.Fatalf("Austin history = %+v", a.austin)
+	}
+	if len(a.duo) != 1 || a.duo[0].text != "previous status" || a.duo[0].error {
+		t.Fatalf("Duo history = %+v", a.duo)
 	}
 }
 
