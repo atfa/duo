@@ -296,8 +296,9 @@ type markdownSpan struct {
 }
 
 type paneLine struct {
-	spans []markdownSpan
-	error bool
+	spans        []markdownSpan
+	continuation string
+	error        bool
 }
 
 func (l paneLine) text() string {
@@ -380,7 +381,11 @@ func markdownLines(text string, width int) []paneLine {
 				}
 			}
 		}
-		out = append(out, paneLine{spans: compactSpans(spans)})
+		line := paneLine{spans: compactSpans(spans)}
+		if prefix != "" && style == "" && body != raw {
+			line.continuation = strings.Repeat(" ", displayWidth(prefix))
+		}
+		out = append(out, line)
 	}
 	return out
 }
@@ -579,15 +584,16 @@ func isRule(s string) bool {
 
 func listPrefix(s string) (marker, rest string, ok bool) {
 	t := strings.TrimLeft(s, " \t")
+	indent := strings.ReplaceAll(s[:len(s)-len(t)], "\t", "  ")
 	if len(t) >= 2 && (t[0] == '-' || t[0] == '*' || t[0] == '+') && t[1] == ' ' {
-		return "• ", t[2:], true
+		return "  " + indent + "• ", t[2:], true
 	}
 	i := 0
 	for i < len(t) && t[i] >= '0' && t[i] <= '9' {
 		i++
 	}
 	if i > 0 && i+1 < len(t) && (t[i] == '.' || t[i] == ')') && t[i+1] == ' ' {
-		return t[:i+2], t[i+2:], true
+		return "  " + indent + t[:i+2], t[i+2:], true
 	}
 	return "", "", false
 }
@@ -660,6 +666,17 @@ func wrapMarkdown(line paneLine, width int) []paneLine {
 			if used+rw > width && len(current.spans) > 0 {
 				out = append(out, current)
 				current, used = paneLine{}, 0
+				indent := line.continuation
+				if displayWidth(indent) >= width {
+					indent = strings.Repeat(" ", width-1)
+				}
+				if displayWidth(indent)+rw > width {
+					indent = strings.Repeat(" ", maxInt(width-rw, 0))
+				}
+				if indent != "" {
+					current.spans = append(current.spans, markdownSpan{text: indent})
+					used = displayWidth(indent)
+				}
 			}
 			appendRune(r, span.style)
 			used += rw

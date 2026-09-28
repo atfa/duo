@@ -102,6 +102,29 @@ func TestPaneMarkdownStylesWithoutBreakingFrameWidth(t *testing.T) {
 	}
 }
 
+func TestMarkdownListWrapsWithHangingIndent(t *testing.T) {
+	var lines []paneLine
+	for _, line := range markdownLines("- abcdefghijkl", 10) {
+		lines = append(lines, wrapMarkdown(line, 10)...)
+	}
+	if len(lines) != 2 {
+		t.Fatalf("wrapped list lines = %d, want 2", len(lines))
+	}
+	if got, want := lines[0].text(), "  • abcdef"; got != want {
+		t.Fatalf("first list line = %q, want %q", got, want)
+	}
+	if got, want := lines[1].text(), "    ghijkl"; got != want {
+		t.Fatalf("continuation = %q, want %q", got, want)
+	}
+	app := testApp(60, 30)
+	app.austin = []entry{{text: "- abcdefghijklmnopqrstuvwxyz"}}
+	for i, line := range visibleLines(app.buildFrame(renderNormal)) {
+		if got := displayWidth(line); got > 60 {
+			t.Fatalf("frame line %d is %d columns: %q", i, got, line)
+		}
+	}
+}
+
 func TestPaneMarkdownTableFitsAndAligns(t *testing.T) {
 	app := testApp(60, 30)
 	app.austin = []entry{{text: "| 名称 | 数量 | 备注 |\n| :--- | ---: | :---: |\n| 苹果 | 12 | fresh |\n| 香蕉 | 3 | 长文本会截断 |"}}
