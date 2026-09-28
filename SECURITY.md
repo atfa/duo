@@ -29,7 +29,7 @@ After a successful fast-forward, Duo re-reads HEAD and fails loudly if it is not
 
 Delivery is also a no-op when the final HEAD is already an ancestor of the current HEAD, so a merge you finished yourself is recognized as applied and your own commit is preserved. A cherry-pick is not recognized, because it does not make the final HEAD an ancestor.
 
-Review the delivered commit as you would any other change to your branch. Duo's guarantee is that it will not guess at an unsafe merge — not that the delivered work is correct. When delivery is refused, finish the merge or cherry-pick yourself from the printed final HEAD, then re-run `duo apply`.
+Review the delivered commit as you would any other change to your branch. Duo's guarantee is that it will not guess at an unsafe merge — not that the delivered work is correct. When delivery is refused, finish the handoff yourself with `git merge --no-ff <final-head>` from the printed final HEAD; `duo apply` then recognizes the result as already applied. A cherry-pick alone does not satisfy `duo apply` — it never makes the final HEAD an ancestor — so Duo will keep refusing until you merge.
 
 ## On-disk session files
 
