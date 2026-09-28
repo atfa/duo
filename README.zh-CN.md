@@ -11,7 +11,7 @@
 - **隔离，且绝不破坏。** Austin 和 Tony 从不共用工作树；Duo 也不会改写你启动它的那个仓库的历史。
 - **持久。** 会话能扛住崩溃，恢复后共享 Plan、worktree 和 Pi 对话身份都还在。
 
-当前版本：**v0.4.7** — 完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
+当前版本：**v0.4.7** — 完整历史见 [CHANGELOG.md](./CHANGELOG.md)；该 tag 之后的改动列在其中的 **Unreleased** 一节。
 
 ## 快速开始
 
@@ -115,15 +115,20 @@ Duo 并排显示两个 Agent 的连接、进程和工作状态，下方是当前
 | `Ctrl+Enter` / `Shift+Enter`\* | 在 composer 中插入换行 |
 | `Ctrl+A` | 进入 Austin 的原生 Pi |
 | `Ctrl+T` | 进入 Tony 的原生 Pi |
-| `Ctrl+]` / `Ctrl+\` | 从原生 Pi 返回 Duo |
+| `Ctrl+]` / `Ctrl+\` / `Ctrl+】` | 从原生 Pi 返回 Duo |
 | `Ctrl+R` / `Ctrl+Y` | 若 Austin / Tony 进程已退出或失败，重启它 |
 | `Ctrl+/` | 打开或关闭 Duo Help |
 | `Ctrl+Q` | 退出 Duo 并保留 session |
 | `←` / `→` | 移动 composer 光标 |
 | `Backspace` | 删除前一个字符 |
 | 鼠标滚轮悬停在某个 pane | 滚动该 Agent 的更早输出 |
+| 鼠标在 pane 内拖拽选择 | 选中该 Agent 的文本并复制到剪贴板 |
 
 composer 支持多行，一次最多显示四行。原生接管是全屏接管：在 Pi 里，`/model`、`/settings`、`/tree` 以及所有 Pi 快捷键都归 Pi 管。
+
+Agent 输出按轻量 markdown 渲染：标题、引用、链接以及粗体/斜体/行内代码都有样式，markdown 表格会画出对齐的真实边框。表格宽度超过 pane 时，Duo 会折行最宽的单元格，而不是截断内容。
+
+鼠标选择通过平台剪贴板命令复制，目前即 macOS 上的 `pbcopy`。其他平台上选择仍会高亮，但复制步骤会失败，Duo 会在状态行给出提示。
 
 Help 是一个完整的大屏视图，用 `↑`/`k`、`↓`/`j`、`PgUp`、`PgDn`、`Home`/`g`、`End`/`G` 滚动，用 `Esc` 或 `Ctrl+/` 关闭。在原生 Pi 中 `Ctrl+/` 仍直接交给 Pi，不会打开 Duo Help。
 
@@ -158,7 +163,8 @@ DUO_PI_COMMAND='pi --some-flag' duo
 ```text
 ~/.duo/sessions/<repo-id>/<session-id>/
     state.json      phase、Plan、签字、证据、worktree 路径与分支、Pi session id
-    events.jsonl    阶段、签字、bridge 与 merge 事件的诊断日志
+    events.jsonl    阶段、签字、bridge 与 merge 事件的诊断日志，
+                    同时保存 resume 时回放进 TUI 的 pane 记录
     duo.log         生命周期输出（session token 写入前已脱敏）
     lock           持有属主 PID 与 hostname 的 advisory flock
 
@@ -193,7 +199,7 @@ duo --resume=<id>         # 同上
 
 裸 `duo` 永远启动一个**新**会话，并拒绝覆盖未完成的会话。`--resume` 在恰好只有一个未完成会话时自动选中它；有多个时要求你给 id，而不是猜。
 
-Resume 会读回持久化快照，**拿 Git 验证它**，并在启动任何进程之前撤销所有已无法证明的签字。对账后的状态会在 Agent 启动前先写回，因此启动过程中崩溃不会复活被撤销的批准、也不会重放一次 merge。每个重连的 Agent 会收到一条与阶段对应的唤醒消息；重复重连不会重复投递。
+Resume 会读回持久化快照，**拿 Git 验证它**，并在启动任何进程之前撤销所有已无法证明的签字。对账后的状态会在 Agent 启动前先写回，因此启动过程中崩溃不会复活被撤销的批准、也不会重放一次 merge。每个重连的 Agent 会收到一条与阶段对应的唤醒消息；重复重连不会重复投递。每个 pane 最近的 200 条输出会被回放进 TUI，所以恢复后的会话一开始就能看到之前的对话。
 
 恢复刻意保守：当它无法证明某个批准仍然成立时，宁可撤销也不轻信。所以崩溃后请预期要重新签一次，而不是静默放行。
 
@@ -209,7 +215,14 @@ Resume 会读回持久化快照，**拿 Git 验证它**，并在启动任何进�
 - HEAD 处于 detached 状态，或起始分支未知；
 - 最终结果并非派生自记录的 base commit。
 
-交付被拒时会话保持在 `INTEGRATE`、双方签字保留，写入一个 `pending` checkpoint，并打印确切的重试命令：
+如果你自己把分叉解决了，Duo 会认账而不是继续拒绝：只要最终 Duo commit 已成为你 HEAD 的祖先——包括用 `git merge --no-ff` 保留了两条历史——`duo apply` 就把它视为已交付，记录 `DONE`，并且不再移动你的分支。交付被拒时会把这条 merge 命令和重试命令一起打印出来：
+
+```bash
+git merge --no-ff <final-head>   # 在你启动 Duo 的那个仓库里执行
+duo apply
+```
+
+在此之前，交付被拒时会话保持在 `INTEGRATE`、双方签字保留，写入一个 `pending` checkpoint，并打印确切的重试命令：
 
 ```bash
 duo apply                    # 重试本仓库的待交付

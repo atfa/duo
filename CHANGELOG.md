@@ -2,6 +2,17 @@
 
 All notable project milestones are documented here.
 
+## Unreleased
+
+TUI readability and handoff polish since v0.4.7. The binary still reports `v0.4.7`.
+
+- Agent output is rendered as lightweight markdown: styled headings, blockquotes, links and bold/italic/code spans, and markdown tables drawn with real, aligned borders. A table wider than its pane wraps its widest cells instead of truncating them.
+- Mouse drag over a pane selects that agent's text and copies it to the clipboard (`pbcopy` on macOS). Clicking a pane title still opens that agent's native Pi; a click inside a pane without a drag selects nothing.
+- `Ctrl+】` is accepted as a third return-from-native-Pi sequence alongside `Ctrl+]` and `Ctrl+\`.
+- A resumed session replays each pane's most recent 200 entries, persisted as `tui_entry` records in `events.jsonl`, so the previous conversation is visible immediately.
+- Delivery recognizes a user-resolved merge: once the final Duo commit is an ancestor of the original HEAD — including after `git merge --no-ff` — `duo apply` treats the handoff as already applied and records `DONE` without moving the branch again. A refused delivery now prints that merge command.
+- The Pi bridge no longer reports a compaction abort (`"This operation was aborted"`) as an agent error.
+
 ## v0.4.7 — 2026-09
 
 TUI scrolling and multiline composer improvements.

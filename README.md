@@ -11,7 +11,7 @@ The runtime is a Go coordination core plus a deliberately thin Pi bridge. Duo en
 - **Isolated, never destructive.** Austin and Tony never share a working tree, and Duo will not rewrite the history of the repository you launched it from.
 - **Durable.** Sessions survive a crash and can be resumed with the shared Plan, worktrees and Pi conversation identity intact.
 
-Current release: **v0.4.7** — see [CHANGELOG.md](./CHANGELOG.md) for the full history.
+Current release: **v0.4.7** — see [CHANGELOG.md](./CHANGELOG.md) for the full history. Work since that tag is listed there under **Unreleased**.
 
 ## Quick start
 
@@ -115,15 +115,20 @@ Duo shows both agents side by side with their connection, process and working st
 | `Ctrl+Enter` / `Shift+Enter`\* | Insert a newline in the composer |
 | `Ctrl+A` | Attach Austin's native Pi |
 | `Ctrl+T` | Attach Tony's native Pi |
-| `Ctrl+]` / `Ctrl+\` | Return from native Pi to Duo |
+| `Ctrl+]` / `Ctrl+\` / `Ctrl+】` | Return from native Pi to Duo |
 | `Ctrl+R` / `Ctrl+Y` | Restart Austin / Tony if the process exited or failed |
 | `Ctrl+/` | Open or close Duo Help |
 | `Ctrl+Q` | Quit Duo and preserve the session |
 | `←` / `→` | Move the composer cursor |
 | `Backspace` | Delete the preceding composer character |
 | Mouse wheel over a pane | Scroll that agent's earlier output |
+| Mouse drag over a pane | Select that agent's text and copy it to the clipboard |
 
 The composer holds multiple lines and shows up to four at a time. Native attach is a fullscreen takeover: inside Pi, `/model`, `/settings`, `/tree` and all Pi shortcuts belong to Pi.
+
+Agent output is rendered as lightweight markdown: headings, blockquotes, links and bold/italic/code spans are styled, and markdown tables are drawn with real, aligned borders. A table wider than its pane is narrowed by wrapping the widest cells instead of truncating them.
+
+Mouse selection copies through the platform clipboard command, which today means `pbcopy` on macOS. On other platforms the selection still highlights but the copy step fails and Duo reports it in the status line.
 
 \* A newline is inserted only when the terminal reports the combination distinctly (`\x1b[13;2u` CSI-u or `\x1b[27;2;13~` modifyOtherKeys, which Duo enables). Terminals that send a bare `\r` for `Shift+Enter` will **submit** instead — use `Ctrl+Enter`, which arrives as `\n`, if `Shift+Enter` submits in your terminal.
 
@@ -158,7 +163,8 @@ DUO_PI_COMMAND='pi --some-flag' duo
 ```text
 ~/.duo/sessions/<repo-id>/<session-id>/
     state.json      phase, Plan, signatures, evidence, worktree paths/branches, Pi session ids
-    events.jsonl    diagnostic journal of phase, signature, bridge and merge events
+    events.jsonl    diagnostic journal of phase, signature, bridge and merge events,
+                    plus the pane transcript restored into the TUI on resume
     duo.log         lifecycle output (session tokens are redacted before writing)
     lock            advisory flock holding the owner PID and hostname
 
@@ -193,7 +199,7 @@ duo --resume=<id>        # same
 
 A plain `duo` always starts a **new** session and refuses to overwrite an unfinished one. `--resume` picks the only unfinished session if there is exactly one, and asks for an id if there are several.
 
-Resume reloads the persisted snapshot, **proves it against Git**, and revokes any signature that is no longer provable before starting a process. Reconciled state is written back before agents start, so a crash during startup cannot resurrect a revoked approval or replay a merge. Each reconnected agent receives one phase-aware wake-up message; reconnects do not duplicate it.
+Resume reloads the persisted snapshot, **proves it against Git**, and revokes any signature that is no longer provable before starting a process. Reconciled state is written back before agents start, so a crash during startup cannot resurrect a revoked approval or replay a merge. Each reconnected agent receives one phase-aware wake-up message; reconnects do not duplicate it. The most recent 200 entries of each pane are replayed into the TUI, so a resumed session starts with its previous conversation visible.
 
 Recovery is deliberately conservative: when it cannot prove an approval is still valid, it revokes rather than trusts. Expect a re-sign-off after a crash, not a silent pass.
 
@@ -209,7 +215,14 @@ Delivery refuses — and leaves your repository completely untouched — when:
 - HEAD is detached, or the starting branch is unknown;
 - the final result is not derived from the recorded base commit.
 
-A refused delivery keeps the session in `INTEGRATE` with both signatures intact, records a `pending` checkpoint, and prints the exact retry command:
+If you resolve the divergence yourself, Duo recognizes the result instead of refusing: once the final Duo commit is an ancestor of your HEAD — including after a `git merge --no-ff` that keeps both histories — `duo apply` treats the delivery as already applied and records `DONE` without moving your branch again. A refused delivery prints that merge command alongside the retry command:
+
+```bash
+git merge --no-ff <final-head>   # from the repository you launched Duo from
+duo apply
+```
+
+Until then, a refused delivery keeps the session in `INTEGRATE` with both signatures intact, records a `pending` checkpoint, and prints the exact retry command:
 
 ```bash
 duo apply                    # retry the pending delivery for this repository

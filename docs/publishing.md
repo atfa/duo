@@ -37,6 +37,8 @@ Release title:
 Duo v0.4.7 — scrollable agent history and multiline composer
 ```
 
+Work merged since that tag is listed under **Unreleased** in [CHANGELOG.md](../CHANGELOG.md) and is not part of any tagged release yet: markdown rendering and tables in the agent panes, mouse selection with clipboard copy, pane transcript replay on resume, and delivery that recognizes a user-resolved merge. Tag the next release before announcing those.
+
 Pushing a `v*` tag builds macOS and Linux archives for amd64 and arm64 and publishes them through GitHub Actions. Users can install the latest release with:
 
 ```bash
