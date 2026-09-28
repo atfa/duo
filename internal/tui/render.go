@@ -309,7 +309,7 @@ func markdownLines(text string, width int) []paneLine {
 	for i := 0; i < len(lines); i++ {
 		raw := lines[i]
 		if !inCode && i+1 < len(lines) {
-			if header, align, ok := markdownTableHeader(raw, lines[i+1]); ok {
+			if header, align, ok := markdownTableHeader(raw, lines[i+1]); ok && markdownTableFits(header, width) {
 				rows := [][]string{header}
 				i += 2
 				for i < len(lines) {
@@ -414,6 +414,11 @@ func markdownTableCells(line string) ([]string, bool) {
 }
 
 func renderMarkdownTable(rows [][]string, align []tableAlign, width int) []paneLine {
+	for i, row := range rows {
+		for j, cell := range row {
+			rows[i][j] = markdownText(cell)
+		}
+	}
 	columns := len(rows[0])
 	widths := make([]int, columns)
 	for _, row := range rows {
@@ -452,6 +457,22 @@ func renderMarkdownTable(rows [][]string, align []tableAlign, width int) []paneL
 		}
 	}
 	return append(out, border("└", "┴", "┘"))
+}
+
+func markdownTableFits(header []string, width int) bool {
+	total := len(header) + 1 // vertical borders
+	for _, cell := range header {
+		total += maxInt(displayWidth(markdownText(cell)), 1)
+	}
+	return total <= width
+}
+
+func markdownText(s string) string {
+	var b strings.Builder
+	for _, span := range markdownInline(s) {
+		b.WriteString(span.text)
+	}
+	return b.String()
 }
 
 func tableContentWidth(widths []int) int {

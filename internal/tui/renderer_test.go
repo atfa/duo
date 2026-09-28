@@ -122,6 +122,35 @@ func TestPaneMarkdownTableFitsAndAligns(t *testing.T) {
 	}
 }
 
+func TestMarkdownTableFallsBackWhenHeadersDoNotFit(t *testing.T) {
+	lines := markdownLines("| Task | Readiness |\n| --- | --- |\n| **A** | ready |", 13)
+	var text strings.Builder
+	for _, line := range lines {
+		text.WriteString(line.text())
+		text.WriteByte('\n')
+	}
+	got := text.String()
+	if strings.Contains(got, "┌") || strings.Contains(got, "│") {
+		t.Fatalf("narrow table should not be boxed: %q", got)
+	}
+	for _, want := range []string{"Task", "Readiness", "ready"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("fallback lost %q: %q", want, got)
+		}
+	}
+}
+
+func TestMarkdownTableNormalizesInlineCellText(t *testing.T) {
+	lines := markdownLines("| Task |\n| --- |\n| **A** |", 20)
+	var text strings.Builder
+	for _, line := range lines {
+		text.WriteString(line.text())
+	}
+	if got := text.String(); !strings.Contains(got, "│A") || strings.Contains(got, "*") {
+		t.Fatalf("table cell did not normalize inline markdown: %q", got)
+	}
+}
+
 func TestFrameUsesSynchronizedOutput(t *testing.T) {
 	app := testApp(100, 30)
 	frame := app.buildFrame(renderNormal)
