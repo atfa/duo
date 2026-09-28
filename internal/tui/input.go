@@ -1,10 +1,16 @@
 package tui
 
 import (
+	"bytes"
 	"strconv"
 	"strings"
 
 	"github.com/atfa/duo/internal/protocol"
+)
+
+const (
+	bracketedPasteStart = "\x1b[200~"
+	bracketedPasteEnd   = "\x1b[201~"
 )
 
 type actionKind int
@@ -39,6 +45,15 @@ type inputAction struct {
 func (a *App) handleByte(b byte) inputAction {
 	if len(a.escBuf) > 0 || b == 0x1b {
 		a.escBuf = append(a.escBuf, b)
+		if bytes.HasPrefix(a.escBuf, []byte(bracketedPasteStart)) {
+			if bytes.HasSuffix(a.escBuf, []byte(bracketedPasteEnd)) {
+				paste := string(a.escBuf[len(bracketedPasteStart) : len(a.escBuf)-len(bracketedPasteEnd)])
+				a.escBuf = nil
+				a.insertInput(strings.ReplaceAll(strings.ReplaceAll(paste, "\r\n", "\n"), "\r", "\n"))
+				a.setStatus("", false)
+			}
+			return inputAction{}
+		}
 		if len(a.escBuf) > 64 {
 			a.escBuf = nil
 			return inputAction{}

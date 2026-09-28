@@ -29,7 +29,7 @@ func (a *App) Run(ctx context.Context) error {
 	if err := tty.Raw(); err != nil {
 		return err
 	}
-	_, _ = tty.File.WriteString(terminal.EnterAltScreen + terminal.HideCursor + terminal.MouseOn + terminal.ModifyOtherKeysOn + terminal.ClearHome)
+	_, _ = tty.File.WriteString(terminal.EnterAltScreen + terminal.HideCursor + terminal.MouseOn + terminal.ModifyOtherKeysOn + terminal.BracketedPasteOn + terminal.ClearHome)
 	defer func() { _, _ = tty.File.WriteString(terminal.ResetOuterModes + terminal.ExitAltScreen) }()
 
 	a.renderer = newRenderer(frameInterval, tty.File, a.buildFrame)
@@ -241,7 +241,7 @@ func (a *App) enterNative(agent protocol.AgentID) error {
 	a.native = agent
 	a.nativeDetachBuf = nil
 	a.tracker.SetHumanAttached(agent, true)
-	_, _ = a.tty.File.WriteString(terminal.MouseOff + terminal.ShowCursor + terminal.ExitAltScreen + terminal.ClearHome)
+	_, _ = a.tty.File.WriteString(terminal.MouseOff + terminal.BracketedPasteOff + terminal.ShowCursor + terminal.ExitAltScreen + terminal.ClearHome)
 	recent := s.Attach(a.tty.File)
 	if len(recent) > 0 {
 		_, _ = a.tty.File.Write(recent)
@@ -260,7 +260,7 @@ func (a *App) leaveNative() {
 	a.native = ""
 	a.syncSize()
 	a.nativeDetachBuf = nil
-	_, _ = a.tty.File.WriteString(terminal.ResetOuterModes + terminal.EnterAltScreen + terminal.HideCursor + terminal.MouseOn + terminal.ModifyOtherKeysOn + terminal.ClearHome)
+	_, _ = a.tty.File.WriteString(terminal.ResetOuterModes + terminal.EnterAltScreen + terminal.HideCursor + terminal.MouseOn + terminal.ModifyOtherKeysOn + terminal.BracketedPasteOn + terminal.ClearHome)
 	a.requestFullClear()
 }
 

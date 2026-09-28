@@ -22,3 +22,9 @@ func TestModifyOtherKeysOn(t *testing.T) {
 		t.Fatalf("ModifyOtherKeysOn = %q", ModifyOtherKeysOn)
 	}
 }
+
+func TestBracketedPasteModes(t *testing.T) {
+	if BracketedPasteOn != "\x1b[?2004h" || BracketedPasteOff != "\x1b[?2004l" {
+		t.Fatalf("bracketed paste modes = %q, %q", BracketedPasteOn, BracketedPasteOff)
+	}
+}

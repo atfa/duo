@@ -249,6 +249,18 @@ func TestComposerCursorEditingAndNewlines(t *testing.T) {
 	}
 }
 
+func TestBracketedPastePreservesMultilineInputWithoutSubmitting(t *testing.T) {
+	a := testApp(80, 24)
+	for _, b := range []byte("\x1b[200~first\r\nsecond\rthird\x1b[201~") {
+		if action := a.handleByte(b); action.kind == actionSubmit {
+			t.Fatal("bracketed paste submitted input")
+		}
+	}
+	if got := string(a.input); got != "first\nsecond\nthird" {
+		t.Fatalf("pasted input = %q", got)
+	}
+}
+
 func TestEnhancedGlobalShortcuts(t *testing.T) {
 	for _, tt := range []struct {
 		want      string

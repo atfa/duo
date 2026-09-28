@@ -47,14 +47,16 @@ func (t *TTY) Close() error {
 }
 
 const (
-	EnterAltScreen = "\x1b[?1049h"
-	ExitAltScreen  = "\x1b[?1049l"
-	HideCursor     = "\x1b[?25l"
-	ShowCursor     = "\x1b[?25h"
-	ClearHome      = "\x1b[2J\x1b[H"
-	Home           = "\x1b[H"
-	MouseOn        = "\x1b[?1000h\x1b[?1002h\x1b[?1006h"
-	MouseOff       = "\x1b[?1000l\x1b[?1002l\x1b[?1006l"
+	EnterAltScreen    = "\x1b[?1049h"
+	ExitAltScreen     = "\x1b[?1049l"
+	HideCursor        = "\x1b[?25l"
+	ShowCursor        = "\x1b[?25h"
+	ClearHome         = "\x1b[2J\x1b[H"
+	Home              = "\x1b[H"
+	MouseOn           = "\x1b[?1000h\x1b[?1002h\x1b[?1006h"
+	MouseOff          = "\x1b[?1000l\x1b[?1002l\x1b[?1006l"
+	BracketedPasteOn  = "\x1b[?2004h"
+	BracketedPasteOff = "\x1b[?2004l"
 	// ModifyOtherKeysOn asks xterm-compatible terminals to distinguish
 	// modified control keys such as Ctrl+Enter from their legacy CR byte.
 	ModifyOtherKeysOn = "\x1b[>4;2m"
