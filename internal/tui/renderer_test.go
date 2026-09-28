@@ -122,21 +122,25 @@ func TestPaneMarkdownTableFitsAndAligns(t *testing.T) {
 	}
 }
 
-func TestMarkdownTableFallsBackWhenHeadersDoNotFit(t *testing.T) {
-	lines := markdownLines("| Task | Readiness |\n| --- | --- |\n| **A** | ready |", 13)
+func TestMarkdownTableWrapsNarrowCellsWithoutDroppingContent(t *testing.T) {
+	lines := markdownLines("| Description |\n| --- |\n| complete content remains visible |", 13)
 	var text strings.Builder
 	for _, line := range lines {
+		if got := displayWidth(line.text()); got != 13 {
+			t.Fatalf("table line is %d columns, want 13: %q", got, line.text())
+		}
 		text.WriteString(line.text())
 		text.WriteByte('\n')
 	}
 	got := text.String()
-	if strings.Contains(got, "┌") || strings.Contains(got, "│") {
-		t.Fatalf("narrow table should not be boxed: %q", got)
-	}
-	for _, want := range []string{"Task", "Readiness", "ready"} {
+	for _, want := range []string{"┌", "├", "│", "└"} {
 		if !strings.Contains(got, want) {
-			t.Fatalf("fallback lost %q: %q", want, got)
+			t.Fatalf("narrow table is missing border %q: %q", want, got)
 		}
+	}
+	content := strings.NewReplacer("┌", "", "┐", "", "├", "", "┤", "", "└", "", "┘", "", "│", "", "─", "", " ", "", "\n", "").Replace(got)
+	if !strings.Contains(content, "completecontentremainsvisible") {
+		t.Fatalf("narrow table lost content: %q", got)
 	}
 }
 
