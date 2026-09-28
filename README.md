@@ -44,6 +44,36 @@ curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-relea
 
 Restart any running Pi processes after installing the bridge.
 
+## How Duo differs from a planner/worker setup
+
+The common pattern:
+
+```text
+Planner
+ ├─ Worker A
+ └─ Worker B
+```
+
+Duo:
+
+```text
+            human
+             │
+             ▼
+          Austin
+             │ wakes
+             ▼
+Austin  ◄──────────►  Tony
+   │    live messages │
+   └──────────┬──────┘
+              ▼
+ PLAN → EXECUTE → REVIEW → INTEGRATE → DONE
+```
+
+There is no planner distributing tasks. The human talks to Austin; Austin wakes Tony; after that the two peers message each other directly and neither can sign off on the other's behalf.
+
+Duo Core owns only a small set of reliable institutions — phases, signatures, evidence, worktrees, the harness and integration. How the agents discuss, split the work, or whether to prototype first stays theirs to decide.
+
 ## How the collaboration works
 
 ```text
@@ -190,6 +220,39 @@ duo apply --session=<id>     # same
 ```
 
 `duo apply` never starts agents and reuses the same safety rules — it will not force a blocked delivery.
+
+## A trace from a real run
+
+```text
+human → Austin
+
+Austin → Tony:
+"The user thinks the UI looks dated. I have a tentative read; analyse it
+independently, don't just agree with me."
+
+Tony → Austin:
+"I disagree with a wholesale font/badge rewrite. The real problems look more
+like the bitmap grid, the decorative circles, the corner-radius scale and
+the shadows."
+
+Shared Plan v1
+Austin ✓
+Tony   ✓
+
+PLAN → EXECUTE
+Austin edits → commit 7bf559e
+Tony reviews that commit ✓
+
+EXECUTE → REVIEW → INTEGRATE
+Austin ✓ integrated HEAD
+Tony   ✓ same HEAD
+
+DONE
+```
+
+The design principle that matters here: **a phase is a checkpoint, not a cage.** Tony may look at the diff early, and Austin may prototype during PLAN. Duo puts hard boundaries only around formal consensus and formal artifacts.
+
+The full record lives in [docs/demo.md](./docs/demo.md).
 
 ## Limitations
 
