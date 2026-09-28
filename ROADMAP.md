@@ -131,6 +131,18 @@ After a Duo Core, Austin or Tony crash the user must be able to continue the ori
 - [x] pane transcript persisted and replayed on `duo --resume`
 - [x] delivery recognizes a user-resolved `git merge --no-ff` as already applied
 
+## v0.5.0 — Fast Mode as the default
+
+Fast Mode makes the safety boundary the default instead of the ceremony: one driver, one independent verifier, verified delivery, no shared Plan and no dual sign-off.
+
+- [x] fixed per-session mode: `fast` (default) or `goal` (`duo --mode goal` / `-m goal`)
+- [x] concrete Fast phases: `RUNNING → VERIFY → DONE`, with `issue_found` returning to `RUNNING`
+- [x] structured verification bound to the exact Austin commit under review
+- [x] Fast has no shared Plan and no dual sign-off; Tony is a read-only verifier
+- [x] the verified commit is delivered by the existing fast-forward-only handoff
+- [x] mode-aware durable state, recovery, harness, TUI status and Pi prompt
+- [x] Goal mode preserves the `PLAN → EXECUTE → REVIEW → INTEGRATE → DONE` workflow unchanged
+
 ## v0.4 — configurability (remaining)
 
 - [ ] configurable agent names/roles

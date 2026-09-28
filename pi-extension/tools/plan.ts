@@ -1,8 +1,12 @@
 import { Type } from "@earendil-works/pi-ai";
+import { isToolEnabledForMode, type DuoMode } from "../mode";
 import { DuoTransport } from "../transport";
 import { failureResult, resultFromResponse } from "./common";
 
-export function registerPlanTool(pi: any, transport: DuoTransport) {
+export function registerPlanTool(pi: any, transport: DuoTransport, mode: DuoMode) {
+  // GOAL mode only: FAST has no shared plan, and Duo Core rejects the tool too.
+  if (!isToolEnabledForMode("plan", mode)) return;
+
   pi.registerTool({
     name: "duo_set_plan",
     label: "Duo Set Plan",

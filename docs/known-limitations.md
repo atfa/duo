@@ -10,6 +10,14 @@ The runtime currently assumes exactly two agents named **Austin** and **Tony**. 
 
 Duo targets Pi. The Go core is structured so other adapters could be added later, but no second agent runtime is currently supported.
 
+## Session mode is fixed at launch
+
+A session runs in exactly one mode for its lifetime. There is no runtime switch and no automatic escalation from Fast to Goal; starting a larger task in Fast means restarting with `duo --mode goal`. The mode is persisted with the session, and a legacy session with no recorded mode resumes as Goal.
+
+## Fast mode is single-writer
+
+In Fast, Austin owns the deliverable branch and Tony is a read-only verifier: Tony does not commit to the delivered artifact, and Tony's worktree is never delivered. A change Tony believes is needed is reported through `duo_set_verification issue_found` (or `duo_send`) and Austin applies it. Duo enforces this through the verification gate and the prompt, not filesystem permissions — Tony can still edit its own worktree, but those edits cannot reach the user's repository.
+
 ## Terminal UI scope
 
 Duo provides side-by-side summary panes and one global human composer. Rich Pi features still run in the native Pi terminal reached through `Ctrl+A` or `Ctrl+T`; the summary panes are not terminal emulators.
@@ -31,15 +39,15 @@ Frames are rebuilt from scratch (no partial-damage/diff updates) and capped at a
 
 ## Intentionally shipped artifacts depend on the agent prompt
 
-Duo asks Austin to clean collaboration-only artifacts out of the final tree and asks Tony to reject a dirty final tree during INTEGRATE. This is a prompt-level obligation, not a repository rule: if both agents sign INTEGRATE over a tree that still contains scratch files, Duo delivers that tree faithfully. The integrated commit is auditable after the fact, but Duo does not independently classify files as confidential or temporary.
+Duo asks Austin to clean collaboration-only artifacts out of the final tree and asks Tony to reject a dirty final tree during INTEGRATE. In Fast, Austin owns the delivered tree and Tony verifies it, and the same prompt-level obligation applies. This is not a repository rule: if the agent or agents approve a tree that still contains scratch files, Duo delivers that tree faithfully. The delivered commit is auditable after the fact, but Duo does not independently classify files as confidential or temporary.
 
 ## Durable state is a checkpoint, not a transcript
 
-Collaboration state now survives a crash. Phase, Plan version, signatures, evidence, the worktree record and per-agent Pi session identity are persisted to `~/.duo/sessions/<repo-id>/<session-id>/state.json` and validated against Git when a session is resumed.
+Collaboration state now survives a crash. Mode, phase, verification (Fast) or Plan version and signatures (Goal), evidence, the worktree record and per-agent Pi session identity are persisted to `~/.duo/sessions/<repo-id>/<session-id>/state.json` and validated against Git when a session is resumed.
 
 The pane transcript is persisted too: `events.jsonl` carries `tui_entry` records (200 per pane) that are replayed into the UI on resume, so the visible history survives a crash even though it is not a searchable transcript.
 
-What is persisted is the *state machine*, not the agents' reasoning. A resumed Austin or Tony keeps its own Pi conversation history and the shared Plan, but Duo does not summarize or replay what was in flight. Recovery is also deliberately conservative: it revokes any signature it cannot prove is still valid, so a crash can legitimately cost a re-sign-off.
+What is persisted is the *state machine*, not the agents' reasoning. A resumed Austin or Tony keeps its own Pi conversation history and the shared Plan, but Duo does not summarize or replay what was in flight. Recovery is also deliberately conservative: it revokes any verification or signature it cannot prove is still valid, so a crash can legitimately cost a re-verification or re-sign-off. In Fast, a passed verification whose commit is no longer Austin's HEAD returns the session to `RUNNING` deterministically; recovery otherwise never moves a session backwards.
 
 Recovery repairs bookkeeping; it never rewrites your Git history and never discards uncommitted files. A dirty worktree is reported, not cleaned.
 
@@ -57,7 +65,7 @@ Worktrees are preserved when Duo stops so unfinished work is not destroyed. Auto
 
 ## Integration is intentionally asymmetric
 
-Tony is merged into Austin and Austin becomes the integration worktree. This is simple and deterministic but not yet configurable.
+Tony is merged into Austin and Austin becomes the integration worktree. This is simple and deterministic but not yet configurable. Fast has no integration step by design: Tony is read-only, so only Austin's branch is ever delivered.
 
 ## Merge conflicts are not automatically solved by the core
 
@@ -65,7 +73,7 @@ Conflicts remain in Austin's worktree for the agents/human to resolve. Duo does 
 
 ## Delivery is fast-forward only
 
-Duo does deliver the final integrated HEAD back into the user's original repository, but only as a fast-forward on the branch it recorded when the session started. A handoff the human completed themselves is recognized rather than rejected: if the final HEAD is already an ancestor of the current HEAD, `duo apply` treats the result as already applied and preserves the human's commit, so a manual `git merge --no-ff <final-head>` is a supported way to finish a blocked delivery. It refuses to act on a dirty, wrong-branch, diverged or detached repository, and it never runs `reset --hard`, `checkout -f`, `clean`, `merge --no-ff` or `rebase` on the user's repository. When the branch cannot be fast-forwarded, Duo leaves the repository untouched, keeps the session in INTEGRATE with both signatures, records a `pending` delivery, and reports the final HEAD so the user can finish the handoff with `git merge --no-ff <final-head>` before re-running `duo apply`. A cherry-pick alone is not enough: it does not make the final HEAD an ancestor, so `duo apply` keeps refusing until the histories are actually merged.
+Duo does deliver the final result back into the user's original repository, but only as a fast-forward on the branch it recorded when the session started. A handoff the human completed themselves is recognized rather than rejected: if the final HEAD is already an ancestor of the current HEAD, `duo apply` treats the result as already applied and preserves the human's commit, so a manual `git merge --no-ff <final-head>` is a supported way to finish a blocked delivery. A task that changes no repository files is a no-op: once the final commit is already an ancestor, delivery succeeds and records `DONE` even with a dirty working tree. For a real delivery it refuses to act on a dirty, wrong-branch, diverged or detached repository, and it never runs `reset --hard`, `checkout -f`, `clean`, `merge --no-ff` or `rebase` on the user's repository. When the branch cannot be fast-forwarded, Duo leaves the repository untouched, keeps the session in `INTEGRATE` (Goal) or `VERIFY` (Fast), records a `pending` delivery, and reports the final HEAD so the user can finish the handoff with `git merge --no-ff <final-head>` before re-running `duo apply`. A cherry-pick alone is not enough: it does not make the final HEAD an ancestor, so `duo apply` keeps refusing until the histories are actually merged.
 
 Delivery is also all-or-nothing at the branch level: it moves the recorded branch to the final integrated commit, so it does not support partial or per-file handoff.
 
@@ -91,4 +99,4 @@ Duo supplies coordination infrastructure; it does not make model judgment infall
 
 ## Plan is intentionally lightweight
 
-The shared Plan is currently a versioned text artifact rather than a full structured task graph. This is deliberate; richer task/artifact tracking may be added only if real usage proves it useful.
+In Goal mode the shared Plan is currently a versioned text artifact rather than a full structured task graph. This is deliberate; richer task/artifact tracking may be added only if real usage proves it useful. Fast mode has no shared Plan at all.

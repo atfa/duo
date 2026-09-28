@@ -2,25 +2,35 @@
 
 > 一个为 Pi 设计的双平级 Coding Agent Runtime。
 
-**Duo 让两个 Pi coding agent 以平级伙伴的方式协作，而不是把一个 Agent 设为 Planner、另一个设为 subordinate worker。** 两个 Agent 共同商定 Plan、在不停下的前提下实时互发消息、在隔离的 Git worktree 中各自执行、交叉 Review 对方的 commit，并在集成前共同签字。协作结束后，被批准的成果会交付回你启动 Duo 的那个仓库。
+**Duo 让两个 Pi coding agent 以平级伙伴的方式协作，而不是把一个 Agent 设为 Planner、另一个设为 subordinate worker。** 会话在启动时固定为以下两种工作流之一：
 
-运行时由一个 Go 协调核心加一层刻意做薄的 Pi bridge 组成。Duo 只强制那些确实需要确定性协调的东西——身份、路由、Plan 版本、阶段流转、签字、Git 证据——其余部分留给模型自然地自行协作。
+- **Fast（默认）。** Austin 负责实现，Tony 独立验证那个确切的 commit。`RUNNING → VERIFY → DONE`，没有共享 Plan、没有双重签字——大多数任务走这条路。
+- **Goal（`duo --mode goal`）。** 完整的协商式工作流：共享 Plan、隔离 worktree、交叉 Review、双重签字，`PLAN → EXECUTE → REVIEW → INTEGRATE → DONE`。
 
+两种模式下，Agent 都会在不停下的前提下实时互发消息、在隔离的 Git worktree 中各自工作，最终被验证的成果会交付回你启动 Duo 的那个仓库。
+
+运行时由一个 Go 协调核心加一层刻意做薄的 Pi bridge 组成。Duo 只强制那些确实需要确定性协调的东西——身份、路由、模式与阶段流转、验证、签字、Git 证据——其余部分留给模型自然地自行协作。
+
+- **默认 Fast，需要时 Goal。** Fast 保留安全边界——worktree、Git 证据、验证后交付——同时去掉繁文缛节；Goal 为更大的任务加上协商式规划与双重签字。
 - **平级，而非层级。** 没有固定的 Planner。任何一方都可以反对，分歧本身就是流程的正常部分。
-- **证据优先于口头声明。** 一个干净的 commit SHA 比 Agent 说"做完了"更有价值。签字是对 Git 校验过的，不是被无条件相信的。
+- **证据优先于口头声明。** 一个干净的 commit SHA 比 Agent 说"做完了"更有价值。验证和签字都是对 Git 校验过的，不是被无条件相信的。
 - **隔离，且绝不破坏。** Austin 和 Tony 从不共用工作树；Duo 也不会改写你启动它的那个仓库的历史。
-- **持久。** 会话能扛住崩溃，恢复后共享 Plan、worktree 和 Pi 对话身份都还在。
+- **持久。** 会话能扛住崩溃，恢复后模式、worktree 和 Pi 对话身份都还在。
 
-当前版本：**v0.4.7** — 完整历史见 [CHANGELOG.md](./CHANGELOG.md)；该 tag 之后的改动列在其中的 **Unreleased** 一节。
+当前版本：**v0.5.0** — 完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ## 快速开始
 
 ```bash
 cd /path/to/git/repo
-duo
+duo              # FAST（默认）
+duo --mode goal  # 完整协商式工作流
 ```
 
-然后在 composer 里输入任务，按 `Enter`。composer 只发送给 **Austin**。新任务里 Austin 会用 `duo_send` 唤醒 Tony，两人商定 Plan，之后由 Duo Core 推进阶段。
+然后在 composer 里输入任务，按 `Enter`。composer 始终只发送给 **Austin**。
+
+- **Fast** 下，Austin 在自己的 worktree 中实现并 commit，然后调用 `duo_set_status` 请求验证；Tony 用 `duo_set_verification` 验证那个确切的 commit，给出通过或一个具体问题。之后 Duo 交付被验证的 commit 并标记 `DONE`。
+- **Goal** 下，Austin 用 `duo_send` 唤醒 Tony，两人商定一份共享 Plan，之后由 Duo Core 推进 `PLAN → EXECUTE → REVIEW → INTEGRATE → DONE`。
 
 运行要求：
 
@@ -67,18 +77,37 @@ Austin  ◄──────────►  Tony
    │       实时通信       │
    └──────────┬───────────┘
               ▼
- PLAN → EXECUTE → REVIEW → INTEGRATE → DONE
+ FAST： RUNNING → VERIFY → DONE
+ GOAL： PLAN → EXECUTE → REVIEW → INTEGRATE → DONE
 ```
 
-Duo Core 负责的是一小组可靠的"制度"：阶段、签字、成果证据、worktree、harness 和集成。至于怎么讨论、怎么分工、要不要先做个实验，仍由 Austin 和 Tony 自主决定。
+没有 Planner 来分发任务：用户和 Austin 对话。Goal 模式里 Austin 唤醒 Tony，两人直接互发消息，任何一方都不能代替对方签字。Fast 模式里 Austin 是 driver，Tony 是只读 verifier，只能通过或拒绝正在被 Review 的那个确切 commit。
+
+Duo Core 负责的是一小组可靠的"制度"：模式、阶段、验证、签字、成果证据、worktree、harness、集成与交付。至于怎么讨论、怎么分工、要不要先做个实验，仍由 Austin 和 Tony 自主决定。
 
 ## 协作如何运作
+
+会话在启动时固定一种**模式**，整个生命周期不变。两种模式共用同一套隔离 worktree、Git 证据和交付流程；区别在于交付前需要多少协商。
+
+### Fast（默认）
+
+```text
+RUNNING → VERIFY → DONE
+```
+
+| 阶段 | 发生什么 | 推进条件 |
+|---|---|---|
+| **RUNNING** | Austin 在自己的 worktree 中实现并 commit。Tony 只读，可通过 `duo_send` 被征询意见。 | Austin 在 worktree clean 时调用 `duo_set_status ready=true`。 |
+| **VERIFY** | Tony 独立检查 Austin 的那个确切 commit。 | `duo_set_verification` 给 `passed`（→ 交付 → `DONE`），或 `issue_found` 并附一个具体 note（→ `RUNNING`）。 |
+| **DONE** | 被验证的 commit 已交付进你的仓库。 | 交付成功。 |
+
+Fast 没有共享 Plan，也没有双重签字。一次 `passed` 绑定到当时被请求验证的那个确切 commit；任何新 commit 都会使其失效并把会话退回 `RUNNING`。只有 Austin 会写进被交付的成果——Tony 的 worktree 永远不会被交付。
+
+### Goal（`duo --mode goal`）
 
 ```text
 PLAN → EXECUTE → REVIEW → INTEGRATE → DONE
 ```
-
-每个阶段是**checkpoint，不是行为牢笼**。Duo 不会阻止 Agent 提前读代码或提前 Review；阶段只决定"推进需要哪些证据"。
 
 | 阶段 | 发生什么 | 推进所需证据 |
 |---|---|---|
@@ -88,26 +117,29 @@ PLAN → EXECUTE → REVIEW → INTEGRATE → DONE
 | **INTEGRATE** | Tony 的分支被合并进 Austin 的 integration worktree。 | 双方批准同一个 clean 的 integrated Austin HEAD。 |
 | **DONE** | 被批准的产物已交付回你的仓库。 | 交付成功。 |
 
-Plan 一旦更新就产生新版本，并**使双方签字同时失效**，所以反复改措辞是有可见代价的。签字绑定到一个确切的 commit：对方推了新 commit，你之前的 Review 就过期，必须重做。
+两种模式里，阶段都是**checkpoint，不是行为牢笼**：Duo 不会阻止 Agent 提前读代码或提前 Review；阶段只决定"推进需要哪些证据"。
+
+Goal 里 Plan 一旦更新就产生新版本，并**使双方签字同时失效**，所以反复改措辞是有可见代价的。Goal 的签字绑定到一个确切的 commit：对方推了新 commit，你之前的 Review 就过期，必须重做。
 
 冲突会显式保留给 Austin 处理，不会被静默覆盖。
 
-## 四个核心工具
+## Duo 工具
 
 Austin 和 Tony 共用一套随 Pi bridge 安装的小工具面。这是它们影响共享状态的唯一通道。
 
-| Tool | 作用 |
-|---|---|
-| `duo_send` | 在双方都继续工作的同时，给 Peer 发一条重要的实时消息。用于发现、疑问、冲突和提案，不是日常进度播报。 |
-| `duo_set_plan` | 创建或整体替换共享 Plan。每次调用产生新版本并重置双方签字。 |
-| `duo_set_status` | 为当前阶段签字（`ready: true`）或撤销自己的签字（`ready: false`），可附 note。 |
-| `duo_status` | 读取权威的 phase、Plan、签字，以及两个 worktree 的 branch、路径、HEAD、clean 状态和 ahead 数。 |
+| Tool | 适用模式 | 作用 |
+|---|---|---|
+| `duo_send` | 两种 | 在双方都继续工作的同时，给 Peer 发一条重要的实时消息。用于发现、疑问、冲突和提案，不是日常进度播报。 |
+| `duo_set_status` | 两种 | Goal 下为当前阶段签字（`ready: true`）或撤销签字（`ready: false`）。Fast 下 Austin 用 `ready: true` 请求验证；Tony 的签字会被拒绝并给出指引。 |
+| `duo_set_verification` | Fast（仅 Tony） | 对正在 Review 的 Austin 确切 commit 报告 `passed` 或 `issue_found`。`issue_found` 必须附具体 note。 |
+| `duo_set_plan` | Goal | 创建或整体替换共享 Plan。每次调用产生新版本并重置双方签字。Fast 下不可用。 |
+| `duo_status` | 两种 | 读取权威的 mode、phase、验证状态、Plan、签字，以及两个 worktree 的 branch、路径、HEAD、clean 状态和 ahead 数。 |
 
-Bridge 是一层薄适配器——Pi 事件转成 Duo 活动，Pi 工具转成 Duo 请求，Duo 消息转成 Pi 的 steer。它刻意不持有任何项目真相。
+Duo Core 强制这些门禁而不是信任模型：Fast 拒绝 `duo_set_plan`，Fast 下 Tony 的 `duo_set_status` 会被拒绝并提示改用 `duo_set_verification`。Bridge 是一层薄适配器——Pi 事件转成 Duo 活动，Pi 工具转成 Duo 请求，Duo 消息转成 Pi 的 steer。它刻意不持有任何项目真相。
 
 ## 终端界面
 
-Duo 并排显示两个 Agent 的连接、进程和工作状态，下方是当前阶段、Plan 与瞬时反馈。
+Duo 并排显示两个 Agent 的连接、进程和工作状态，下方是当前模式、阶段、验证/Plan 状态与瞬时反馈。
 
 | 按键 | 操作 |
 |---|---|
@@ -140,6 +172,7 @@ Help 是一个完整的大屏视图，用 `↑`/`k`、`↓`/`j`、`PgUp`、`PgDn
 
 | 变量 | 默认值 | 含义 |
 |---|---|---|
+| `DUO_MODE` | `fast` | 会话模式：`fast` 或 `goal`。命令行 `--mode`/`-m` 优先；`--resume` 保持持久化的模式。 |
 | `DUO_REPO` | 当前目录 | 启动时针对的仓库或子目录。命令行路径参数优先。 |
 | `DUO_SESSION` | 时间戳 + 随机 hex | 会话 id，格式 `YYYYMMDD-HHMMSS-xxxxxxxx`。 |
 | `DUO_WORKTREE_ROOT` | `~/.duo/worktrees/<repo>-<hash>/<session>` | 创建 Austin/Tony worktree 的位置。 |
@@ -162,7 +195,7 @@ DUO_PI_COMMAND='pi --some-flag' duo
 
 ```text
 ~/.duo/sessions/<repo-id>/<session-id>/
-    state.json      phase、Plan、签字、证据、worktree 路径与分支、Pi session id
+    state.json      mode、phase、验证/Plan、签字、证据、worktree 路径与分支、Pi session id
     events.jsonl    阶段、签字、bridge 与 merge 事件的诊断日志，
                     同时保存 resume 时回放进 TUI 的 pane 记录
     duo.log         生命周期输出（session token 写入前已脱敏）
@@ -199,13 +232,15 @@ duo --resume=<id>         # 同上
 
 裸 `duo` 永远启动一个**新**会话，并拒绝覆盖未完成的会话。`--resume` 在恰好只有一个未完成会话时自动选中它；有多个时要求你给 id，而不是猜。
 
-Resume 会读回持久化快照，**拿 Git 验证它**，并在启动任何进程之前撤销所有已无法证明的签字。对账后的状态会在 Agent 启动前先写回，因此启动过程中崩溃不会复活被撤销的批准、也不会重放一次 merge。每个重连的 Agent 会收到一条与阶段对应的唤醒消息；重复重连不会重复投递。每个 pane 最近的 200 条输出会被回放进 TUI，所以恢复后的会话一开始就能看到之前的对话。
+Resume 会读回持久化快照，**拿 Git 验证它**，并在启动任何进程之前撤销所有已无法证明的签字或验证。模式随会话持久化：`--resume` 保持它，没有记录 mode 的旧会话按 Goal 恢复，且 `DUO_MODE` 在 resume 时被忽略（显式传入冲突的 `--mode` 会报错）。对账后的状态会在 Agent 启动前先写回，因此启动过程中崩溃不会复活被撤销的批准、也不会重放一次 merge。每个重连的 Agent 会收到一条与模式和阶段对应的唤醒消息；重复重连不会重复投递。每个 pane 最近的 200 条输出会被回放进 TUI，所以恢复后的会话一开始就能看到之前的对话。
 
 恢复刻意保守：当它无法证明某个批准仍然成立时，宁可撤销也不轻信。所以崩溃后请预期要重新签一次，而不是静默放行。
 
 ## 交付最终结果
 
-`DONE` 意味着最终集成的结果已交付进你启动 Duo 的那个仓库。交付**只做 fast-forward**（`git merge --ff-only`）。Duo 从不产生 merge commit、不 rebase、不改写你的历史。若交付被阻，可用 `duo apply` 手动重试。
+`DONE` 意味着最终结果已交付进你启动 Duo 的那个仓库——Fast 下是被验证的 Austin commit，Goal 下是双方签字的 integrated HEAD。交付**只做 fast-forward**（`git merge --ff-only`）。Duo 从不产生 merge commit、不 rebase、不改写你的历史。若交付被阻，可用 `duo apply` 手动重试。
+
+不修改任何仓库文件的任务是 no-op：一旦最终 commit 已是你 HEAD 的祖先，即使工作树是脏的，交付也会成功并记录 `DONE`。任何真正会移动分支的交付仍受下列安全检查约束。
 
 以下情况交付会**拒绝执行**，并让你的仓库完全保持原样：
 
@@ -222,7 +257,7 @@ git merge --no-ff <final-head>   # 在你启动 Duo 的那个仓库里执行
 duo apply
 ```
 
-在此之前，交付被拒时会话保持在 `INTEGRATE`、双方签字保留，写入一个 `pending` checkpoint，并打印确切的重试命令：
+在此之前，交付被拒时会话保持在 `INTEGRATE`（Goal）或 `VERIFY`（Fast），写入一个 `pending` checkpoint，并打印确切的重试命令：
 
 ```bash
 duo apply                    # 重试本仓库的待交付
@@ -234,7 +269,34 @@ duo apply --session=<id>     # 同上
 
 `duo apply` 从不启动 Agent，并复用同一套安全规则——它不会强行推进一个被阻塞的交付。
 
-## 一个已经跑通的真实流程
+## 真实流程记录
+
+### Fast（默认）
+
+一段精简的 Fast 模式记录：
+
+```text
+用户 → Austin
+
+Austin 实现 → commit 4c1a9f2          （RUNNING）
+Austin：duo_set_status ready=true
+  → VERIFY，验证绑定到 4c1a9f2
+
+Tony 检查 4c1a9f2
+Tony：duo_set_verification issue_found
+  "src/cache.ts 仍会缓存一次失败的查询，所以重试永远不会发生"
+  → RUNNING
+
+Austin 修复 → commit 8e02b1d
+Austin：duo_set_status ready=true
+  → VERIFY，绑定到 8e02b1d
+
+Tony：duo_set_verification passed
+  → 交付把你的分支 fast-forward 到 8e02b1d
+DONE
+```
+
+### Goal
 
 一段 v0.2 时期成功运行的精简记录，被测对象是一个宠物医院小应用 —— **不是本仓库**。下面的 commit 号属于那个应用，在本仓库里 `git show` 会失败：
 
@@ -262,13 +324,13 @@ Tony   ✓ same HEAD
 DONE
 ```
 
-这里最重要的设计原则是：**Phase 是 checkpoint，不是行为牢笼。** Tony 可以提前看 diff，Austin 也可以在 PLAN 阶段提前做 prototype；Duo 只在"正式共识和正式成果"处设置硬边界。
+这里最重要的设计原则是：**Phase 是 checkpoint，不是行为牢笼。** Tony 可以提前看 diff，Austin 也可以在 PLAN 阶段提前做 prototype；Duo 只在"正式共识和正式成果"处设置硬边界。Fast 模式遵循同一原则，只是仪式更少：Tony 随时可以检查 commit，但只有一次 `duo_set_verification` 的结果才能放行交付。
 
 更完整的记录见 [docs/demo.md](./docs/demo.md)。
 
 ## 已知限制
 
-Duo 仍是实验性运行时。简要说：Agent 拓扑固定为两个名为 Austin 和 Tony 的 Agent；Pi 是目前唯一支持的 Agent runtime；恢复无法重建 Agent 的*推理过程*，只能恢复其状态；Duo Core 自身崩溃后不会自动重启；会话绑定机器与仓库路径，不可迁移。
+Duo 仍是实验性运行时。简要说：Agent 拓扑固定为两个名为 Austin 和 Tony 的 Agent；Pi 是目前唯一支持的 Agent runtime；会话模式在启动时固定，不支持运行时切换或自动升级到 Goal；Fast 是单写者，Tony 永不向被交付的成果 commit；恢复无法重建 Agent 的*推理过程*，只能恢复其状态；Duo Core 自身崩溃后不会自动重启；会话绑定机器与仓库路径，不可迁移。
 
 完整清单，以及刻意划为非目标（non-goal）的部分，见 [docs/known-limitations.md](./docs/known-limitations.md)。
 

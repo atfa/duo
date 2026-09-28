@@ -9,7 +9,15 @@ export const PROTOCOL_VERSION = 1;
 export type DuoMessageType =
   | "hello" | "test" | "activity" | "assistant_message" | "agent_error"
   | "peer_message" | "steer" | "duo_notice" | "harness_prompt" | "human_prompt"
-  | "resume_prompt" | "set_plan" | "set_status" | "get_status" | "response";
+  | "resume_prompt" | "set_plan" | "set_status" | "get_status" | "response"
+  | "set_verification";
+
+/**
+ * Structured verification result used by FAST mode. Austin is the driver; Tony
+ * is the independent verifier and reports one of these for the exact Austin
+ * commit under review. Must match `project.VerificationResult` in Go.
+ */
+export type VerificationResult = "passed" | "issue_found";
 
 export type DuoMessage = {
   version: typeof PROTOCOL_VERSION;
@@ -27,6 +35,7 @@ export type DuoMessage = {
   plan?: string;
   note?: string;
   ready?: boolean;
+  verification?: VerificationResult;
 
   activity?: string;
   timestamp?: number;

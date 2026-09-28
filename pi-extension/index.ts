@@ -1,4 +1,5 @@
 import { installLifecycle } from "./lifecycle";
+import { parseDuoMode } from "./mode";
 import { installDuoPrompt } from "./prompt";
 import type { AgentName } from "./protocol";
 import { DuoTransport } from "./transport";
@@ -6,6 +7,7 @@ import { registerPlanTool } from "./tools/plan";
 import { registerProjectStatusTool } from "./tools/project-status";
 import { registerSendTool } from "./tools/send";
 import { registerStatusTool } from "./tools/status";
+import { registerVerificationTool } from "./tools/verification";
 
 export default function (pi: any) {
   if (process.env.DUO_ACTIVE !== "1") return;
@@ -27,14 +29,16 @@ export default function (pi: any) {
   }
 
   const transport = new DuoTransport(AGENT, host, port, sessionId, token);
+  const mode = parseDuoMode(process.env.DUO_MODE);
 
-  installDuoPrompt(pi, AGENT);
+  installDuoPrompt(pi, AGENT, mode);
   installLifecycle(pi, transport, AGENT);
 
   registerSendTool(pi, transport);
-  registerPlanTool(pi, transport);
-  registerStatusTool(pi, transport);
+  registerPlanTool(pi, transport, mode);
+  registerStatusTool(pi, transport, mode);
   registerProjectStatusTool(pi, transport);
+  registerVerificationTool(pi, transport, mode, AGENT);
 
   pi.registerCommand("duo-test", {
     description: "Test connection to Duo Core",

@@ -1,6 +1,6 @@
 # Demo: one human prompt, two peer agents
 
-This is a condensed trace from a successful v0.2 run against a pet-hospital application.
+This is a condensed trace of the **Goal** workflow (`duo --mode goal`) from a successful v0.2 run against a pet-hospital application. Fast mode, the default since v0.5.0, is a shorter path with no shared Plan; see [How the collaboration works](../README.md#how-the-collaboration-works).
 
 ## Task
 

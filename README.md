@@ -2,25 +2,35 @@
 
 **Two peer Pi coding agents in one terminal.**
 
-Duo runs two Pi coding agents as *peers* rather than as a planner and a subordinate worker. They negotiate a shared Plan, message each other while both keep working, execute in isolated Git worktrees, cross-review each other's commits, and jointly sign off before anything is integrated. When the collaboration finishes, the approved result is handed back to the repository you launched Duo from.
+Duo runs two Pi coding agents as *peers* rather than as a planner and a subordinate worker, in one of two fixed workflows:
 
-The runtime is a Go coordination core plus a deliberately thin Pi bridge. Duo enforces only what benefits from deterministic coordination — identity, routing, Plan versioning, phase transitions, signatures, Git evidence — and leaves the models free to collaborate naturally.
+- **Fast (default).** Austin drives the implementation; Tony independently verifies the exact commit. `RUNNING → VERIFY → DONE`, with no shared Plan and no dual sign-off — the quick path for most tasks.
+- **Goal (`duo --mode goal`).** The full negotiated workflow: a shared Plan, isolated worktrees, cross-review and dual sign-off, `PLAN → EXECUTE → REVIEW → INTEGRATE → DONE`.
 
+In both modes the agents message each other while both keep working, changes stay in isolated Git worktrees, and the verified result is handed back to the repository you launched Duo from.
+
+The runtime is a Go coordination core plus a deliberately thin Pi bridge. Duo enforces only what benefits from deterministic coordination — identity, routing, mode and phase transitions, verification, signatures, Git evidence — and leaves the models free to collaborate naturally.
+
+- **Fast by default, Goal on request.** Fast keeps the safety boundary — worktrees, Git evidence, verified delivery — while dropping the ceremony; Goal adds negotiated planning and dual sign-off for larger tasks.
 - **Peer, not hierarchical.** No fixed planner. Either agent can disagree, and disagreement is a normal part of the flow.
-- **Evidence over claims.** A clean commit SHA is worth more than an assistant saying "done". Sign-offs are validated against Git, not trusted.
+- **Evidence over claims.** A clean commit SHA is worth more than an assistant saying "done". Verification and sign-offs are validated against Git, not trusted.
 - **Isolated, never destructive.** Austin and Tony never share a working tree, and Duo will not rewrite the history of the repository you launched it from.
-- **Durable.** Sessions survive a crash and can be resumed with the shared Plan, worktrees and Pi conversation identity intact.
+- **Durable.** Sessions survive a crash and can be resumed, including their mode, worktrees and Pi conversation identity.
 
-Current release: **v0.4.7** — see [CHANGELOG.md](./CHANGELOG.md) for the full history. Work since that tag is listed there under **Unreleased**.
+Current release: **v0.5.0** — see [CHANGELOG.md](./CHANGELOG.md) for the full history.
 
 ## Quick start
 
 ```bash
 cd /path/to/git/repo
-duo
+duo              # FAST (default)
+duo --mode goal  # full negotiated workflow
 ```
 
-Then type a task in the composer and press `Enter`. The composer sends to **Austin**. In a fresh task Austin wakes Tony with `duo_send`, they agree a Plan, and Duo Core drives the phases from there.
+Then type a task in the composer and press `Enter`. The composer always sends to **Austin**.
+
+- In **Fast**, Austin works in its own worktree, commits, and calls `duo_set_status` to request verification; Tony verifies that exact commit with `duo_set_verification` and either passes it or returns a concrete issue. Duo then delivers the verified commit and marks `DONE`.
+- In **Goal**, Austin wakes Tony with `duo_send`, they agree a shared Plan, and Duo Core drives `PLAN → EXECUTE → REVIEW → INTEGRATE → DONE` from there.
 
 Requirements:
 
@@ -67,20 +77,37 @@ Austin  ◄──────────►  Tony
    │    live messages │
    └──────────┬──────┘
               ▼
- PLAN → EXECUTE → REVIEW → INTEGRATE → DONE
+ FAST:  RUNNING → VERIFY → DONE
+ GOAL:  PLAN → EXECUTE → REVIEW → INTEGRATE → DONE
 ```
 
-There is no planner distributing tasks. The human talks to Austin; Austin wakes Tony; after that the two peers message each other directly and neither can sign off on the other's behalf.
+There is no planner distributing tasks. The human talks to Austin. In Goal mode Austin wakes Tony and the two peers message each other directly; neither can sign off on the other's behalf. In Fast mode Austin is the driver and Tony is a read-only verifier who can only pass or reject the exact commit under review.
 
-Duo Core owns only a small set of reliable institutions — phases, signatures, evidence, worktrees, the harness and integration. How the agents discuss, split the work, or whether to prototype first stays theirs to decide.
+Duo Core owns only a small set of reliable institutions — mode, phases, verification, signatures, evidence, worktrees, the harness, integration and delivery. How the agents discuss, split the work, or whether to prototype first stays theirs to decide.
 
 ## How the collaboration works
+
+A session has one fixed **mode** for its whole lifetime. Both modes share the same isolated worktrees, Git evidence and delivery handoff; they differ in how much negotiation is required before delivery.
+
+### Fast (default)
+
+```text
+RUNNING → VERIFY → DONE
+```
+
+| Phase | What happens | Gate to advance |
+|---|---|---|
+| **RUNNING** | Austin implements and commits in its own worktree. Tony is read-only and may be asked for advice via `duo_send`. | Austin calls `duo_set_status ready=true` with a clean worktree. |
+| **VERIFY** | Tony independently inspects Austin's exact commit. | `duo_set_verification` with `passed` (→ delivery → `DONE`) or `issue_found` plus a concrete note (→ `RUNNING`). |
+| **DONE** | The verified commit was delivered to your repository. | Delivery succeeded. |
+
+Fast has no shared Plan and no dual sign-off. A passed verification is bound to the exact commit that was requested; any new commit invalidates it and returns the session to `RUNNING`. Only Austin writes to the delivered artifact — Tony's worktree is never delivered.
+
+### Goal (`duo --mode goal`)
 
 ```text
 PLAN → EXECUTE → REVIEW → INTEGRATE → DONE
 ```
-
-Each phase is a **checkpoint, not a behavioral cage**. Duo does not stop an agent from reading code or reviewing a diff early; the phase only decides what evidence is required to advance.
 
 | Phase | What happens | Evidence required to advance |
 |---|---|---|
@@ -90,24 +117,27 @@ Each phase is a **checkpoint, not a behavioral cage**. Duo does not stop an agen
 | **INTEGRATE** | Tony's branch is merged into Austin's integration worktree. | Both approve the same clean integrated Austin HEAD. |
 | **DONE** | The approved artifact has been delivered back to your repository. | Delivery succeeded. |
 
-A plan update creates a new version and **invalidates both signatures**, so wording churn has a visible cost. A sign-off is bound to an exact commit: if the peer pushes a new commit, the previous review is stale and must be repeated.
+In both modes a phase is a **checkpoint, not a behavioral cage**: Duo does not stop an agent from reading code or reviewing a diff early; the phase only decides what evidence is required to advance.
 
-## The four Duo tools
+A Goal plan update creates a new version and **invalidates both signatures**, so wording churn has a visible cost. In Goal, a sign-off is bound to an exact commit: if the peer pushes a new commit, the previous review is stale and must be repeated.
+
+## The Duo tools
 
 Austin and Tony share a small tool surface installed with the Pi bridge. It is the only channel through which they can affect shared state.
 
-| Tool | Purpose |
-|---|---|
-| `duo_send` | Send an important live message to the peer while both keep working. For findings, questions, conflicts and proposals — not routine progress chatter. |
-| `duo_set_plan` | Create or replace the whole shared Plan. Each call makes a new version and resets both signatures. |
-| `duo_set_status` | Sign the current phase (`ready: true`) or revoke your signature (`ready: false`), with an optional note. |
-| `duo_status` | Read the authoritative phase, Plan, signatures, and both worktrees' branch, path, HEAD, cleanliness and ahead count. |
+| Tool | Modes | Purpose |
+|---|---|---|
+| `duo_send` | both | Send an important live message to the peer while both keep working. For findings, questions, conflicts and proposals — not routine progress chatter. |
+| `duo_set_status` | both | In Goal, sign the current phase (`ready: true`) or revoke your signature (`ready: false`). In Fast, Austin uses `ready: true` to request verification; a Tony sign-off is rejected with guidance. |
+| `duo_set_verification` | Fast (Tony only) | Report `passed` or `issue_found` for Austin's exact commit under review. `issue_found` requires a concrete note. |
+| `duo_set_plan` | Goal | Create or replace the whole shared Plan. Each call makes a new version and resets both signatures. Not available in Fast. |
+| `duo_status` | both | Read the authoritative mode, phase, verification status, Plan, signatures, and both worktrees' branch, path, HEAD, cleanliness and ahead count. |
 
-The bridge is a thin adapter — Pi events become Duo activity, Pi tools become Duo requests, Duo messages become Pi steering. It deliberately holds no project truth of its own.
+Duo Core enforces these gates rather than trusting the model: Fast rejects `duo_set_plan`, and a Tony `duo_set_status` in Fast is rejected with guidance to use `duo_set_verification`. The bridge is a thin adapter — Pi events become Duo activity, Pi tools become Duo requests, Duo messages become Pi steering. It deliberately holds no project truth of its own.
 
 ## Terminal UI
 
-Duo shows both agents side by side with their connection, process and working state, plus the current phase, Plan and transient feedback below the panes.
+Duo shows both agents side by side with their connection, process and working state, plus the current mode, phase, verification/Plan state and transient feedback below the panes.
 
 | Key | Action |
 |---|---|
@@ -140,6 +170,7 @@ Everything has a working default; `duo` needs no configuration to run.
 
 | Variable | Default | Meaning |
 |---|---|---|
+| `DUO_MODE` | `fast` | Session mode: `fast` or `goal`. A CLI `--mode`/`-m` wins; `--resume` keeps the persisted mode. |
 | `DUO_REPO` | current directory | Repository or subdirectory to launch against. A CLI path argument wins. |
 | `DUO_SESSION` | timestamp + random hex | Session id, formatted `YYYYMMDD-HHMMSS-xxxxxxxx`. |
 | `DUO_WORKTREE_ROOT` | `~/.duo/worktrees/<repo>-<hash>/<session>` | Where the Austin/Tony worktrees are created. |
@@ -162,7 +193,7 @@ DUO_PI_COMMAND='pi --some-flag' duo
 
 ```text
 ~/.duo/sessions/<repo-id>/<session-id>/
-    state.json      phase, Plan, signatures, evidence, worktree paths/branches, Pi session ids
+    state.json      mode, phase, verification/Plan, signatures, evidence, worktree paths/branches, Pi session ids
     events.jsonl    diagnostic journal of phase, signature, bridge and merge events,
                     plus the pane transcript restored into the TUI on resume
     duo.log         lifecycle output (session tokens are redacted before writing)
@@ -199,13 +230,15 @@ duo --resume=<id>        # same
 
 A plain `duo` always starts a **new** session and refuses to overwrite an unfinished one. `--resume` picks the only unfinished session if there is exactly one, and asks for an id if there are several.
 
-Resume reloads the persisted snapshot, **proves it against Git**, and revokes any signature that is no longer provable before starting a process. Reconciled state is written back before agents start, so a crash during startup cannot resurrect a revoked approval or replay a merge. Each reconnected agent receives one phase-aware wake-up message; reconnects do not duplicate it. The most recent 200 entries of each pane are replayed into the TUI, so a resumed session starts with its previous conversation visible.
+Resume reloads the persisted snapshot, **proves it against Git**, and revokes any signature or verification that is no longer provable before starting a process. The mode is persisted with the session: `--resume` keeps it, a legacy session with no recorded mode resumes as Goal, and `DUO_MODE` is ignored on resume (an explicit conflicting `--mode` is an error). Reconciled state is written back before agents start, so a crash during startup cannot resurrect a revoked approval or replay a merge. Each reconnected agent receives one mode- and phase-aware wake-up message; reconnects do not duplicate it. The most recent 200 entries of each pane are replayed into the TUI, so a resumed session starts with its previous conversation visible.
 
 Recovery is deliberately conservative: when it cannot prove an approval is still valid, it revokes rather than trusts. Expect a re-sign-off after a crash, not a silent pass.
 
 ## Deliver the final result
 
-`DONE` means the final integrated result has been delivered into the repository you launched Duo from. Delivery is **fast-forward only** (`git merge --ff-only`). Duo never creates a merge commit, rebases, or rewrites your history. If delivery is blocked, `duo apply` retries it by hand.
+`DONE` means the final result has been delivered into the repository you launched Duo from — the verified Austin commit in Fast, or the dual-signed integrated HEAD in Goal. Delivery is **fast-forward only** (`git merge --ff-only`). Duo never creates a merge commit, rebases, or rewrites your history. If delivery is blocked, `duo apply` retries it by hand.
+
+A task that changes no repository files is a no-op: once the final commit is already an ancestor of your HEAD, delivery succeeds and records `DONE` even if the working tree is dirty. For any delivery that would actually move your branch, the safety checks below still apply.
 
 Delivery refuses — and leaves your repository completely untouched — when:
 
@@ -222,7 +255,7 @@ git merge --no-ff <final-head>   # from the repository you launched Duo from
 duo apply
 ```
 
-Until then, a refused delivery keeps the session in `INTEGRATE` with both signatures intact, records a `pending` checkpoint, and prints the exact retry command:
+Until then, a refused delivery keeps the session in `INTEGRATE` (Goal) or `VERIFY` (Fast), records a `pending` checkpoint, and prints the exact retry command:
 
 ```bash
 duo apply                    # retry the pending delivery for this repository
@@ -234,7 +267,34 @@ duo apply --session=<id>     # same
 
 `duo apply` never starts agents and reuses the same safety rules — it will not force a blocked delivery.
 
-## A trace from a real run
+## Traces from real runs
+
+### Fast mode (default)
+
+A condensed fast-mode trace:
+
+```text
+human → Austin
+
+Austin works → commit 4c1a9f2          (RUNNING)
+Austin: duo_set_status ready=true
+  → VERIFY, verification bound to 4c1a9f2
+
+Tony inspects 4c1a9f2
+Tony: duo_set_verification issue_found
+  "src/cache.ts still caches a failed lookup, so the retry never happens"
+  → RUNNING
+
+Austin fixes → commit 8e02b1d
+Austin: duo_set_status ready=true
+  → VERIFY, bound to 8e02b1d
+
+Tony: duo_set_verification passed
+  → delivery fast-forwards your branch to 8e02b1d
+DONE
+```
+
+### Goal mode
 
 A condensed trace from a successful v0.2 run against a small pet-hospital web app — **not this repository**. The commit hash below belongs to that app, so `git show` on it here will fail:
 
@@ -265,13 +325,13 @@ Tony   ✓ same HEAD
 DONE
 ```
 
-The design principle that matters here: **a phase is a checkpoint, not a cage.** Tony may look at the diff early, and Austin may prototype during PLAN. Duo puts hard boundaries only around formal consensus and formal artifacts.
+The design principle that matters here: **a phase is a checkpoint, not a cage.** Tony may look at the diff early, and Austin may prototype during PLAN. Duo puts hard boundaries only around formal consensus and formal artifacts. In Fast mode the same principle holds with a smaller ceremony: Tony may inspect the commit at any time, but only a `duo_set_verification` result gates delivery.
 
 The full record lives in [docs/demo.md](./docs/demo.md).
 
 ## Limitations
 
-Duo is an experimental runtime. In short: the agent topology is fixed at two agents named Austin and Tony; Pi is the only supported agent runtime; recovery cannot reconstruct an agent's *reasoning*, only its state; Duo Core itself is not auto-restarted after a crash; and sessions are per-machine and per-repository-path, not portable.
+Duo is an experimental runtime. In short: the agent topology is fixed at two agents named Austin and Tony; Pi is the only supported agent runtime; the session mode is fixed at launch, with no runtime switching or automatic escalation to Goal; Fast is single-writer, so Tony never commits to the delivered artifact; recovery cannot reconstruct an agent's *reasoning*, only its state; Duo Core itself is not auto-restarted after a crash; and sessions are per-machine and per-repository-path, not portable.
 
 The full, current list — including what is deliberately a non-goal — is in [docs/known-limitations.md](./docs/known-limitations.md).
 
