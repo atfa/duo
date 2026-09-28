@@ -1,0 +1,106 @@
+package tui
+
+import (
+	"strings"
+
+	"github.com/atfa/duo/internal/protocol"
+)
+
+type selectionPoint struct{ row, col int }
+
+type paneSelection struct {
+	active bool
+	moved  bool
+	agent  protocol.AgentID
+	start  selectionPoint
+	end    selectionPoint
+}
+
+func (a *App) selectionPoint(agent protocol.AgentID, x, y int) (selectionPoint, bool) {
+	if a.hitPane(x, y) != agent {
+		return selectionPoint{}, false
+	}
+	left, _, _ := a.paneRows()
+	col := x - 2
+	if agent == protocol.Tony {
+		col = x - (left + 2)
+	}
+	return selectionPoint{row: y - 2, col: maxInt(col, 0)}, true
+}
+
+func (a *App) startSelection(mouse mouseEvent) {
+	agent := a.hitPane(mouse.x, mouse.y)
+	point, ok := a.selectionPoint(agent, mouse.x, mouse.y)
+	if !ok {
+		return
+	}
+	a.selection = paneSelection{active: true, agent: agent, start: point, end: point}
+}
+
+func (a *App) moveSelection(mouse mouseEvent) bool {
+	point, ok := a.selectionPoint(a.selection.agent, mouse.x, mouse.y)
+	if !ok {
+		return false
+	}
+	a.selection.end = point
+	a.selection.moved = a.selection.moved || point != a.selection.start
+	return true
+}
+
+func (a *App) selectionColumns(agent protocol.AgentID, row int) (int, int, bool) {
+	s := a.selection
+	if !s.active || s.agent != agent {
+		return 0, 0, false
+	}
+	start, end := s.start, s.end
+	if end.row < start.row || (end.row == start.row && end.col < start.col) {
+		start, end = end, start
+	}
+	if row < start.row || row > end.row {
+		return 0, 0, false
+	}
+	from, to := 0, int(^uint(0)>>1)
+	if row == start.row {
+		from = start.col
+	}
+	if row == end.row {
+		to = end.col + 1
+	}
+	return from, to, true
+}
+
+func (a *App) selectedText() string {
+	s := a.selection
+	if !s.active || !s.moved {
+		return ""
+	}
+	width, rightWidth, rows := a.paneRows()
+	entries, offset := a.austin, a.austinOffset
+	if s.agent == protocol.Tony {
+		width, entries, offset = rightWidth, a.tony, a.tonyOffset
+	}
+	lines := styledPaneLinesAt(entries, width, rows, offset)
+	selected := make([]string, 0, rows)
+	for row, line := range lines {
+		from, to, ok := a.selectionColumns(s.agent, row)
+		if ok {
+			selected = append(selected, strings.TrimRight(sliceColumns(line.text(), from, to), " "))
+		}
+	}
+	return strings.TrimSpace(strings.Join(selected, "\n"))
+}
+
+// sliceColumns returns runes touched by [from, to), using terminal display
+// columns so a wide rune is never cut in half.
+func sliceColumns(s string, from, to int) string {
+	var b strings.Builder
+	col := 0
+	for _, r := range s {
+		next := col + runeWidth(r)
+		if next > from && col < to {
+			b.WriteRune(r)
+		}
+		col = next
+	}
+	return b.String()
+}

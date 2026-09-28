@@ -24,12 +24,16 @@ const (
 	actionScrollPane
 	actionAttach
 	actionRestart
+	actionSelectStart
+	actionSelectMove
+	actionSelectEnd
 )
 
 type inputAction struct {
 	kind  actionKind
 	agent protocol.AgentID
 	delta int
+	mouse mouseEvent
 }
 
 func (a *App) handleByte(b byte) inputAction {
@@ -43,16 +47,34 @@ func (a *App) handleByte(b byte) inputAction {
 			seq := string(a.escBuf)
 			a.escBuf = nil
 			if mouse, ok := parseMouse(seq); ok && a.view == viewMain {
-				if mouse.button == 0 {
-					return inputAction{kind: actionAttach, agent: a.hitNativeButton(mouse.x, mouse.y)}
-				}
-				if mouse.button == 64 || mouse.button == 65 {
+				if mouse.wheel() {
 					if agent := a.hitPane(mouse.x, mouse.y); agent != "" {
 						delta := 1
 						if mouse.button == 65 {
 							delta = -1
 						}
 						return inputAction{kind: actionScrollPane, agent: agent, delta: delta}
+					}
+					return inputAction{}
+				}
+				switch mouse.kind {
+				case mousePress:
+					if !mouse.primary() {
+						return inputAction{}
+					}
+					if agent := a.hitNativeButton(mouse.x, mouse.y); agent != "" {
+						return inputAction{kind: actionAttach, agent: agent}
+					}
+					if a.hitPane(mouse.x, mouse.y) != "" {
+						return inputAction{kind: actionSelectStart, mouse: mouse}
+					}
+				case mouseDrag:
+					if a.selection.active && mouse.primary() {
+						return inputAction{kind: actionSelectMove, mouse: mouse}
+					}
+				case mouseRelease:
+					if a.selection.active {
+						return inputAction{kind: actionSelectEnd, mouse: mouse}
 					}
 				}
 				return inputAction{}
@@ -228,13 +250,30 @@ func (a *App) handleKey(key string) inputAction {
 	return inputAction{}
 }
 
-type mouseEvent struct{ button, x, y int }
+type mouseKind uint8
+
+const (
+	mousePress mouseKind = iota
+	mouseDrag
+	mouseRelease
+)
+
+type mouseEvent struct {
+	button, x, y int
+	kind         mouseKind
+}
+
+func (m mouseEvent) wheel() bool   { return m.button&64 != 0 }
+func (m mouseEvent) primary() bool { return m.button&3 == 0 }
 
 func parseMouse(seq string) (mouseEvent, bool) {
 	if !strings.HasPrefix(seq, "\x1b[<") || len(seq) < 7 {
 		return mouseEvent{}, false
 	}
-	body := strings.TrimSuffix(strings.TrimSuffix(strings.TrimPrefix(seq, "\x1b[<"), "M"), "m")
+	if !strings.HasSuffix(seq, "M") && !strings.HasSuffix(seq, "m") {
+		return mouseEvent{}, false
+	}
+	body := seq[3 : len(seq)-1]
 	parts := strings.Split(body, ";")
 	if len(parts) != 3 {
 		return mouseEvent{}, false
@@ -245,7 +284,13 @@ func parseMouse(seq string) (mouseEvent, bool) {
 	if err1 != nil || err2 != nil || err3 != nil {
 		return mouseEvent{}, false
 	}
-	return mouseEvent{button, xv, yv}, true
+	kind := mousePress
+	if seq[len(seq)-1] == 'm' {
+		kind = mouseRelease
+	} else if button&32 != 0 && button&64 == 0 {
+		kind = mouseDrag
+	}
+	return mouseEvent{button: button, x: xv, y: yv, kind: kind}, true
 }
 
 func (a *App) insertInput(s string) {

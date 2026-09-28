@@ -58,6 +58,7 @@ type App struct {
 	native          protocol.AgentID
 	escBuf          []byte
 	nativeDetachBuf []byte
+	selection       paneSelection
 }
 
 func New(

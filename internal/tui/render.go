@@ -23,6 +23,7 @@ const (
 	ansiItalic = "\x1b[3m"
 	ansiCode   = "\x1b[2;36m"
 	ansiLink   = "\x1b[4;36m"
+	ansiSelect = "\x1b[7m"
 )
 
 const (
@@ -112,7 +113,7 @@ func (a *App) writeLayout(b *strings.Builder, w, h int) {
 	left := styledPaneLinesAt(a.austin, leftW-1, contentRows, a.austinOffset)
 	right := styledPaneLinesAt(a.tony, rightW-1, contentRows, a.tonyOffset)
 	for i := 0; i < contentRows; i++ {
-		b.WriteString(paint(ansiBorder, "│") + paintEntry(left[i], leftW-1) + paint(ansiBorder, "│") + paintEntry(right[i], rightW-1) + paint(ansiBorder, "│\r\n"))
+		b.WriteString(paint(ansiBorder, "│") + a.paintPaneEntry(left[i], leftW-1, protocol.Austin, i) + paint(ansiBorder, "│") + a.paintPaneEntry(right[i], rightW-1, protocol.Tony, i) + paint(ansiBorder, "│\r\n"))
 	}
 	b.WriteString(paint(ansiBorder, "├"+strings.Repeat("─", leftW-1)+"┴"+strings.Repeat("─", rightW-1)+"┤\r\n"))
 
@@ -166,6 +167,31 @@ func paintEntry(line paneLine, width int) string {
 			b.WriteString(paint(span.style, span.text))
 		}
 		used += displayWidth(span.text)
+	}
+	return b.String() + strings.Repeat(" ", maxInt(width-used, 0))
+}
+
+func (a *App) paintPaneEntry(line paneLine, width int, agent protocol.AgentID, row int) string {
+	from, to, selected := a.selectionColumns(agent, row)
+	if !selected {
+		return paintEntry(line, width)
+	}
+	var b strings.Builder
+	used := 0
+	for _, span := range line.spans {
+		for _, r := range span.text {
+			rw := runeWidth(r)
+			if used+rw > from && used < to {
+				b.WriteString(paint(ansiSelect, string(r)))
+			} else if line.error {
+				b.WriteString(paint(ansiError, string(r)))
+			} else if span.style != "" {
+				b.WriteString(paint(span.style, string(r)))
+			} else {
+				b.WriteRune(r)
+			}
+			used += rw
+		}
 	}
 	return b.String() + strings.Repeat(" ", maxInt(width-used, 0))
 }
@@ -729,10 +755,10 @@ func (a *App) hitPane(x, y int) protocol.AgentID {
 	if y < 2 || y > rows+1 {
 		return ""
 	}
-	if x >= 2 && x <= leftW+1 {
+	if x >= 2 && x <= leftW {
 		return protocol.Austin
 	}
-	if x >= leftW+3 && x <= a.width-1 {
+	if x >= leftW+2 && x <= a.width-1 {
 		return protocol.Tony
 	}
 	return ""

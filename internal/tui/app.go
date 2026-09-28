@@ -1,10 +1,12 @@
 package tui
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strconv"
 	"strings"
@@ -150,6 +152,29 @@ func (a *App) applyAction(ctx context.Context, action inputAction) bool {
 				a.markDirty()
 			}
 		}
+	case actionSelectStart:
+		a.startSelection(action.mouse)
+		a.markDirty()
+	case actionSelectMove:
+		if a.moveSelection(action.mouse) {
+			a.markDirty()
+		}
+	case actionSelectEnd:
+		if a.moveSelection(action.mouse) && a.selection.moved {
+			text := a.selectedText()
+			a.selection.active = false
+			if text == "" {
+				a.setStatus("nothing selected", false)
+			} else if err := copyClipboard(text); err != nil {
+				a.setStatus("copy failed: "+err.Error(), true)
+			} else {
+				a.setStatus("copied selection", false)
+			}
+			a.markDirty()
+		} else {
+			a.selection = paneSelection{}
+			a.markDirty()
+		}
 	case actionRestart:
 		if err := a.agents.Restart(ctx, action.agent); err != nil {
 			a.setStatus(err.Error(), true)
@@ -164,6 +189,12 @@ func (a *App) applyAction(ctx context.Context, action inputAction) bool {
 		a.markDirty()
 	}
 	return false
+}
+
+func copyClipboard(text string) error {
+	cmd := exec.Command("pbcopy")
+	cmd.Stdin = bytes.NewBufferString(text)
+	return cmd.Run()
 }
 
 // resize applies the latest host terminal size to the agent PTYs and schedules

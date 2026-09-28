@@ -365,6 +365,52 @@ func TestMousePaneScrolling(t *testing.T) {
 	}
 }
 
+func TestParseMousePressDragRelease(t *testing.T) {
+	tests := []struct {
+		seq  string
+		kind mouseKind
+	}{
+		{"\x1b[<0;2;2M", mousePress},
+		{"\x1b[<32;3;2M", mouseDrag},
+		{"\x1b[<0;4;2m", mouseRelease},
+	}
+	for _, tt := range tests {
+		mouse, ok := parseMouse(tt.seq)
+		if !ok || mouse.kind != tt.kind || mouse.x < 2 || mouse.y != 2 {
+			t.Fatalf("parseMouse(%q) = %+v, %v", tt.seq, mouse, ok)
+		}
+	}
+}
+
+func TestMouseDragUsesPrimaryButton(t *testing.T) {
+	a := testApp(80, 24)
+	a.selection = paneSelection{active: true, agent: protocol.Austin}
+	var action inputAction
+	for _, b := range []byte("\x1b[<32;3;2M") {
+		action = a.handleByte(b)
+	}
+	if action.kind != actionSelectMove {
+		t.Fatalf("drag action = %+v", action)
+	}
+}
+
+func TestSelectionExtractsVisibleReverseDrag(t *testing.T) {
+	a := testApp(80, 24)
+	a.add(protocol.Austin, "first\n第二行\nthird")
+	_, _, rows := a.paneRows()
+	a.selection = paneSelection{
+		active: true, moved: true, agent: protocol.Austin,
+		start: selectionPoint{row: rows - 1, col: 2},
+		end:   selectionPoint{row: rows - 3, col: 0},
+	}
+	if got, want := a.selectedText(), "first\n第二行\nthi"; got != want {
+		t.Fatalf("reverse selected text = %q, want %q", got, want)
+	}
+	if got := sliceColumns("甲乙", 1, 3); got != "甲乙" {
+		t.Fatalf("wide selection = %q", got)
+	}
+}
+
 func entryTexts(entries []entry) []string {
 	text := make([]string, len(entries))
 	for i, entry := range entries {
