@@ -197,9 +197,9 @@ Resume 会读回持久化快照，**拿 Git 验证它**，并在启动任何进�
 
 恢复刻意保守：当它无法证明某个批准仍然成立时，宁可撤销也不轻信。所以崩溃后请预期要重新签一次，而不是静默放行。
 
-## 交付与 `duo apply`
+## 交付最终结果
 
-`DONE` 意味着最终集成的结果已交付进你启动 Duo 的那个仓库。交付**只做 fast-forward**（`git merge --ff-only`）。Duo 从不产生 merge commit、不 rebase、不改写你的历史。
+`DONE` 意味着最终集成的结果已交付进你启动 Duo 的那个仓库。交付**只做 fast-forward**（`git merge --ff-only`）。Duo 从不产生 merge commit、不 rebase、不改写你的历史。若交付被阻，可用 `duo apply` 手动重试。
 
 以下情况交付会**拒绝执行**，并让你的仓库完全保持原样：
 

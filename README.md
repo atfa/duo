@@ -167,9 +167,9 @@ Resume reloads the persisted snapshot, **proves it against Git**, and revokes an
 
 Recovery is deliberately conservative: when it cannot prove an approval is still valid, it revokes rather than trusts. Expect a re-sign-off after a crash, not a silent pass.
 
-## Delivery and `duo apply`
+## Deliver the final result
 
-`DONE` means the final integrated result has been delivered into the repository you launched Duo from. Delivery is **fast-forward only** (`git merge --ff-only`). Duo never creates a merge commit, rebases, or rewrites your history.
+`DONE` means the final integrated result has been delivered into the repository you launched Duo from. Delivery is **fast-forward only** (`git merge --ff-only`). Duo never creates a merge commit, rebases, or rewrites your history. If delivery is blocked, `duo apply` retries it by hand.
 
 Delivery refuses — and leaves your repository completely untouched — when:
 
