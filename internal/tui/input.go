@@ -116,9 +116,54 @@ func decodeEscape(seq string) string {
 		return "left"
 	case "\x1b[C":
 		return "right"
-	case "\x1b[47;5u", "\x1b[27;5;47~":
-		return "ctrl-slash"
 	case "\x1b[13;2u", "\x1b[27;2;13~", "\x1b[13;5u", "\x1b[27;5;13~":
+		return "ctrl-enter"
+	}
+	return decodeModifiedKey(seq)
+}
+
+// decodeModifiedKey handles the CSI-u and modifyOtherKeys encodings enabled
+// by Duo so existing Ctrl shortcuts remain usable outside native Pi.
+func decodeModifiedKey(seq string) string {
+	var code, modifier string
+	switch {
+	case strings.HasPrefix(seq, "\x1b[") && strings.HasSuffix(seq, "u"):
+		parts := strings.Split(strings.TrimSuffix(strings.TrimPrefix(seq, "\x1b["), "u"), ";")
+		if len(parts) != 2 {
+			return ""
+		}
+		code, modifier = parts[0], parts[1]
+	case strings.HasPrefix(seq, "\x1b[27;") && strings.HasSuffix(seq, "~"):
+		parts := strings.Split(strings.TrimSuffix(strings.TrimPrefix(seq, "\x1b["), "~"), ";")
+		if len(parts) != 3 || parts[0] != "27" {
+			return ""
+		}
+		modifier, code = parts[1], parts[2]
+	default:
+		return ""
+	}
+	mod, _, _ := strings.Cut(modifier, ":")
+	if !ctrlModifier(mod) {
+		return ""
+	}
+	n, err := strconv.Atoi(code)
+	if err != nil {
+		return ""
+	}
+	switch n {
+	case 1, 97:
+		return "ctrl-a"
+	case 17, 113:
+		return "ctrl-q"
+	case 18, 114:
+		return "ctrl-r"
+	case 20, 116:
+		return "ctrl-t"
+	case 25, 121:
+		return "ctrl-y"
+	case 31, 47:
+		return "ctrl-slash"
+	case 13:
 		return "ctrl-enter"
 	}
 	return ""

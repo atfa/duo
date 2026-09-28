@@ -227,6 +227,48 @@ func TestComposerCursorEditingAndNewlines(t *testing.T) {
 	}
 }
 
+func TestEnhancedGlobalShortcuts(t *testing.T) {
+	for _, tt := range []struct {
+		want      string
+		sequences []string
+	}{
+		{"ctrl-a", []string{"\x1b[97;5u", "\x1b[27;5;97~"}},
+		{"ctrl-t", []string{"\x1b[116;5u", "\x1b[27;5;116~"}},
+		{"ctrl-r", []string{"\x1b[114;5u", "\x1b[27;5;114~"}},
+		{"ctrl-y", []string{"\x1b[121;5u", "\x1b[27;5;121~"}},
+		{"ctrl-q", []string{"\x1b[113;5u", "\x1b[27;5;113~"}},
+		{"ctrl-slash", []string{"\x1b[47;5u", "\x1b[27;5;47~"}},
+	} {
+		for _, sequence := range tt.sequences {
+			a := testApp(80, 24)
+			var action inputAction
+			for _, b := range []byte(sequence) {
+				action = a.handleByte(b)
+			}
+			if got := actionKey(action); got != tt.want {
+				t.Fatalf("%q = %q, want %q", sequence, got, tt.want)
+			}
+		}
+	}
+}
+
+func actionKey(action inputAction) string {
+	switch action.kind {
+	case actionAttach:
+		return "ctrl-" + strings.ToLower(string(action.agent[0]))
+	case actionRestart:
+		if action.agent == protocol.Austin {
+			return "ctrl-r"
+		}
+		return "ctrl-y"
+	case actionQuit:
+		return "ctrl-q"
+	case actionToggleHelp:
+		return "ctrl-slash"
+	}
+	return ""
+}
+
 func TestComposerSubmitTextPreservesInternalNewlines(t *testing.T) {
 	input := []byte(" \nfirst\nsecond\n ")
 	if got := composerText(input); got != "first\nsecond" {

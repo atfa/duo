@@ -1,13 +1,19 @@
-# Duo v0.4.6
+# Duo v0.4.7
 
 **Two peer Pi coding agents in one terminal.**
 
-Duo v0.4.6 combines the peer collaboration runtime with an integrated terminal UI, isolated local sessions, and durable sessions that survive a crash — and hands the finished artifact back to the repository you launched it from.
+Duo v0.4.7 combines the peer collaboration runtime with an integrated terminal UI, isolated local sessions, and durable sessions that survive a crash — and hands the finished artifact back to the repository you launched it from.
+
+## What changed in v0.4.7
+
+- **Scrollable agent history.** Hover Austin or Tony and use the mouse wheel to independently review earlier output.
+- **Multiline composer.** The composer supports cursor editing and up to four visible lines; `Ctrl+Enter` or `Shift+Enter` inserts a newline.
+- **Reliable enhanced shortcuts.** `Ctrl+A/T/R/Y/Q` and `Ctrl+/` continue to work when Duo enables `modifyOtherKeys` for multiline input.
 
 ## What changed in v0.4.6
 
 - **Operational TUI Help.** `Ctrl+/` opens a full, scrollable Help screen. Use `↑/↓`, `j/k`, `PgUp/PgDn`, `Home/End`, or `Esc`; `Ctrl+/` closes it. Native Pi keeps receiving `Ctrl+/` directly.
-- **Clearer main screen.** The composer now says `Duo → Austin >`, status has its own fixed row, and the footer keeps only `Enter Send · Ctrl/Shift+Enter Newline · Ctrl+A/T Native · Ctrl+/ Help · Ctrl+Q Quit`.
+- **Clearer main screen.** The composer now says `Duo → Austin >`, status has its own fixed row, and the footer keeps only the primary shortcut hints.
 
 ## What changed in v0.4.5
 
