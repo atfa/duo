@@ -49,7 +49,7 @@ func (a *App) buildFrame(mode renderMode) string {
 		a.writeHelp(&b, w, h)
 	} else {
 		a.writeLayout(&b, w, h)
-		row, col := inputCursor(w, h, string(a.input))
+		row, col := a.composerCursor(w, h)
 		b.WriteString(fmt.Sprintf("\x1b[%d;%dH", row, col))
 	}
 
@@ -88,7 +88,8 @@ func (a *App) writeTooSmall(b *strings.Builder, w, h int) {
 // writeLayout draws the full Duo UI for the given real terminal geometry. It
 // leaves the last terminal row unused and does not emit a trailing newline.
 func (a *App) writeLayout(b *strings.Builder, w, h int) {
-	duoH := 8
+	composer := a.composerLayout(w)
+	duoH := 7 + composer.rows
 	topH := h - duoH
 	leftW := (w - 1) / 2
 	rightW := w - 1 - leftW
@@ -103,8 +104,9 @@ func (a *App) writeLayout(b *strings.Builder, w, h int) {
 	b.WriteString(paint(ansiBorder, "┌") + paint(ansiTitle, header(aTitle, leftW-1)) + paint(ansiBorder, "┬") + paint(ansiTitle, header(tTitle, rightW-1)) + paint(ansiBorder, "┐") + "\r\n")
 
 	contentRows := topH - 2
-	left := paneLines(a.austin, leftW-1, contentRows)
-	right := paneLines(a.tony, rightW-1, contentRows)
+	a.clampPaneOffsets(leftW-1, rightW-1, contentRows)
+	left := paneLinesAt(a.austin, leftW-1, contentRows, a.austinOffset)
+	right := paneLinesAt(a.tony, rightW-1, contentRows, a.tonyOffset)
 	for i := 0; i < contentRows; i++ {
 		b.WriteString(paint(ansiBorder, "│") + paintEntry(left[i], leftW-1) + paint(ansiBorder, "│") + paintEntry(right[i], rightW-1) + paint(ansiBorder, "│\r\n"))
 	}
@@ -137,9 +139,9 @@ func (a *App) writeLayout(b *strings.Builder, w, h int) {
 		statusColor = ansiError
 	}
 	b.WriteString(paint(ansiBorder, "│") + paint(statusColor, fit(statusLine, w-2)) + paint(ansiBorder, "│\r\n"))
-	prefix := composerPrefix()
-	inputWidth := maxInt(w-2-displayWidth(prefix), 1)
-	b.WriteString(paint(ansiBorder, "│") + paint(ansiStatus, prefix) + fitTail(string(a.input), inputWidth) + paint(ansiBorder, "│\r\n"))
+	for _, line := range composer.lines {
+		b.WriteString(paint(ansiBorder, "│") + paint(ansiStatus, line.prefix) + fit(line.text, line.width) + paint(ansiBorder, "│\r\n"))
+	}
 	b.WriteString(paint(ansiBorder, "└") + paint(ansiHint, fit(mainFooter(), w-2, "─")) + paint(ansiBorder, "┘"))
 }
 
@@ -193,13 +195,8 @@ func agentState(connected bool, runtime harness.AgentRuntime, frame int, states 
 // inputCursor returns the 1-based terminal position for the input insertion
 // point, using the real terminal size (never an invented minimum).
 func inputCursor(width, height int, input string) (row, col int) {
-	inputWidth := width - 2 - displayWidth(composerPrefix())
-	if inputWidth < 1 {
-		inputWidth = 1
-	}
-	visible := tailContent(input, inputWidth)
-	col = 2 + displayWidth(composerPrefix()) + displayWidth(visible)
-	return height - 2, col
+	app := &App{width: width, height: height, input: []byte(input), inputPos: len(input)}
+	return app.composerCursor(width, height)
 }
 
 func (a *App) writeHelp(b *strings.Builder, w, h int) {
@@ -229,7 +226,19 @@ func (a *App) writeHelp(b *strings.Builder, w, h int) {
 	b.WriteString(paint(ansiBorder, "└") + paint(ansiHint, fit(foot, contentWidth, "─")) + paint(ansiBorder, "┘"))
 }
 
-func paneLines(entries []entry, width, rows int) []entry {
+func paneLines(entries []entry, width, rows int) []entry { return paneLinesAt(entries, width, rows, 0) }
+
+func paneLinesAt(entries []entry, width, rows, offset int) []entry {
+	all := wrappedPaneLines(entries, width)
+	start := maxInt(len(all)-rows-maxInt(offset, 0), 0)
+	end := minInt(start+rows, len(all))
+	all = all[start:end]
+	out := make([]entry, rows)
+	copy(out[rows-len(all):], all)
+	return out
+}
+
+func wrappedPaneLines(entries []entry, width int) []entry {
 	var all []entry
 	for _, e := range entries {
 		text := strings.TrimSpace(e.text)
@@ -243,12 +252,138 @@ func paneLines(entries []entry, width, rows int) []entry {
 	if len(all) > 0 && all[len(all)-1].text == "" {
 		all = all[:len(all)-1]
 	}
-	if len(all) > rows {
-		all = all[len(all)-rows:]
+	return all
+}
+
+type composerLine struct {
+	text       string
+	prefix     string
+	width      int
+	start, end int
+}
+
+type composerLayout struct {
+	lines     []composerLine
+	cursorRow int
+	cursorCol int
+	rows      int
+}
+
+func (a *App) composerLayout(width int) composerLayout {
+	contentWidth := maxInt(width-2, 1)
+	prefix := composerPrefix()
+	firstWidth := maxInt(contentWidth-displayWidth(prefix), 1)
+	input := a.input
+	pos := clampInputPos(input, a.inputPos)
+	var all []composerLine
+	start, used := 0, 0
+	linePrefix, lineWidth := prefix, firstWidth
+	appendLine := func(end int) {
+		all = append(all, composerLine{text: string(input[start:end]), prefix: linePrefix, width: lineWidth, start: start, end: end})
 	}
-	out := make([]entry, rows)
-	copy(out[rows-len(all):], all)
-	return out
+	for i := 0; i < len(input); {
+		r, size := utf8.DecodeRune(input[i:])
+		if size == 0 {
+			break
+		}
+		if r == '\n' {
+			appendLine(i)
+			i += size
+			start = i
+			used = 0
+			linePrefix = ""
+			lineWidth = contentWidth
+			continue
+		}
+		rw := runeWidth(r)
+		if used+rw > lineWidth && i > start {
+			appendLine(i)
+			start = i
+			used = 0
+			linePrefix = ""
+			lineWidth = contentWidth
+		}
+		used += rw
+		i += size
+	}
+	appendLine(len(input))
+	cursor := 0
+	for i, line := range all {
+		if pos >= line.start && pos <= line.end {
+			cursor = i
+			break
+		}
+	}
+	rows := minInt(maxInt(len(all), 1), 4)
+	first := minInt(maxInt(cursor-rows+1, 0), maxInt(len(all)-rows, 0))
+	visible := all[first : first+rows]
+	line := visible[cursor-first]
+	end := minInt(maxInt(pos, line.start), line.end)
+	return composerLayout{lines: visible, cursorRow: cursor - first, cursorCol: 2 + displayWidth(line.prefix) + displayWidth(string(input[line.start:end])), rows: rows}
+}
+
+func (a *App) composerCursor(width, height int) (int, int) {
+	composer := a.composerLayout(width)
+	return height - 1 - composer.rows + composer.cursorRow, composer.cursorCol
+}
+
+func (a *App) paneRows() (leftW, rightW, rows int) {
+	composer := a.composerLayout(a.width)
+	leftW = (a.width - 1) / 2
+	rightW = a.width - 1 - leftW
+	return leftW - 1, rightW - 1, maxInt(a.height-(7+composer.rows)-2, 0)
+}
+
+func (a *App) hitPane(x, y int) protocol.AgentID {
+	leftW, _, rows := a.paneRows()
+	if y < 2 || y > rows+1 {
+		return ""
+	}
+	if x >= 2 && x <= leftW+1 {
+		return protocol.Austin
+	}
+	if x >= leftW+3 && x <= a.width-1 {
+		return protocol.Tony
+	}
+	return ""
+}
+
+func paneLineCount(entries []entry, width int) int {
+	return len(wrappedPaneLines(entries, width))
+}
+
+func (a *App) maxPaneOffset(agent protocol.AgentID, width, rows int) int {
+	var entries []entry
+	if agent == protocol.Austin {
+		entries = a.austin
+	} else {
+		entries = a.tony
+	}
+	return maxInt(paneLineCount(entries, width)-rows, 0)
+}
+
+func (a *App) clampPaneOffsets(leftW, rightW, rows int) {
+	a.austinOffset = minInt(maxInt(a.austinOffset, 0), a.maxPaneOffset(protocol.Austin, leftW, rows))
+	a.tonyOffset = minInt(maxInt(a.tonyOffset, 0), a.maxPaneOffset(protocol.Tony, rightW, rows))
+}
+
+func (a *App) clampOffsets() {
+	if a.view == viewHelp {
+		a.clampHelpOffset()
+	}
+	if a.width >= minWidth && a.height >= minHeight {
+		left, right, rows := a.paneRows()
+		a.clampPaneOffsets(left, right, rows)
+	}
+}
+
+func (a *App) scrollPane(agent protocol.AgentID, delta int) {
+	left, right, rows := a.paneRows()
+	if agent == protocol.Austin {
+		a.austinOffset = minInt(maxInt(a.austinOffset+delta, 0), a.maxPaneOffset(agent, left, rows))
+	} else if agent == protocol.Tony {
+		a.tonyOffset = minInt(maxInt(a.tonyOffset+delta, 0), a.maxPaneOffset(agent, right, rows))
+	}
 }
 
 func wrap(s string, width int) []string {
@@ -355,15 +490,41 @@ func runeWidth(r rune) int {
 	return 1
 }
 
-func popRune(buf []byte) []byte {
-	if len(buf) == 0 {
-		return buf
+func clampInputPos(buf []byte, pos int) int {
+	if pos < 0 {
+		return 0
 	}
-	_, size := utf8.DecodeLastRune(buf)
-	if size <= 0 {
+	if pos > len(buf) {
+		pos = len(buf)
+	}
+	for pos > 0 && pos < len(buf) && (buf[pos]&0xc0) == 0x80 {
+		pos--
+	}
+	return pos
+}
+
+func previousRune(buf []byte, pos int) int {
+	pos = clampInputPos(buf, pos)
+	if pos == 0 {
+		return 0
+	}
+	_, size := utf8.DecodeLastRune(buf[:pos])
+	if size < 1 {
 		size = 1
 	}
-	return buf[:len(buf)-size]
+	return pos - size
+}
+
+func nextRune(buf []byte, pos int) int {
+	pos = clampInputPos(buf, pos)
+	if pos == len(buf) {
+		return pos
+	}
+	_, size := utf8.DecodeRune(buf[pos:])
+	if size < 1 {
+		size = 1
+	}
+	return minInt(pos+size, len(buf))
 }
 
 func maxInt(a, b int) int {

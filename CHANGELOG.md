@@ -9,6 +9,8 @@ TUI Help and usability polish; no collaboration, recovery, or delivery semantics
 - Added a full alternate-screen Help view with wrapped content, keyboard scrolling, resize-safe clamping, and `Ctrl+/` / `Esc` close behavior.
 - Kept native Pi input passthrough intact, including `Ctrl+/`; only Duo main TUI handles Help.
 - Clarified the Austin-only human composer, separated transient status, and reduced persistent footer hints.
+- Composer now supports cursor editing and up to four visible lines; Ctrl+Enter inserts a newline.
+- Mouse-wheel scrolling lets each agent pane show earlier wrapped output independently.
 
 ## v0.4.5 — 2026-09
 

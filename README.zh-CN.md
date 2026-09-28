@@ -9,8 +9,9 @@
 ## v0.4.6 TUI Help 与可用性
 
 - `Ctrl+/` 打开/关闭完整、可滚动的 Duo Help；支持 `↑/↓`、`j/k`、`PgUp/PgDn`、`Home/End` 和 `Esc`。
-- 主界面 composer 明确为 `Duo → Austin >`，状态独占固定一行，footer 精简为 `Enter Send · Ctrl+A/T Native · Ctrl+/ Help · Ctrl+Q Quit`。
+- 主界面 composer 明确为 `Duo → Austin >`，状态独占固定一行，footer 精简为 `Enter Send · Ctrl/Shift+Enter Newline · Ctrl+A/T Native · Ctrl+/ Help · Ctrl+Q Quit`。
 - 原生 Pi 中 `Ctrl+/` 仍直接交给 Pi，不会打开 Duo Help。
+- composer 支持光标移动和最多四行显示；`Ctrl/Shift+Enter` 插入换行，鼠标悬停 Agent 区域滚轮可独立回看更早输出。
 
 | 快捷键 | 操作 |
 | --- | --- |
@@ -18,6 +19,10 @@
 | `Enter` | 向 Austin 发送任务/消息 |
 | `Ctrl+A` / `Ctrl+T` | 打开 Austin/Tony 原生 Pi |
 | `Ctrl+Q` | 退出 Duo 并保留 session |
+| `Ctrl/Shift+Enter` | 在 composer 中插入换行 |
+| `←` / `→` | 移动 composer 光标 |
+| `Backspace` | 删除光标前一个字符 |
+| Agent 区域鼠标滚轮 | 独立滚动更早输出 |
 
 ## v0.4.5 Resume 协作唤醒
 

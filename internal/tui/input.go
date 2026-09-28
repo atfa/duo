@@ -21,6 +21,7 @@ const (
 	actionPageDown
 	actionHome
 	actionEnd
+	actionScrollPane
 	actionAttach
 	actionRestart
 )
@@ -28,6 +29,7 @@ const (
 type inputAction struct {
 	kind  actionKind
 	agent protocol.AgentID
+	delta int
 }
 
 func (a *App) handleByte(b byte) inputAction {
@@ -40,9 +42,18 @@ func (a *App) handleByte(b byte) inputAction {
 		if b == 'M' || b == 'm' || b == '~' || b == 'u' || (len(a.escBuf) >= 3 && ((b >= 'A' && b <= 'Z') || (b >= 'a' && b <= 'z'))) {
 			seq := string(a.escBuf)
 			a.escBuf = nil
-			if x, y, ok := parseMouse(seq); ok {
-				if a.view == viewMain {
-					return inputAction{kind: actionAttach, agent: a.hitNativeButton(x, y)}
+			if mouse, ok := parseMouse(seq); ok && a.view == viewMain {
+				if mouse.button == 0 {
+					return inputAction{kind: actionAttach, agent: a.hitNativeButton(mouse.x, mouse.y)}
+				}
+				if mouse.button == 64 || mouse.button == 65 {
+					if agent := a.hitPane(mouse.x, mouse.y); agent != "" {
+						delta := 1
+						if mouse.button == 65 {
+							delta = -1
+						}
+						return inputAction{kind: actionScrollPane, agent: agent, delta: delta}
+					}
 				}
 				return inputAction{}
 			}
@@ -77,8 +88,10 @@ func keyForByte(b byte) string {
 		return "ctrl-q"
 	case 31:
 		return "ctrl-slash"
-	case 13, 10:
+	case 13:
 		return "enter"
+	case 10:
+		return "ctrl-enter"
 	case 127, 8:
 		return "backspace"
 	}
@@ -99,8 +112,14 @@ func decodeEscape(seq string) string {
 		return "page-up"
 	case "\x1b[6~":
 		return "page-down"
+	case "\x1b[D":
+		return "left"
+	case "\x1b[C":
+		return "right"
 	case "\x1b[47;5u", "\x1b[27;5;47~":
 		return "ctrl-slash"
+	case "\x1b[13;2u", "\x1b[27;2;13~", "\x1b[13;5u", "\x1b[27;5;13~":
+		return "ctrl-enter"
 	}
 	return ""
 }
@@ -144,33 +163,52 @@ func (a *App) handleKey(key string) inputAction {
 		return inputAction{kind: actionToggleHelp}
 	case "enter":
 		return inputAction{kind: actionSubmit}
+	case "ctrl-enter":
+		a.insertInput("\n")
+		a.setStatus("", false)
+	case "left":
+		a.inputPos = previousRune(a.input, a.inputPos)
+	case "right":
+		a.inputPos = nextRune(a.input, a.inputPos)
 	case "backspace":
-		a.input = popRune(a.input)
+		start := previousRune(a.input, a.inputPos)
+		a.input = append(a.input[:start], a.input[a.inputPos:]...)
+		a.inputPos = start
 	default:
 		if (len(key) == 1 && key[0] >= 32) || (len(key) == 1 && key[0] >= 0x80) {
-			a.input = append(a.input, key...)
+			a.insertInput(key)
 			a.setStatus("", false)
 		}
 	}
 	return inputAction{}
 }
 
-func parseMouse(seq string) (x, y int, ok bool) {
+type mouseEvent struct{ button, x, y int }
+
+func parseMouse(seq string) (mouseEvent, bool) {
 	if !strings.HasPrefix(seq, "\x1b[<") || len(seq) < 7 {
-		return 0, 0, false
+		return mouseEvent{}, false
 	}
 	body := strings.TrimSuffix(strings.TrimSuffix(strings.TrimPrefix(seq, "\x1b[<"), "M"), "m")
 	parts := strings.Split(body, ";")
 	if len(parts) != 3 {
-		return 0, 0, false
+		return mouseEvent{}, false
 	}
 	button, err1 := strconv.Atoi(parts[0])
 	xv, err2 := strconv.Atoi(parts[1])
 	yv, err3 := strconv.Atoi(parts[2])
-	if err1 != nil || err2 != nil || err3 != nil || button != 0 {
-		return 0, 0, false
+	if err1 != nil || err2 != nil || err3 != nil {
+		return mouseEvent{}, false
 	}
-	return xv, yv, true
+	return mouseEvent{button, xv, yv}, true
+}
+
+func (a *App) insertInput(s string) {
+	a.inputPos = clampInputPos(a.input, a.inputPos)
+	a.input = append(a.input, make([]byte, len(s))...)
+	copy(a.input[a.inputPos+len(s):], a.input[a.inputPos:len(a.input)-len(s)])
+	copy(a.input[a.inputPos:], s)
+	a.inputPos += len(s)
 }
 
 func (a *App) hitNativeButton(x, y int) protocol.AgentID {

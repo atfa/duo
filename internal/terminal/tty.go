@@ -55,6 +55,9 @@ const (
 	Home           = "\x1b[H"
 	MouseOn        = "\x1b[?1000h\x1b[?1006h"
 	MouseOff       = "\x1b[?1000l\x1b[?1006l"
+	// ModifyOtherKeysOn asks xterm-compatible terminals to distinguish
+	// modified control keys such as Ctrl+Enter from their legacy CR byte.
+	ModifyOtherKeysOn = "\x1b[>4;2m"
 
 	// BeginSync/EndSync wrap a frame in a DEC synchronized update. Terminals
 	// that do not implement them ignore the sequences, so no capability

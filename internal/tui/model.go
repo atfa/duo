@@ -36,14 +36,17 @@ type App struct {
 
 	renderer *renderer
 
-	width       int
-	height      int
-	input       []byte
-	status      string
-	statusError bool
-	version     string
-	view        viewMode
-	helpOffset  int
+	width        int
+	height       int
+	input        []byte
+	inputPos     int // byte offset at a UTF-8 rune boundary
+	status       string
+	statusError  bool
+	version      string
+	view         viewMode
+	helpOffset   int
+	austinOffset int // wrapped lines above the pane bottom
+	tonyOffset   int
 
 	austin []entry
 	tony   []entry
@@ -166,15 +169,22 @@ func (a *App) addEntry(agent protocol.AgentID, text string, isError bool) {
 }
 
 func (a *App) submit(ctx context.Context) {
-	text := strings.TrimSpace(string(a.input))
+	text := composerText(a.input)
 	if text == "" {
 		return
 	}
-	a.input = a.input[:0]
+	a.clearInput()
 	if err := a.coord.SubmitUserTask(ctx, text); err != nil {
 		a.setStatus(err.Error(), true)
 		a.add(protocol.Duo, "ERROR: "+err.Error())
 	} else {
 		a.setStatus("sent to Austin", false)
 	}
+}
+
+func composerText(input []byte) string { return strings.TrimSpace(string(input)) }
+
+func (a *App) clearInput() {
+	a.input = a.input[:0]
+	a.inputPos = 0
 }

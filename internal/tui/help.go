@@ -17,6 +17,7 @@ type keyBinding struct {
 
 var keyBindings = []keyBinding{
 	{"Enter", "Enter Send", "Send task/message to Austin"},
+	{"Ctrl/Shift+Enter", "Ctrl/Shift+Enter Newline", "Insert a newline in the composer"},
 	{"Ctrl+A", "Ctrl+A/T Native", "Open Austin native Pi"},
 	{"Ctrl+T", "", "Open Tony native Pi"},
 	{"Ctrl+]", "", "Return from native Pi to Duo"},
@@ -25,7 +26,9 @@ var keyBindings = []keyBinding{
 	{"Ctrl+Y", "", "Restart Tony if exited/failed"},
 	{"Ctrl+/", "Ctrl+/ Help", "Toggle Help"},
 	{"Ctrl+Q", "Ctrl+Q Quit", "Quit Duo and preserve session"},
-	{"Backspace", "", "Edit composer"},
+	{"← / →", "", "Move the composer cursor"},
+	{"Backspace", "", "Delete the previous composer character"},
+	{"Mouse wheel", "", "Scroll Austin or Tony pane history"},
 }
 
 func composerPrefix() string { return " Duo → Austin > " }

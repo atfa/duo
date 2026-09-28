@@ -234,7 +234,40 @@ func TestMainStatusComposerAndFooter(t *testing.T) {
 	if strings.Contains(frame, "Duo → Austin > (Tony restarted)") {
 		t.Fatal("status was rendered as composer input")
 	}
-	if !strings.Contains(frame, "Enter Send · Ctrl+A/T Native · Ctrl+/ Help · Ctrl+Q Quit") {
+	if !strings.Contains(frame, "Enter Send · Ctrl/Shift+Enter Newline · Ctrl+A/T Native · Ctrl+/ Help · Ctrl+Q Quit") {
 		t.Fatal("minimal footer is missing")
+	}
+}
+
+func TestMultilineComposerFrameAndCursor(t *testing.T) {
+	app := testApp(60, 18)
+	app.input = []byte("first\n中文 second\nthird\nfourth\nfifth")
+	app.inputPos = len(app.input)
+	frame := app.buildFrame(renderNormal)
+	lines := visibleLines(frame)
+	if len(lines) > 18 {
+		t.Fatalf("multiline frame has %d lines", len(lines))
+	}
+	for i, line := range lines {
+		if displayWidth(line) > 60 {
+			t.Fatalf("line %d exceeds width: %q", i, line)
+		}
+	}
+	if !strings.Contains(ansiPattern.ReplaceAllString(frame, ""), "fifth") {
+		t.Fatal("composer viewport omitted cursor line")
+	}
+	row, col := app.composerCursor(60, 18)
+	if row < 1 || row > 17 || col < 1 || col > 60 {
+		t.Fatalf("cursor = %d,%d", row, col)
+	}
+	app.inputPos = len([]byte("first\n中"))
+	row, col = app.composerCursor(60, 18)
+	if row < 1 || col < 1 || col > 60 {
+		t.Fatalf("unicode cursor = %d,%d", row, col)
+	}
+	app.width, app.height = 100, 30
+	app.clampOffsets()
+	if app.composerLayout(100).rows != 4 {
+		t.Fatal("composer rows should remain capped at four")
 	}
 }

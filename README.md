@@ -7,7 +7,7 @@ Duo v0.4.6 combines the peer collaboration runtime with an integrated terminal U
 ## What changed in v0.4.6
 
 - **Operational TUI Help.** `Ctrl+/` opens a full, scrollable Help screen. Use `↑/↓`, `j/k`, `PgUp/PgDn`, `Home/End`, or `Esc`; `Ctrl+/` closes it. Native Pi keeps receiving `Ctrl+/` directly.
-- **Clearer main screen.** The composer now says `Duo → Austin >`, status has its own fixed row, and the footer keeps only `Enter Send · Ctrl+A/T Native · Ctrl+/ Help · Ctrl+Q Quit`.
+- **Clearer main screen.** The composer now says `Duo → Austin >`, status has its own fixed row, and the footer keeps only `Enter Send · Ctrl/Shift+Enter Newline · Ctrl+A/T Native · Ctrl+/ Help · Ctrl+Q Quit`.
 
 ## What changed in v0.4.5
 
@@ -178,7 +178,7 @@ Conceptually:
 │ ... Duo / harness / phase events ...                                                    │
 │ Status:                                                                                 │
 │ Duo → Austin > user task                                                                │
-└ Enter Send · Ctrl+A/T Native · Ctrl+/ Help · Ctrl+Q Quit ──────────────────────────────┘
+└ Enter Send · Ctrl/Shift+Enter Newline · Ctrl+A/T Native · Ctrl+/ Help · Ctrl+Q Quit ───┘
 ```
 
 The bottom input is **Duo's human entry point**. Text is sent to Austin. Austin's Duo system prompt tells Austin to wake Tony through `duo_send` and build a shared plan when collaboration is useful.
@@ -274,7 +274,10 @@ DUO_PI_COMMAND='pi --some-flag' duo
 | Ctrl+R / Ctrl+Y | restart exited Austin / Tony |
 | Ctrl+/ | open/close Duo Help |
 | Ctrl+Q | quit Duo |
-| Backspace | edit Duo composer |
+| Ctrl/Shift+Enter | insert a composer newline |
+| Left / Right | move the composer cursor |
+| Backspace | delete the preceding composer character |
+| Mouse wheel over an agent pane | scroll its earlier output |
 
 ## Known limitations of v0.4.1
 
@@ -282,7 +285,6 @@ DUO_PI_COMMAND='pi --some-flag' duo
 - Recovery is conservative by design: when it cannot prove an approval is still valid, it revokes the approval rather than trusting it. Expect a re-sign-off after a crash, not a silent pass.
 - Automatic crash restart is still not implemented. Duo restarts Austin and Tony when it starts, and `Ctrl+R` / `Ctrl+Y` restart an exited agent, but a dead Duo Core needs a manual `duo --resume`.
 - Session files are per-machine and per-repository-path; the state is not portable across machines or across a moved checkout.
-- The Duo composer is currently a single-line editor. Use native Pi mode for rich/multiline direct agent interaction.
 - Summary panes currently show structured assistant completions, peer messages, connection/phase events, and live working/idle state; they do not yet reproduce every token or rich tool card.
 - A frame is redrawn from scratch at up to about 60 FPS; there is no partial-damage or diff-based update. This is intentional for a UI of this size and keeps redraw correctness simple.
 - Duo owns direct PTYs for both interactive Pi processes; SIGWINCH propagates terminal size to both, even while detached. Native attach is fullscreen takeover, not an embedded xterm emulator.

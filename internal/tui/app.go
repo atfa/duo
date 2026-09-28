@@ -27,7 +27,7 @@ func (a *App) Run(ctx context.Context) error {
 	if err := tty.Raw(); err != nil {
 		return err
 	}
-	_, _ = tty.File.WriteString(terminal.EnterAltScreen + terminal.HideCursor + terminal.MouseOn + terminal.ClearHome)
+	_, _ = tty.File.WriteString(terminal.EnterAltScreen + terminal.HideCursor + terminal.MouseOn + terminal.ModifyOtherKeysOn + terminal.ClearHome)
 	defer func() { _, _ = tty.File.WriteString(terminal.ResetOuterModes + terminal.ExitAltScreen) }()
 
 	a.renderer = newRenderer(frameInterval, tty.File, a.buildFrame)
@@ -139,6 +139,9 @@ func (a *App) applyAction(ctx context.Context, action inputAction) bool {
 	case actionEnd:
 		a.helpOffset = a.maxHelpOffset()
 		a.markDirty()
+	case actionScrollPane:
+		a.scrollPane(action.agent, action.delta)
+		a.markDirty()
 	case actionAttach:
 		if action.agent != "" {
 			if err := a.enterNative(action.agent); err != nil {
@@ -169,9 +172,7 @@ func (a *App) applyAction(ctx context.Context, action inputAction) bool {
 func (a *App) resize() {
 	w, h := a.tty.Size()
 	a.width, a.height = w, h
-	if a.view == viewHelp {
-		a.clampHelpOffset()
-	}
+	a.clampOffsets()
 	if err := a.agents.ResizeAll(w, h); err != nil {
 		a.bus.Emit(events.Event{Kind: events.KindError, Agent: protocol.Duo, Text: err.Error()})
 	}
@@ -228,7 +229,7 @@ func (a *App) leaveNative() {
 	a.native = ""
 	a.syncSize()
 	a.nativeDetachBuf = nil
-	_, _ = a.tty.File.WriteString(terminal.ResetOuterModes + terminal.EnterAltScreen + terminal.HideCursor + terminal.MouseOn + terminal.ClearHome)
+	_, _ = a.tty.File.WriteString(terminal.ResetOuterModes + terminal.EnterAltScreen + terminal.HideCursor + terminal.MouseOn + terminal.ModifyOtherKeysOn + terminal.ClearHome)
 	a.requestFullClear()
 }
 

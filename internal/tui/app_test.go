@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -163,6 +164,7 @@ func TestBackspaceAndEnhancedHelpShortcut(t *testing.T) {
 	for _, b := range []byte{127, 8} {
 		a := testApp(80, 24)
 		a.input = []byte("中文x")
+		a.inputPos = len(a.input)
 		a.handleByte(b)
 		if got := string(a.input); got != "中文" {
 			t.Fatalf("backspace %d = %q", b, got)
@@ -178,6 +180,133 @@ func TestBackspaceAndEnhancedHelpShortcut(t *testing.T) {
 			t.Fatalf("%q action = %v", sequence, action.kind)
 		}
 	}
+}
+
+func TestComposerCursorEditingAndNewlines(t *testing.T) {
+	a := testApp(80, 24)
+	for _, b := range []byte("ac") {
+		a.handleByte(b)
+	}
+	for _, b := range []byte("\x1b[D") {
+		a.handleByte(b)
+	}
+	a.handleByte('b')
+	if got := string(a.input); got != "abc" || a.inputPos != 2 {
+		t.Fatalf("insert = %q at %d", got, a.inputPos)
+	}
+	a.handleByte(127)
+	if got := string(a.input); got != "ac" || a.inputPos != 1 {
+		t.Fatalf("backspace = %q at %d", got, a.inputPos)
+	}
+	a.input, a.inputPos = []byte("中x"), len([]byte("中x"))
+	for _, b := range []byte("\x1b[D") {
+		a.handleByte(b)
+	}
+	a.handleByte(8)
+	if got := string(a.input); got != "x" || a.inputPos != 0 {
+		t.Fatalf("unicode backspace = %q at %d", got, a.inputPos)
+	}
+	a.input, a.inputPos = []byte("中x"), len([]byte("中"))
+	for _, b := range []byte("文") {
+		a.handleByte(b)
+	}
+	if got := string(a.input); got != "中文x" || a.inputPos != len([]byte("中文")) {
+		t.Fatalf("unicode insert = %q at %d", got, a.inputPos)
+	}
+	for _, sequence := range []string{"\n", "\x1b[13;2u", "\x1b[27;2;13~", "\x1b[13;5u", "\x1b[27;5;13~"} {
+		a := testApp(80, 24)
+		for _, b := range []byte(sequence) {
+			a.handleByte(b)
+		}
+		if got := string(a.input); got != "\n" {
+			t.Fatalf("%q newline = %q", sequence, got)
+		}
+	}
+	if action := a.handleByte('\r'); action.kind != actionSubmit {
+		t.Fatalf("CR action = %v", action.kind)
+	}
+}
+
+func TestComposerSubmitTextPreservesInternalNewlines(t *testing.T) {
+	input := []byte(" \nfirst\nsecond\n ")
+	if got := composerText(input); got != "first\nsecond" {
+		t.Fatalf("submit text = %q", got)
+	}
+	a := testApp(80, 24)
+	a.input, a.inputPos = input, len(input)
+	a.clearInput()
+	if len(a.input) != 0 || a.inputPos != 0 {
+		t.Fatalf("cleared input = %q at %d", a.input, a.inputPos)
+	}
+}
+
+func TestMousePaneScrolling(t *testing.T) {
+	a := testApp(80, 24)
+	for i := 0; i < 30; i++ {
+		a.add(protocol.Austin, fmt.Sprintf("line %d", i))
+	}
+	var action inputAction
+	for _, b := range []byte("\x1b[<64;2;2M") {
+		action = a.handleByte(b)
+	}
+	if action.kind != actionScrollPane || action.agent != protocol.Austin || action.delta != 1 {
+		t.Fatalf("wheel up = %+v", action)
+	}
+	a.applyAction(context.Background(), action)
+	if a.austinOffset != 1 {
+		t.Fatalf("Austin offset = %d", a.austinOffset)
+	}
+	left, _, rows := a.paneRows()
+	latest := paneLinesAt(a.austin, left, rows, 0)
+	older := paneLinesAt(a.austin, left, rows, a.austinOffset)
+	if strings.Join(entryTexts(latest), "\n") == strings.Join(entryTexts(older), "\n") {
+		t.Fatal("wheel up did not render earlier pane content")
+	}
+	for _, b := range []byte("\x1b[<65;2;2M") {
+		action = a.handleByte(b)
+	}
+	a.applyAction(context.Background(), action)
+	if a.austinOffset != 0 {
+		t.Fatalf("wheel down = %d", a.austinOffset)
+	}
+	if got := strings.Join(entryTexts(paneLinesAt(a.austin, left, rows, a.austinOffset)), "\n"); got != strings.Join(entryTexts(latest), "\n") {
+		t.Fatal("wheel down did not return to latest pane content")
+	}
+	for _, b := range []byte("\x1b[<64;60;2M") {
+		action = a.handleByte(b)
+	}
+	if action.agent != protocol.Tony {
+		t.Fatalf("Tony wheel = %+v", action)
+	}
+	a.austinOffset = 100
+	a.width, a.height = 60, 18
+	a.clampOffsets()
+	left, _, rows = a.paneRows()
+	if a.austinOffset < 0 || a.austinOffset > a.maxPaneOffset(protocol.Austin, left, rows) {
+		t.Fatalf("resize offset = %d", a.austinOffset)
+	}
+	for _, b := range []byte("\x1b[<64;2;20M") {
+		action = a.handleByte(b)
+	}
+	if action.kind != actionNone {
+		t.Fatalf("bottom mouse action = %+v", action)
+	}
+	a.view = viewHelp
+	offset := a.austinOffset
+	for _, b := range []byte("\x1b[<64;2;2M") {
+		action = a.handleByte(b)
+	}
+	if action.kind != actionNone || a.austinOffset != offset {
+		t.Fatalf("Help wheel = %+v / %d", action, a.austinOffset)
+	}
+}
+
+func entryTexts(entries []entry) []string {
+	text := make([]string, len(entries))
+	for i, entry := range entries {
+		text[i] = entry.text
+	}
+	return text
 }
 
 func TestHelpScrollBoundariesAndEscape(t *testing.T) {

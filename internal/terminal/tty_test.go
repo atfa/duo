@@ -16,3 +16,9 @@ func TestResetOuterModes(t *testing.T) {
 		}
 	}
 }
+
+func TestModifyOtherKeysOn(t *testing.T) {
+	if ModifyOtherKeysOn != "\x1b[>4;2m" {
+		t.Fatalf("ModifyOtherKeysOn = %q", ModifyOtherKeysOn)
+	}
+}
