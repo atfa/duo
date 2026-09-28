@@ -72,6 +72,8 @@ Owns the handoff back to the human's repository. `Check` inspects the original r
 
 Owns durable state on disk: an atomically written `state.json` checkpoint, an append-only `events.jsonl` journal, a redacting `duo.log`, and an advisory `flock` lock that records the owner PID and hostname. Sessions are keyed by repository (`RepoID`) and session id under `~/.duo/sessions/`.
 
+`events.jsonl` is both the diagnostic journal and the TUI transcript: `tui_entry` records are replayed into the panes on `--resume` (capped at 200 entries per pane), so a resumed session shows the same visible history it had before.
+
 ### `internal/recovery`
 
 Owns the resume path: composing a snapshot from live state, validating it against Git, and reconciling the two. Reconciliation is deliberately conservative — any signature whose evidence can no longer be proved valid is revoked before agents start, so a crash cannot resurrect a stale approval.
@@ -82,7 +84,7 @@ A small in-process pub/sub bus carrying typed events (`system`, `assistant`, `pe
 
 ### `internal/tui`
 
-The terminal UI: model, renderer, layout, help and input decoding. It is a projection of authoritative state, never a second source of truth. Frames are rebuilt from scratch and scheduled through a dirty tracker at about 60 FPS.
+The terminal UI: model, renderer, layout, help, input decoding, mouse selection and in-pane markdown rendering. It is a projection of authoritative state, never a second source of truth. Frames are rebuilt from scratch and scheduled through a dirty tracker at about 60 FPS.
 
 ### `internal/terminal`
 
@@ -154,7 +156,7 @@ Delivery refuses — leaving the repository completely untouched — when the or
 Two properties make this safe to automate:
 
 1. **Check before write.** `internal/delivery` computes the whole decision from read-only Git queries before touching anything, so a refusal costs nothing.
-2. **Idempotent apply.** `current HEAD == final HEAD` is treated as already-applied, which is what lets a crash between the fast-forward and the `DONE` write be reconciled without double-applying.
+2. **Idempotent apply.** Delivery is a no-op whenever the final HEAD is already reachable from the current HEAD (`git merge-base --is-ancestor <final-head> HEAD`), not only when the two SHAs are identical. That is what lets a crash between the fast-forward and the `DONE` write be reconciled without double-applying, and it also recognizes a merge the human resolved themselves: after the human finishes the handoff with their own `git merge --no-ff <final-head>`, `duo apply` reports the result as already applied and keeps the human's commit rather than demanding a fast-forward.
 
 So the boundary is not "Duo never moves your branch". It is: **Duo only ever moves the recorded branch forward, by an amount Git itself proves to be lossless, and refuses rather than guesses.** When it refuses, the human finishes the merge or cherry-pick from the printed final HEAD and re-runs `duo apply`.
 

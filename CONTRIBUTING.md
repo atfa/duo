@@ -10,7 +10,7 @@ go vet ./...
 go build ./cmd/duo
 ```
 
-If you change the Pi extension, also test a real two-Pi session where Tony starts idle and Austin wakes Tony through `duo_send`.
+If you change the Pi extension, also run its tests (`cd pi-extension && bun test`) and test a real two-Pi session where Tony starts idle and Austin wakes Tony through `duo_send`.
 
 ## Design principles
 
@@ -26,10 +26,9 @@ If you change the Pi extension, also test a real two-Pi session where Tony start
 
 - tests for Git edge cases;
 - improved diagnostics;
-- worktree cleanup commands;
+- worktree cleanup commands (`GitManager.Cleanup` removes the session worktrees but is not wired into any command yet);
 - documentation;
-- future TUI state projection;
-- session persistence design.
+- TUI polish (keyboard pane scrolling, scrollback search or export, non-macOS clipboard support).
 
 ## Reporting behavior issues
 

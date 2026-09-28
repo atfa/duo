@@ -16,10 +16,14 @@ Duo provides side-by-side summary panes and one global human composer. Rich Pi f
 
 The composer is multiline: up to four wrapped lines are visible, with cursor editing, and `Ctrl+Enter` or `Shift+Enter` inserts a newline. Each agent pane scrolls its earlier output independently with the mouse wheel.
 
+Agent and Duo output is rendered as lightweight markdown: headings, lists, code fences and pipe tables are laid out for the pane width, and narrow table cells wrap instead of being clipped.
+
+Text in a pane can be selected by dragging the mouse and is copied on release. The copy step shells out to `pbcopy`, so it works on macOS only; on other platforms Duo reports a failed copy in the status line. Releasing without dragging (a plain click) clears the selection instead of copying.
+
 What is still limited in the UI:
 
 - Pane scrolling is **mouse-only**. The keyboard scroll bindings (`↑/↓`, `j/k`, `PgUp/PgDn`, `Home/End`) belong to the Help view; there is no keyboard scrolling of agent panes.
-- There is no scrollback search, copy mode, or per-pane scrollback export.
+- There is no scrollback search or per-pane scrollback export. Selection is limited to what is currently rendered in the pane.
 - The composer does not recall previously sent messages.
 - `Shift+Enter` inserts a newline only when the terminal reports it as a distinct sequence. A terminal that sends a bare carriage return for `Shift+Enter` will submit the message instead.
 
@@ -32,6 +36,8 @@ Duo asks Austin to clean collaboration-only artifacts out of the final tree and 
 ## Durable state is a checkpoint, not a transcript
 
 Collaboration state now survives a crash. Phase, Plan version, signatures, evidence, the worktree record and per-agent Pi session identity are persisted to `~/.duo/sessions/<repo-id>/<session-id>/state.json` and validated against Git when a session is resumed.
+
+The pane transcript is persisted too: `events.jsonl` carries `tui_entry` records (200 per pane) that are replayed into the UI on resume, so the visible history survives a crash even though it is not a searchable transcript.
 
 What is persisted is the *state machine*, not the agents' reasoning. A resumed Austin or Tony keeps its own Pi conversation history and the shared Plan, but Duo does not summarize or replay what was in flight. Recovery is also deliberately conservative: it revokes any signature it cannot prove is still valid, so a crash can legitimately cost a re-sign-off.
 
@@ -59,7 +65,7 @@ Conflicts remain in Austin's worktree for the agents/human to resolve. Duo does 
 
 ## Delivery is fast-forward only
 
-Duo does deliver the final integrated HEAD back into the user's original repository, but only as a fast-forward on the branch it recorded when the session started. It refuses to act on a dirty, wrong-branch, diverged or detached repository, and it never runs `reset --hard`, `checkout -f`, `clean`, `merge --no-ff` or `rebase` on the user's repository. When the branch cannot be fast-forwarded, Duo leaves the repository untouched, keeps the session in INTEGRATE with both signatures, records a `pending` delivery, and reports the final HEAD so the user can finish the merge or cherry-pick manually before re-running `duo apply`.
+Duo does deliver the final integrated HEAD back into the user's original repository, but only as a fast-forward on the branch it recorded when the session started. A handoff the human completed themselves is recognized rather than rejected: if the final HEAD is already an ancestor of the current HEAD, `duo apply` treats the result as already applied and preserves the human's commit, so a manual `git merge --no-ff <final-head>` is a supported way to finish a blocked delivery. It refuses to act on a dirty, wrong-branch, diverged or detached repository, and it never runs `reset --hard`, `checkout -f`, `clean`, `merge --no-ff` or `rebase` on the user's repository. When the branch cannot be fast-forwarded, Duo leaves the repository untouched, keeps the session in INTEGRATE with both signatures, records a `pending` delivery, and reports the final HEAD so the user can finish the merge or cherry-pick manually before re-running `duo apply`.
 
 Delivery is also all-or-nothing at the branch level: it moves the recorded branch to the final integrated commit, so it does not support partial or per-file handoff.
 

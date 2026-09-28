@@ -27,6 +27,8 @@ The fast-forward is verified with read-only Git queries **before** anything is w
 
 After a successful fast-forward, Duo re-reads HEAD and fails loudly if it is not exactly the expected final commit.
 
+Delivery is also a no-op when the final HEAD is already an ancestor of the current HEAD, so a merge you finished yourself is recognized as applied and your own commit is preserved. A cherry-pick is not recognized, because it does not make the final HEAD an ancestor.
+
 Review the delivered commit as you would any other change to your branch. Duo's guarantee is that it will not guess at an unsafe merge — not that the delivered work is correct. When delivery is refused, finish the merge or cherry-pick yourself from the printed final HEAD, then re-run `duo apply`.
 
 ## On-disk session files
@@ -34,7 +36,7 @@ Review the delivered commit as you would any other change to your branch. Duo's 
 Durable sessions write to `~/.duo/sessions/<repo-id>/<session-id>/`:
 
 - `state.json` — phase, Plan, signatures, evidence, worktree paths and branches, and Pi session IDs. It contains no credentials.
-- `events.jsonl` — a diagnostic journal of phase, signature, bridge and merge events.
+- `events.jsonl` — a diagnostic journal of phase, signature, bridge and merge events. It also carries the TUI pane transcript (`tui_entry` records, 200 per pane) so the visible history can be replayed on resume; treat it as containing whatever your agents wrote to the panes.
 - `duo.log` — lifecycle output. Session tokens are redacted before being written.
 - `lock` — an advisory `flock` holding the owner PID and hostname.
 

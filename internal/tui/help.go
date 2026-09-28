@@ -22,6 +22,7 @@ var keyBindings = []keyBinding{
 	{"Ctrl+T", "", "Open Tony native Pi"},
 	{"Ctrl+]", "", "Return from native Pi to Duo"},
 	{"Ctrl+\\", "", "Return from native Pi to Duo"},
+	{"Ctrl+】", "", "Return from native Pi to Duo"},
 	{"Ctrl+R", "", "Restart Austin if exited/failed"},
 	{"Ctrl+Y", "", "Restart Tony if exited/failed"},
 	{"Ctrl+/", "Ctrl+/ Help", "Toggle Help"},
@@ -29,6 +30,7 @@ var keyBindings = []keyBinding{
 	{"← / →", "", "Move the composer cursor"},
 	{"Backspace", "", "Delete the previous composer character"},
 	{"Mouse wheel", "", "Scroll Austin or Tony pane history"},
+	{"Mouse drag", "", "Select pane text; copies on release (macOS)"},
 }
 
 func composerPrefix() string { return " Duo → Austin > " }
@@ -70,15 +72,16 @@ func (a *App) helpLines(width int) []string {
 		{"Native Pi", []string{
 			"Ctrl+A → Austin native Pi; Ctrl+T → Tony native Pi.",
 			"In native Pi, /model, /settings, /tree, Pi extensions, and Pi shortcuts are handled by Pi.",
-			"Return to Duo with Ctrl+] or Ctrl+\\.",
+			"Return to Duo with Ctrl+], Ctrl+\\ or Ctrl+】.",
 		}},
 		{"Resume & Recovery", []string{
 			"duo --resume", "duo --resume <session-id>",
-			"Resume restores Duo state, worktrees, Pi conversation identity, working scope, and collaboration wake-up.",
+			"Resume restores Duo state, worktrees, Pi conversation identity, working scope, pane history, and collaboration wake-up.",
 		}},
 		{"Delivery", []string{
 			"DONE means the final integrated artifact has been delivered to the original repository.",
 			"If delivery is blocked: duo apply or duo apply <session-id>. Delivery is fast-forward only.",
+			"A merge you finish yourself (git merge --no-ff <final-head>) is recognized as already applied by duo apply.",
 		}},
 		{"Working Scope", []string{
 			"cd repo/packages/web", "duo",
