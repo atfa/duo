@@ -1,4 +1,4 @@
-# Known limitations — v0.4.1
+# Known limitations
 
 Duo is an experimental runtime. The collaboration model works, but the current release intentionally leaves several areas unfinished.
 
@@ -14,7 +14,14 @@ Duo targets Pi. The Go core is structured so other adapters could be added later
 
 Duo provides side-by-side summary panes and one global human composer. Rich Pi features still run in the native Pi terminal reached through `Ctrl+A` or `Ctrl+T`; the summary panes are not terminal emulators.
 
-The composer is currently single-line, and pane history does not yet support scrolling.
+The composer is multiline: up to four wrapped lines are visible, with cursor editing, and `Ctrl+Enter` or `Shift+Enter` inserts a newline. Each agent pane scrolls its earlier output independently with the mouse wheel.
+
+What is still limited in the UI:
+
+- Pane scrolling is **mouse-only**. The keyboard scroll bindings (`↑/↓`, `j/k`, `PgUp/PgDn`, `Home/End`) belong to the Help view; there is no keyboard scrolling of agent panes.
+- There is no scrollback search, copy mode, or per-pane scrollback export.
+- The composer does not recall previously sent messages.
+- `Shift+Enter` inserts a newline only when the terminal reports it as a distinct sequence. A terminal that sends a bare carriage return for `Shift+Enter` will submit the message instead.
 
 Frames are rebuilt from scratch (no partial-damage/diff updates) and capped at about 60 FPS by the renderer scheduler. This keeps redraw correctness easy to reason about, but very large terminals do redraw the whole screen on each dirty frame rather than only the changed regions.
 

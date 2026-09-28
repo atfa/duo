@@ -19,7 +19,7 @@ If you change the Pi extension, also test a real two-Pi session where Tony start
 3. **Use worktree isolation instead of trying to parse every possible file-writing command.**
 4. **Phases are checkpoints, not behavioral cages.** Do not prohibit useful early analysis/review just to keep the timeline aesthetically pure.
 5. **Keep the Pi extension thin.** It should translate Pi events/tools to/from Duo, not become a second orchestrator.
-6. **Do not auto-merge into the human branch.** Human-controlled final integration is a deliberate boundary.
+6. **Only ever move the human's branch forward.** The handoff is fast-forward only and refuses to guess: no automatic merge commits, no rebases and no history rewriting in the user's original repository. When a fast-forward is not provably safe, Duo leaves the repository completely untouched and hands the decision back to the human, who finishes the merge or cherry-pick and re-runs `duo apply`.
 7. **Avoid complexity without observed need.** Duo should not become a task-management framework merely because one can be built.
 
 ## Good first contribution areas
