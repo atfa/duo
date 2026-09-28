@@ -24,6 +24,15 @@ Resume collaboration wake-up.
 
 - A resumed runtime sends each reconnected Pi agent one phase-aware `resume_prompt`, derived from authoritative durable state; reconnects do not duplicate it and fresh sessions keep the Austin-only bootstrap.
 
+## v0.4.4 — 2026-09
+
+Launch-directory working scope.
+
+- Git ownership stays at the repository root while Austin and Tony start in the repository-relative directory Duo was launched from: `cd repo/packages/web && duo` keeps branches, worktrees and delivery at `repo`, and both agents' default working directory at `packages/web` inside their private worktrees.
+- The scope is recorded in the durable snapshot and restored across `duo --resume` and agent restart, instead of collapsing back to the repository root.
+- The Pi bridge reports each agent's active scope in its system prompt.
+- Coordinator tests now wait for the durable delivery checkpoint, removing a teardown race.
+
 ## v0.4.3 — 2026-09
 
 Test lifecycle and release validation hardening.
@@ -139,7 +148,7 @@ First public experimental release candidate.
 - peer-HEAD evidence for review completion;
 - automatic stale-signature revocation;
 - Tony → Austin integration merge;
-- human-controlled final merge boundary;
+- human-controlled final merge boundary (accurate for v0.2: the automatic fast-forward handoff arrived in v0.4.1, below);
 - modular Go core and modular Pi extension.
 
 ### Design change from earlier experiments

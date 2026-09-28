@@ -1,318 +1,296 @@
-# Duo v0.4.7
+# Duo
 
 **Two peer Pi coding agents in one terminal.**
 
-Duo v0.4.7 combines the peer collaboration runtime with an integrated terminal UI, isolated local sessions, and durable sessions that survive a crash — and hands the finished artifact back to the repository you launched it from.
+Duo runs two Pi coding agents as *peers* rather than as a planner and a subordinate worker. They negotiate a shared Plan, message each other while both keep working, execute in isolated Git worktrees, cross-review each other's commits, and jointly sign off before anything is integrated. When the collaboration finishes, the approved result is handed back to the repository you launched Duo from.
 
-## What changed in v0.4.7
+The runtime is a Go coordination core plus a deliberately thin Pi bridge. Duo enforces only what benefits from deterministic coordination — identity, routing, Plan versioning, phase transitions, signatures, Git evidence — and leaves the models free to collaborate naturally.
 
-- **Scrollable agent history.** Hover Austin or Tony and use the mouse wheel to independently review earlier output.
-- **Multiline composer.** The composer supports cursor editing and up to four visible lines; `Ctrl+Enter` or `Shift+Enter` inserts a newline.
-- **Reliable enhanced shortcuts.** `Ctrl+A/T/R/Y/Q` and `Ctrl+/` continue to work when Duo enables `modifyOtherKeys` for multiline input.
+- **Peer, not hierarchical.** No fixed planner. Either agent can disagree, and disagreement is a normal part of the flow.
+- **Evidence over claims.** A clean commit SHA is worth more than an assistant saying "done". Sign-offs are validated against Git, not trusted.
+- **Isolated, never destructive.** Austin and Tony never share a working tree, and Duo will not rewrite the history of the repository you launched it from.
+- **Durable.** Sessions survive a crash and can be resumed with the shared Plan, worktrees and Pi conversation identity intact.
 
-## What changed in v0.4.6
+Current release: **v0.4.7** — see [CHANGELOG.md](./CHANGELOG.md) for the full history.
 
-- **Operational TUI Help.** `Ctrl+/` opens a full, scrollable Help screen. Use `↑/↓`, `j/k`, `PgUp/PgDn`, `Home/End`, or `Esc`; `Ctrl+/` closes it. Native Pi keeps receiving `Ctrl+/` directly.
-- **Clearer main screen.** The composer now says `Duo → Austin >`, status has its own fixed row, and the footer keeps only the primary shortcut hints.
+## Quick start
 
-## What changed in v0.4.5
+```bash
+cd /path/to/git/repo
+duo
+```
 
-- **Resume collaboration wake-up.** On `duo --resume`, Duo restores both Pi sessions and actively wakes each agent as its bridge reconnects with a phase-aware prompt. You do not need to send `continue` merely to restart collaboration; the human composer still targets Austin only.
+Then type a task in the composer and press `Enter`. The composer sends to **Austin**. In a fresh task Austin wakes Tony with `duo_send`, they agree a Plan, and Duo Core drives the phases from there.
 
-## What changed in v0.4.4
+Requirements:
 
-- **Launch-directory scope.** Git ownership stays at the repository root, while Austin and Tony start in the repository-relative directory from which Duo was launched. The scope persists across resume and restart.
+- Git
+- Pi available as `pi` on `PATH` (override with `DUO_PI_COMMAND`)
+- macOS or Linux — Duo owns both Pi PTYs directly, so no `script` wrapper is needed
 
-## What changed in v0.4.3
+## Install
 
-- **Deterministic test lifecycle.** Coordinator E2E tests now explicitly join server, client, background-task, and Git worktree teardown before temporary directories are removed.
-- **Release validation hardening.** Main and tagged CI continue to gate the four-platform release archives with the full test suite and vet checks.
-
-## What changed in v0.4.2
-
-- **Reliable final approval.** INTEGRATE approval is edge-triggered: repeated `ready=true` status messages are idempotent and cannot start delivery twice.
-- **Serialized, fail-closed handoff.** One session runs one delivery transaction at a time; applied checkpoints never regress to pending, and a required checkpoint write failure stops before the original repository is changed.
-- **Release gate.** A tagged release runs tests, vet and a build before archives can be published.
-
-## What changed in v0.4.1
-
-- **DONE means delivered.** Dual sign-off in INTEGRATE records the final approval but no longer declares the work finished. Duo then delivers the entire final integrated HEAD into your original repository and only then marks the session `DONE`.
-- **Safe by construction.** Delivery is a fast-forward only. Duo refuses when your repository has uncommitted changes, is on a different branch, has diverged, or is in detached HEAD, and never runs `reset --hard`, `checkout -f`, `clean`, `merge --no-ff` or `rebase` on your repository.
-- **`duo apply [session-id]`.** If delivery is blocked, Duo keeps the session in INTEGRATE with both signatures intact, writes a `pending` delivery checkpoint, and prints the exact command to retry. On a repository with one pending delivery, `duo apply` needs no arguments.
-- **Crash-safe handoff.** The final approval and pending-delivery checkpoint are persisted before Git is touched, so a crash between the fast-forward and the `DONE` write is reconciled on the next `duo --resume` or `duo apply`.
-- **Final-tree hygiene.** The INTEGRATE prompt gives Austin an explicit final-tree cleanup duty and Tony a repository-hygiene review, so collaboration-only artifacts do not ship.
-- **v0.4.0 sessions still deliver.** A session already marked `DONE` by v0.4.0 can be handed off with `duo apply`.
-
-## What changed in v0.4.0
-
-- **Durable sessions.** Phase, Plan version, signatures, evidence, worktree record and Pi session identity are persisted to `~/.duo/sessions/<repo-id>/<session-id>/state.json` on every state change, written atomically so a crash can never leave a half-written checkpoint.
-- **`duo --resume [session-id]`.** Continue an interrupted session instead of starting over. With no id, Duo resumes the repository's only unfinished session and lists the candidates when there is more than one.
-- **Git is the ground truth.** Resume re-checks both worktrees, notices an interrupted or already-completed merge, and revokes every signature whose evidence no longer matches. A session never slips backwards to PLAN and an old approval is never treated as still valid.
-- **Dirty worktrees are recoverable.** Uncommitted work does not block resume; Duo reports it, revokes only the signatures it invalidates, and leaves your files alone.
-- **Stable Pi identity.** Austin and Tony keep their own Pi conversation across a restart via `--session-id`.
-- **One process per session.** An advisory lock, plus a diagnostic journal (`events.jsonl`) and a redacting log (`duo.log`), make concurrent or crashed runs auditable.
-
-## What changed in v0.3.3
-
-- Hardened TUI redraw: resize, native-attach re-entry and layout changes now force one full-screen clear instead of overwriting the previous frame in place, which removes border trails and visual residue when dragging a terminal window.
-- Removed the fake 60×18 minimum terminal size. Duo lays out on the real geometry and shows a bounded `Terminal too small` notice below 60×18 instead of wrapping or scrolling.
-- Frames are wrapped in DEC synchronized output (`CSI ?2026 h/l`) and autowrap is disabled for the duration of a frame write.
-- SIGWINCH is coalesced: a burst of resize signals collapses into one latest-size PTY update and one frame.
-- Rendering goes through a dirty scheduler at about 60 FPS; an idle Duo does not repaint, and the spinner only animates while an agent is busy.
-- Process state distinguishes `exited` from `failed`, and a Duo-initiated stop is reported as a normal exit.
-
-## What changed in v0.3
-
-- `duo` can be launched from inside a Git repository: `cd project && duo`.
-- Duo creates Austin/Tony worktrees automatically.
-- Duo launches **two real interactive Pi TUI processes** in hidden pseudo-terminals.
-- The default terminal shows three areas: Austin summary, Tony summary, and the Duo composer/status area.
-- `Ctrl+A` opens Austin's real Pi TUI; `Ctrl+T` opens Tony's real Pi TUI.
-- Clicking either top header (`[↗]`) also opens that agent's native Pi terminal on terminals that report SGR mouse clicks.
-- While inside native Pi, `/model`, `/settings`, `/tree`, extension UI, custom footer, etc. are handled by Pi itself.
-- Press `Ctrl+]` or `Ctrl+\\` to detach from native Pi and return to Duo.
-- `Ctrl+Q` quits Duo and preserves worktrees.
-- Provider errors such as HTTP 402/429 are shown in full and highlighted in red.
-- The TUI uses color for titles, borders, status, help, and error output.
-- Non-Git directories and empty repositories show copy-pasteable Git setup commands without initializing the repository automatically.
-
-This version intentionally does **not** reimplement Pi's slash commands.
-
-## Install / upgrade
-
-Install the latest macOS or Linux release (amd64 or arm64):
+**Released binaries** (macOS/Linux, amd64/arm64; installs `~/.local/bin/duo` and the Pi bridge):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash
 ```
 
-This installs the `duo` binary at `~/.local/bin/duo` and the opt-in Pi bridge at `~/.pi/agent/extensions/duo`. The bridge stays inactive during ordinary `pi` sessions and is enabled only for Pi processes launched by Duo.
-
-To build from source instead:
-
-From the Duo source directory:
+**From source** (runs the test suite first, then installs the same two pieces; requires Go 1.22+):
 
 ```bash
 ./scripts/install.sh
 ```
 
-This installs:
+Restart any running Pi processes after installing the bridge.
 
-- the current bridge at `~/.pi/agent/extensions/duo`
-- the `duo` binary at `~/.local/bin/duo`
+## How Duo differs from a planner/worker setup
 
-The installer disables bridge directories created by the earlier Duo prototypes (`duo-v02` / `duo-export.ts`) to avoid duplicate `duo_send` tool registration.
-
-If `~/.local/bin` is not already in your shell PATH:
-
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
-
-## Start
-
-Preferred:
-
-```bash
-cd /Users/atfa/fix/pet
-duo
-```
-
-Also supported:
-
-```bash
-duo /Users/atfa/fix/pet
-```
-
-If you are developing Duo itself without installing the binary:
-
-```bash
-./scripts/install-pi-extension.sh
-./scripts/run-core.sh /Users/atfa/fix/pet
-```
-
-Duo uses the enclosing Git repository as its Git boundary while preserving the directory you launched it from as Austin and Tony's default working scope. For example, `cd repo/packages/web && duo` keeps Git branches, worktrees and delivery at `repo`, while both agents start in `packages/web` within their private worktrees. Each run uses an OS-assigned localhost port plus a random session token, so separate Duo projects do not share agent connections. Automatically generated session names use a timestamp plus an eight-digit random hex suffix; explicit `DUO_SESSION` values are unchanged.
-
-## Resume a session
-
-If Duo, Austin or Tony was killed, or the machine crashed, do not start a new session — resume the old one:
-
-```bash
-cd /Users/atfa/fix/pet
-duo --resume
-```
-
-To choose a specific session, or when several sessions are unfinished:
-
-```bash
-duo --resume duo-20260914-8f31c0a2
-```
-
-Bare `duo --resume` picks the only unfinished session for this repository; if there is more than one it lists them instead of guessing, and if there is none it tells you so.
-
-On resume Duo:
-
-1. takes the session lock, so two Duo processes cannot drive the same session;
-2. restores the checkpoint into the state machine;
-3. validates that the recorded worktrees still exist, are Git worktrees, and are on the expected branches — existing worktrees are reused, never recreated;
-4. re-derives the truth from Git (worktree HEADs, an interrupted `MERGE_HEAD`, the Austin/Tony integration result);
-5. revokes stale signatures and applies the reconciled state **before** agents start, so a crash during startup cannot resurrect an old approval;
-6. restarts Austin and Tony with their previous Pi session identity in the same worktrees, then actively wakes each agent as its bridge reconnects with the authoritative phase, plan and worktree scope. The human composer still sends only to Austin.
-
-While `duo` runs, a session is considered active. Quitting Duo with `Ctrl+Q` preserves the session and prints the exact resume command.
-
-Session files live in `~/.duo/sessions/`:
+The common pattern:
 
 ```text
-state.json    versioned session checkpoint (atomic writes)
-events.jsonl  diagnostic journal of phase, signature and merge events
-duo.log       lifecycle log; session tokens are redacted
-lock          advisory flock, released automatically if Duo dies
+Planner
+ ├─ Worker A
+ └─ Worker B
 ```
 
-## Default UI
-
-Conceptually:
+Duo:
 
 ```text
-┌ Austin · working                         [↗] ┬ Tony · idle                         [↗] ┐
-│ ... structured Duo summary ...               │ ... structured Duo summary ...          │
-│                                              │                                          │
-├──────────────────────────────────────────────┴──────────────────────────────────────────┤
-│ Duo · PLAN · Plan v1 · Austin ✓ · Tony ○                                               │
-│ Plan: ...                                                                               │
-│ ... Duo / harness / phase events ...                                                    │
-│ Status:                                                                                 │
-│ Duo → Austin > user task                                                                │
-└ Enter Send · Ctrl/Shift+Enter Newline · Ctrl+A/T Native · Ctrl+/ Help · Ctrl+Q Quit ───┘
+            human
+             │
+             ▼
+          Austin
+             │ wakes
+             ▼
+Austin  ◄──────────►  Tony
+   │    live messages │
+   └──────────┬──────┘
+              ▼
+ PLAN → EXECUTE → REVIEW → INTEGRATE → DONE
 ```
 
-The bottom input is **Duo's human entry point**. Text is sent to Austin. Austin's Duo system prompt tells Austin to wake Tony through `duo_send` and build a shared plan when collaboration is useful.
+There is no planner distributing tasks. The human talks to Austin; Austin wakes Tony; after that the two peers message each other directly and neither can sign off on the other's behalf.
 
-## TUI Help
+Duo Core owns only a small set of reliable institutions — phases, signatures, evidence, worktrees, the harness and integration. How the agents discuss, split the work, or whether to prototype first stays theirs to decide.
 
-Press `Ctrl+/` in the Duo main TUI for Quick Start, keyboard controls, lifecycle, Native Pi, resume/recovery, delivery, working scope, and agent status. Help wraps to the terminal width and supports `↑/↓`, `j/k`, `PgUp/PgDn`, `Home/End`, and `Esc`. It does not change the composer. `Ctrl+/` is deliberately not intercepted while attached to native Pi.
+## How the collaboration works
+
+```text
+PLAN → EXECUTE → REVIEW → INTEGRATE → DONE
+```
+
+Each phase is a **checkpoint, not a behavioral cage**. Duo does not stop an agent from reading code or reviewing a diff early; the phase only decides what evidence is required to advance.
+
+| Phase | What happens | Evidence required to advance |
+|---|---|---|
+| **PLAN** | Agents negotiate one shared Plan. Provisional edits are allowed. | Both approve the *same* Plan version. |
+| **EXECUTE** | Each works independently in their own Git worktree. | Each worktree is clean, with a recorded commit SHA. |
+| **REVIEW** | Each reviews the peer's exact commit. | Each approves the exact peer HEAD reviewed. |
+| **INTEGRATE** | Tony's branch is merged into Austin's integration worktree. | Both approve the same clean integrated Austin HEAD. |
+| **DONE** | The approved artifact has been delivered back to your repository. | Delivery succeeded. |
+
+A plan update creates a new version and **invalidates both signatures**, so wording churn has a visible cost. A sign-off is bound to an exact commit: if the peer pushes a new commit, the previous review is stale and must be repeated.
+
+## The four Duo tools
+
+Austin and Tony share a small tool surface installed with the Pi bridge. It is the only channel through which they can affect shared state.
+
+| Tool | Purpose |
+|---|---|
+| `duo_send` | Send an important live message to the peer while both keep working. For findings, questions, conflicts and proposals — not routine progress chatter. |
+| `duo_set_plan` | Create or replace the whole shared Plan. Each call makes a new version and resets both signatures. |
+| `duo_set_status` | Sign the current phase (`ready: true`) or revoke your signature (`ready: false`), with an optional note. |
+| `duo_status` | Read the authoritative phase, Plan, signatures, and both worktrees' branch, path, HEAD, cleanliness and ahead count. |
+
+The bridge is a thin adapter — Pi events become Duo activity, Pi tools become Duo requests, Duo messages become Pi steering. It deliberately holds no project truth of its own.
+
+## Terminal UI
+
+Duo shows both agents side by side with their connection, process and working state, plus the current phase, Plan and transient feedback below the panes.
 
 | Key | Action |
-| --- | --- |
-| `Ctrl+/` | Open/close Duo Help |
-| `Enter` | Send task/message to Austin |
-| `Ctrl+A` / `Ctrl+T` | Open Austin/Tony native Pi |
+|---|---|
+| `Enter` | Send composer text to Austin |
+| `Ctrl+Enter` / `Shift+Enter`\* | Insert a newline in the composer |
+| `Ctrl+A` | Attach Austin's native Pi |
+| `Ctrl+T` | Attach Tony's native Pi |
+| `Ctrl+]` / `Ctrl+\` | Return from native Pi to Duo |
+| `Ctrl+R` / `Ctrl+Y` | Restart Austin / Tony if the process exited or failed |
+| `Ctrl+/` | Open or close Duo Help |
 | `Ctrl+Q` | Quit Duo and preserve the session |
+| `←` / `→` | Move the composer cursor |
+| `Backspace` | Delete the preceding composer character |
+| Mouse wheel over a pane | Scroll that agent's earlier output |
 
-## Native Pi mode
+The composer holds multiple lines and shows up to four at a time. Native attach is a fullscreen takeover: inside Pi, `/model`, `/settings`, `/tree` and all Pi shortcuts belong to Pi.
 
-Duo does not emulate Pi's control surface.
+\* A newline is inserted only when the terminal reports the combination distinctly (`\x1b[13;2u` CSI-u or `\x1b[27;2;13~` modifyOtherKeys, which Duo enables). Terminals that send a bare `\r` for `Shift+Enter` will **submit** instead — use `Ctrl+Enter`, which arrives as `\n`, if `Shift+Enter` submits in your terminal.
 
-Press:
+Help is a full alternate-screen view; scroll it with `↑`/`k`, `↓`/`j`, `PgUp`, `PgDn`, `Home`/`g`, `End`/`G`, and close it with `Esc` or `Ctrl+/`.
 
-```text
-Ctrl+A   Austin native Pi
-Ctrl+T   Tony native Pi
-Ctrl+] / Ctrl+\\   return to Duo
-```
+## Configuration
 
-When native mode is active, keyboard bytes go directly to that agent's real Pi process. Therefore Pi remains responsible for `/model`, `/settings`, session controls, extension shortcuts, custom footer/UI, and any other native Pi functionality.
+Everything has a working default; `duo` needs no configuration to run.
 
-The first native view is reconstructed from recent PTY output.
+| Variable | Default | Meaning |
+|---|---|---|
+| `DUO_REPO` | current directory | Repository or subdirectory to launch against. A CLI path argument wins. |
+| `DUO_SESSION` | timestamp + random hex | Session id, formatted `YYYYMMDD-HHMMSS-xxxxxxxx`. |
+| `DUO_WORKTREE_ROOT` | `~/.duo/worktrees/<repo>-<hash>/<session>` | Where the Austin/Tony worktrees are created. |
+| `DUO_BASE_REF` | `HEAD` | Ref the worktrees are branched from. |
+| `DUO_PI_COMMAND` | `pi` | Command used to launch each Pi agent. |
+| `DUO_LISTEN` | `127.0.0.1:0` | Bridge listen address (an OS-assigned port by default). |
+| `DUO_HARNESS` | `true` | Enable the idle/stall watchdog that nudges coordination back to life. |
+| `DUO_HARNESS_IDLE_SECONDS` | `15` | Quiet period before an agent counts as idle. |
+| `DUO_HARNESS_STALL_SECONDS` | `300` | No progress for this long counts as a stall. |
+| `DUO_HARNESS_COOLDOWN_SECONDS` | `30` | Minimum gap between harness nudges. |
+| `DUO_HARNESS_RESUME_GRACE_SECONDS` | `45` | Extra grace after `--resume`, so reconnecting is not mistaken for a stall. |
 
-## Collaboration lifecycle
-
-```text
-PLAN -> EXECUTE -> REVIEW -> INTEGRATE -> DONE
-```
-
-PLAN is **not** a file-write lock. Both agents may investigate or make provisional changes in their private worktrees while negotiating. Formal sign-off controls the agreed plan and artifacts, not every edit operation.
-
-EXECUTE sign-off is bound to a clean commit SHA. REVIEW sign-off is bound to the peer HEAD actually reviewed. INTEGRATE sign-off is bound to Austin's clean integrated HEAD. Stale signatures are revoked automatically when the signed target changes.
-
-INTEGRATE sign-off is the **final approval**, not the end of the run. Once both agents sign, Duo delivers the integrated HEAD into the repository you started from; only then does the phase become `DONE`. If delivery is unsafe, the session stays in INTEGRATE with both signatures and tells you how to retry.
-
-## Deliver the final result
-
-When Austin and Tony both sign INTEGRATE, Duo hands the whole final integrated HEAD back to your original repository:
-
-1. it re-checks that your repository has not changed while Duo worked;
-2. it fast-forwards your recorded branch to the final integrated HEAD;
-3. it records the applied HEAD and only then marks the session `DONE`.
-
-Delivery never rewrites your history. Duo will not run `reset --hard`, `checkout -f`, `clean`, `merge --no-ff` or `rebase` on your repository. It refuses to act when:
-
-- your repository has uncommitted or untracked changes,
-- your repository is on a different branch than the one Duo recorded,
-- your branch has diverged from the Duo base commit, or
-- your repository is in detached HEAD state.
-
-When delivery is blocked, Duo stays in INTEGRATE with both signatures preserved, writes a `pending` delivery checkpoint, and tells you exactly what to do:
-
-```bash
-cd /path/to/your/repo
-duo apply
-```
-
-`duo apply` re-runs the same safe handoff. With no argument it uses the repository's single pending delivery and lists the candidates when there is more than one. It is also how a session marked `DONE` by v0.4.0 is handed off.
-
-If your branch cannot be fast-forwarded, Duo leaves your repository untouched and prints the final HEAD so you can finish the merge or cherry-pick yourself.
-
-## Requirements
-
-- macOS or Linux
-- Git
-- Pi available as `pi` in PATH
-- no Unix `script` command: Duo owns both Pi PTYs directly (macOS/Linux)
-
-Building from source additionally requires Go 1.22+.
-
-To launch a non-default Pi command:
+To run a non-default Pi command:
 
 ```bash
 DUO_PI_COMMAND='pi --some-flag' duo
 ```
 
-## Keyboard
+## Where Duo keeps things
 
-| Key | Action |
-|---|---|
-| Enter | send Duo composer text to Austin |
-| Ctrl+A | attach Austin native Pi |
-| Ctrl+T | attach Tony native Pi |
-| Ctrl+] / Ctrl+\\ | detach native Pi and return to Duo |
-| Ctrl+R / Ctrl+Y | restart exited Austin / Tony |
-| Ctrl+/ | open/close Duo Help |
-| Ctrl+Q | quit Duo |
-| Ctrl/Shift+Enter | insert a composer newline |
-| Left / Right | move the composer cursor |
-| Backspace | delete the preceding composer character |
-| Mouse wheel over an agent pane | scroll its earlier output |
+```text
+~/.duo/sessions/<repo-id>/<session-id>/
+    state.json      phase, Plan, signatures, evidence, worktree paths/branches, Pi session ids
+    events.jsonl    diagnostic journal of phase, signature, bridge and merge events
+    duo.log         lifecycle output (session tokens are redacted before writing)
+    lock            advisory flock holding the owner PID and hostname
 
-## Known limitations of v0.4.1
+~/.duo/worktrees/<repo>-<hash>/<session>/
+    austin/         Austin's worktree — also the integration worktree
+    tony/           Tony's worktree
+```
 
-- Duo persists collaboration state and validates it against Git, but it does not reconstruct an agent's *reasoning*. If a crash lands mid-task, the agents resume with their own Pi history and the shared Plan, exactly as a human reopening the terminal would.
-- Recovery is conservative by design: when it cannot prove an approval is still valid, it revokes the approval rather than trusting it. Expect a re-sign-off after a crash, not a silent pass.
-- Automatic crash restart is still not implemented. Duo restarts Austin and Tony when it starts, and `Ctrl+R` / `Ctrl+Y` restart an exited agent, but a dead Duo Core needs a manual `duo --resume`.
-- Session files are per-machine and per-repository-path; the state is not portable across machines or across a moved checkout.
-- Summary panes currently show structured assistant completions, peer messages, connection/phase events, and live working/idle state; they do not yet reproduce every token or rich tool card.
-- A frame is redrawn from scratch at up to about 60 FPS; there is no partial-damage or diff-based update. This is intentional for a UI of this size and keeps redraw correctness simple.
-- Duo owns direct PTYs for both interactive Pi processes; SIGWINCH propagates terminal size to both, even while detached. Native attach is fullscreen takeover, not an embedded xterm emulator.
-- Exited Pi processes can be manually restarted with Ctrl+R (Austin) or Ctrl+Y (Tony), retaining their worktrees and bridge identity. Running agents cannot be restarted; automatic crash restart is not implemented.
-- Worktrees are preserved when Duo exits; automatic worktree deletion is still not implemented.
-- Delivery is fast-forward only. Duo will not create a merge commit, rebase or overwrite your history; if your branch diverged or you changed it while Duo worked, Duo stops and leaves your repository untouched. Finish the handoff manually from the printed final HEAD, then re-run `duo apply`.
+Session directories are created owner-only and contain no credentials, but they do describe your project's state; see [SECURITY.md](./SECURITY.md).
 
-## Development validation
+## Working scope
+
+Duo separates the Git boundary from the agents' default working directory. Launching from a subdirectory keeps the repository as the Git boundary but makes that subdirectory the agents' default cwd:
+
+```bash
+cd repo/packages/web
+duo
+```
+
+Austin and Tony then start in the `packages/web` directory inside their own worktrees, while branches, worktrees and delivery keep their Git boundary at `repo`. The mapping is done safely against the worktree root, so a scope cannot escape it.
+
+Scope is a **default working directory, not a filesystem sandbox**. Agents can still reach the rest of the repository when the task genuinely requires it. The scope is recorded in the session and restored on resume, and each agent's active scope is stated in its system prompt.
+
+## Resuming after a crash
+
+```bash
+duo --resume             # resume this repository's unfinished session
+duo -r                   # same
+duo --resume <id>        # resume one specific session
+duo --resume=<id>        # same
+```
+
+A plain `duo` always starts a **new** session and refuses to overwrite an unfinished one. `--resume` picks the only unfinished session if there is exactly one, and asks for an id if there are several.
+
+Resume reloads the persisted snapshot, **proves it against Git**, and revokes any signature that is no longer provable before starting a process. Reconciled state is written back before agents start, so a crash during startup cannot resurrect a revoked approval or replay a merge. Each reconnected agent receives one phase-aware wake-up message; reconnects do not duplicate it.
+
+Recovery is deliberately conservative: when it cannot prove an approval is still valid, it revokes rather than trusts. Expect a re-sign-off after a crash, not a silent pass.
+
+## Deliver the final result
+
+`DONE` means the final integrated result has been delivered into the repository you launched Duo from. Delivery is **fast-forward only** (`git merge --ff-only`). Duo never creates a merge commit, rebases, or rewrites your history. If delivery is blocked, `duo apply` retries it by hand.
+
+Delivery refuses — and leaves your repository completely untouched — when:
+
+- the repository has uncommitted changes;
+- it is on a different branch than the one Duo started on;
+- the current HEAD has diverged from the final Duo result;
+- HEAD is detached, or the starting branch is unknown;
+- the final result is not derived from the recorded base commit.
+
+A refused delivery keeps the session in `INTEGRATE` with both signatures intact, records a `pending` checkpoint, and prints the exact retry command:
+
+```bash
+duo apply                    # retry the pending delivery for this repository
+duo apply <session-id>       # retry one specific session
+duo apply --session <id>     # same
+duo apply -s <id>            # same
+duo apply --session=<id>     # same
+```
+
+`duo apply` never starts agents and reuses the same safety rules — it will not force a blocked delivery.
+
+## A trace from a real run
+
+A condensed trace from a successful v0.2 run against a small pet-hospital web app — **not this repository**. The commit hash below belongs to that app, so `git show` on it here will fail:
+
+```text
+human → Austin
+
+Austin → Tony:
+"The user thinks the UI looks dated. I have a tentative read; analyse it
+independently, don't just agree with me."
+
+Tony → Austin:
+"I disagree with a wholesale font/badge rewrite. The real problems look more
+like the bitmap grid, the decorative circles, the corner-radius scale and
+the shadows."
+
+Shared Plan v1
+Austin ✓
+Tony   ✓
+
+PLAN → EXECUTE
+Austin edits → commit 7bf559e
+Tony reviews that commit ✓
+
+EXECUTE → REVIEW → INTEGRATE
+Austin ✓ integrated HEAD
+Tony   ✓ same HEAD
+
+DONE
+```
+
+The design principle that matters here: **a phase is a checkpoint, not a cage.** Tony may look at the diff early, and Austin may prototype during PLAN. Duo puts hard boundaries only around formal consensus and formal artifacts.
+
+The full record lives in [docs/demo.md](./docs/demo.md).
+
+## Limitations
+
+Duo is an experimental runtime. In short: the agent topology is fixed at two agents named Austin and Tony; Pi is the only supported agent runtime; recovery cannot reconstruct an agent's *reasoning*, only its state; Duo Core itself is not auto-restarted after a crash; and sessions are per-machine and per-repository-path, not portable.
+
+The full, current list — including what is deliberately a non-goal — is in [docs/known-limitations.md](./docs/known-limitations.md).
+
+## Development
+
+```bash
+make check     # go test ./... && go vet ./... && go build ./cmd/duo
+```
+
+Or individually:
 
 ```bash
 go test ./...
+go vet ./...
 go build ./cmd/duo
 ```
 
-The test suite includes Git worktree/integration tests and direct PTY supervisor tests.
+The suite covers Git worktree and integration behavior, PTY supervision, durable session reconcile, delivery concurrency, and phase transition rules. CI runs it on Go 1.22.x and Go stable across Ubuntu and macOS; pushing a `v*` tag builds and publishes the four release archives.
 
-## v0.4.3 next steps
+## Documentation
 
-v0.4.1 made the final artifact reach your repository. Still open: configurable agent names/roles, per-agent model/provider selection, a configurable integration strategy, and a polished worktree cleanup workflow. Automatic crash restart of Duo itself remains out of scope until the durable session semantics have seen real use.
+| Document | Contents |
+|---|---|
+| [docs/architecture.md](./docs/architecture.md) | Component boundaries, why worktrees instead of locks, why PLAN is not a write lock. |
+| [docs/known-limitations.md](./docs/known-limitations.md) | Complete limitations and explicit non-goals. |
+| [docs/demo.md](./docs/demo.md) | A condensed trace of one real two-agent run. |
+| [docs/publishing.md](./docs/publishing.md) | Release and repository notes. |
+| [CHANGELOG.md](./CHANGELOG.md) | Release history. |
+| [ROADMAP.md](./ROADMAP.md) | Where the project is heading. |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | Design principles to preserve, and where to start. |
+| [SECURITY.md](./SECURITY.md) | Trust model, Git safety boundary, on-disk data, disclosure. |
 
-1. Better streaming summaries/tool-event cards in Austin/Tony panes.
-2. Improve native PTY replay beyond the recent raw output buffer.
-3. Polished worktree lifecycle cleanup and pruning.
-4. Better composer editing/history/multiline paste.
-5. Session persistence and recovery after Duo restarts.
+## License
+
+MIT — see [LICENSE](./LICENSE).
