@@ -2,9 +2,20 @@
 
 All notable project milestones are documented here.
 
-## Unreleased
+## v0.5.0 — 2026-09
 
-TUI readability and handoff polish since v0.4.7. The binary still reports `v0.4.7`.
+Fast Mode is now the default; Goal Mode is the explicit heavy workflow.
+
+- `duo` starts in **Fast** mode: Austin is the driver, Tony is a read-only independent verifier, and the session runs `RUNNING → VERIFY → DONE` with no shared Plan and no dual sign-off.
+- `duo --mode goal` / `-m goal` selects the previous `PLAN → EXECUTE → REVIEW → INTEGRATE → DONE` workflow, unchanged. The mode is fixed per session and persisted; a legacy session with no recorded mode resumes as Goal.
+- New `duo_set_verification` tool (Tony only, Fast only) reports `passed` or `issue_found` with a concrete note for the exact Austin commit under review. A `passed` result is bound to that commit; any new commit invalidates it and returns the session to `RUNNING`.
+- Fast has no `duo_set_plan`, and a Tony `duo_set_status` in Fast is rejected with guidance. Only Austin's verified commit is ever delivered.
+- The harness is mode-aware: it nudges the agent that owns the current phase (Austin in `RUNNING`, Tony in `VERIFY`) and escalates a stuck `RUNNING` episode into one diagnosis request to Tony; Goal keeps its both-idle behavior.
+- The TUI status line, startup message, Help, resume prompt and Pi system prompt are mode-aware.
+- `DUO_MODE` (`fast` or `goal`) configures a new session; `--mode`/`-m` wins, and `--resume` keeps the persisted mode.
+- Recovery reconciles Fast verification against Git and deterministically returns `VERIFY → RUNNING` if the verified commit is no longer Austin's HEAD.
+
+TUI readability and handoff polish:
 
 - Agent output is rendered as lightweight markdown: styled headings, blockquotes, links and bold/italic/code spans, and markdown tables drawn with real, aligned borders. A table wider than its pane wraps its widest cells instead of truncating them.
 - Mouse drag over a pane selects that agent's text and copies it to the clipboard (`pbcopy` on macOS). Clicking a pane title still opens that agent's native Pi; a click inside a pane without a drag selects nothing.

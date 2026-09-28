@@ -8,12 +8,12 @@ The core should enforce only what benefits from deterministic coordination:
 
 - agent identity;
 - peer routing;
-- shared Plan versioning;
-- phase transitions;
-- signatures and evidence;
+- session mode (Fast or Goal) and mode-scoped phase transitions;
+- shared Plan versioning (Goal);
+- verification, signatures and evidence;
 - Git worktree isolation;
-- stale-signature detection;
-- integration;
+- stale-verification and stale-signature detection;
+- integration (Goal);
 - idle/stall recovery;
 - durable checkpointing and crash recovery;
 - a safe, provably-lossless handoff back to the user's repository.
@@ -32,21 +32,22 @@ Owns local TCP connections and the client registry. The coordinator sends semant
 
 ### `internal/project`
 
-Owns the shared state machine:
+Owns the shared state machine and the per-session mode. A small internal workflow policy per mode keeps mode checks from spreading across layers.
 
 ```text
-PLAN → EXECUTE → REVIEW → INTEGRATE → DONE
+Fast: RUNNING → VERIFY → DONE        (issue_found returns VERIFY → RUNNING)
+Goal: PLAN → EXECUTE → REVIEW → INTEGRATE → DONE
 ```
 
-It stores the shared Plan, Plan version, per-agent readiness, notes and evidence.
+It stores the mode, phase, shared Plan and version (Goal), the verification result and target commit (Fast), and per-agent readiness, notes and evidence. A legacy snapshot with no recorded mode is restored as Goal.
 
 ### `internal/coordinator`
 
-The orchestration boundary. It interprets wire messages, routes peer messages, verifies phase evidence through the workspace manager, advances phases, detects stale signatures, and sends phase notices back to the agents.
+The orchestration boundary. It interprets wire messages, dispatches once on the session mode, routes peer messages, verifies phase evidence through the workspace manager, enforces the verification gates, advances phases, detects stale verification and signatures, and sends phase notices back to the agents. Fast rejects `duo_set_plan` and a Tony `duo_set_status`; only Tony may call `duo_set_verification`, and only while the session is in `VERIFY`.
 
 ### `internal/harness`
 
-Tracks runtime activity independently from project state. If the project is unfinished and progress appears to have stopped, the harness nudges Austin to recover coordination.
+Tracks runtime activity independently from project state. In Goal it nudges when the project is unfinished and both agents have gone idle. In Fast it nudges the agent that owns the current phase — Austin in `RUNNING`, Tony in `VERIFY` — so a verifier waiting on nothing cannot block the driver, and it escalates a stuck `RUNNING` episode into one diagnosis request to Tony.
 
 ### `internal/workspace`
 
@@ -76,7 +77,7 @@ Owns durable state on disk: an atomically written `state.json` checkpoint, an ap
 
 ### `internal/recovery`
 
-Owns the resume path: composing a snapshot from live state, validating it against Git, and reconciling the two. Reconciliation is deliberately conservative — any signature whose evidence can no longer be proved valid is revoked before agents start, so a crash cannot resurrect a stale approval.
+Owns the resume path: composing a snapshot from live state, validating it against Git, and reconciling the two. Reconciliation is deliberately conservative — any verification or signature whose evidence can no longer be proved valid is revoked before agents start, so a crash cannot resurrect a stale approval. In Fast, a `passed` verification whose commit is no longer Austin's HEAD deterministically returns the session to `RUNNING`; recovery never otherwise moves a session backwards.
 
 ### `internal/events`
 
@@ -100,7 +101,7 @@ Pi tool  → Duo request
 Duo msg  → Pi steer
 ```
 
-The extension should not become a second source of project truth.
+It publishes a mode-aware system prompt: a common base (worktree model and shared rules) plus exactly one policy section (`Fast driver`, `Fast verifier`, or `Goal`), selected from `DUO_MODE`. Tool registration is mode-gated too — `duo_set_plan` is offered only in Goal and `duo_set_verification` only in Fast — but the Go core still rejects the wrong tool. The extension should not become a second source of project truth.
 
 ## Why worktrees instead of file locks?
 
@@ -125,6 +126,8 @@ Duo models two engineers, not a synchronized transaction protocol.
 
 Waiting for peer feedback should not prohibit an engineer from reading code, testing an idea, or building a prototype. Therefore PLAN permits provisional edits inside isolated worktrees. The hard boundary is **formal agreement and artifact sign-off**, not every file write.
 
+Fast needs no such negotiation: there is no shared Plan, and the only hard boundary is the verification result that gates delivery.
+
 ## Why phases are checkpoints
 
 Agents are allowed to behave opportunistically. For example Tony may begin reviewing Austin's diff before the formal transition from EXECUTE to REVIEW. Duo does not prevent that.
@@ -133,18 +136,20 @@ The phase determines what evidence is required to advance:
 
 | Phase | Required evidence |
 |---|---|
-| PLAN | both approve the same Plan version |
-| EXECUTE | clean commit artifact for each agent |
-| REVIEW | each approves the exact peer HEAD reviewed |
-| INTEGRATE | both approve the same clean integrated Austin HEAD |
+| RUNNING (Fast) | a clean committed Austin HEAD; `duo_set_status ready=true` |
+| VERIFY (Fast) | Tony's `passed` or `issue_found` + note for that exact Austin HEAD |
+| PLAN (Goal) | both approve the same Plan version |
+| EXECUTE (Goal) | clean commit artifact for each agent |
+| REVIEW (Goal) | each approves the exact peer HEAD reviewed |
+| INTEGRATE (Goal) | both approve the same clean integrated Austin HEAD |
 
 This keeps coordination deterministic without making agent behavior rigid.
 
 ## Integration and delivery boundary
 
-Integration **inside** Duo is intentionally asymmetric: Austin is the integration worktree, and Duo merges Tony into Austin after REVIEW. Conflicts stay visible in Austin's worktree for the agents or human to resolve; the core does not guess at a resolution.
+Integration **inside** Duo is intentionally asymmetric: Austin is the integration worktree, and Duo merges Tony into Austin after REVIEW. Conflicts stay visible in Austin's worktree for the agents or human to resolve; the core does not guess at a resolution. Fast has no integration step by design: Tony is read-only, so Austin's branch is already the deliverable and only Austin's HEAD is ever delivered.
 
-The handoff **back to the human** is deliberately narrower than a merge. Once both agents sign INTEGRATE, Duo fast-forwards only the branch it recorded when the session started, and only to the final integrated HEAD. It never creates a merge commit, never rebases, and never rewrites history in the user's repository.
+The handoff **back to the human** is deliberately narrower than a merge. Once the artifact is approved — both agents sign INTEGRATE in Goal, or Tony's verification passes in Fast — Duo fast-forwards only the branch it recorded when the session started, and only to the final result. It never creates a merge commit, never rebases, and never rewrites history in the user's repository.
 
 Delivery refuses — leaving the repository completely untouched — when the original repository:
 
@@ -152,6 +157,8 @@ Delivery refuses — leaving the repository completely untouched — when the or
 - is on a different branch than the one Duo recorded;
 - has diverged from the final result, or the final result is not derived from the recorded base commit;
 - is on a detached HEAD, or the recorded starting branch is unknown.
+
+A task that changes no repository files is a no-op: once the final commit is already an ancestor of the current HEAD, delivery succeeds and records `DONE` even if the working tree is dirty. Every other delivery still goes through the checks above.
 
 Two properties make this safe to automate:
 

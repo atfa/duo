@@ -1,13 +1,17 @@
 import { Type } from "@earendil-works/pi-ai";
+import type { DuoMode } from "../mode";
 import { DuoTransport } from "../transport";
 import { failureResult, resultFromResponse } from "./common";
 
-export function registerStatusTool(pi: any, transport: DuoTransport) {
+export function registerStatusTool(pi: any, transport: DuoTransport, mode: DuoMode = "goal") {
+  const fast = mode === "fast";
+
   pi.registerTool({
     name: "duo_set_status",
     label: "Duo Set Status",
-    description:
-      "Set your own sign-off state for the current Duo phase. Duo Core advances only when both Austin and Tony have valid, non-stale signatures.",
+    description: fast
+      ? "FAST mode: Austin-only readiness. Austin uses ready=true to request verification; Tony cannot sign and must use duo_set_verification instead."
+      : "Set your own sign-off state for the current Duo phase. Duo Core advances only when both Austin and Tony have valid, non-stale signatures.",
     parameters: Type.Object({
       ready: Type.Boolean({
         description:
@@ -17,14 +21,21 @@ export function registerStatusTool(pi: any, transport: DuoTransport) {
         Type.String({ description: "Optional concise reason or completion note." }),
       ),
     }),
-    promptSnippet: "duo_set_status: sign or revoke your readiness for the current phase",
-    promptGuidelines: [
-      "PLAN ready=true means you approve the exact current plan version; provisional edits do not count as plan approval.",
-      "EXECUTE ready=true requires your own worktree to be clean; Duo records your current commit SHA as evidence.",
-      "REVIEW ready=true means you reviewed the peer's exact current commit and have no unresolved objections.",
-      "INTEGRATE ready=true means the clean integrated Austin HEAD has been validated/reviewed and is acceptable.",
-      "Use ready=false if later information reopens your work or review.",
-    ],
+    promptSnippet: fast
+      ? "duo_set_status: Austin requests FAST-mode verification"
+      : "duo_set_status: sign or revoke your readiness for the current phase",
+    promptGuidelines: fast
+      ? [
+          "FAST is Austin-driven: only Austin calls duo_set_status ready=true, and only to request verification once the work is committed and the worktree is clean.",
+          "Tony cannot sign in FAST mode; Duo rejects it and points to duo_set_verification.",
+        ]
+      : [
+          "PLAN ready=true means you approve the exact current plan version; provisional edits do not count as plan approval.",
+          "EXECUTE ready=true requires your own worktree to be clean; Duo records your current commit SHA as evidence.",
+          "REVIEW ready=true means you reviewed the peer's exact current commit and have no unresolved objections.",
+          "INTEGRATE ready=true means the clean integrated Austin HEAD has been validated/reviewed and is acceptable.",
+          "Use ready=false if later information reopens your work or review.",
+        ],
     async execute(
       _toolCallId: string,
       params: { ready: boolean; note?: string },
