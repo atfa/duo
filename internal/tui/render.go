@@ -286,7 +286,7 @@ func wrappedPaneLines(entries []entry, width int) []paneLine {
 	var all []paneLine
 	for _, e := range entries {
 		text := strings.TrimSpace(e.text)
-		for _, line := range markdownLines(text) {
+		for _, line := range markdownLines(text, width) {
 			for _, wrapped := range wrapMarkdown(line, width) {
 				wrapped.error = e.error
 				all = append(all, wrapped)
@@ -302,10 +302,29 @@ func wrappedPaneLines(entries []entry, width int) []paneLine {
 
 // markdownLines keeps terminal layout separate from styling: text is wrapped
 // before ANSI is added, so colored spans cannot affect width accounting.
-func markdownLines(text string) []paneLine {
+func markdownLines(text string, width int) []paneLine {
 	var out []paneLine
 	inCode := false
-	for _, raw := range strings.Split(text, "\n") {
+	lines := strings.Split(text, "\n")
+	for i := 0; i < len(lines); i++ {
+		raw := lines[i]
+		if !inCode && i+1 < len(lines) {
+			if header, align, ok := markdownTableHeader(raw, lines[i+1]); ok {
+				rows := [][]string{header}
+				i += 2
+				for i < len(lines) {
+					row, ok := markdownTableRow(lines[i], len(header))
+					if !ok {
+						break
+					}
+					rows = append(rows, row)
+					i++
+				}
+				out = append(out, renderMarkdownTable(rows, align, width)...)
+				i--
+				continue
+			}
+		}
 		trimmed := strings.TrimSpace(raw)
 		if strings.HasPrefix(trimmed, "```") {
 			inCode = !inCode
@@ -338,6 +357,136 @@ func markdownLines(text string) []paneLine {
 		out = append(out, paneLine{spans: compactSpans(spans)})
 	}
 	return out
+}
+
+type tableAlign uint8
+
+const (
+	tableLeft tableAlign = iota
+	tableCenter
+	tableRight
+)
+
+func markdownTableHeader(header, separator string) ([]string, []tableAlign, bool) {
+	cells, ok := markdownTableCells(header)
+	if !ok {
+		return nil, nil, false
+	}
+	dividers, ok := markdownTableCells(separator)
+	if !ok || len(cells) != len(dividers) {
+		return nil, nil, false
+	}
+	align := make([]tableAlign, len(cells))
+	for i, divider := range dividers {
+		d := strings.TrimSpace(divider)
+		left, right := strings.HasPrefix(d, ":"), strings.HasSuffix(d, ":")
+		d = strings.Trim(d, ":")
+		if len(d) < 3 || strings.Trim(d, "-") != "" {
+			return nil, nil, false
+		}
+		if right {
+			align[i] = tableRight
+		}
+		if left && right {
+			align[i] = tableCenter
+		}
+	}
+	return cells, align, true
+}
+
+func markdownTableRow(line string, columns int) ([]string, bool) {
+	cells, ok := markdownTableCells(line)
+	return cells, ok && len(cells) == columns
+}
+
+func markdownTableCells(line string) ([]string, bool) {
+	if !strings.Contains(line, "|") {
+		return nil, false
+	}
+	line = strings.TrimSpace(line)
+	line = strings.TrimPrefix(line, "|")
+	line = strings.TrimSuffix(line, "|")
+	parts := strings.Split(line, "|")
+	for i := range parts {
+		parts[i] = strings.TrimSpace(parts[i])
+	}
+	return parts, true
+}
+
+func renderMarkdownTable(rows [][]string, align []tableAlign, width int) []paneLine {
+	columns := len(rows[0])
+	widths := make([]int, columns)
+	for _, row := range rows {
+		for i, cell := range row {
+			widths[i] = maxInt(widths[i], maxInt(displayWidth(cell), 1))
+		}
+	}
+	available := maxInt(width-columns-1, columns)
+	for total := tableContentWidth(widths); total > available; {
+		wide := -1
+		for i, cellWidth := range widths {
+			if cellWidth > 1 && (wide < 0 || cellWidth > widths[wide]) {
+				wide = i
+			}
+		}
+		if wide < 0 {
+			break
+		}
+		widths[wide]--
+	}
+	border := func(left, middle, right string) paneLine {
+		spans := []markdownSpan{{text: left, style: ansiHint}}
+		for i, cellWidth := range widths {
+			if i > 0 {
+				spans = append(spans, markdownSpan{text: middle, style: ansiHint})
+			}
+			spans = append(spans, markdownSpan{text: strings.Repeat("─", cellWidth), style: ansiHint})
+		}
+		return paneLine{spans: append(spans, markdownSpan{text: right, style: ansiHint})}
+	}
+	out := []paneLine{border("┌", "┬", "┐")}
+	for rowIndex, row := range rows {
+		out = append(out, markdownTableLine(row, widths, align, rowIndex == 0))
+		if rowIndex == 0 {
+			out = append(out, border("├", "┼", "┤"))
+		}
+	}
+	return append(out, border("└", "┴", "┘"))
+}
+
+func tableContentWidth(widths []int) int {
+	total := 0
+	for _, width := range widths {
+		total += width
+	}
+	return total
+}
+
+func markdownTableLine(cells []string, widths []int, align []tableAlign, header bool) paneLine {
+	spans := []markdownSpan{{text: "│", style: ansiHint}}
+	for i, cell := range cells {
+		content := fit(cell, widths[i])
+		padding := widths[i] - displayWidth(strings.TrimRight(content, " "))
+		left, right := 0, padding
+		if align[i] == tableRight {
+			left, right = padding, 0
+		} else if align[i] == tableCenter {
+			left, right = padding/2, padding-padding/2
+		}
+		if left > 0 {
+			spans = append(spans, markdownSpan{text: strings.Repeat(" ", left)})
+		}
+		style := ""
+		if header {
+			style = ansiBold
+		}
+		spans = append(spans, markdownSpan{text: strings.TrimRight(content, " "), style: style})
+		if right > 0 {
+			spans = append(spans, markdownSpan{text: strings.Repeat(" ", right)})
+		}
+		spans = append(spans, markdownSpan{text: "│", style: ansiHint})
+	}
+	return paneLine{spans: compactSpans(spans)}
 }
 
 func headingPrefix(s string) int {

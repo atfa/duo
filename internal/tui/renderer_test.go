@@ -102,6 +102,26 @@ func TestPaneMarkdownStylesWithoutBreakingFrameWidth(t *testing.T) {
 	}
 }
 
+func TestPaneMarkdownTableFitsAndAligns(t *testing.T) {
+	app := testApp(60, 30)
+	app.austin = []entry{{text: "| 名称 | 数量 | 备注 |\n| :--- | ---: | :---: |\n| 苹果 | 12 | fresh |\n| 香蕉 | 3 | 长文本会截断 |"}}
+	frame := app.buildFrame(renderNormal)
+	if !strings.Contains(frame, ansiBold) {
+		t.Fatal("table header is not emphasized")
+	}
+	plain := ansiPattern.ReplaceAllString(frame, "")
+	for i, line := range strings.Split(plain, "\r\n") {
+		if got := displayWidth(line); got > 60 {
+			t.Fatalf("table line %d is %d columns: %q", i, got, line)
+		}
+	}
+	for _, want := range []string{"┌", "┬", "┼", "┘", "│名称", "│  12", "苹果"} {
+		if !strings.Contains(plain, want) {
+			t.Fatalf("table content %q missing from frame: %q", want, plain)
+		}
+	}
+}
+
 func TestFrameUsesSynchronizedOutput(t *testing.T) {
 	app := testApp(100, 30)
 	frame := app.buildFrame(renderNormal)
