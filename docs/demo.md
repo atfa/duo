@@ -54,7 +54,9 @@ INTEGRATE → DONE
 
 ## Result
 
-The original user branch was not modified automatically. Duo left the integrated result on the Austin Duo branch for human inspection and merge.
+At v0.2 the original user branch was not modified automatically: Duo left the integrated result on the Austin Duo branch for human inspection and merge.
+
+That is no longer where the story ends. Since v0.4.1 a successful INTEGRATE sign-off is followed by an automatic handoff that fast-forwards the recorded branch to the final integrated HEAD, and only then does the session become `DONE`. This trace is preserved as the v0.2 behavior it was; see [Delivery](../README.md#deliver-the-final-result) for what happens today.
 
 ## What this demo validates
 
@@ -66,4 +68,4 @@ The original user branch was not modified automatically. Duo left the integrated
 - role asymmetry when useful;
 - Git worktree isolation;
 - cross-review;
-- human-controlled final merge.
+- a final handoff that only ever moves the user's branch forward, by an amount Git proves to be lossless (added in v0.4.1; the v0.2 run above stopped short of it).

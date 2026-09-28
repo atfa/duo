@@ -17,7 +17,7 @@ Duo's roadmap is deliberately incremental. The project should add infrastructure
 - [x] peer-HEAD evidence for REVIEW
 - [x] stale-signature revocation
 - [x] Tony → Austin integration merge
-- [x] human-controlled final merge
+- [x] human-controlled final merge (superseded in v0.4.1 by the automatic fast-forward handoff)
 
 ## v0.3 — terminal UI
 
@@ -98,6 +98,27 @@ After a Duo Core, Austin or Tony crash the user must be able to continue the ori
 - [x] v0.4.0 `DONE` sessions handed off via `duo apply`
 - [x] DONE reports target branch, final HEAD and applied HEAD, keeping both signatures
 - [x] INTEGRATE final-tree cleanup duty for Austin and hygiene review for Tony
+
+## v0.4.4 — launch-directory working scope
+
+- [x] the directory Duo was launched from becomes Austin and Tony's default working scope
+- [x] Git ownership (branches, worktrees, delivery) stays at the repository root
+- [x] scope recorded in the durable snapshot and restored across resume and agent restart
+- [x] scope reported to each agent through the Pi bridge system prompt
+
+## v0.4.6 — TUI help and usability
+
+- [x] full alternate-screen Help view with content wrapped to terminal width
+- [x] keyboard scrolling and resize-safe offset clamping in Help
+- [x] native Pi input passthrough preserved, including `Ctrl+/`
+- [x] clearer Austin-only composer label, separated transient status, reduced persistent footer hints
+
+## v0.4.7 — scrollable history and multiline composer
+
+- [x] independent mouse-wheel history scrolling per agent pane
+- [x] multiline composer with cursor editing, up to four visible lines
+- [x] `Ctrl+Enter` / `Shift+Enter` inserts a composer newline
+- [x] `Ctrl+A/T/R/Y/Q` and `Ctrl+/` restored while `modifyOtherKeys` is enabled
 
 ## v0.4 — configurability (remaining)
 

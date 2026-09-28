@@ -2,7 +2,7 @@
 
 ## Current trust model
 
-Duo v0.4.0 is designed for a **trusted local development machine**.
+Duo is designed for a **trusted local development machine**.
 
 The Go core listens on an OS-assigned localhost port. Each run gives its Pi processes a random session token, and the core rejects clients with the wrong session, token or agent identity. The local protocol is not encrypted and should not be exposed to an untrusted network.
 
@@ -14,7 +14,20 @@ Run Duo only against repositories and environments where you are comfortable all
 
 ## Git safety boundary
 
-Duo intentionally does not merge the integrated result into the human's original branch. Review the integrated Duo branch before merging or cherry-picking it yourself.
+When Austin and Tony both sign INTEGRATE, Duo hands the final integrated HEAD back to your repository by **fast-forwarding only the branch Duo recorded when the session started**.
+
+Against your working checkout, the only mutating Git command Duo runs is `git merge --ff-only <final-head>`. Duo does not create a merge commit, does not rebase, and does not rewrite history. It never runs `reset --hard`, `checkout -f`, `clean`, or `merge --no-ff` against your repository. (Duo does create and remove linked worktrees and `duo/<session>/austin|tony` branches inside your repository's Git directory; those do not touch your checkout.)
+
+The fast-forward is verified with read-only Git queries **before** anything is written. Duo refuses, leaves every file untouched, keeps the session in INTEGRATE with both signatures, and records a `pending` delivery when:
+
+- the working tree has uncommitted changes;
+- you are on a different branch than the one Duo recorded;
+- your HEAD has diverged from the final result, or the final result is not derived from the recorded base commit;
+- the repository is on a detached HEAD, or the recorded starting branch is unknown.
+
+After a successful fast-forward, Duo re-reads HEAD and fails loudly if it is not exactly the expected final commit.
+
+Review the delivered commit as you would any other change to your branch. Duo's guarantee is that it will not guess at an unsafe merge — not that the delivered work is correct. When delivery is refused, finish the merge or cherry-pick yourself from the printed final HEAD, then re-run `duo apply`.
 
 ## On-disk session files
 

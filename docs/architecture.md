@@ -14,7 +14,9 @@ The core should enforce only what benefits from deterministic coordination:
 - Git worktree isolation;
 - stale-signature detection;
 - integration;
-- idle/stall recovery.
+- idle/stall recovery;
+- durable checkpointing and crash recovery;
+- a safe, provably-lossless handoff back to the user's repository.
 
 Everything else should remain flexible enough for the models to collaborate naturally.
 
@@ -55,6 +57,36 @@ Owns Git-specific isolation and evidence:
 - captures clean commit artifacts;
 - merges Tony into Austin during INTEGRATE;
 - leaves conflicts visible for resolution.
+
+### `internal/agent`
+
+Owns the two real Pi processes. Each `Session` starts Pi in its own pseudo-terminal (`creack/pty`), keeps a bounded raw-output ring buffer for native-attach replay, and tracks a process state that distinguishes `exited` from `failed`. `Manager` starts, resizes, restarts and stops both sessions and emits lifecycle events so the caller can journal them.
+
+This layer also owns Pi session identity: unless `DUO_PI_COMMAND` already supplies a `--session-id`, Duo appends its own so Austin and Tony keep their own conversation across a restart.
+
+### `internal/delivery`
+
+Owns the handoff back to the human's repository. `Check` inspects the original repository **without modifying it** and decides whether auto-delivery is safe; `Deliver` fast-forwards the recorded branch only when that check passes. See [Integration and delivery boundary](#integration-and-delivery-boundary).
+
+### `internal/sessionstore`
+
+Owns durable state on disk: an atomically written `state.json` checkpoint, an append-only `events.jsonl` journal, a redacting `duo.log`, and an advisory `flock` lock that records the owner PID and hostname. Sessions are keyed by repository (`RepoID`) and session id under `~/.duo/sessions/`.
+
+### `internal/recovery`
+
+Owns the resume path: composing a snapshot from live state, validating it against Git, and reconciling the two. Reconciliation is deliberately conservative — any signature whose evidence can no longer be proved valid is revoked before agents start, so a crash cannot resurrect a stale approval.
+
+### `internal/events`
+
+A small in-process pub/sub bus carrying typed events (`system`, `assistant`, `peer`, `activity`, `harness`, `user`, `error`) from the coordinator, harness and transport to the UI. Delivery is non-blocking: a subscriber that cannot keep up drops events rather than stalling coordination.
+
+### `internal/tui`
+
+The terminal UI: model, renderer, layout, help and input decoding. It is a projection of authoritative state, never a second source of truth. Frames are rebuilt from scratch and scheduled through a dirty tracker at about 60 FPS.
+
+### `internal/terminal`
+
+Low-level terminal ownership: raw mode, alt screen, mouse reporting, `modifyOtherKeys`, synchronized output, and the exact escape sequences used to hand the terminal to native Pi and take it back.
 
 ### `pi-extension`
 
@@ -106,8 +138,24 @@ The phase determines what evidence is required to advance:
 
 This keeps coordination deterministic without making agent behavior rigid.
 
-## Integration boundary
+## Integration and delivery boundary
 
-Austin is the integration worktree in v0.2. Duo merges Tony into Austin after REVIEW. Duo never automatically merges Austin back into the user's original branch.
+Integration **inside** Duo is intentionally asymmetric: Austin is the integration worktree, and Duo merges Tony into Austin after REVIEW. Conflicts stay visible in Austin's worktree for the agents or human to resolve; the core does not guess at a resolution.
 
-That human-controlled final merge is an intentional safety boundary.
+The handoff **back to the human** is deliberately narrower than a merge. Once both agents sign INTEGRATE, Duo fast-forwards only the branch it recorded when the session started, and only to the final integrated HEAD. It never creates a merge commit, never rebases, and never rewrites history in the user's repository.
+
+Delivery refuses — leaving the repository completely untouched — when the original repository:
+
+- has uncommitted changes;
+- is on a different branch than the one Duo recorded;
+- has diverged from the final result, or the final result is not derived from the recorded base commit;
+- is on a detached HEAD, or the recorded starting branch is unknown.
+
+Two properties make this safe to automate:
+
+1. **Check before write.** `internal/delivery` computes the whole decision from read-only Git queries before touching anything, so a refusal costs nothing.
+2. **Idempotent apply.** `current HEAD == final HEAD` is treated as already-applied, which is what lets a crash between the fast-forward and the `DONE` write be reconciled without double-applying.
+
+So the boundary is not "Duo never moves your branch". It is: **Duo only ever moves the recorded branch forward, by an amount Git itself proves to be lossless, and refuses rather than guesses.** When it refuses, the human finishes the merge or cherry-pick from the printed final HEAD and re-runs `duo apply`.
+
+This asymmetry is not configurable yet; see the roadmap entry for a configurable integration strategy.

@@ -28,13 +28,13 @@ local-first
 Current release tag:
 
 ```text
-v0.3.1
+v0.4.7
 ```
 
 Release title:
 
 ```text
-Duo v0.3.1 — runtime hardening and binary installers
+Duo v0.4.7 — scrollable agent history and multiline composer
 ```
 
 Pushing a `v*` tag builds macOS and Linux archives for amd64 and arm64 and publishes them through GitHub Actions. Users can install the latest release with:
