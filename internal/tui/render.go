@@ -781,44 +781,6 @@ func (a *App) hitPane(x, y int) protocol.AgentID {
 	return ""
 }
 
-func paneLineCount(entries []entry, width int) int {
-	return len(wrappedPaneLines(entries, width))
-}
-
-func (a *App) maxPaneOffset(agent protocol.AgentID, width, rows int) int {
-	var entries []entry
-	if agent == protocol.Austin {
-		entries = a.austin
-	} else {
-		entries = a.tony
-	}
-	return maxInt(paneLineCount(entries, width)-rows, 0)
-}
-
-func (a *App) clampPaneOffsets(leftW, rightW, rows int) {
-	a.austinOffset = minInt(maxInt(a.austinOffset, 0), a.maxPaneOffset(protocol.Austin, leftW, rows))
-	a.tonyOffset = minInt(maxInt(a.tonyOffset, 0), a.maxPaneOffset(protocol.Tony, rightW, rows))
-}
-
-func (a *App) clampOffsets() {
-	if a.view == viewHelp {
-		a.clampHelpOffset()
-	}
-	if a.width >= minWidth && a.height >= minHeight {
-		left, right, rows := a.paneRows()
-		a.clampPaneOffsets(left, right, rows)
-	}
-}
-
-func (a *App) scrollPane(agent protocol.AgentID, delta int) {
-	left, right, rows := a.paneRows()
-	if agent == protocol.Austin {
-		a.austinOffset = minInt(maxInt(a.austinOffset+delta, 0), a.maxPaneOffset(agent, left, rows))
-	} else if agent == protocol.Tony {
-		a.tonyOffset = minInt(maxInt(a.tonyOffset+delta, 0), a.maxPaneOffset(agent, right, rows))
-	}
-}
-
 func wrap(s string, width int) []string {
 	if width <= 1 {
 		return []string{""}

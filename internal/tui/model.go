@@ -50,6 +50,25 @@ type App struct {
 	austinOffset int // wrapped lines above the pane bottom
 	tonyOffset   int
 
+	// focus decides who owns the keyboard. Default is focusComposer so the
+	// human can always type without clicking first.
+	focus paneFocus
+
+	// statusUntil is when a transient status line expires back to the attention
+	// line. Zero means no pending expiry. Must not wake an idle repaint: only
+	// mark dirty when a status actually expires (see R-3).
+	statusUntil time.Time
+
+	// showTimeGap enables the separator line between entries separated by more
+	// than timeGapThreshold.
+	showTimeGap bool
+
+	// unread counts entries produced while a pane was scrolled away from newest.
+	unread map[protocol.AgentID]int
+
+	// systemLogOffset is the scroll position of the full-screen System Log view.
+	systemLogOffset int
+
 	austin []entry
 	tony   []entry
 	duo    []entry
