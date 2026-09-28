@@ -223,6 +223,8 @@ duo apply --session=<id>     # same
 
 ## A trace from a real run
 
+A condensed trace from a successful v0.2 run against a small pet-hospital web app — **not this repository**. The commit hash below belongs to that app, so `git show` on it here will fail:
+
 ```text
 human → Austin
 
