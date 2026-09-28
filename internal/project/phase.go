@@ -8,19 +8,10 @@ const (
 	PhaseReview    Phase = "REVIEW"
 	PhaseIntegrate Phase = "INTEGRATE"
 	PhaseDone      Phase = "DONE"
-)
 
-func (p Phase) Next() (Phase, bool) {
-	switch p {
-	case PhasePlan:
-		return PhaseExecute, true
-	case PhaseExecute:
-		return PhaseReview, true
-	case PhaseReview:
-		return PhaseIntegrate, true
-	case PhaseIntegrate:
-		return PhaseDone, true
-	default:
-		return p, false
-	}
-}
+	// Fast-mode phases. DONE is shared by both modes; the phase chain itself is
+	// mode-specific and lives on Mode.Next so a goal-only chain can never be
+	// advanced inside a Fast session.
+	PhaseRunning Phase = "RUNNING"
+	PhaseVerify  Phase = "VERIFY"
+)

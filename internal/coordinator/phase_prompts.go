@@ -35,6 +35,9 @@ func (c *Coordinator) phasePrompt(
 	snap project.Snapshot,
 	integrationText string,
 ) string {
+	if snap.EffectiveMode() == project.ModeFast {
+		return c.fastPhasePrompt(previous, next, snap)
+	}
 	set := c.workspace.Set()
 	own, _ := set.For(agent)
 	peer, _ := set.For(protocol.PeerOf(agent))
@@ -91,6 +94,33 @@ func (c *Coordinator) phasePrompt(
 	}
 }
 
+// fastPhasePrompt renders the only Fast phase notice the coordinator
+// broadcasts, VERIFY → DONE. Fast does not use INTEGRATE, so the shared Goal
+// text (which talks about dual final approval) would be wrong here.
+func (c *Coordinator) fastPhasePrompt(previous, next project.Phase, snap project.Snapshot) string {
+	if next != project.PhaseDone {
+		return fmt.Sprintf("[Duo] FAST phase changed to %s. Austin drives; Tony independently verifies. Verification is the only gate before delivery to the user's repository.", next)
+	}
+	d := c.CurrentDelivery()
+	set := c.workspace.Set()
+	branch := strings.TrimSpace(d.TargetBranch)
+	if branch == "" {
+		branch = set.BaseBranch
+	}
+	applied := shortSHA(d.AppliedHead)
+	if applied == "" {
+		applied = shortSHA(d.FinalHead)
+	}
+	verified := shortSHA(snap.Verification.Head)
+	if verified == "" {
+		verified = shortSHA(d.FinalHead)
+	}
+	return fmt.Sprintf(
+		"[Duo phase transition: %s → DONE]\nTony independently verified Austin's HEAD %s.\n\nDelivery complete:\n  original branch: %s\n  applied HEAD:    %s\n\nThe final Duo result is now available in the repository from which the user launched Duo.",
+		previous, verified, branch, applied,
+	)
+}
+
 // broadcastFinalApproval tells both agents that the agent-facing lifecycle is
 // over and Duo Core is now delivering the approved artifact. No agent work is
 // expected while delivery runs.
@@ -106,18 +136,24 @@ func (c *Coordinator) broadcastFinalApproval(ctx context.Context, snap project.S
 	c.broadcastNotice(ctx, text)
 }
 
-// notifyDeliveryPending tells both agents that final approval stands but the
+// notifyDeliveryPending tells both agents that approval stands but the
 // artifact could not be safely applied, so no agent should resume working.
 func (c *Coordinator) notifyDeliveryPending(ctx context.Context, record sessionstore.Delivery) {
-	branch := strings.TrimSpace(record.TargetBranch)
-	text := fmt.Sprintf(
+	final := fmt.Sprintf(
 		"[Duo delivery pending]\nFinal approval is complete, but Duo could not safely apply the result to the user's repository.\n\nFinal result:\n  branch: %s\n  head:   %s\n\nReason: %s\n\nNo user files were overwritten. The session stays in INTEGRATE with both signatures preserved. This is a delivery problem for Duo Core and the human, not agent work: do not edit worktrees or sign again. The human resolves the original repository and runs `duo apply`.",
 		strings.TrimSpace(record.FinalBranch),
 		shortSHA(record.FinalHead),
 		record.Reason,
 	)
-	_ = branch
-	c.broadcastNotice(ctx, text)
+	if c.project.Snapshot().EffectiveMode() == project.ModeFast {
+		final = fmt.Sprintf(
+			"[Duo delivery pending]\nVerification passed, but Duo could not safely apply the result to the user's repository.\n\nFinal result:\n  branch: %s\n  head:   %s\n\nReason: %s\n\nNo user files were overwritten. The session stays in VERIFY with the verification preserved. This is a delivery problem for Duo Core and the human, not agent work: do not edit worktrees or re-verify. The human resolves the original repository and runs `duo apply`.",
+			strings.TrimSpace(record.FinalBranch),
+			shortSHA(record.FinalHead),
+			record.Reason,
+		)
+	}
+	c.broadcastNotice(ctx, final)
 }
 
 func (c *Coordinator) broadcastNotice(ctx context.Context, text string) {

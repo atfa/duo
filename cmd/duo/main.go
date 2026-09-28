@@ -26,7 +26,7 @@ import (
 	"github.com/atfa/duo/internal/workspace"
 )
 
-const version = "v0.4.7"
+const version = "v0.5.0"
 
 func main() {
 	if len(os.Args) > 1 {
@@ -36,14 +36,18 @@ func main() {
 			return
 		case "-h", "--help", "help":
 			fmt.Println("Duo " + version)
-			fmt.Println("Usage: duo [git-repository] [--resume [session-id]]")
+			fmt.Println("Usage: duo [git-repository] [--mode fast|goal] [--resume [session-id]]")
 			fmt.Println("       duo apply [session-id]")
 			fmt.Println()
-			fmt.Println("  duo                    start a new durable session")
+			fmt.Println("  duo                    start a new Fast session (Austin drives, Tony verifies)")
+			fmt.Println("  duo --mode goal        start a new Goal session (shared plan + dual sign-off)")
 			fmt.Println("  duo --resume           resume this repository's unfinished session")
 			fmt.Println("  duo --resume <id>      resume one specific session (required if several are unfinished)")
 			fmt.Println("  duo apply              deliver a pending final result to this repository")
 			fmt.Println("  duo apply <id>         apply one specific session's final result")
+			fmt.Println()
+			fmt.Println("Mode is fixed for a session's lifetime. DUO_MODE sets the default for new sessions;")
+			fmt.Println("an explicit --mode wins, and --resume always uses the session's persisted mode.")
 			fmt.Println()
 			fmt.Println("Run with no path from inside a Git repository: cd project && duo")
 			return
@@ -122,6 +126,7 @@ type runtime struct {
 	delivery    sessionstore.Delivery
 	tuiHistory  []sessionstore.TUIEntry
 	resume      bool
+	mode        project.Mode
 }
 
 // composeSnapshot builds the durable snapshot. When coord is nil the
@@ -192,18 +197,20 @@ func runFresh(ctx context.Context, cfg config, root, scope, repoID, baseDir stri
 		repoID:     repoID,
 		sessionID:  set.Session,
 		createdAt:  time.Now().UTC(),
-		state:      project.NewState(),
+		state:      project.NewStateFor(cfg.mode),
 		ws:         ws,
 		set:        set,
 		store:      store,
 		journal:    store.OpenEvents(),
 		logger:     store.OpenLog(),
 		piSessions: piSessions,
+		mode:       cfg.mode,
 	}
-	r.logger.Printf("starting Duo %s session %s repository=%s scope=%s", version, r.sessionID, root, set.ScopePath)
+	r.logger.Printf("starting Duo %s session %s mode=%s (source=%s) repository=%s scope=%s", version, r.sessionID, r.mode, r.cfg.modeSource, root, set.ScopePath)
 	r.journal.Record("session_start", map[string]any{
 		"sessionId":  r.sessionID,
-		"phase":      string(project.PhasePlan),
+		"mode":       r.mode.String(),
+		"phase":      string(r.state.Snapshot().Phase),
 		"baseCommit": set.BaseCommit,
 		"repository": set.Repository,
 		"scope":      set.ScopePath,
@@ -289,6 +296,7 @@ func (r *runtime) serve(ctx context.Context) error {
 		}
 		session := agent.NewSession(agent.Config{
 			Agent:          agentID,
+			Mode:           r.mode.String(),
 			Dir:            dir,
 			RepositoryRoot: r.set.Repository,
 			ScopePath:      r.set.ScopePath,

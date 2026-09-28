@@ -15,6 +15,9 @@ func (c *Coordinator) ResumePrompt(agent protocol.AgentID) string {
 }
 
 func (c *Coordinator) resumePrompt(agent protocol.AgentID, snap project.Snapshot) string {
+	if snap.EffectiveMode() == project.ModeFast {
+		return c.fastResumePrompt(agent, snap)
+	}
 	set := c.workspace.Set()
 	own, _ := set.For(agent)
 	peer := protocol.PeerOf(agent)
@@ -48,6 +51,48 @@ func (c *Coordinator) resumePrompt(agent protocol.AgentID, snap project.Snapshot
 			return header + "\n\nResume final integration validation. Inspect the current Austin integration worktree, resolve remaining integration issues, clean temporary artifacts, and run final tests. Do not redo the whole task. Do not merely acknowledge this message. Take the next concrete INTEGRATE action."
 		}
 		return header + "\n\nResume independent review of Austin's current integrated HEAD. Reject final approval if correctness or repository hygiene is not acceptable. Do not merely acknowledge this message. Take the next concrete INTEGRATE action."
+	default:
+		return header + "\n\nDo not merely acknowledge this message. Take the next concrete action required by the current phase."
+	}
+}
+
+// fastResumePrompt restores a Fast session without Goal-only plan/sign-off
+// noise. It re-states the single-writer boundary because that is the invariant
+// that makes Fast delivery sound: only Austin's HEAD is ever delivered.
+func (c *Coordinator) fastResumePrompt(agent protocol.AgentID, snap project.Snapshot) string {
+	set := c.workspace.Set()
+	own, _ := set.For(agent)
+	scope := strings.TrimSpace(set.ScopePath)
+	if scope == "" {
+		scope = "."
+	}
+	role := "DRIVER"
+	if agent != protocol.Austin {
+		role = "COPILOT / independent verifier"
+	}
+	target := shortSHA(snap.Verification.Head)
+	if strings.TrimSpace(snap.Verification.Head) == "" {
+		target = "(none)"
+	}
+	header := fmt.Sprintf("[Duo session resumed]\n\nThe previous Duo FAST session has been restored.\n\nMode: FAST\nCurrent phase: %s\nYour role: %s\nVerification: %s\nVerified target: %s\nCurrent worktree: %s (%s)\nWorking-directory scope: %s\n\nFirst inspect duo_status and the existing Git state. Do not restart the task from scratch or discard valid existing work. Fast mode is single-writer: only Austin commits; Tony never edits or commits and reports issues to Austin.",
+		snap.Phase, role, snap.Verification.Label(), target, own.Path, own.Branch, scope)
+
+	switch snap.Phase {
+	case project.PhaseRunning:
+		if agent == protocol.Austin {
+			return header + "\n\nContinue driving the task from the existing worktree state. Work ahead while Tony is thinking; Tony's advice is advisory. When the work is genuinely complete and your worktree is clean and committed, request verification with duo_set_status ready=true."
+		}
+		return header + "\n\nStay available as the independent verifier. Do not commit or edit the delivered artifact. If Austin asks for advice or a check via duo_send, respond concisely; otherwise wait. Duo will wake you when Austin requests verification."
+
+	case project.PhaseVerify:
+		if agent == protocol.Austin {
+			return header + "\n\nYou requested verification and are waiting. Do not change the verified HEAD while verification is in flight; if you must change it, Duo revokes the request and returns to RUNNING."
+		}
+		return fmt.Sprintf("%s\n\nAustin requested verification of HEAD %s. Independently inspect that exact artifact, then report a structured verdict with duo_set_verification: result=passed, or result=issue_found with a concrete note. Do not commit or edit the artifact; if a fix is needed, report the issue so Austin applies it.", header, shortSHA(snap.Verification.Head))
+
+	case project.PhaseDone:
+		return header + "\n\nThe FAST session is DONE: the result was delivered to the user's repository. No further agent action is required."
+
 	default:
 		return header + "\n\nDo not merely acknowledge this message. Take the next concrete action required by the current phase."
 	}

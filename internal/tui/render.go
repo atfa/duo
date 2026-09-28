@@ -8,6 +8,7 @@ import (
 
 	"github.com/atfa/duo/internal/agent"
 	"github.com/atfa/duo/internal/harness"
+	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/terminal"
 )
@@ -117,21 +118,33 @@ func (a *App) writeLayout(b *strings.Builder, w, h int) {
 	}
 	b.WriteString(paint(ansiBorder, "├"+strings.Repeat("─", leftW-1)+"┴"+strings.Repeat("─", rightW-1)+"┤\r\n"))
 
-	readyA, readyT := "○", "○"
-	if snap.Ready[protocol.Austin] {
-		readyA = "✓"
-	}
-	if snap.Ready[protocol.Tony] {
-		readyT = "✓"
-	}
-	status := fmt.Sprintf(" Duo · %s · Plan v%d · Austin %s · Tony %s ", snap.Phase, snap.PlanVersion, readyA, readyT)
-	b.WriteString(paint(ansiBorder, "│") + paint(ansiStatus, fit(status, w-2)) + paint(ansiBorder, "│\r\n"))
+	var status, second string
+	if snap.EffectiveMode() == project.ModeFast {
+		// Fast has no shared plan and no sign-off: show the workflow roles and the
+		// verification state instead, which is the only gate before delivery.
+		status = fmt.Sprintf(" Duo · %s · %s · Austin DRIVER · Tony COPILOT ", snap.EffectiveMode().Display(), snap.Phase)
+		second = " Verification: " + snap.Verification.Label()
+		if note := strings.TrimSpace(snap.Verification.Note); note != "" {
+			second += " — " + strings.ReplaceAll(note, "\n", " ")
+		}
+	} else {
+		readyA, readyT := "○", "○"
+		if snap.Ready[protocol.Austin] {
+			readyA = "✓"
+		}
+		if snap.Ready[protocol.Tony] {
+			readyT = "✓"
+		}
+		status = fmt.Sprintf(" Duo · %s · Plan v%d · Austin %s · Tony %s ", snap.Phase, snap.PlanVersion, readyA, readyT)
 
-	plan := strings.ReplaceAll(strings.TrimSpace(snap.Plan), "\n", " ")
-	if plan == "" {
-		plan = "No shared plan yet"
+		plan := strings.ReplaceAll(strings.TrimSpace(snap.Plan), "\n", " ")
+		if plan == "" {
+			plan = "No shared plan yet"
+		}
+		second = " Plan: " + plan
 	}
-	b.WriteString(paint(ansiBorder, "│") + paint(ansiHint, fit(" Plan: "+plan, w-2)) + paint(ansiBorder, "│\r\n"))
+	b.WriteString(paint(ansiBorder, "│") + paint(ansiStatus, fit(status, w-2)) + paint(ansiBorder, "│\r\n"))
+	b.WriteString(paint(ansiBorder, "│") + paint(ansiHint, fit(second, w-2)) + paint(ansiBorder, "│\r\n"))
 
 	logs := styledPaneLines(a.duo, w-4, 2)
 	for _, line := range logs {

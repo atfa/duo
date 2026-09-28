@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 )
 
@@ -58,6 +59,18 @@ type Delivery struct {
 // Applied reports whether the final artifact is already in the user's repo.
 func (d Delivery) Applied() bool { return d.Status == DeliveryApplied }
 
+// Verification is the durable Fast-mode verification record. It is a small
+// optional extension to schema version 1: Goal and legacy snapshots simply
+// have no verification object. `head` binds a passed verdict to one exact
+// Austin artifact, `note` carries an issue description, and `at` records when
+// the verdict was formed.
+type Verification struct {
+	Status string     `json:"status,omitempty"`
+	Head   string     `json:"head,omitempty"`
+	Note   string     `json:"note,omitempty"`
+	At     *time.Time `json:"at,omitempty"`
+}
+
 // Snapshot is the durable checkpoint for one Duo session. It combines the
 // project domain state with workspace, Pi session identity and integration
 // state. Git remains the ground truth for artifacts and evidence.
@@ -77,9 +90,18 @@ type Snapshot struct {
 	PlanVersion int    `json:"planVersion"`
 	Started     bool   `json:"started"`
 
+	// Mode is the session workflow, fixed for the session's lifetime. Driver is
+	// recorded for observability only: it is derived from the mode (Fast is
+	// always Austin-driven) and no reader branches on it. Both are omitted by
+	// legacy v0.4.x snapshots, which load as Goal.
+	Mode   project.Mode `json:"mode,omitempty"`
+	Driver string       `json:"driver,omitempty"`
+
 	Ready    map[protocol.AgentID]bool   `json:"ready"`
 	Notes    map[protocol.AgentID]string `json:"notes"`
 	Evidence map[protocol.AgentID]string `json:"evidence"`
+
+	Verification *Verification `json:"verification,omitempty"`
 
 	Worktrees  map[protocol.AgentID]Worktree `json:"worktrees"`
 	PiSessions map[protocol.AgentID]string   `json:"piSessions"`
@@ -91,6 +113,31 @@ type Snapshot struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+// EffectiveMode is the single normalization point for the persisted mode.
+// Only an explicitly recorded "fast" is Fast; a legacy snapshot with no mode
+// field, and any unrecognized value, is Goal. Every reader goes through here so
+// the legacy rule cannot drift between resolver, coordinator, harness and CLI.
+func (s Snapshot) EffectiveMode() project.Mode {
+	if s.Mode == project.ModeFast {
+		return project.ModeFast
+	}
+	return project.ModeGoal
+}
+
+// VerificationResult returns the persisted verification, or a zero value when
+// the session has none (Goal and legacy snapshots).
+func (s Snapshot) VerificationResult() project.Verification {
+	if s.Verification == nil {
+		return project.Verification{}
+	}
+	return project.Verification{
+		Status: project.VerificationResult(s.Verification.Status),
+		Head:   s.Verification.Head,
+		Note:   s.Verification.Note,
+		At:     s.Verification.At,
+	}
+}
+
 func (s Snapshot) Worktree(agent protocol.AgentID) (Worktree, bool) {
 	wt, ok := s.Worktrees[agent]
 	return wt, ok
@@ -98,11 +145,22 @@ func (s Snapshot) Worktree(agent protocol.AgentID) (Worktree, bool) {
 
 // NeedsDelivery reports whether this session has an agent-approved artifact that
 // has not been handed back to the user's repository yet. It covers the normal
-// INTEGRATE dual sign-off, a delivery that was interrupted mid-transaction, and
-// legacy v0.4.0 snapshots that reached DONE without any delivery record at all.
+// INTEGRATE dual sign-off, a delivery that was interrupted mid-transaction,
+// legacy v0.4.0 snapshots that reached DONE without any delivery record at all,
+// and a Fast session whose verification passed but whose delivery was
+// interrupted before the durable delivery record was written.
+//
+// A Fast pass is only deliverable while it is still bound to the current Austin
+// HEAD; recovery clears a stale pass before this is consulted, and the delivery
+// transaction re-checks the binding, so this predicate never has to re-derive
+// Git state.
 func (s Snapshot) NeedsDelivery() bool {
 	if s.Delivery.Applied() {
 		return false
+	}
+	switch s.EffectiveMode() {
+	case project.ModeFast:
+		return s.Phase == string(project.PhaseVerify) && s.VerificationResult().Status == project.VerificationPassed
 	}
 	switch s.Phase {
 	case "INTEGRATE":

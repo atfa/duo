@@ -43,7 +43,16 @@ func runResume(ctx context.Context, cfg config, root, repoID, baseDir string) er
 	logger := store.OpenLog()
 	journal := store.OpenEvents()
 	tuiHistory := journal.TUIEntries()
-	logger.Printf("resuming Duo session %s from %s (persisted phase %s repository=%s scope=%s)", snap.SessionID, store.StatePath(), snap.Phase, snap.Repository, effectiveScope(snap.ScopePath))
+	logger.Printf("resuming Duo session %s from %s (persisted mode %s phase %s repository=%s scope=%s)", snap.SessionID, store.StatePath(), snap.EffectiveMode(), snap.Phase, snap.Repository, effectiveScope(snap.ScopePath))
+
+	// Mode is fixed per session: the persisted mode always wins. An explicit
+	// --mode that disagrees is an error; an ambient DUO_MODE is only a warning.
+	mode, err := resumeMode(cfg, snap.EffectiveMode(), snap.SessionID, func(msg string) {
+		logger.Printf("warning: %s", msg)
+	})
+	if err != nil {
+		return err
+	}
 
 	set := setFromSnapshot(snap)
 	ws := workspace.NewGitManager(workspace.GitConfig{Repository: snap.Repository})
@@ -55,7 +64,7 @@ func runResume(ctx context.Context, cfg config, root, repoID, baseDir string) er
 		return fmt.Errorf("cannot resume session %s: %w", snap.SessionID, err)
 	}
 
-	state := project.NewState()
+	state := project.NewStateFor(mode)
 	result, err := recovery.ReconcileAndApply(ctx, ws, state, snap)
 	if err != nil {
 		return fmt.Errorf("reconcile session %s: %w", snap.SessionID, err)
@@ -131,6 +140,7 @@ func runResume(ctx context.Context, cfg config, root, repoID, baseDir string) er
 		delivery:   reconciled.Delivery,
 		tuiHistory: tuiHistory,
 		resume:     true,
+		mode:       mode,
 	}
 
 	// Record the Pi identities actually in use, including any newly generated

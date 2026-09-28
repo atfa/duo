@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/atfa/duo/internal/harness"
+	"github.com/atfa/duo/internal/project"
 )
 
 type config struct {
@@ -27,17 +28,28 @@ type config struct {
 
 	resume        bool
 	resumeSession string
+
+	// mode is the resolved workflow of a NEW session. For --resume the persisted
+	// mode wins, so only the explicit CLI intent is recorded here and validated
+	// once the session is loaded.
+	mode         project.Mode
+	modeSource   string
+	modeRaw      string
+	modeExplicit bool
 }
 
 // cliArgs is the parsed command line.
 type cliArgs struct {
-	repository string
-	resume     bool
-	sessionID  string
+	repository   string
+	resume       bool
+	sessionID    string
+	mode         string
+	modeExplicit bool
 }
 
-// parseArgs understands `duo [repository] [--resume [session-id]]`. Plain `duo`
-// always starts a new session; only --resume attaches to persisted state.
+// parseArgs understands `duo [repository] [--mode fast|goal] [--resume [id]]`.
+// Plain `duo` always starts a new session; only --resume attaches to persisted
+// state.
 func parseArgs(args []string) (cliArgs, error) {
 	var out cliArgs
 	for i := 0; i < len(args); i++ {
@@ -53,8 +65,18 @@ func parseArgs(args []string) (cliArgs, error) {
 		case strings.HasPrefix(arg, "--resume="):
 			out.resume = true
 			out.sessionID = strings.TrimPrefix(arg, "--resume=")
+		case arg == "--mode" || arg == "-m":
+			if i+1 >= len(args) {
+				return out, fmt.Errorf("--mode requires a value (fast or goal)")
+			}
+			out.mode = strings.TrimSpace(args[i+1])
+			out.modeExplicit = true
+			i++
+		case strings.HasPrefix(arg, "--mode=") || strings.HasPrefix(arg, "-m="):
+			out.mode = strings.TrimSpace(strings.SplitN(arg, "=", 2)[1])
+			out.modeExplicit = true
 		case strings.HasPrefix(arg, "-"):
-			return out, fmt.Errorf("unknown Duo flag %q (usage: duo [git-repository] [--resume [session-id]])", arg)
+			return out, fmt.Errorf("unknown Duo flag %q (usage: duo [git-repository] [--mode fast|goal] [--resume [session-id]])", arg)
 		default:
 			if out.repository != "" {
 				return out, fmt.Errorf("unexpected extra argument %q", arg)
@@ -66,6 +88,53 @@ func parseArgs(args []string) (cliArgs, error) {
 		// Duo chooses the newest unfinished session.
 	}
 	return out, nil
+}
+
+// resolveNewMode applies the documented precedence for a NEW session:
+// explicit --mode > DUO_MODE > built-in default (fast).
+func resolveNewMode(parsed cliArgs) (project.Mode, string, error) {
+	if parsed.modeExplicit {
+		mode, err := project.ParseMode(parsed.mode)
+		if err != nil {
+			return "", "", err
+		}
+		return mode, "cli", nil
+	}
+	if raw := strings.TrimSpace(os.Getenv("DUO_MODE")); raw != "" {
+		mode, err := project.ParseMode(raw)
+		if err != nil {
+			return "", "", fmt.Errorf("invalid DUO_MODE: %w", err)
+		}
+		return mode, "env", nil
+	}
+	return project.DefaultMode, "default", nil
+}
+
+// resumeMode decides the mode of a resumed session. Mode is fixed per session,
+// so the persisted mode always wins: an explicit --mode that disagrees is an
+// operator error, while an ambient DUO_MODE is only a warning so an exported
+// environment can never break resume.
+func resumeMode(cfg config, persisted project.Mode, sessionID string, warn func(string)) (project.Mode, error) {
+	if cfg.modeExplicit {
+		mode, err := project.ParseMode(cfg.modeRaw)
+		if err != nil {
+			return "", err
+		}
+		if mode != persisted {
+			return "", fmt.Errorf("session %s is a %s session; mode is fixed per session, so --mode %s cannot be applied", sessionID, persisted, mode)
+		}
+		return persisted, nil
+	}
+	if raw := strings.TrimSpace(os.Getenv("DUO_MODE")); raw != "" {
+		mode, err := project.ParseMode(raw)
+		switch {
+		case err != nil:
+			warn(fmt.Sprintf("ignoring invalid DUO_MODE %q while resuming: %v", raw, err))
+		case mode != persisted:
+			warn(fmt.Sprintf("ignoring DUO_MODE=%s while resuming: session %s is a %s session", mode, sessionID, persisted))
+		}
+	}
+	return persisted, nil
 }
 
 func loadConfig(args []string) (config, error) {
@@ -103,6 +172,17 @@ func loadConfig(args []string) (config, error) {
 		harnessConfig.RecoveryGrace = time.Duration(envInt("DUO_HARNESS_RESUME_GRACE_SECONDS", 45)) * time.Second
 	}
 
+	var mode project.Mode
+	var modeSource string
+	if !parsed.resume {
+		// A resumed session takes its mode from persisted state, so only a new
+		// session resolves CLI > DUO_MODE > default here.
+		mode, modeSource, err = resolveNewMode(parsed)
+		if err != nil {
+			return config{}, err
+		}
+	}
+
 	return config{
 		listen:         envString("DUO_LISTEN", "127.0.0.1:0"),
 		harnessEnabled: envBool("DUO_HARNESS", true),
@@ -115,6 +195,10 @@ func loadConfig(args []string) (config, error) {
 		piCommand:      envString("DUO_PI_COMMAND", "pi"),
 		resume:         parsed.resume,
 		resumeSession:  parsed.sessionID,
+		mode:           mode,
+		modeSource:     modeSource,
+		modeRaw:        parsed.mode,
+		modeExplicit:   parsed.modeExplicit,
 	}, nil
 }
 

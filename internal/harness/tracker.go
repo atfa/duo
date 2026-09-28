@@ -13,6 +13,11 @@ type AgentRuntime struct {
 	ToolDepth      int
 	HumanAttached  bool
 	LastActivity   time.Time
+
+	// Failures counts agent-error events since the agent last started a turn.
+	// The Fast harness uses it to ask the copilot for a diagnosis; Goal never
+	// reads it, so recording it cannot change Goal behavior.
+	Failures int
 }
 
 type Tracker struct {
@@ -53,6 +58,7 @@ func (t *Tracker) Handle(agent protocol.AgentID, activity protocol.ActivityType)
 	switch activity {
 	case protocol.ActivityAgentStart:
 		rt.Busy = true
+		rt.Failures = 0
 	case protocol.ActivityAgentSettled:
 		rt.Busy = false
 		rt.ProviderActive = false
@@ -80,6 +86,14 @@ func (t *Tracker) SetHumanAttached(agent protocol.AgentID, attached bool) {
 	rt := t.ensureLocked(agent)
 	rt.HumanAttached = attached
 	rt.LastActivity = time.Now()
+}
+
+// RecordFailure notes a reported agent error so the harness can decide whether
+// an independent diagnosis is warranted. A new agent turn clears the count.
+func (t *Tracker) RecordFailure(agent protocol.AgentID) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.ensureLocked(agent).Failures++
 }
 
 func (t *Tracker) Reset(agent protocol.AgentID) {

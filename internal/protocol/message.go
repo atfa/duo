@@ -18,6 +18,11 @@ type Message struct {
 
 	Ready *bool `json:"ready,omitempty"`
 
+	// Verification carries a structured Fast-mode verdict: "passed" or
+	// "issue_found". The verifier never sends free text as a verdict; an
+	// issue_found verdict must also carry a concrete Note.
+	Verification string `json:"verification,omitempty"`
+
 	Activity  ActivityType `json:"activity,omitempty"`
 	Timestamp int64        `json:"timestamp,omitempty"`
 

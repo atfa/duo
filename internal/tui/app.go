@@ -14,9 +14,19 @@ import (
 	"time"
 
 	"github.com/atfa/duo/internal/events"
+	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/terminal"
 )
+
+// startupMessage announces the session mode, because the two modes ask for very
+// different things from the human and from the agents.
+func (a *App) startupMessage() string {
+	if a.state.Snapshot().EffectiveMode() == project.ModeFast {
+		return "Duo " + a.version + " ready (FAST mode). Type a task and press Enter; Austin drives while Tony independently verifies before Duo delivers the result."
+	}
+	return "Duo " + a.version + " ready (GOAL mode). Type a task and press Enter; Austin will wake Tony when collaboration is needed."
+}
 
 func (a *App) Run(ctx context.Context) error {
 	tty, err := terminal.Open()
@@ -47,7 +57,7 @@ func (a *App) Run(ctx context.Context) error {
 	tick := time.NewTicker(250 * time.Millisecond)
 	defer tick.Stop()
 
-	a.add(protocol.Duo, "Duo "+a.version+" ready. Type a task and press Enter; Austin will wake Tony when collaboration is needed.")
+	a.add(protocol.Duo, a.startupMessage())
 	a.requestFullClear()
 
 	for {

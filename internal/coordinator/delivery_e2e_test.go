@@ -344,10 +344,20 @@ type e2eRuntime struct {
 // startE2E wires a real Coordinator, Store and transport server over a real Git
 // repository with prepared worktrees.
 func startE2E(t *testing.T, ctx context.Context) *e2eRuntime {
-	return startE2EWithScope(t, ctx, ".")
+	return startE2EWithMode(t, ctx, project.ModeGoal)
 }
 
 func startE2EWithScope(t *testing.T, ctx context.Context, scope string) *e2eRuntime {
+	return startE2EWithOptions(t, ctx, scope, project.ModeGoal)
+}
+
+// startE2EWithMode starts a real coordinator in the requested mode, so a Fast
+// session can be driven end to end through the same transport as Goal.
+func startE2EWithMode(t *testing.T, ctx context.Context, mode project.Mode) *e2eRuntime {
+	return startE2EWithOptions(t, ctx, ".", mode)
+}
+
+func startE2EWithOptions(t *testing.T, ctx context.Context, scope string, mode project.Mode) *e2eRuntime {
 	t.Helper()
 	root := t.TempDir()
 	repo := initE2ERepoAt(t, filepath.Join(root, "repo"))
@@ -375,7 +385,7 @@ func startE2EWithScope(t *testing.T, ctx context.Context, scope string) *e2eRunt
 
 	token := "e2e-token"
 	server := transport.NewServer("127.0.0.1:0", e2eSession, token)
-	state := project.NewState()
+	state := project.NewStateFor(mode)
 	coord := New(server, state, harness.NewTracker(), ws, events.NewBus())
 	coord.SetIntegration(workspace.IntegrationResult{
 		AustinBranch: set.Austin.Branch,

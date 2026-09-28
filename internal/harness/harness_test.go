@@ -14,7 +14,10 @@ import (
 type recordingSender struct {
 	mu        sync.Mutex
 	connected bool
-	sent      []protocol.Message
+	// offline lists agents that must look disconnected even when connected is
+	// true, so target-specific connection gating can be tested.
+	offline map[protocol.AgentID]bool
+	sent    []protocol.Message
 }
 
 func (r *recordingSender) Send(_ context.Context, _ protocol.AgentID, message protocol.Message) error {
@@ -24,7 +27,12 @@ func (r *recordingSender) Send(_ context.Context, _ protocol.AgentID, message pr
 	return nil
 }
 
-func (r *recordingSender) IsConnected(protocol.AgentID) bool { return r.connected }
+func (r *recordingSender) IsConnected(agent protocol.AgentID) bool {
+	if r.offline[agent] {
+		return false
+	}
+	return r.connected
+}
 
 func (r *recordingSender) count() int {
 	r.mu.Lock()

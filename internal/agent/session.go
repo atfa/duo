@@ -18,6 +18,16 @@ import (
 
 const recentLimit = 1 << 20
 
+// modeEnv normalizes the session mode for the Pi bridge. Duo Core always sets
+// it, and only fast|goal is ever exported: the extension treats a missing value
+// as legacy Goal, but an empty or unknown value would be ambiguous.
+func modeEnv(mode string) string {
+	if strings.TrimSpace(mode) == "fast" {
+		return "fast"
+	}
+	return "goal"
+}
+
 type ProcessState int
 
 const (
@@ -47,6 +57,7 @@ func (s ProcessState) String() string {
 
 type Config struct {
 	Agent                                    protocol.AgentID
+	Mode                                     string
 	Dir, Host, Port, Session, Token, Command string
 	RepositoryRoot, ScopePath                string
 	// PiSessionID is Duo's stable identity for this agent's Pi conversation. It
@@ -138,7 +149,7 @@ func (s *Session) Start(ctx context.Context) error {
 	// and expands "$DUO_PI_SESSION_ID" safely.
 	cmd := exec.Command("sh", "-lc", "exec "+s.commandLine())
 	cmd.Dir = s.cfg.Dir
-	cmd.Env = append(os.Environ(), "DUO_ACTIVE=1", "DUO_AGENT="+string(s.cfg.Agent), "DUO_HOST="+s.cfg.Host, "DUO_PORT="+s.cfg.Port, "DUO_SESSION="+s.cfg.Session, "DUO_TOKEN="+s.cfg.Token, "DUO_PI_SESSION_ID="+s.cfg.PiSessionID, "DUO_REPOSITORY_ROOT="+s.cfg.RepositoryRoot, "DUO_SCOPE_PATH="+s.cfg.ScopePath, "TERM=xterm-256color")
+	cmd.Env = append(os.Environ(), "DUO_ACTIVE=1", "DUO_AGENT="+string(s.cfg.Agent), "DUO_MODE="+modeEnv(s.cfg.Mode), "DUO_HOST="+s.cfg.Host, "DUO_PORT="+s.cfg.Port, "DUO_SESSION="+s.cfg.Session, "DUO_TOKEN="+s.cfg.Token, "DUO_PI_SESSION_ID="+s.cfg.PiSessionID, "DUO_REPOSITORY_ROOT="+s.cfg.RepositoryRoot, "DUO_SCOPE_PATH="+s.cfg.ScopePath, "TERM=xterm-256color")
 	ptmx, err := pty.StartWithSize(cmd, &s.size)
 	if err != nil {
 		s.state = ProcessFailed

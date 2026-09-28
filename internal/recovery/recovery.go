@@ -64,6 +64,18 @@ func ExpectedEvidence(
 	}
 }
 
+// FastVerificationTarget returns the Austin HEAD that a Fast verification must
+// be bound to: the same clean, committed-artifact rule that Goal EXECUTE
+// signatures use. The live verification gate and crash recovery both call it,
+// so a passed verdict can never describe an artifact that no longer exists.
+func FastVerificationTarget(ctx context.Context, ws workspace.Manager) (string, error) {
+	artifact, err := ws.CaptureArtifact(ctx, protocol.Austin)
+	if err != nil {
+		return "", fmt.Errorf("cannot verify until Austin has a clean, committed worktree: %w", err)
+	}
+	return artifact.Commit, nil
+}
+
 // ComposeInput collects everything needed to build one durable snapshot.
 type ComposeInput struct {
 	DuoVersion  string
@@ -96,6 +108,8 @@ func Compose(in ComposeInput) sessionstore.Snapshot {
 		Plan:          in.Project.Plan,
 		PlanVersion:   in.Project.PlanVersion,
 		Started:       in.Project.Started,
+		Mode:          in.Project.EffectiveMode(),
+		Driver:        driverOf(in.Project.EffectiveMode()),
 		Ready:         make(map[protocol.AgentID]bool, len(agents)),
 		Notes:         make(map[protocol.AgentID]string, len(agents)),
 		Evidence:      make(map[protocol.AgentID]string, len(agents)),
@@ -109,6 +123,15 @@ func Compose(in ComposeInput) sessionstore.Snapshot {
 		},
 		Delivery:  in.Delivery,
 		CreatedAt: in.CreatedAt,
+	}
+
+	if v := in.Project.Verification; v.Status != project.VerificationNone || v.Head != "" || v.Note != "" {
+		snap.Verification = &sessionstore.Verification{
+			Status: string(v.Status),
+			Head:   v.Head,
+			Note:   v.Note,
+			At:     v.At,
+		}
 	}
 
 	for _, agent := range agents {
@@ -125,16 +148,28 @@ func Compose(in ComposeInput) sessionstore.Snapshot {
 	return snap
 }
 
+// driverOf records the mode's single driver for observability. It is derived
+// from the mode, never read back as state: Fast is always Austin-driven, and
+// Goal has no single driver because the mover changes per phase.
+func driverOf(mode project.Mode) string {
+	if mode == project.ModeFast {
+		return string(protocol.Austin)
+	}
+	return ""
+}
+
 // ProjectSnapshot extracts the domain-only part of a persisted snapshot.
 func ProjectSnapshot(snap sessionstore.Snapshot) project.Snapshot {
 	out := project.Snapshot{
-		Phase:       project.Phase(snap.Phase),
-		Plan:        snap.Plan,
-		PlanVersion: snap.PlanVersion,
-		Started:     snap.Started,
-		Ready:       make(map[protocol.AgentID]bool, len(agents)),
-		Notes:       make(map[protocol.AgentID]string, len(agents)),
-		Evidence:    make(map[protocol.AgentID]string, len(agents)),
+		Mode:         snap.EffectiveMode(),
+		Phase:        project.Phase(snap.Phase),
+		Plan:         snap.Plan,
+		PlanVersion:  snap.PlanVersion,
+		Started:      snap.Started,
+		Verification: snap.VerificationResult(),
+		Ready:        make(map[protocol.AgentID]bool, len(agents)),
+		Notes:        make(map[protocol.AgentID]string, len(agents)),
+		Evidence:     make(map[protocol.AgentID]string, len(agents)),
 	}
 	for _, agent := range agents {
 		out.Ready[agent] = snap.Ready[agent]
@@ -258,6 +293,27 @@ func Reconcile(ctx context.Context, ws *workspace.GitManager, snap sessionstore.
 				Started:    true,
 				Head:       austinHead,
 				MergedTony: tonyHead,
+			}
+		}
+	}
+
+	// Fast sessions have no signatures to revoke; their single gate is a
+	// verification bound to one Austin HEAD. Re-derive that binding from Git. A
+	// stale pass invalidates the completion request and returns to RUNNING,
+	// mirroring the live `ready=false` transition. This is a deterministic
+	// Fast-mode rule, not a generic phase rewind: RUNNING is only reachable from
+	// VERIFY, and only when the verified artifact is gone.
+	if out.EffectiveMode() == project.ModeFast && out.Phase == string(project.PhaseVerify) {
+		if v := out.Verification; v != nil && v.Status == string(project.VerificationPassed) {
+			target, err := FastVerificationTarget(ctx, ws)
+			if err != nil || target != strings.TrimSpace(v.Head) {
+				out.Verification = nil
+				out.Phase = string(project.PhaseRunning)
+				out.Notes[protocol.Tony] = ""
+				out.Notes[protocol.Austin] = "the verified artifact changed; verification revoked on resume, request verification again when ready"
+				report.Phase = project.PhaseRunning
+				report.Revoked = append(report.Revoked, protocol.Tony)
+				report.Notes = append(report.Notes, "Fast verification no longer matches Austin's HEAD; returned to RUNNING")
 			}
 		}
 	}

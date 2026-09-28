@@ -36,7 +36,7 @@ func deliverAndPersist(
 	// Applied is monotonic for this final artifact. A stale caller must reconcile
 	// DONE, never replace it with a new pending checkpoint or re-run Git.
 	if snap.Delivery.Applied() {
-		if snap.Phase == string(project.PhaseIntegrate) {
+		if snap.Phase == string(project.PhaseIntegrate) || snap.Phase == string(project.PhaseVerify) {
 			if err := completeSnapshot(&snap); err != nil {
 				return deliveryOutcome{Snapshot: snap}, err
 			}
@@ -49,6 +49,16 @@ func deliverAndPersist(
 	finalHead, err := resolveFinalHead(ctx, ws, snap)
 	if err != nil {
 		return deliveryOutcome{Snapshot: snap}, err
+	}
+
+	// A Fast pass describes one exact Austin HEAD. Re-check the binding here as
+	// well as in the live coordinator and in recovery, because `duo apply` can be
+	// invoked independently of both.
+	if snap.EffectiveMode() == project.ModeFast && !snap.VerificationResult().Passed(finalHead) {
+		return deliveryOutcome{Snapshot: snap}, fmt.Errorf(
+			"session %s: the verified Austin HEAD no longer matches the artifact to deliver; verification must be repeated before apply",
+			snap.SessionID,
+		)
 	}
 
 	manager := managerFor(snap, finalHead)
@@ -99,7 +109,7 @@ func deliverAndPersist(
 
 	// The artifact landed, so the project may now become DONE. Passing through
 	// the domain rule keeps the two signatures and their evidence intact.
-	if snap.Phase == string(project.PhaseIntegrate) {
+	if snap.Phase == string(project.PhaseIntegrate) || snap.Phase == string(project.PhaseVerify) {
 		if err := completeSnapshot(&snap); err != nil {
 			return deliveryOutcome{Snapshot: snap, Result: result}, err
 		}
@@ -182,7 +192,7 @@ func reconcileDelivery(
 	snap sessionstore.Snapshot,
 ) (deliveryOutcome, bool, error) {
 	// Crash window: delivery was persisted but the DONE transition was not.
-	if snap.Phase == string(project.PhaseIntegrate) && snap.Delivery.Applied() {
+	if (snap.Phase == string(project.PhaseIntegrate) || snap.Phase == string(project.PhaseVerify)) && snap.Delivery.Applied() {
 		if err := completeSnapshot(&snap); err != nil {
 			return deliveryOutcome{Snapshot: snap}, false, err
 		}

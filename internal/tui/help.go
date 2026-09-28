@@ -1,6 +1,10 @@
 package tui
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/atfa/duo/internal/project"
+)
 
 type viewMode int
 
@@ -49,26 +53,51 @@ func (a *App) helpLines(width int) []string {
 	if width < 1 {
 		return nil
 	}
+	quickStart := []string{
+		"1. Type a task in the Duo composer and press Enter.",
+		"2. The human composer sends to Austin by default.",
+		"3. Austin wakes Tony through duo_send in a fresh task.",
+		"4. Austin and Tony work independently in private Git worktrees.",
+		"5. Duo Core manages phase and delivery.",
+	}
+	lifecycle := []string{
+		"PLAN → EXECUTE → REVIEW → INTEGRATE → DONE",
+		"PLAN: agree on shared plan.",
+		"EXECUTE: work independently in private worktrees.",
+		"REVIEW: cross-review peer commit.",
+		"INTEGRATE: merge into Austin integration branch and final review.",
+		"DONE: final approved artifact has been delivered back to original repository.",
+	}
+	if a.state.Snapshot().EffectiveMode() == project.ModeFast {
+		quickStart = []string{
+			"1. Type a task in the Duo composer and press Enter.",
+			"2. Austin drives the task in its private Git worktree.",
+			"3. Tony is a read-only copilot: it advises and independently verifies, and never commits.",
+			"4. When Austin is done, it requests verification with duo_set_status ready=true.",
+			"5. Tony reports passed or issue_found with duo_set_verification.",
+			"6. Duo Core delivers the verified artifact back to the original repository.",
+		}
+		lifecycle = []string{
+			"RUNNING → VERIFY → DONE (Fast mode)",
+			"RUNNING: Austin drives; Tony advises on request.",
+			"VERIFY: Austin requested verification of one exact HEAD.",
+			"  passed → Duo delivers the artifact → DONE.",
+			"  issue_found → back to RUNNING with a concrete issue for Austin.",
+			"DONE: the verified artifact has been delivered to the original repository.",
+		}
+	}
 	sections := []struct {
 		title string
 		lines []string
 	}{
-		{"Quick Start", []string{
-			"1. Type a task in the Duo composer and press Enter.",
-			"2. The human composer sends to Austin by default.",
-			"3. Austin wakes Tony through duo_send in a fresh task.",
-			"4. Austin and Tony work independently in private Git worktrees.",
-			"5. Duo Core manages phase and delivery.",
+		{"Quick Start", quickStart},
+		{"Mode", []string{
+			"FAST (default): Austin drives, Tony independently verifies. No shared plan, no dual sign-off.",
+			"GOAL (duo --mode goal): shared plan + independent work + cross-review + dual sign-off.",
+			"Mode is fixed for a session's lifetime; --resume always uses the persisted mode.",
 		}},
 		{"Keyboard", helpKeyboardLines()},
-		{"Collaboration Lifecycle", []string{
-			"PLAN → EXECUTE → REVIEW → INTEGRATE → DONE",
-			"PLAN: agree on shared plan.",
-			"EXECUTE: work independently in private worktrees.",
-			"REVIEW: cross-review peer commit.",
-			"INTEGRATE: merge into Austin integration branch and final review.",
-			"DONE: final approved artifact has been delivered back to original repository.",
-		}},
+		{"Collaboration Lifecycle", lifecycle},
 		{"Native Pi", []string{
 			"Ctrl+A → Austin native Pi; Ctrl+T → Tony native Pi.",
 			"In native Pi, /model, /settings, /tree, Pi extensions, and Pi shortcuts are handled by Pi.",
