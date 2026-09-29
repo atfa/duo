@@ -282,6 +282,22 @@ duo apply --session=<id>     # 同上
 
 `duo apply` 从不启动 Agent，并复用同一套安全规则——它不会强行推进一个被阻塞的交付。
 
+## 查看与清理会话
+
+Duo 将会话快照持久化在 `~/.duo/sessions/`，将隔离的 Git 工作树存放在 `~/.duo/worktrees/`。你可以随时列出会话或清理磁盘空间：
+
+```bash
+duo sessions                 # 查看当前仓库的所有会话
+duo sessions --all           # 查看所有仓库的会话
+duo clean                    # 清理当前仓库已完成（DONE）的会话
+duo clean <session-id>       # 清理指定的某个会话
+duo clean --all-repos        # 清理所有仓库中已完成的会话
+duo clean --force            # 连同未完成会话一起清理（自动跳过当前运行中的活跃会话）
+duo clean --dry-run          # 仅预览将被清理的内容，不修改磁盘
+```
+
+清理会话会自动安全移除对应的 Git 工作树（`git worktree remove --force`）、执行 `git worktree prune` 修剪、删除临时分支（`duo/<session>/*`），并删除对应的会话快照目录。正在被另一个运行中的 Duo 进程持有的会话会被 `flock` 锁保护，自动予以跳过。
+
 ## 真实流程记录
 
 ### Fast（默认）

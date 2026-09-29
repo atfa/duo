@@ -204,3 +204,29 @@ func List(baseDir, repoID string) ([]Summary, error) {
 	})
 	return out, nil
 }
+
+// Remove deletes the session directory and its contents.
+func (s *Store) Remove() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return os.RemoveAll(s.dir)
+}
+
+// ListRepos returns every repository ID found under baseDir, sorted.
+func ListRepos(baseDir string) ([]string, error) {
+	entries, err := os.ReadDir(baseDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var out []string
+	for _, entry := range entries {
+		if entry.IsDir() && validName(entry.Name()) {
+			out = append(out, entry.Name())
+		}
+	}
+	sort.Strings(out)
+	return out, nil
+}

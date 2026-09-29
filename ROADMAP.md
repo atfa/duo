@@ -163,7 +163,7 @@ The main view became one conversation timeline, the frame's top row names the re
 - [ ] configurable agent names/roles
 - [ ] configurable model/provider per agent (v0.5.0 adds a live per-agent model picker; a Duo-level default/config file is still missing)
 - [ ] configurable integration strategy
-- [ ] improved worktree lifecycle cleanup
+- [x] improved worktree lifecycle cleanup (`duo sessions` and `duo clean`)
 - [ ] structured artifact/task metadata if real usage justifies it
 
 ## Later / exploratory

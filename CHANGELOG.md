@@ -4,6 +4,7 @@ All notable project milestones are documented here.
 
 ## Unreleased
 
+- Session and worktree lifecycle management: `duo sessions` lists active, in-progress and completed sessions for the repository (or across all repositories with `--all`), reporting mode, phase, branch, timestamp, worktree presence and active/delivered status. `duo clean` removes completed (`DONE`) sessions, prunes their Git worktrees, deletes temporary branches and reclaims disk space; `--force` cleans unfinished sessions while safely skipping any session currently locked by a live Duo process, and `--dry-run` previews actions without touching disk.
 - A Fast-mode follow-up driven through native Pi (`Ctrl+A`) now has a path back to the peer. The composer already reopened a `DONE` session, but native Pi bypasses Duo, so Austin's completion request was rejected with `project is already DONE` and its new commit stayed stranded in the worktree. A request that names a different Austin HEAD than the delivered round now reopens the round and runs a fresh verification and delivery; a retry that still names the delivered HEAD stays rejected, so a stray resend cannot undo a delivery.
 
 ## v0.5.1 — 2026-09-29

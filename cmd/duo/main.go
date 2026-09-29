@@ -38,6 +38,8 @@ func main() {
 			fmt.Println("Duo " + version)
 			fmt.Println("Usage: duo [git-repository] [--mode fast|goal] [--resume [session-id]]")
 			fmt.Println("       duo apply [session-id]")
+			fmt.Println("       duo sessions [--all] [repository]")
+			fmt.Println("       duo clean [session-id] [--all] [--all-repos] [--force] [--dry-run]")
 			fmt.Println()
 			fmt.Println("  duo                    start a new Fast session (Austin drives, Tony verifies)")
 			fmt.Println("  duo --mode goal        start a new Goal session (shared plan + dual sign-off)")
@@ -45,6 +47,8 @@ func main() {
 			fmt.Println("  duo --resume <id>      resume one specific session (required if several are unfinished)")
 			fmt.Println("  duo apply              deliver a pending final result to this repository")
 			fmt.Println("  duo apply <id>         apply one specific session's final result")
+			fmt.Println("  duo sessions           list sessions for this repository (--all for all repositories)")
+			fmt.Println("  duo clean              clean completed sessions and worktrees (--force for unfinished)")
 			fmt.Println()
 			fmt.Println("Mode is fixed for a session's lifetime. DUO_MODE sets the default for new sessions;")
 			fmt.Println("an explicit --mode wins, and --resume always uses the session's persisted mode.")
@@ -57,18 +61,30 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	// `duo apply` is a small, self-contained transaction that never starts
-	// agents, so it is handled before the interactive configuration.
-	if len(os.Args) > 1 && os.Args[1] == "apply" {
-		err := runApply(ctx, os.Args[2:])
-		switch {
-		case err == nil || ctx.Err() != nil:
-		case errors.Is(err, errDeliveryPending):
-			os.Exit(1)
-		default:
-			log.Fatal(err)
+	// Subcommands that never start agents are handled before the interactive configuration.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "apply":
+			err := runApply(ctx, os.Args[2:])
+			switch {
+			case err == nil || ctx.Err() != nil:
+			case errors.Is(err, errDeliveryPending):
+				os.Exit(1)
+			default:
+				log.Fatal(err)
+			}
+			return
+		case "sessions":
+			if err := runSessions(ctx, os.Args[2:]); err != nil && ctx.Err() == nil {
+				log.Fatal(err)
+			}
+			return
+		case "clean":
+			if err := runClean(ctx, os.Args[2:]); err != nil && ctx.Err() == nil {
+				log.Fatal(err)
+			}
+			return
 		}
-		return
 	}
 
 	cfg, err := loadConfig(os.Args[1:])

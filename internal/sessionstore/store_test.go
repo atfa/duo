@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -484,5 +485,47 @@ func TestNewUUIDIsUniqueAndWellFormed(t *testing.T) {
 			t.Fatalf("duplicate uuid: %q", id)
 		}
 		seen[id] = true
+	}
+}
+
+func TestStoreRemove(t *testing.T) {
+	base := t.TempDir()
+	store, err := New(base, "repo-1", "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(testSnapshot("session-1")); err != nil {
+		t.Fatal(err)
+	}
+	if !store.Exists() {
+		t.Fatal("expected store to exist before remove")
+	}
+	if err := store.Remove(); err != nil {
+		t.Fatal(err)
+	}
+	if store.Exists() {
+		t.Fatal("expected store not to exist after remove")
+	}
+}
+
+func TestListRepos(t *testing.T) {
+	base := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(base, "repo-b", "s1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(base, "repo-a", "s2"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Create a regular file that should not be treated as a repo
+	if err := os.WriteFile(filepath.Join(base, "not-a-repo.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	repos, err := ListRepos(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(repos) != 2 || repos[0] != "repo-a" || repos[1] != "repo-b" {
+		t.Fatalf("unexpected repos list: %v", repos)
 	}
 }

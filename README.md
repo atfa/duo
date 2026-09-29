@@ -280,6 +280,22 @@ duo apply --session=<id>     # same
 
 `duo apply` never starts agents and reuses the same safety rules — it will not force a blocked delivery.
 
+## Manage and clean sessions
+
+Duo persists session snapshots under `~/.duo/sessions/` and isolated Git worktrees under `~/.duo/worktrees/`. You can list sessions and reclaim disk space at any time:
+
+```bash
+duo sessions                 # list sessions for this repository
+duo sessions --all           # list sessions across all repositories
+duo clean                    # clean completed (DONE) sessions for this repository
+duo clean <session-id>       # clean one specific session
+duo clean --all-repos        # clean completed sessions across all repositories
+duo clean --force            # also clean unfinished sessions (skips active running sessions)
+duo clean --dry-run          # preview what would be cleaned without modifying disk
+```
+
+Cleaning a session removes its Git worktrees (`git worktree remove --force`), prunes the worktree registry, deletes temporary branches (`duo/<session>/*`), and removes the session snapshot directory. Any session currently locked by an active Duo process is safely skipped.
+
 ## Traces from real runs
 
 ### Fast mode (default)
