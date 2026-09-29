@@ -28,16 +28,16 @@ local-first
 Current release tag:
 
 ```text
-v0.4.7
+v0.5.0
 ```
 
 Release title:
 
 ```text
-Duo v0.4.7 — scrollable agent history and multiline composer
+Duo v0.5.0 — Fast mode by default, live model switching, work preview
 ```
 
-Work merged since that tag is listed under **Unreleased** in [CHANGELOG.md](../CHANGELOG.md) and is not part of any tagged release yet: markdown rendering and tables in the agent panes, mouse selection with clipboard copy, pane transcript replay on resume, and delivery that recognizes a user-resolved merge. Tag the next release before announcing those.
+Everything merged so far is part of v0.5.0 and is described under that heading in [CHANGELOG.md](../CHANGELOG.md). Pushing the tag is what publishes it: the release workflow runs the tests, builds macOS and Linux archives for amd64 and arm64, and attaches them to the release for the tag.
 
 Pushing a `v*` tag builds macOS and Linux archives for amd64 and arm64 and publishes them through GitHub Actions. Users can install the latest release with:
 
