@@ -150,6 +150,8 @@ Duo shows both agents side by side with their connection, process and working st
 | `Ctrl+]` / `Ctrl+\` / `Ctrl+】` | Return from native Pi to Duo |
 | `Ctrl+R` / `Ctrl+Y` | Restart Austin / Tony if the process exited or failed |
 | `Ctrl+/` | Open or close Duo Help |
+| `Ctrl+M` / `Alt+M` | Open the model picker for Austin or Tony |
+| `Shift+Tab` | Cycle the target agent's Pi thinking level |
 | `Ctrl+Q` | Quit Duo and preserve the session |
 | `←` / `→` | Move the composer cursor |
 | `Backspace` | Delete the preceding composer character |
@@ -158,11 +160,13 @@ Duo shows both agents side by side with their connection, process and working st
 
 The composer holds multiple lines and shows up to four at a time. Native attach is a fullscreen takeover: inside Pi, `/model`, `/settings`, `/tree` and all Pi shortcuts belong to Pi.
 
+The model picker (`Ctrl+M`) lists the catalog Pi reports for the very installation Duo launched (`pi --list-models`). Type to filter, move with `↑`/`↓` (or `PgUp`/`PgDn`, `Home`/`End`), switch the target between Austin and Tony with `Tab`, cycle that agent's thinking level with `Shift+Tab`, and apply the model with `Enter` (apply and close) or `Space` (apply and keep the picker open, so a model and a thinking level can be set in one visit). The switch is live: Pi keeps the conversation and records both the model and the thinking level in the session transcript, so a restart or resume (`Ctrl+R`/`Ctrl+Y`) keeps the choice. `▶` marks the picker cursor and `●` the target's current model.
+
 Agent output is rendered as lightweight markdown: headings, blockquotes, links and bold/italic/code spans are styled, and markdown tables are drawn with real, aligned borders. A table wider than its pane is narrowed by wrapping the widest cells instead of truncating them, and a wrapped list keeps a hanging indent so continuation lines stay under the item text.
 
 Mouse selection copies through the platform clipboard command, which today means `pbcopy` on macOS. On other platforms the selection still highlights but the copy step fails and Duo reports it in the status line.
 
-\* A newline is inserted only when the terminal reports the combination distinctly (`\x1b[13;2u` CSI-u or `\x1b[27;2;13~` modifyOtherKeys, which Duo enables). Terminals that send a bare `\r` for `Shift+Enter` will **submit** instead — use `Ctrl+Enter`, which arrives as `\n`, if `Shift+Enter` submits in your terminal.
+\* A newline is inserted only when the terminal reports the combination distinctly (`\x1b[13;2u` CSI-u or `\x1b[27;2;13~` modifyOtherKeys, which Duo enables). Terminals that send a bare `\r` for `Shift+Enter` will **submit** instead — use `Ctrl+Enter`, which arrives as `\n`, if `Shift+Enter` submits in your terminal. The same limit applies to `Ctrl+M`: it is reported as the `m` key with Ctrl (`\x1b[27;5;109~` or `\x1b[109;5u`) only on terminals that honor those modes, and on the others it is indistinguishable from `Enter` — use `Alt+M` there.
 
 Help is a full alternate-screen view; scroll it with `↑`/`k`, `↓`/`j`, `PgUp`, `PgDn`, `Home`/`g`, `End`/`G`, and close it with `Esc` or `Ctrl+/`.
 

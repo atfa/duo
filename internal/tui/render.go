@@ -58,6 +58,8 @@ func (a *App) buildFrame(mode renderMode) string {
 		a.writeHelp(&b, w, h)
 	} else if a.view == viewDetail {
 		a.writeDetail(&b, w, h)
+	} else if a.view == viewModel {
+		a.writeModel(&b, w, h)
 	} else {
 		a.writeLayout(&b, w, h)
 		row, col := a.composerCursor(w, h)

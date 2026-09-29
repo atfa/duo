@@ -152,6 +152,8 @@ Duo 并排显示两个 Agent 的连接、进程和工作状态，下方是当前
 | `Ctrl+]` / `Ctrl+\` / `Ctrl+】` | 从原生 Pi 返回 Duo |
 | `Ctrl+R` / `Ctrl+Y` | 若 Austin / Tony 进程已退出或失败，重启它 |
 | `Ctrl+/` | 打开或关闭 Duo Help |
+| `Ctrl+M` / `Alt+M` | 打开 Austin 或 Tony 的模型选择器 |
+| `Shift+Tab` | 循环切换目标 Agent 的 Pi 思考强度 |
 | `Ctrl+Q` | 退出 Duo 并保留 session |
 | `←` / `→` | 移动 composer 光标 |
 | `Backspace` | 删除前一个字符 |
@@ -160,13 +162,15 @@ Duo 并排显示两个 Agent 的连接、进程和工作状态，下方是当前
 
 composer 支持多行，一次最多显示四行。原生接管是全屏接管：在 Pi 里，`/model`、`/settings`、`/tree` 以及所有 Pi 快捷键都归 Pi 管。
 
+模型选择器（`Ctrl+M`）列出 Duo 启动 Pi 所用的同一套安装（`pi --list-models`）上报的模型目录。输入即可过滤，用 `↑`/`↓`（或 `PgUp`/`PgDn`、`Home`/`End`）移动，用 `Tab` 在 Austin 与 Tony 之间切换目标，用 `Shift+Tab` 循环该 Agent 的思考强度，用 `Enter` 应用模型并关闭，或用 `Space` 应用模型但不关闭——这样一次打开就能同时设好模型和思考强度。切换是实时的：Pi 保留对话，并把模型与思考强度记入 session 记录，因此重启或 resume（`Ctrl+R`/`Ctrl+Y`）后仍然有效。`▶` 标记选择器光标，`●` 标记目标 Agent 当前使用的模型。
+
 Agent 输出按轻量 markdown 渲染：标题、引用、链接以及粗体/斜体/行内代码都有样式，markdown 表格会画出对齐的真实边框。表格宽度超过 pane 时，Duo 会折行最宽的单元格，而不是截断内容；折行的列表项会保持悬挂缩进，续行对齐在条目正文下方。
 
 鼠标选择通过平台剪贴板命令复制，目前即 macOS 上的 `pbcopy`。其他平台上选择仍会高亮，但复制步骤会失败，Duo 会在状态行给出提示。
 
 Help 是一个完整的大屏视图，用 `↑`/`k`、`↓`/`j`、`PgUp`、`PgDn`、`Home`/`g`、`End`/`G` 滚动，用 `Esc` 或 `Ctrl+/` 关闭。在原生 Pi 中 `Ctrl+/` 仍直接交给 Pi，不会打开 Duo Help。
 
-\* 只有当终端能明确区分上报该组合键时才会插入换行（`\x1b[13;2u` CSI-u 或 Duo 启用 modifyOtherKeys 后的 `\x1b[27;2;13~`）。若你的终端把 `Shift+Enter` 发成裸 `\r`，它会**提交**而不是换行——这种情况请改用 `Ctrl+Enter`（到达时是 `\n`）。
+\* 只有当终端能明确区分上报该组合键时才会插入换行（`\x1b[13;2u` CSI-u 或 Duo 启用 modifyOtherKeys 后的 `\x1b[27;2;13~`）。若你的终端把 `Shift+Enter` 发成裸 `\r`，它会**提交**而不是换行——这种情况请改用 `Ctrl+Enter`（到达时是 `\n`）。`Ctrl+M` 有同样的限制：只有支持上述模式的终端才会把它上报成带 Ctrl 的 `m` 键（`\x1b[27;5;109~` 或 `\x1b[109;5u`），其余终端上与 `Enter` 无法区分——这种情况请用 `Alt+M`。
 
 ## 配置
 

@@ -34,6 +34,9 @@ const (
 	actionScrollPane
 	actionAttach
 	actionRestart
+	actionApplyModel
+	actionApplyModelKeepOpen
+	actionCycleThinking
 	actionSelectStart
 	actionSelectMove
 	actionSelectEnd
@@ -53,6 +56,17 @@ func (a *App) handleByte(b byte) inputAction {
 			if bytes.HasSuffix(a.escBuf, []byte(bracketedPasteEnd)) {
 				paste := string(a.escBuf[len(bracketedPasteStart) : len(a.escBuf)-len(bracketedPasteEnd)])
 				a.escBuf = nil
+				if a.view == viewModel {
+					// The picker is modal: a paste filters its catalog instead of
+					// falling through to the composer behind it.
+					for i := 0; i < len(paste); i++ {
+						if paste[i] >= 32 && paste[i] < 0x7f {
+							a.modelFilter = append(a.modelFilter, paste[i])
+						}
+					}
+					a.clampModelCursor()
+					return inputAction{}
+				}
 				a.insertInput(strings.ReplaceAll(strings.ReplaceAll(paste, "\r\n", "\n"), "\r", "\n"))
 				a.setStatus("", false)
 			}
@@ -141,6 +155,8 @@ func keyForByte(b byte) string {
 		return "ctrl-w"
 	case 13:
 		return "enter"
+	case 9:
+		return "tab"
 	case 10:
 		return "ctrl-enter"
 	case 127, 8:
@@ -171,6 +187,10 @@ func decodeEscape(seq string) string {
 		return "left"
 	case "\x1b[C":
 		return "right"
+	case "\x1b[Z", "\x1b[9;2u", "\x1b[27;2;9~":
+		return "shift-tab"
+	case "\x1bm":
+		return "alt-m"
 	case "\x1b[13;2u", "\x1b[27;2;13~", "\x1b[13;5u", "\x1b[27;5;13~":
 		return "ctrl-enter"
 	}
@@ -228,6 +248,11 @@ func decodeModifiedKey(seq string) string {
 		return "ctrl-k"
 	case 23, 119:
 		return "ctrl-w"
+	case 109:
+		// Ctrl+M (the m key, not Return) is reported as codepoint 109 by
+		// modifyOtherKeys/CSI-u terminals. Terminals without that support send
+		// bare CR, which is indistinguishable from Enter.
+		return "ctrl-m"
 	case 13:
 		return "ctrl-enter"
 	}
@@ -237,6 +262,9 @@ func decodeModifiedKey(seq string) string {
 func (a *App) handleKey(key string) inputAction {
 	if key == "ctrl-q" {
 		return inputAction{kind: actionQuit}
+	}
+	if a.view == viewModel {
+		return a.handleModelKey(key)
 	}
 	if a.view == viewHelp || a.view == viewDetail {
 		switch key {
@@ -273,6 +301,10 @@ func (a *App) handleKey(key string) inputAction {
 		return inputAction{kind: actionToggleHelp}
 	case "ctrl-o":
 		return inputAction{kind: actionToggleDetail}
+	case "ctrl-m", "alt-m":
+		a.openModelPicker()
+	case "shift-tab":
+		return inputAction{kind: actionCycleThinking}
 	case "ctrl-g":
 		return inputAction{kind: actionToggleTimestamps}
 	case "enter":

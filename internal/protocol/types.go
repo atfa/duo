@@ -58,6 +58,17 @@ const (
 	MsgSetVerification  MessageType = "set_verification"
 	MsgGetStatus        MessageType = "get_status"
 	MsgResponse         MessageType = "response"
+
+	// MsgSetModel asks a Pi agent to switch its active model (Duo Core → bridge).
+	// MsgModelState reports the model an agent is actually on, either at startup
+	// or after a switch (bridge → Duo Core).
+	MsgSetModel   MessageType = "set_model"
+	MsgModelState MessageType = "model_state"
+
+	// MsgCycleThinking asks a Pi agent to advance to its next thinking level
+	// (Duo Core → bridge); MsgThinkingState reports the level actually in effect.
+	MsgCycleThinking MessageType = "cycle_thinking"
+	MsgThinkingState MessageType = "thinking_state"
 )
 
 type ActivityType string

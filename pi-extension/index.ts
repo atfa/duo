@@ -1,4 +1,5 @@
 import { installLifecycle } from "./lifecycle";
+import { installModelBridge } from "./model";
 import { parseDuoMode } from "./mode";
 import { installDuoPrompt } from "./prompt";
 import type { AgentName } from "./protocol";
@@ -33,6 +34,7 @@ export default function (pi: any) {
 
   installDuoPrompt(pi, AGENT, mode);
   installLifecycle(pi, transport, AGENT);
+  installModelBridge(pi, transport, AGENT);
 
   registerSendTool(pi, transport);
   registerPlanTool(pi, transport, mode);

@@ -11,6 +11,7 @@ export class DuoTransport {
   private requestSeq = 0;
   private pending = new Map<string, PendingRequest>();
   private handler: ((message: DuoMessage) => void) | null = null;
+  private extraHandlers: Array<(message: DuoMessage) => void> = [];
 
   constructor(
     private readonly agent: AgentName,
@@ -22,6 +23,15 @@ export class DuoTransport {
 
   setHandler(handler: (message: DuoMessage) => void) {
     this.handler = handler;
+  }
+
+  /**
+   * Add an independent inbound-message listener. Unlike setHandler, this never
+   * replaces the lifecycle handler, so features such as model switching can be
+   * installed alongside it.
+   */
+  addHandler(handler: (message: DuoMessage) => void) {
+    this.extraHandlers.push(handler);
   }
 
   connect() {
@@ -149,6 +159,7 @@ export class DuoTransport {
           continue;
         }
         this.handler?.(message);
+        for (const extra of this.extraHandlers) extra(message);
       } catch (error) {
         console.error("[duo] invalid message from server:", error);
       }

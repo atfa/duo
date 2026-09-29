@@ -10,7 +10,8 @@ export type DuoMessageType =
   | "hello" | "test" | "activity" | "assistant_message" | "agent_error"
   | "peer_message" | "steer" | "duo_notice" | "harness_prompt" | "human_prompt"
   | "resume_prompt" | "set_plan" | "set_status" | "get_status" | "response"
-  | "set_verification";
+  | "set_verification" | "set_model" | "model_state" | "cycle_thinking"
+  | "thinking_state";
 
 /**
  * Structured verification result used by FAST mode. Austin is the driver; Tony
@@ -36,6 +37,11 @@ export type DuoMessage = {
   note?: string;
   ready?: boolean;
   verification?: VerificationResult;
+
+  /** Model switching: target/reported model and thinking level. */
+  provider?: string;
+  model?: string;
+  thinking?: string;
 
   activity?: string;
   timestamp?: number;

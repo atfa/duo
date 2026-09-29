@@ -15,6 +15,7 @@ const (
 	viewMain viewMode = iota
 	viewHelp
 	viewDetail
+	viewModel
 )
 
 type keyBinding struct {
@@ -35,6 +36,7 @@ var keyBindings = []keyBinding{
 	{"Ctrl+Y", "", "Restart Tony if exited/failed"},
 	{"Ctrl+/", "Ctrl+/ Help", "Toggle Help"},
 	{"Ctrl+O", "", "Show the full session, worktrees, verification or plan, and delivery"},
+	{"Ctrl+M / Alt+M", "", "Choose the Pi model and thinking level for Austin or Tony; in the picker Tab switches agent, Space applies the model and keeps it open, Enter applies and closes, Shift+Tab cycles thinking"},
 	{"Ctrl+G", "", "Toggle message timestamps"},
 	{"Ctrl+Q", "Ctrl+Q Quit", "Quit Duo and preserve session"},
 	{"← / →", "", "Move the composer cursor"},

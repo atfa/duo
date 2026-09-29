@@ -21,6 +21,12 @@ const (
 	// issue_found). It is a normal workflow result, not a failure, so the TUI
 	// shows it as a warning instead of an error.
 	KindVerdict Kind = "verdict"
+	// KindModel reports which Pi model an agent is actually running. It carries
+	// Provider/Model rather than free text so the picker can mark the current
+	// choice without parsing a string.
+	KindModel Kind = "model"
+	// KindThinking reports an agent's active Pi thinking level.
+	KindThinking Kind = "thinking"
 )
 
 type Event struct {
@@ -29,6 +35,13 @@ type Event struct {
 	Agent protocol.AgentID
 	Peer  protocol.AgentID
 	Text  string
+
+	// Provider and Model are set for KindModel events.
+	Provider string
+	Model    string
+
+	// Thinking is set for KindThinking events.
+	Thinking string
 }
 
 type Bus struct {

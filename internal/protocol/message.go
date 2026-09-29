@@ -16,6 +16,15 @@ type Message struct {
 	Plan string `json:"plan,omitempty"`
 	Note string `json:"note,omitempty"`
 
+	// Provider and Model carry the target of a MsgSetModel request and the
+	// reported model of a MsgModelState. They are separate because a model ID
+	// may itself contain a slash.
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
+
+	// Thinking carries a Pi thinking level (off…max) on a MsgThinkingState.
+	Thinking string `json:"thinking,omitempty"`
+
 	Ready *bool `json:"ready,omitempty"`
 
 	// Verification carries a structured Fast-mode verdict: "passed" or

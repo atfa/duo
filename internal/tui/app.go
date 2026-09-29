@@ -115,6 +115,8 @@ func (a *App) Run(ctx context.Context) error {
 			}
 		case <-a.renderer.dueChan():
 			a.renderer.flush()
+		case res := <-a.modelCh:
+			a.applyModelList(res)
 		case <-tick.C:
 			a.spinnerTick()
 		}
@@ -219,6 +221,19 @@ func (a *App) applyAction(ctx context.Context, action inputAction) bool {
 		a.markDirty()
 	case actionSubmit:
 		a.submit(ctx)
+		a.markDirty()
+	case actionApplyModel:
+		a.applySelectedModel(ctx, false)
+		a.markDirty()
+	case actionApplyModelKeepOpen:
+		a.applySelectedModel(ctx, true)
+		a.markDirty()
+	case actionCycleThinking:
+		if err := a.coord.CycleThinking(ctx, a.modelTarget); err != nil {
+			a.setStatus(err.Error(), true)
+		} else {
+			a.setStatus(string(a.modelTarget)+" thinking…", false)
+		}
 		a.markDirty()
 	}
 	return false

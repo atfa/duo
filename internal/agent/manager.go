@@ -76,6 +76,17 @@ func (m *Manager) Session(agent protocol.AgentID) (*Session, bool) {
 	return s, ok
 }
 
+// Command returns the base Pi command Duo launches agents with, so the model
+// catalog is read from the same installation (and flags) the agents use.
+func (m *Manager) Command() string {
+	for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		if s, ok := m.Session(agent); ok {
+			return s.cfg.Command
+		}
+	}
+	return ""
+}
+
 func (m *Manager) ResizeAll(cols, rows int) error {
 	for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
 		if s, ok := m.Session(agent); ok {

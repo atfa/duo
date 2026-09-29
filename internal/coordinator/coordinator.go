@@ -309,6 +309,12 @@ func (c *Coordinator) OnMessage(ctx context.Context, client *transport.Client, m
 	case protocol.MsgGetStatus:
 		c.handleGetStatus(ctx, client, message)
 
+	case protocol.MsgModelState:
+		c.handleModelState(client.Agent, message)
+
+	case protocol.MsgThinkingState:
+		c.handleThinkingState(client.Agent, message)
+
 	default:
 		if message.RequestID != "" {
 			_ = c.respond(ctx, client, message.RequestID, false, "unknown message type: "+string(message.Type), "")
@@ -329,6 +335,64 @@ func (c *Coordinator) handleAssistant(agent protocol.AgentID, message protocol.M
 	}
 	c.tracker.Touch(agent)
 	c.emit(events.KindAssistant, agent, "", message.Text)
+}
+
+// SetModel asks one agent's Pi process to switch its active model. Pi records
+// the change in its session transcript, so a restart or resume keeps it. The
+// picker reads the catalog from `pi --list-models`, which is the same source the
+// running Pi uses, so a listed provider/id always resolves.
+func (c *Coordinator) SetModel(ctx context.Context, agent protocol.AgentID, provider, id string) error {
+	provider, id = strings.TrimSpace(provider), strings.TrimSpace(id)
+	if provider == "" || id == "" {
+		return fmt.Errorf("set model: provider and model id are required")
+	}
+	return c.server.Send(ctx, agent, protocol.Message{
+		Version: protocol.Version, Type: protocol.MsgSetModel, From: protocol.Duo, To: agent,
+		Provider: provider, Model: id, Timestamp: time.Now().UnixMilli(),
+	})
+}
+
+// CycleThinking advances one agent's Pi thinking level to the next one Pi
+// accepts for its current model. Duo delegates the ordering and capability
+// clamping to Pi and only displays the level Pi reports back.
+func (c *Coordinator) CycleThinking(ctx context.Context, agent protocol.AgentID) error {
+	return c.server.Send(ctx, agent, protocol.Message{
+		Version: protocol.Version, Type: protocol.MsgCycleThinking, From: protocol.Duo, To: agent,
+		Timestamp: time.Now().UnixMilli(),
+	})
+}
+
+// handleModelState records which model an agent is running. A failed switch
+// (ok=false) is surfaced as an error without counting as an agent failure.
+func (c *Coordinator) handleModelState(agent protocol.AgentID, message protocol.Message) {
+	provider := strings.TrimSpace(message.Provider)
+	model := strings.TrimSpace(message.Model)
+	if !message.OK {
+		text := strings.TrimSpace(message.Text)
+		if text == "" {
+			text = "could not switch model"
+		}
+		c.emit(events.KindError, agent, "", text)
+		return
+	}
+	if provider == "" || model == "" {
+		return
+	}
+	if c.bus != nil {
+		c.bus.Emit(events.Event{Kind: events.KindModel, Agent: agent, Provider: provider, Model: model})
+	}
+	c.logf("%s model: %s/%s", agent, provider, model)
+}
+
+func (c *Coordinator) handleThinkingState(agent protocol.AgentID, message protocol.Message) {
+	level := strings.TrimSpace(message.Thinking)
+	if level == "" {
+		return
+	}
+	if c.bus != nil {
+		c.bus.Emit(events.Event{Kind: events.KindThinking, Agent: agent, Thinking: level})
+	}
+	c.logf("%s thinking: %s", agent, level)
 }
 
 func (c *Coordinator) handleAgentError(agent protocol.AgentID, message protocol.Message) {

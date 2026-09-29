@@ -10,6 +10,7 @@ import (
 	"github.com/atfa/duo/internal/coordinator"
 	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/harness"
+	"github.com/atfa/duo/internal/models"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/sessionstore"
@@ -79,6 +80,20 @@ type App struct {
 	historyIdx   int
 	historyDraft []byte
 
+	// Model picker (Ctrl+M). The catalog is read once from `pi --list-models`;
+	// the active model and thinking level are reported by each agent's bridge, so
+	// the picker only displays what Pi confirms.
+	modelTarget     protocol.AgentID
+	modelFilter     []byte
+	modelCursor     int
+	models          []models.Model
+	modelLoading    bool
+	modelLoaded     bool
+	modelErr        string
+	modelCh         chan modelsResult
+	currentModel    map[protocol.AgentID]string
+	currentThinking map[protocol.AgentID]string
+
 	showTimestamps bool
 	detailOffset   int
 
@@ -114,7 +129,9 @@ func New(
 	history []sessionstore.TUIEntry,
 	journal *sessionstore.EventLog,
 ) *App {
-	a := &App{coord: coord, state: state, tracker: tracker, ws: ws, server: server, agents: agents, bus: bus, version: version, journal: journal, historyIdx: -1}
+	a := &App{coord: coord, state: state, tracker: tracker, ws: ws, server: server, agents: agents, bus: bus, version: version, journal: journal, historyIdx: -1,
+		modelTarget: protocol.Austin, modelCh: make(chan modelsResult, 1),
+		currentModel: map[protocol.AgentID]string{}, currentThinking: map[protocol.AgentID]string{}}
 	for _, item := range history {
 		a.restoreEntry(item)
 	}
@@ -164,6 +181,25 @@ func (a *App) spinnerTick() bool {
 }
 
 func (a *App) route(event events.Event) {
+	// Model and thinking reports carry no free text; they update picker state
+	// rather than adding a pane entry.
+	if event.Kind == events.KindModel && event.Provider != "" && event.Model != "" {
+		if a.currentModel == nil {
+			a.currentModel = map[protocol.AgentID]string{}
+		}
+		a.currentModel[event.Agent] = event.Provider + "/" + event.Model
+		return
+	}
+	if event.Kind == events.KindThinking && event.Thinking != "" {
+		if a.currentThinking == nil {
+			a.currentThinking = map[protocol.AgentID]string{}
+		}
+		a.currentThinking[event.Agent] = event.Thinking
+		// Pi clamps the level to what the model supports, so report what it
+		// settled on rather than what was requested.
+		a.setStatus(fmt.Sprintf("%s thinking: %s", event.Agent, event.Thinking), false)
+		return
+	}
 	text := strings.TrimSpace(event.Text)
 	if text == "" {
 		return
