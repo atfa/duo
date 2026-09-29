@@ -2,6 +2,10 @@
 
 All notable project milestones are documented here.
 
+## Unreleased
+
+- A Fast-mode follow-up driven through native Pi (`Ctrl+A`) now has a path back to the peer. The composer already reopened a `DONE` session, but native Pi bypasses Duo, so Austin's completion request was rejected with `project is already DONE` and its new commit stayed stranded in the worktree. A request that names a different Austin HEAD than the delivered round now reopens the round and runs a fresh verification and delivery; a retry that still names the delivered HEAD stays rejected, so a stray resend cannot undo a delivery.
+
 ## v0.5.1 — 2026-09-29
 
 The main view is now one conversation timeline; the frame's top row names the Git repository, and every message header is a directed, speaker-coloured pair. This release also fixes two Fast-mode paper cuts.

@@ -213,7 +213,8 @@ func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 // reopenFinishedSession turns a DONE session back into an active round when the
 // human submits a new task through the Duo composer. Native Pi attachment
 // (Ctrl+A/Ctrl+T) writes straight to the agent PTY and never reaches this path,
-// so a conversation held directly with an agent leaves the phase untouched.
+// so Austin reopening a finished round from there is handled separately by
+// reopenFastRoundForNewWork when it requests verification of a new HEAD.
 //
 // The finished round's delivery and integration checkpoints are cleared first:
 // they are terminal evidence for the previous artifact, and an applied record
@@ -611,8 +612,11 @@ func (c *Coordinator) handleFastSetStatus(ctx context.Context, client *transport
 
 	snap := c.project.Snapshot()
 	if snap.Phase == project.PhaseDone {
-		_ = c.respond(ctx, client, message.RequestID, false, project.ErrProjectDone.Error(), c.statusText(ctx))
-		return
+		if !c.reopenFastRoundForNewWork(ctx, client, message) {
+			_ = c.respond(ctx, client, message.RequestID, false, project.ErrProjectDone.Error(), c.statusText(ctx))
+			return
+		}
+		snap = c.project.Snapshot()
 	}
 	if client.Agent != protocol.Austin {
 		_ = c.respond(ctx, client, message.RequestID, false,
@@ -662,6 +666,31 @@ func (c *Coordinator) handleFastSetStatus(ctx context.Context, client *transport
 		"[Duo verification request]\nAustin reports the work complete and requested independent verification of HEAD %s.\n\nInspect that exact artifact yourself. Then report a structured verdict with duo_set_verification: result=passed, or result=issue_found with a concrete note describing the problem. Fast mode is single-writer: do not commit or edit the artifact; if a fix is needed, report it so Austin applies it.",
 		shortSHA(snap.Verification.Head),
 	))
+}
+
+// reopenFastRoundForNewWork detects a Fast round that was driven outside the Duo
+// composer. The composer reopens a DONE session through SubmitUserTask, but the
+// human can also talk to Austin in native Pi (Ctrl+A) and let it commit; that
+// path never reaches Duo, so Austin's next completion request is the only signal
+// of the new round. A request that names a different Austin HEAD than the
+// delivered round is genuine new work: reopen the finished round and let the
+// caller handle it as an ordinary RUNNING → VERIFY request. A retry that still
+// names the delivered HEAD is a duplicate of the finished round and stays
+// rejected, so a stray resend can never undo a delivery.
+func (c *Coordinator) reopenFastRoundForNewWork(ctx context.Context, client *transport.Client, message protocol.Message) bool {
+	if message.Ready == nil || !*message.Ready || client.Agent != protocol.Austin {
+		return false
+	}
+	delivered := strings.TrimSpace(c.project.Snapshot().Verification.Head)
+	if delivered == "" {
+		return false
+	}
+	head, err := recovery.FastVerificationTarget(ctx, c.workspace)
+	if err != nil || head == delivered {
+		return false
+	}
+	c.reopenFinishedSession()
+	return true
 }
 
 // handleSetVerification is the Fast-mode verification gate. It accepts exactly

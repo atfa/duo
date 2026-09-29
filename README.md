@@ -119,7 +119,7 @@ PLAN → EXECUTE → REVIEW → INTEGRATE → DONE
 
 In both modes a phase is a **checkpoint, not a behavioral cage**: Duo does not stop an agent from reading code or reviewing a diff early; the phase only decides what evidence is required to advance.
 
-`DONE` is terminal for the round, not for the session. Submitting another task through the Duo composer reopens it for a new round — Fast returns to `RUNNING`, Goal to `PLAN` — and clears the finished round's delivery checkpoint so the follow-up can be verified and delivered on its own. Talking to an agent directly through native Pi (`Ctrl+A` / `Ctrl+T`) deliberately does not do this: that path bypasses Duo and leaves the phase untouched.
+`DONE` is terminal for the round, not for the session. Submitting another task through the Duo composer reopens it for a new round — Fast returns to `RUNNING`, Goal to `PLAN` — and clears the finished round's delivery checkpoint so the follow-up can be verified and delivered on its own. Talking to an agent directly through native Pi (`Ctrl+A` / `Ctrl+T`) does not route a task through Duo, but it stays recoverable in Fast mode: when Austin commits new work there and requests verification, Duo opens a fresh round on the new HEAD instead of rejecting the request, so the follow-up can still be verified and delivered. A repeated request that still names the already-delivered HEAD is rejected, so a stray resend never reopens a delivered session.
 
 A Goal plan update creates a new version and **invalidates both signatures**, so wording churn has a visible cost. In Goal, a sign-off is bound to an exact commit: if the peer pushes a new commit, the previous review is stale and must be repeated.
 

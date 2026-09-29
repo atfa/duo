@@ -184,6 +184,60 @@ func TestComposerReopensDeliveredSession(t *testing.T) {
 	}
 }
 
+// TestFastModeNativeFollowUpReopens pins the follow-up path that does not go
+// through the Duo composer: the human talks to Austin in native Pi (Ctrl+A) and
+// lets it commit, so SubmitUserTask never runs. Austin's next completion request
+// is the only signal Duo sees, and it names a new Austin HEAD. It must reopen the
+// DONE round instead of being rejected, otherwise the new commit is stranded in
+// the worktree with no path to verification or delivery.
+func TestFastModeNativeFollowUpReopens(t *testing.T) {
+	ctx := context.Background()
+	runtime := startE2EWithMode(t, ctx, project.ModeFast)
+	set, store, state, server := runtime.set, runtime.store, runtime.state, runtime.server
+
+	austin := runtime.dialAgent(t, protocol.Austin)
+	tony := runtime.dialAgent(t, protocol.Tony)
+	waitFor(t, func() bool { return server.IsConnected(protocol.Austin) && server.IsConnected(protocol.Tony) }, "both agents to connect")
+
+	// Round 1: the normal Fast cycle delivers a verified artifact.
+	writeAndCommit(t, set.Austin.Path, "result.md", "round one\n", "round one")
+	fastRequestVerification(t, austin)
+	waitPhase(t, state, project.PhaseVerify)
+	if _, err := fastVerdict(t, tony, "passed", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitPhase(t, state, project.PhaseDone)
+	firstHead := gitHead(t, runtime.repo)
+	if delivered := coordDelivery(t, store); !delivered.Applied() || delivered.AppliedHead != firstHead {
+		t.Fatalf("round 1 delivery = %+v, want applied at %s", delivered, firstHead)
+	}
+
+	// The human asks for a follow-up in native Pi, and Austin commits and
+	// requests verification without Duo ever seeing a human task.
+	writeAndCommit(t, set.Austin.Path, "result.md", "round two\n", "round two")
+	fastRequestVerification(t, austin)
+	waitPhase(t, state, project.PhaseVerify)
+	if got := state.Snapshot().Verification.Head; got != gitHead(t, set.Austin.Path) {
+		t.Fatalf("native follow-up verification targets %s, want Austin HEAD %s", got, gitHead(t, set.Austin.Path))
+	}
+	if cleared := coordDelivery(t, store); cleared.Status != "" {
+		t.Fatalf("a reopened round must clear the applied delivery checkpoint, got %+v", cleared)
+	}
+
+	// Round 2 is an ordinary Fast cycle and must deliver independently.
+	if _, err := fastVerdict(t, tony, "passed", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitPhase(t, state, project.PhaseDone)
+	secondHead := gitHead(t, runtime.repo)
+	if secondHead == firstHead {
+		t.Fatal("round 2 did not deliver a new HEAD")
+	}
+	if delivered := coordDelivery(t, store); !delivered.Applied() || delivered.AppliedHead != secondHead {
+		t.Fatalf("round 2 delivery = %+v, want applied at %s", delivered, secondHead)
+	}
+}
+
 // TestFastModeRevokesVerificationWhenHeadMoves pins the single safety rule that
 // makes Fast delivery sound: a verdict describes one exact Austin HEAD, and if
 // that HEAD moves the request is revoked before the verdict can be accepted.
