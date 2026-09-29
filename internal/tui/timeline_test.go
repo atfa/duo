@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -80,5 +81,42 @@ func TestTimelineScrollsAndSelects(t *testing.T) {
 		if got := displayWidth(line); got != a.width {
 			t.Fatalf("row %d is %d columns, want %d: %q", i, got, a.width, line)
 		}
+	}
+}
+
+// The timeline header time is what Ctrl+G toggles, and it is on by default so
+// the chat transcript is readable without a hidden switch.
+func TestTimelineTimestampsFollowCtrlG(t *testing.T) {
+	a := testApp(100, 30)
+	a.timeline = true
+	a.showTimestamps = true
+	a.route(events.Event{Kind: events.KindPeer, Agent: protocol.Austin, Peer: protocol.Tony, Text: "check the cache"})
+
+	plain := ansiPattern.ReplaceAllString(a.buildFrame(renderNormal), "")
+	if !strings.Contains(plain, "Austin → Tony · ") {
+		t.Fatalf("timeline header is not stamped:\n%s", plain)
+	}
+
+	a.handleKey("ctrl-g")
+	if !a.showTimestamps {
+		t.Fatal("ctrl-g action is not bound to the timestamp toggle")
+	}
+	a.applyAction(context.Background(), inputAction{kind: actionToggleTimestamps})
+	if a.showTimestamps {
+		t.Fatal("ctrl-g did not toggle timestamps off")
+	}
+	plain = ansiPattern.ReplaceAllString(a.buildFrame(renderNormal), "")
+	if !strings.Contains(plain, "Austin → Tony") || strings.Contains(plain, "Austin → Tony · ") {
+		t.Fatalf("ctrl-g did not remove the timeline stamp:\n%s", plain)
+	}
+}
+
+func TestNewEnablesStampedTimeline(t *testing.T) {
+	a := New(nil, nil, nil, nil, nil, nil, nil, "test", nil, nil)
+	if !a.timeline {
+		t.Fatal("New must enable the timeline main view")
+	}
+	if !a.showTimestamps {
+		t.Fatal("New must stamp timeline headers by default")
 	}
 }

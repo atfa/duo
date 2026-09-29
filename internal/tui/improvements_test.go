@@ -132,7 +132,9 @@ func TestWordWrapKeepsWordsIntact(t *testing.T) {
 }
 
 // C2: timestamps are opt-in so they do not cost columns by default.
-func TestTimestampsAreOptIn(t *testing.T) {
+// The split fallback pane prefix is opt-in; the timeline stamps its message
+// headers by default (Ctrl+G), which timeline_test covers.
+func TestSplitPaneTimestampsAreOptIn(t *testing.T) {
 	a := testApp(100, 30)
 	stamp := time.Date(2026, 9, 29, 7, 30, 5, 0, time.UTC)
 	a.austin = []entry{{at: stamp, text: "hello"}}

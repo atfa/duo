@@ -163,7 +163,7 @@ A build can take a long time, and the timeline only changes when an agent finish
 | Mouse wheel over the timeline | Scroll earlier messages |
 | Mouse drag over the timeline | Select text and copy it to the clipboard |
 
-Every timeline message carries a `HH:MM:SS` stamp in its header (`Austin → Tony · 14:30:05`, `Tony → Austin · 14:31:12`), so one exchange is readable end to end; `Ctrl+G` additionally prefixes each entry with its own time.
+Each timeline message header carries its `HH:MM:SS` time by default (`Austin → Tony · 14:30:05`), so one exchange is readable end to end; `Ctrl+G` hides or restores those stamps.
 
 The composer holds multiple lines and shows up to four at a time. Native attach is a fullscreen takeover: inside Pi, `/model`, `/settings`, `/tree` and all Pi shortcuts belong to Pi.
 

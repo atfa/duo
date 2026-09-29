@@ -151,8 +151,9 @@ func New(
 ) *App {
 	a := &App{coord: coord, state: state, tracker: tracker, ws: ws, server: server, agents: agents, bus: bus, version: version, journal: journal, historyIdx: -1,
 		modelTarget: protocol.Austin, modelCh: make(chan modelsResult, 1),
-		timeline:     true,
-		currentModel: map[protocol.AgentID]string{}, currentThinking: map[protocol.AgentID]string{}}
+		timeline:       true,
+		showTimestamps: true,
+		currentModel:   map[protocol.AgentID]string{}, currentThinking: map[protocol.AgentID]string{}}
 	for _, item := range history {
 		a.restoreEntry(item)
 	}

@@ -445,12 +445,13 @@ func (a *App) paneCacheFor(agent protocol.AgentID) (*paneCache, int) {
 func (a *App) paneLines(agent protocol.AgentID, width int) []paneLine {
 	if a.timeline && agent == protocol.Duo {
 		cache := &a.timelineCache
-		if cache.lines != nil && cache.width == width && cache.rev == a.timelineRev {
+		if cache.lines != nil && cache.width == width && cache.rev == a.timelineRev && cache.ts == a.showTimestamps {
 			return cache.lines
 		}
-		cache.lines = a.buildTimelineLines(width)
+		cache.lines = a.buildTimelineLines(width, a.showTimestamps)
 		cache.width = width
 		cache.rev = a.timelineRev
+		cache.ts = a.showTimestamps
 		return cache.lines
 	}
 	cache, rev := a.paneCacheFor(agent)
@@ -516,7 +517,7 @@ func wrappedPaneLines(entries []entry, width int, timestamps bool) []paneLine {
 			// A labeled entry names its sender and target, so the split panes
 			// stay readable now that peer text is not mirrored into both.
 			head := e.label
-			if !e.at.IsZero() {
+			if timestamps && !e.at.IsZero() {
 				head += " · " + e.at.Format("15:04:05")
 			}
 			text = head + "\n" + text
@@ -560,20 +561,21 @@ func (a *App) timelineEntries() []timelineEntry {
 // buildTimelineLines merges every speaker's entries in true arrival order.
 // Austin's messages hug the left margin and Tony's are indented from the left
 // so their blocks sit on the right, the chat-style split of a two-peer
-// conversation that the human asked for.
-func (a *App) buildTimelineLines(width int) []paneLine {
+// conversation that the human asked for. When timestamps is true each message
+// header carries its HH:MM:SS time; Ctrl+G toggles it.
+func (a *App) buildTimelineLines(width int, timestamps bool) []paneLine {
 	entries := a.timelineEntries()
 	var all []paneLine
 	for i, e := range entries {
 		if i > 0 {
 			all = append(all, dividerLine(width))
 		}
-		all = append(all, timelineEntryLines(e, width)...)
+		all = append(all, timelineEntryLines(e, width, timestamps)...)
 	}
 	return all
 }
 
-func timelineEntryLines(e timelineEntry, width int) []paneLine {
+func timelineEntryLines(e timelineEntry, width int, timestamps bool) []paneLine {
 	indent := 0
 	if e.origin == protocol.Tony {
 		indent = minInt(maxInt(width/4, 4), maxInt(width/2, 0))
@@ -583,7 +585,7 @@ func timelineEntryLines(e timelineEntry, width int) []paneLine {
 	if head == "" {
 		head = string(e.origin)
 	}
-	if !e.entry.at.IsZero() {
+	if timestamps && !e.entry.at.IsZero() {
 		head += " · " + e.entry.at.Format("15:04:05")
 	}
 
