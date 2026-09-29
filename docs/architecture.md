@@ -77,7 +77,7 @@ Owns the handoff back to the human's repository. `Check` inspects the original r
 
 Owns durable state on disk: an atomically written `state.json` checkpoint, an append-only `events.jsonl` journal, a redacting `duo.log`, and an advisory `flock` lock that records the owner PID and hostname. Sessions are keyed by repository (`RepoID`) and session id under `~/.duo/sessions/`.
 
-`events.jsonl` is both the diagnostic journal and the TUI transcript: `tui_entry` records are replayed into the panes on `--resume` (capped at 200 entries per pane), so a resumed session shows the same visible history it had before.
+`events.jsonl` is both the diagnostic journal and the TUI transcript: `tui_entry` records are replayed into the conversation timeline on `--resume` (capped at 200 entries per speaker), so a resumed session shows the same visible history it had before.
 
 ### `internal/recovery`
 
@@ -89,7 +89,7 @@ A small in-process pub/sub bus carrying typed events (`system`, `assistant`, `pe
 
 ### `internal/tui`
 
-The terminal UI: model, renderer, layout, help, input decoding, mouse selection and in-pane markdown rendering. It is a projection of authoritative state, never a second source of truth. Frames are rebuilt from scratch and scheduled through a dirty tracker at about 60 FPS.
+The terminal UI: model, renderer, layout, help, input decoding, mouse selection and markdown rendering in the conversation timeline. It is a projection of authoritative state, never a second source of truth. Frames are rebuilt from scratch and scheduled through a dirty tracker at about 60 FPS.
 
 ### `internal/terminal`
 

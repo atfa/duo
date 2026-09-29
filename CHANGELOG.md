@@ -4,7 +4,7 @@ All notable project milestones are documented here.
 
 ## Unreleased
 
-- Peer coordination lines now carry an inline `HH:MM:SS` time after the direction marker (`→ Tony: sent 14:30:05`, `→ From Austin: 14:30:05`), so the two halves of one live exchange can be correlated even when `Ctrl+G` pane timestamps are off.
+- The main view is now a single conversation **timeline** instead of two side-by-side panes. Human tasks, peer messages (`Austin → Tony`, `Tony → Austin`), Austin's messages to the human, verifier verdicts and Duo system messages are interleaved in arrival order; Austin's blocks sit on the left and Tony's are indented so they read on the right. Every message header carries its `HH:MM:SS` time, so one exchange is readable end to end. The work preview, status rows, composer and every keyboard shortcut are unchanged, and the timeline is one scrollable, selectable region (mouse wheel and drag).
 
 ## v0.5.0 — 2026-09
 

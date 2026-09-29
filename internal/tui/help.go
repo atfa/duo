@@ -47,8 +47,8 @@ var keyBindings = []keyBinding{
 	{"Ctrl+U / Ctrl+K", "", "Delete to the start or end of the composer line"},
 	{"Ctrl+W", "", "Delete the previous word"},
 	{"Backspace", "", "Delete the previous composer character"},
-	{"Mouse wheel", "", "Scroll Austin, Tony or the system log history"},
-	{"Mouse drag", "", "Select pane text; copies on release (macOS)"},
+	{"Mouse wheel", "", "Scroll the conversation timeline"},
+	{"Mouse drag", "", "Select timeline text; copies on release (macOS)"},
 }
 
 func composerPrefix() string { return " Duo → Austin > " }
@@ -132,7 +132,7 @@ func (a *App) helpLines(width int) []string {
 			"Scope is a default working directory, not a filesystem sandbox.",
 		}},
 		{"Agent Status", []string{
-			"Austin and Tony headers show connection, process, and working state. Duo phase, plan, and transient feedback remain below the panes.",
+			"The main view is one conversation timeline: Austin's messages on the left, Tony's on the right. Their headers show connection, process, and working state; Duo phase, plan, and transient feedback stay below the timeline.",
 		}},
 	}
 	var out []string

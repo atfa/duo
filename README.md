@@ -139,9 +139,9 @@ Duo Core enforces these gates rather than trusting the model: Fast rejects `duo_
 
 ## Terminal UI
 
-Duo shows both agents side by side with their connection, process and working state, plus the current mode, phase, verification/Plan state and transient feedback below the panes.
+Duo's main view is one conversation **timeline**: a single chronological stream in which Austin's messages sit on the left and Tony's are indented from the left so their blocks read on the right. Human tasks, peer messages, verifier verdicts and Duo system messages are interleaved in arrival order, and the current mode, phase, verification/Plan state and transient feedback stay below the timeline.
 
-A build can take a long time, and the pane transcript only changes when an agent finishes a message. Below the panes Duo therefore keeps a **work preview** for each agent. Its header names the agent, its state and how long the current turn has been running; the rows below show what it is doing *now* (the running tool and how long it has been running, or the model and thinking level it is thinking with), the turn's recent tool trail with ✓/✗ and durations, the turn's last error, and the tail of the text being streamed. A failed tool or a provider error is visible there immediately, so waiting does not mean guessing. `Ctrl+P` collapses the band when you want the rows back for the panes; on a short terminal it is hidden automatically.
+A build can take a long time, and the timeline only changes when an agent finishes a message. Below it Duo therefore keeps a **work preview** for each agent. Its header names the agent, its state and how long the current turn has been running; the rows below show what it is doing *now* (the running tool and how long it has been running, or the model and thinking level it is thinking with), the turn's recent tool trail with ✓/✗ and durations, the turn's last error, and the tail of the text being streamed. A failed tool or a provider error is visible there immediately, so waiting does not mean guessing. `Ctrl+P` collapses the band when you want the rows back for the timeline; on a short terminal it is hidden automatically.
 
 | Key | Action |
 |---|---|
@@ -160,16 +160,16 @@ A build can take a long time, and the pane transcript only changes when an agent
 | `Ctrl+Q` | Quit Duo and preserve the session |
 | `←` / `→` | Move the composer cursor |
 | `Backspace` | Delete the preceding composer character |
-| Mouse wheel over a pane | Scroll that agent's earlier output |
-| Mouse drag over a pane | Select that agent's text and copy it to the clipboard |
+| Mouse wheel over the timeline | Scroll earlier messages |
+| Mouse drag over the timeline | Select text and copy it to the clipboard |
 
-Peer coordination lines carry an inline `HH:MM:SS` time (`→ Tony: sent 14:30:05`, `→ From Austin: 14:30:05`) so the two sides of one exchange can be correlated; `Ctrl+G` additionally prefixes every entry with its own time.
+Every timeline message carries a `HH:MM:SS` stamp in its header (`Austin → Tony · 14:30:05`, `Tony → Austin · 14:31:12`), so one exchange is readable end to end; `Ctrl+G` additionally prefixes each entry with its own time.
 
 The composer holds multiple lines and shows up to four at a time. Native attach is a fullscreen takeover: inside Pi, `/model`, `/settings`, `/tree` and all Pi shortcuts belong to Pi.
 
 The model picker (`Ctrl+M`) lists the catalog Pi reports for the very installation Duo launched (`pi --list-models`). Type to filter, move with `↑`/`↓` (or `PgUp`/`PgDn`, `Home`/`End`), switch the target between Austin and Tony with `Tab`, cycle that agent's thinking level with `Shift+Tab`, and apply the model with `Enter` (apply and close) or `Space` (apply and keep the picker open, so a model and a thinking level can be set in one visit). The switch is live: Pi keeps the conversation and records both the model and the thinking level in the session transcript, so a restart or resume (`Ctrl+R`/`Ctrl+Y`) keeps the choice. `▶` marks the picker cursor and `●` the target's current model.
 
-Agent output is rendered as lightweight markdown: headings, blockquotes, links and bold/italic/code spans are styled, and markdown tables are drawn with real, aligned borders. A table wider than its pane is narrowed by wrapping the widest cells instead of truncating them, and a wrapped list keeps a hanging indent so continuation lines stay under the item text.
+Agent output is rendered as lightweight markdown: headings, blockquotes, links and bold/italic/code spans are styled, and markdown tables are drawn with real, aligned borders. A table wider than the timeline is narrowed by wrapping the widest cells instead of truncating them, and a wrapped list keeps a hanging indent so continuation lines stay under the item text.
 
 Mouse selection copies through the platform clipboard command, which today means `pbcopy` on macOS. On other platforms the selection still highlights but the copy step fails and Duo reports it in the status line.
 

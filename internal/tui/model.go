@@ -24,6 +24,14 @@ type entry struct {
 	text    string
 	error   bool
 	warning bool
+	// label is the timeline header for this entry ("Austin → Tony", "Austin →
+	// Human", "Duo"). It is empty for entries that only exist in the split
+	// panes, which then fall back to a plain timestamp prefix.
+	label string
+	// seq is a global append order. The conversation timeline merges three
+	// per-speaker lists and must reproduce true arrival order even when two
+	// entries share the same clock value.
+	seq int
 }
 
 // paneCache memoizes the wrapped rendering of one pane. Rebuilding it parses
@@ -113,6 +121,14 @@ type App struct {
 	tonyCache   paneCache
 	duoCache    paneCache
 
+	// timeline is the main-view layout: one chronological conversation instead
+	// of two side-by-side panes. New() enables it; every pane helper branches on
+	// it so the split layout stays available as a fallback.
+	timeline      bool
+	nextSeq       int
+	timelineRev   int
+	timelineCache paneCache
+
 	frame int
 
 	native          protocol.AgentID
@@ -135,6 +151,7 @@ func New(
 ) *App {
 	a := &App{coord: coord, state: state, tracker: tracker, ws: ws, server: server, agents: agents, bus: bus, version: version, journal: journal, historyIdx: -1,
 		modelTarget: protocol.Austin, modelCh: make(chan modelsResult, 1),
+		timeline:     true,
 		currentModel: map[protocol.AgentID]string{}, currentThinking: map[protocol.AgentID]string{}}
 	for _, item := range history {
 		a.restoreEntry(item)
@@ -210,43 +227,49 @@ func (a *App) route(event events.Event) {
 	}
 	switch event.Kind {
 	case events.KindAssistant:
-		a.add(event.Agent, text)
+		a.addLabeled(event.Agent, string(event.Agent)+" → Human", text, false, false)
 	case events.KindPeer:
-		// Peer coordination lines carry an inline timestamp so the two halves of
-		// one exchange can be correlated even when Ctrl+G pane timestamps are off.
-		stamp := time.Now().Format("15:04:05")
-		sentDirection := "→"
-		if event.Agent == protocol.Tony {
-			sentDirection = "←"
+		if a.timeline {
+			// One entry per message, recorded on the sender's side, so the timeline
+			// can place senders left/right without duplicating the text.
+			a.addLabeled(event.Agent, fmt.Sprintf("%s → %s", event.Agent, event.Peer), text, false, false)
+		} else {
+			// The split panes still show a short sent marker on the sender's side
+			// and the full text on the receiver's.
+			stamp := time.Now().Format("15:04:05")
+			sentDirection := "→"
+			if event.Agent == protocol.Tony {
+				sentDirection = "←"
+			}
+			a.add(event.Agent, fmt.Sprintf("%s %s: sent %s", sentDirection, event.Peer, stamp))
+			direction := "←"
+			if event.Peer == protocol.Tony {
+				direction = "→"
+			}
+			a.add(event.Peer, fmt.Sprintf("%s From %s: %s\n%s", direction, event.Agent, stamp, text))
 		}
-		a.add(event.Agent, fmt.Sprintf("%s %s: sent %s", sentDirection, event.Peer, stamp))
-		direction := "←"
-		if event.Peer == protocol.Tony {
-			direction = "→"
-		}
-		a.add(event.Peer, fmt.Sprintf("%s From %s: %s\n%s", direction, event.Agent, stamp, text))
 	case events.KindUser:
-		a.add(protocol.Duo, "Human → Austin: "+text)
+		a.addLabeled(protocol.Duo, "Human → Austin", text, false, false)
 	case events.KindHarness:
-		a.add(protocol.Duo, "Harness: "+text)
+		a.addLabeled(protocol.Duo, "Duo", "Harness: "+text, false, false)
 	case events.KindError:
 		if event.Agent == protocol.Austin || event.Agent == protocol.Tony {
-			a.addError(event.Agent, "ERROR: "+text)
+			a.addLabeled(event.Agent, string(event.Agent), "ERROR: "+text, true, false)
 		}
 		label := "ERROR"
 		if event.Agent != "" && event.Agent != protocol.Duo {
 			label += " " + string(event.Agent)
 		}
-		a.addError(protocol.Duo, fmt.Sprintf("%s: %s", label, text))
+		a.addLabeled(protocol.Duo, "Duo", fmt.Sprintf("%s: %s", label, text), true, false)
 	case events.KindVerdict:
 		// A verdict is a workflow outcome, not a failure: warn instead of error,
 		// and keep the full report in the reporting agent's pane only. The Duo
 		// pane gets a one-line summary rather than a second copy of the report.
 		if event.Agent == protocol.Austin || event.Agent == protocol.Tony {
-			a.addWarning(event.Agent, "VERIFY — issue found:\n"+text)
-			a.add(protocol.Duo, fmt.Sprintf("VERIFY — %s reported issue_found; session returned to RUNNING", event.Agent))
+			a.addLabeled(event.Agent, string(event.Agent), "VERIFY — issue found:\n"+text, false, true)
+			a.addLabeled(protocol.Duo, "Duo", fmt.Sprintf("VERIFY — %s reported issue_found; session returned to RUNNING", event.Agent), false, false)
 		} else {
-			a.addWarning(protocol.Duo, text)
+			a.addLabeled(protocol.Duo, "Duo", text, false, true)
 		}
 	default:
 		if event.Agent == protocol.Austin || event.Agent == protocol.Tony {
@@ -265,17 +288,17 @@ func (a *App) addError(agent protocol.AgentID, text string) {
 	a.addEntry(agent, text, true, false)
 }
 
-// addWarning records a notable but non-failing entry, such as a verifier
-// reporting issue_found. It renders in the status color, never as an error.
-func (a *App) addWarning(agent protocol.AgentID, text string) {
-	a.addEntry(agent, text, false, true)
+func (a *App) addEntry(agent protocol.AgentID, text string, isError, isWarning bool) {
+	a.addLabeled(agent, "", text, isError, isWarning)
 }
 
-func (a *App) addEntry(agent protocol.AgentID, text string, isError, isWarning bool) {
-	item := entry{at: time.Now(), text: text, error: isError, warning: isWarning}
+// addLabeled records an entry with an optional timeline header, so the main
+// view can attribute a message without parsing its text.
+func (a *App) addLabeled(agent protocol.AgentID, label, text string, isError, isWarning bool) {
+	item := entry{at: time.Now(), text: text, error: isError, warning: isWarning, label: label}
 	a.appendEntry(agent, item)
 	if a.journal != nil {
-		a.journal.RecordTUIEntry(sessionstore.TUIEntry{Time: item.at, Pane: string(agent), Text: text, Error: isError, Warning: isWarning})
+		a.journal.RecordTUIEntry(sessionstore.TUIEntry{Time: item.at, Pane: string(agent), Text: text, Error: isError, Warning: isWarning, Label: label})
 	}
 }
 
@@ -284,10 +307,12 @@ func (a *App) restoreEntry(item sessionstore.TUIEntry) {
 	if agent != protocol.Austin && agent != protocol.Tony && agent != protocol.Duo {
 		return
 	}
-	a.appendEntry(agent, entry{at: item.Time, text: item.Text, error: item.Error, warning: item.Warning})
+	a.appendEntry(agent, entry{at: item.Time, text: item.Text, error: item.Error, warning: item.Warning, label: item.Label})
 }
 
 func (a *App) appendEntry(agent protocol.AgentID, item entry) {
+	a.nextSeq++
+	item.seq = a.nextSeq
 	list := &a.duo
 	switch agent {
 	case protocol.Austin:
@@ -299,6 +324,7 @@ func (a *App) appendEntry(agent protocol.AgentID, item entry) {
 	default:
 		a.duoRev++
 	}
+	a.timelineRev++
 	*list = append(*list, item)
 	if len(*list) > 200 {
 		*list = append([]entry(nil), (*list)[len(*list)-200:]...)

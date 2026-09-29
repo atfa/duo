@@ -34,6 +34,10 @@ type TUIEntry struct {
 	// Warning marks a notable but non-failing entry, such as a verifier's
 	// issue_found verdict. It is an optional field: older logs decode as false.
 	Warning bool `json:"warning,omitempty"`
+	// Label is the conversation-timeline header ("Austin → Tony"). It is
+	// optional: older logs decode as an empty label and the timeline falls back
+	// to the speaker name.
+	Label string `json:"label,omitempty"`
 }
 
 func (s *Store) OpenEvents() *EventLog { return &EventLog{path: s.EventsPath()} }
@@ -83,6 +87,7 @@ func (l *EventLog) RecordTUIEntry(entry TUIEntry) {
 		"text":    entry.Text,
 		"error":   entry.Error,
 		"warning": entry.Warning,
+		"label":   entry.Label,
 	}})
 }
 
@@ -109,12 +114,13 @@ func (l *EventLog) TUIEntries() []TUIEntry {
 				Text    string `json:"text"`
 				Error   bool   `json:"error"`
 				Warning bool   `json:"warning"`
+				Label   string `json:"label"`
 			} `json:"fields"`
 		}
 		if json.Unmarshal(scanner.Bytes(), &raw) != nil || raw.Type != "tui_entry" || !validTUIPane(raw.Fields.Pane) {
 			continue
 		}
-		entry := TUIEntry{Time: raw.Time, Pane: raw.Fields.Pane, Text: raw.Fields.Text, Error: raw.Fields.Error, Warning: raw.Fields.Warning}
+		entry := TUIEntry{Time: raw.Time, Pane: raw.Fields.Pane, Text: raw.Fields.Text, Error: raw.Fields.Error, Warning: raw.Fields.Warning, Label: raw.Fields.Label}
 		out = append(out, entry)
 		counts[entry.Pane]++
 		if counts[entry.Pane] > 200 {

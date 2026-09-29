@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -61,7 +62,11 @@ func (a *App) buildFrame(mode renderMode) string {
 	} else if a.view == viewModel {
 		a.writeModel(&b, w, h)
 	} else {
-		a.writeLayout(&b, w, h)
+		if a.timeline {
+			a.writeTimelineLayout(&b, w, h)
+		} else {
+			a.writeLayout(&b, w, h)
+		}
 		row, col := a.composerCursor(w, h)
 		b.WriteString(fmt.Sprintf("\x1b[%d;%dH", row, col))
 	}
@@ -105,7 +110,6 @@ func (a *App) writeLayout(b *strings.Builder, w, h int) {
 	l := a.layoutFor(w, h)
 	a.clampPaneOffsets()
 
-	snap := a.state.Snapshot()
 	ar := a.tracker.Snapshot(protocol.Austin)
 	tr := a.tracker.Snapshot(protocol.Tony)
 
@@ -125,6 +129,45 @@ func (a *App) writeLayout(b *strings.Builder, w, h int) {
 		b.WriteString(paint(ansiBorder, "├"+strings.Repeat("─", l.leftW)+"┴"+strings.Repeat("─", l.rightW)+"┤\r\n"))
 	}
 
+	for _, line := range a.styledPane(protocol.Duo, l.logW, duoLogRows, a.duoOffset) {
+		b.WriteString(paint(ansiBorder, "│ ") + paintEntry(line, l.logW) + paint(ansiBorder, " │\r\n"))
+	}
+
+	a.writeFrameTail(b, w, composer)
+}
+
+// writeTimelineLayout draws the main-view conversation timeline: one
+// chronological stream in which Austin's messages sit on the left and Tony's
+// are indented from the left so their blocks read on the right.
+func (a *App) writeTimelineLayout(b *strings.Builder, w, h int) {
+	composer := a.composerLayout(w)
+	l := a.layoutFor(w, h)
+	a.clampPaneOffsets()
+
+	ar := a.tracker.Snapshot(protocol.Austin)
+	tr := a.tracker.Snapshot(protocol.Tony)
+	aState := agentState(a.server.IsConnected(protocol.Austin), ar, a.frame, a.processState(protocol.Austin))
+	tState := agentState(a.server.IsConnected(protocol.Tony), tr, a.frame, a.processState(protocol.Tony))
+
+	b.WriteString(paint(ansiBorder, "┌") + paint(ansiTitle, header(paneTitle("Austin", aState, a.duoOffset, a.duoNew), l.leftW)) + paint(ansiBorder, "┬") + paint(ansiTitle, header(paneTitle("Tony", tState, a.duoOffset, a.duoNew), l.rightW)) + paint(ansiBorder, "┐") + "\r\n")
+
+	lines := a.styledPane(protocol.Duo, l.timelineW, l.content, a.duoOffset)
+	for i := 0; i < l.content; i++ {
+		b.WriteString(paint(ansiBorder, "│") + a.paintPaneEntry(lines[i], l.timelineW, protocol.Duo, i) + paint(ansiBorder, "│\r\n"))
+	}
+	b.WriteString(paint(ansiBorder, "├"+strings.Repeat("─", w-2)+"┤\r\n"))
+	if l.preview > 0 {
+		a.writePreview(b, l)
+		b.WriteString(paint(ansiBorder, "├"+strings.Repeat("─", l.leftW)+"┴"+strings.Repeat("─", l.rightW)+"┤\r\n"))
+	}
+
+	a.writeFrameTail(b, w, composer)
+}
+
+// writeFrameTail draws the mode/phase status rows, the transient status line,
+// the composer and the footer, which the split and timeline layouts share.
+func (a *App) writeFrameTail(b *strings.Builder, w int, composer composerLayout) {
+	snap := a.state.Snapshot()
 	var status, second string
 	if snap.EffectiveMode() == project.ModeFast {
 		// Fast has no shared plan and no sign-off: show the workflow roles and the
@@ -155,10 +198,6 @@ func (a *App) writeLayout(b *strings.Builder, w, h int) {
 	}
 	b.WriteString(paint(ansiBorder, "│") + paint(ansiStatus, fit(status, w-2)) + paint(ansiBorder, "│\r\n"))
 	b.WriteString(paint(ansiBorder, "│") + paint(ansiHint, fit(second, w-2)) + paint(ansiBorder, "│\r\n"))
-
-	for _, line := range a.styledPane(protocol.Duo, l.logW, duoLogRows, a.duoOffset) {
-		b.WriteString(paint(ansiBorder, "│ ") + paintEntry(line, l.logW) + paint(ansiBorder, " │\r\n"))
-	}
 
 	statusLine := " Status: " + a.status
 	statusColor := ansiStatus
@@ -401,8 +440,19 @@ func (a *App) paneCacheFor(agent protocol.AgentID) (*paneCache, int) {
 
 // paneLines returns one pane's wrapped lines, rebuilding them only when the
 // entries or the width changed, so a frame that only advances a spinner or
-// moves a scroll offset does not re-parse every markdown block.
+// moves a scroll offset does not re-parse every markdown block. In timeline
+// mode the Duo region is the merged conversation rather than the system log.
 func (a *App) paneLines(agent protocol.AgentID, width int) []paneLine {
+	if a.timeline && agent == protocol.Duo {
+		cache := &a.timelineCache
+		if cache.lines != nil && cache.width == width && cache.rev == a.timelineRev {
+			return cache.lines
+		}
+		cache.lines = a.buildTimelineLines(width)
+		cache.width = width
+		cache.rev = a.timelineRev
+		return cache.lines
+	}
 	cache, rev := a.paneCacheFor(agent)
 	if cache.lines != nil && cache.width == width && cache.rev == rev && cache.ts == a.showTimestamps {
 		return cache.lines
@@ -461,7 +511,16 @@ func wrappedPaneLines(entries []entry, width int, timestamps bool) []paneLine {
 			all = append(all, dividerLine(width))
 		}
 		text := strings.TrimSpace(e.text)
-		if timestamps && !e.at.IsZero() {
+		switch {
+		case e.label != "":
+			// A labeled entry names its sender and target, so the split panes
+			// stay readable now that peer text is not mirrored into both.
+			head := e.label
+			if !e.at.IsZero() {
+				head += " · " + e.at.Format("15:04:05")
+			}
+			text = head + "\n" + text
+		case timestamps && !e.at.IsZero():
 			text = e.at.Format("15:04:05") + " " + text
 		}
 		for _, line := range markdownLines(text, width) {
@@ -473,6 +532,82 @@ func wrappedPaneLines(entries []entry, width int, timestamps bool) []paneLine {
 		}
 	}
 	return all
+}
+
+// timelineEntry is one message in the merged conversation, tagged with the
+// speaker so the timeline can place it left (Austin), right (Tony) or neutral
+// (Duo/system).
+type timelineEntry struct {
+	origin protocol.AgentID
+	entry  entry
+}
+
+func (a *App) timelineEntries() []timelineEntry {
+	out := make([]timelineEntry, 0, len(a.austin)+len(a.tony)+len(a.duo))
+	for _, e := range a.austin {
+		out = append(out, timelineEntry{origin: protocol.Austin, entry: e})
+	}
+	for _, e := range a.tony {
+		out = append(out, timelineEntry{origin: protocol.Tony, entry: e})
+	}
+	for _, e := range a.duo {
+		out = append(out, timelineEntry{origin: protocol.Duo, entry: e})
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].entry.seq < out[j].entry.seq })
+	return out
+}
+
+// buildTimelineLines merges every speaker's entries in true arrival order.
+// Austin's messages hug the left margin and Tony's are indented from the left
+// so their blocks sit on the right, the chat-style split of a two-peer
+// conversation that the human asked for.
+func (a *App) buildTimelineLines(width int) []paneLine {
+	entries := a.timelineEntries()
+	var all []paneLine
+	for i, e := range entries {
+		if i > 0 {
+			all = append(all, dividerLine(width))
+		}
+		all = append(all, timelineEntryLines(e, width)...)
+	}
+	return all
+}
+
+func timelineEntryLines(e timelineEntry, width int) []paneLine {
+	indent := 0
+	if e.origin == protocol.Tony {
+		indent = minInt(maxInt(width/4, 4), maxInt(width/2, 0))
+	}
+	bodyWidth := maxInt(width-indent, 1)
+	head := e.entry.label
+	if head == "" {
+		head = string(e.origin)
+	}
+	if !e.entry.at.IsZero() {
+		head += " · " + e.entry.at.Format("15:04:05")
+	}
+
+	var lines []paneLine
+	if indent > 0 {
+		pad := maxInt(width-indent-displayWidth(head), 0)
+		lines = append(lines, paneLine{spans: []markdownSpan{{text: strings.Repeat(" ", indent+pad) + head, style: ansiHint}}})
+	} else {
+		lines = append(lines, paneLine{spans: []markdownSpan{{text: head, style: ansiTitle}}})
+	}
+
+	prefix := strings.Repeat(" ", indent)
+	body := strings.TrimSpace(e.entry.text)
+	for _, line := range markdownLines(body, bodyWidth) {
+		for _, wrapped := range wrapMarkdown(line, bodyWidth) {
+			wrapped.error = e.entry.error
+			wrapped.warning = e.entry.warning
+			if indent > 0 {
+				wrapped.spans = append([]markdownSpan{{text: prefix}}, wrapped.spans...)
+			}
+			lines = append(lines, wrapped)
+		}
+	}
+	return lines
 }
 
 func dividerLine(width int) paneLine {
@@ -994,13 +1129,14 @@ func (a *App) composerCursor(width, height int) (int, int) {
 // layout is the fixed geometry of one frame. Rows are 1-based terminal rows,
 // matching the cursor moves written by writeLayout.
 type layout struct {
-	leftW    int // Austin pane content columns
-	rightW   int // Tony pane content columns
-	content  int // pane content rows
-	preview  int // work preview rows including its header row; 0 when hidden
-	logW     int // system log content columns
-	logFirst int // first system log row
-	logLast  int // last system log row
+	leftW     int // Austin pane content columns (also the header's left half)
+	rightW    int // Tony pane content columns (also the header's right half)
+	content   int // pane content rows, or timeline rows in timeline mode
+	preview   int // work preview rows including its header row; 0 when hidden
+	logW      int // system log content columns (split layout)
+	logFirst  int // first system log row (split layout)
+	logLast   int // last system log row (split layout)
+	timelineW int // conversation timeline content columns (timeline layout)
 }
 
 func (a *App) layout() layout { return a.layoutFor(a.width, a.height) }
@@ -1015,6 +1151,19 @@ func (a *App) layoutFor(w, h int) layout {
 	band := 0
 	if preview > 0 {
 		band = 1
+	}
+	if a.timeline {
+		// header + timeline + separator + preview band + two status rows +
+		// status line + composer + footer = content + preview + band + composer + 7,
+		// which leaves the last terminal row unused like the split layout.
+		content := maxInt(h-7-preview-band-composer.rows, 0)
+		return layout{
+			leftW:     maxInt(left-1, 0),
+			rightW:    maxInt(right-1, 0),
+			content:   content,
+			preview:   preview,
+			timelineW: maxInt(w-2, 1),
+		}
 	}
 	content := maxInt(h-7-duoLogRows-composer.rows-preview-band, 0)
 	return layout{
@@ -1035,6 +1184,12 @@ func (a *App) paneRows() (leftW, rightW, rows int) {
 
 func (a *App) hitPane(x, y int) protocol.AgentID {
 	l := a.layout()
+	if a.timeline {
+		if y >= 2 && y <= l.content+1 && x >= 2 && x <= a.width-1 {
+			return protocol.Duo
+		}
+		return ""
+	}
 	if y >= 2 && y <= l.content+1 {
 		switch {
 		case x >= 2 && x <= l.leftW+1:
@@ -1070,6 +1225,10 @@ func stickyScroll(offset, seen, total, rows int, hadNew bool) (int, int, bool) {
 
 func (a *App) clampPaneOffsets() {
 	l := a.layout()
+	if a.timeline {
+		a.duoOffset, a.duoSeen, a.duoNew = stickyScroll(a.duoOffset, a.duoSeen, len(a.paneLines(protocol.Duo, l.timelineW)), l.content, a.duoNew)
+		return
+	}
 	a.austinOffset, a.austinSeen, a.austinNew = stickyScroll(a.austinOffset, a.austinSeen, len(a.paneLines(protocol.Austin, l.leftW)), l.content, a.austinNew)
 	a.tonyOffset, a.tonySeen, a.tonyNew = stickyScroll(a.tonyOffset, a.tonySeen, len(a.paneLines(protocol.Tony, l.rightW)), l.content, a.tonyNew)
 	a.duoOffset, a.duoSeen, a.duoNew = stickyScroll(a.duoOffset, a.duoSeen, len(a.paneLines(protocol.Duo, l.logW)), duoLogRows, a.duoNew)
@@ -1098,7 +1257,11 @@ func (a *App) scrollPane(agent protocol.AgentID, delta int) {
 	case protocol.Tony:
 		offset, fresh, width, rows = &a.tonyOffset, &a.tonyNew, l.rightW, l.content
 	case protocol.Duo:
-		offset, fresh, width, rows = &a.duoOffset, &a.duoNew, l.logW, duoLogRows
+		if a.timeline {
+			offset, fresh, width, rows = &a.duoOffset, &a.duoNew, l.timelineW, l.content
+		} else {
+			offset, fresh, width, rows = &a.duoOffset, &a.duoNew, l.logW, duoLogRows
+		}
 	default:
 		return
 	}

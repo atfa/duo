@@ -20,18 +20,18 @@ In Fast, Austin owns the deliverable branch and Tony is a read-only verifier: To
 
 ## Terminal UI scope
 
-Duo provides side-by-side summary panes and one global human composer. Rich Pi features still run in the native Pi terminal reached through `Ctrl+A` or `Ctrl+T`; the summary panes are not terminal emulators.
+Duo provides one conversation timeline and one global human composer. Rich Pi features still run in the native Pi terminal reached through `Ctrl+A` or `Ctrl+T`; the timeline is not a terminal emulator.
 
-The composer is multiline: up to four wrapped lines are visible, with cursor editing, and `Ctrl+Enter` or `Shift+Enter` inserts a newline. Each agent pane scrolls its earlier output independently with the mouse wheel.
+The composer is multiline: up to four wrapped lines are visible, with cursor editing, and `Ctrl+Enter` or `Shift+Enter` inserts a newline. The conversation timeline scrolls its earlier output with the mouse wheel.
 
-Agent and Duo output is rendered as lightweight markdown: headings, lists, code fences and pipe tables are laid out for the pane width, and narrow table cells wrap instead of being clipped.
+Agent and Duo output is rendered as lightweight markdown: headings, lists, code fences and pipe tables are laid out for the timeline width, and narrow table cells wrap instead of being clipped.
 
-Text in a pane can be selected by dragging the mouse and is copied on release. The copy step shells out to `pbcopy`, so it works on macOS only; on other platforms Duo reports a failed copy in the status line. Releasing without dragging (a plain click) clears the selection instead of copying.
+Text in the timeline can be selected by dragging the mouse and is copied on release. The copy step shells out to `pbcopy`, so it works on macOS only; on other platforms Duo reports a failed copy in the status line. Releasing without dragging (a plain click) clears the selection instead of copying.
 
 What is still limited in the UI:
 
-- Pane scrolling is **mouse-only**. The keyboard scroll bindings (`↑/↓`, `j/k`, `PgUp/PgDn`, `Home/End`) belong to the Help view; there is no keyboard scrolling of agent panes.
-- There is no scrollback search or per-pane scrollback export. Selection is limited to what is currently rendered in the pane.
+- Timeline scrolling is **mouse-only**. The keyboard scroll bindings (`↑/↓`, `j/k`, `PgUp/PgDn`, `Home/End`) belong to the Help view; there is no keyboard scrolling of the timeline.
+- There is no scrollback search or timeline scrollback export. Selection is limited to what is currently rendered in the timeline.
 - The composer recalls previously submitted tasks with `↑`/`↓`, but that history is in-memory only: it is not persisted, so `duo --resume` starts with an empty composer history and the `.duo/sessions` snapshot does not carry it.
 - `Shift+Enter` inserts a newline only when the terminal reports it as a distinct sequence. A terminal that sends a bare carriage return for `Shift+Enter` will submit the message instead.
 

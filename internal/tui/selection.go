@@ -27,6 +27,9 @@ func (a *App) selectionPoint(agent protocol.AgentID, x, y int) (selectionPoint, 
 	case protocol.Tony:
 		return selectionPoint{row: y - 2, col: maxInt(x-(l.leftW+3), 0)}, true
 	case protocol.Duo:
+		if a.timeline {
+			return selectionPoint{row: y - 2, col: maxInt(x-2, 0)}, true
+		}
 		return selectionPoint{row: y - l.logFirst, col: maxInt(x-3, 0)}, true
 	}
 	return selectionPoint{}, false
@@ -86,7 +89,11 @@ func (a *App) selectedText() string {
 	case protocol.Tony:
 		lines = a.styledPane(protocol.Tony, l.rightW, l.content, a.tonyOffset)
 	case protocol.Duo:
-		lines = a.styledPane(protocol.Duo, l.logW, duoLogRows, a.duoOffset)
+		if a.timeline {
+			lines = a.styledPane(protocol.Duo, l.timelineW, l.content, a.duoOffset)
+		} else {
+			lines = a.styledPane(protocol.Duo, l.logW, duoLogRows, a.duoOffset)
+		}
 	default:
 		return ""
 	}

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/harness"
@@ -66,31 +65,46 @@ func TestHelpIgnoresMouseAttach(t *testing.T) {
 	}
 }
 
+func TestTimelinePeerRouteRecordsOneLabeledMessage(t *testing.T) {
+	text := "  第一行\n\n第二行 " + strings.Repeat("界", 100)
+	a := &App{timeline: true}
+	a.route(events.Event{Kind: events.KindPeer, Agent: protocol.Austin, Peer: protocol.Tony, Text: text})
+	// One entry per message, on the sender's side, so the timeline can place it
+	// left/right without mirroring the same text into both panes.
+	if len(a.austin) != 1 || len(a.tony) != 0 {
+		t.Fatalf("peer routing = austin %d, tony %d", len(a.austin), len(a.tony))
+	}
+	if got := a.austin[0].label; got != "Austin → Tony" {
+		t.Fatalf("Austin label = %q", got)
+	}
+	if got := a.austin[0].text; got != strings.TrimSpace(text) {
+		t.Fatalf("Austin text = %q", got)
+	}
+	a.route(events.Event{Kind: events.KindPeer, Agent: protocol.Tony, Peer: protocol.Austin, Text: text})
+	if len(a.tony) != 1 || a.tony[0].label != "Tony → Austin" {
+		t.Fatalf("Tony entry = %+v", a.tony)
+	}
+}
+
+// The split fallback layout still shows a short sent marker on the sender's
+// side and the full text on the receiver's.
 func TestPeerRouteShowsFullTextOnlyToReceiver(t *testing.T) {
 	text := "  第一行\n\n第二行 " + strings.Repeat("界", 100)
 	a := &App{}
 	a.route(events.Event{Kind: events.KindPeer, Agent: protocol.Austin, Peer: protocol.Tony, Text: text})
-	// The peer line carries an inline timestamp after the direction marker.
-	if got := a.austin[0].text; !strings.HasPrefix(got, "→ Tony: sent ") || !validClockStamp(got[len("→ Tony: sent "):]) {
+	if got := a.austin[0].text; !strings.HasPrefix(got, "→ Tony: sent ") {
 		t.Fatalf("Austin message = %q", got)
 	}
 	if got := a.tony[0].text; !strings.HasPrefix(got, "→ From Austin: ") || !strings.HasSuffix(got, "\n"+strings.TrimSpace(text)) {
 		t.Fatalf("Tony message = %q", got)
 	}
 	a.route(events.Event{Kind: events.KindPeer, Agent: protocol.Tony, Peer: protocol.Austin, Text: text})
-	if got := a.tony[1].text; !strings.HasPrefix(got, "← Austin: sent ") || !validClockStamp(got[len("← Austin: sent "):]) {
+	if got := a.tony[1].text; !strings.HasPrefix(got, "← Austin: sent ") {
 		t.Fatalf("Tony message = %q", got)
 	}
 	if got := a.austin[1].text; !strings.HasPrefix(got, "← From Tony: ") || !strings.HasSuffix(got, "\n"+strings.TrimSpace(text)) {
 		t.Fatalf("Austin message = %q", got)
 	}
-}
-
-// validClockStamp reports whether s is an HH:MM:SS timestamp, which is what the
-// inline peer stamp always renders.
-func validClockStamp(s string) bool {
-	_, err := time.Parse("15:04:05", s)
-	return err == nil
 }
 
 func TestErrorRouteMarksFullAgentDetail(t *testing.T) {

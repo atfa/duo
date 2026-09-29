@@ -24,9 +24,14 @@ func (a *App) previewRowsFor(h, composerRows int) int {
 	// Three rows (header, activity, tail) is the useful minimum; taller
 	// terminals get a little more tail, but the panes are still the priority.
 	rows := minInt(maxInt(h/6, 3), 6)
-	// The frame budget outside the panes is 11 rows plus the band and its
-	// separator; shrink the band first, then hide it.
-	if spare := h - 11 - composerRows - 1 - previewMinPaneRows; rows > spare {
+	// The frame budget outside the content is 11 rows in the split layout and 6
+	// in the timeline layout, plus the band and its separator; shrink the band
+	// first, then hide it.
+	fixed := 11
+	if a.timeline {
+		fixed = 7
+	}
+	if spare := h - fixed - composerRows - 1 - previewMinPaneRows; rows > spare {
 		rows = spare
 	}
 	if rows < 3 {
