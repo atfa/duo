@@ -24,9 +24,9 @@ type entry struct {
 	text    string
 	error   bool
 	warning bool
-	// label is the conversation header for this entry ("Austin → Tony",
-	// "Austin → Human", "Duo"). It is empty for plain system/assistant lines,
-	// which then fall back to a plain timestamp prefix.
+	// label is the conversation header for this entry, a directed pair such as
+	// "Austin → Tony" or "Duo → Human". It is empty only for plain notices,
+	// which fall back to the speaker and the human in the timeline.
 	label string
 	// seq is a global append order. The conversation timeline merges three
 	// per-speaker lists and must reproduce true arrival order even when two
@@ -228,43 +228,53 @@ func (a *App) route(event events.Event) {
 	}
 	switch event.Kind {
 	case events.KindAssistant:
-		a.addLabeled(event.Agent, string(event.Agent)+" → Human", text, false, false)
+		a.addLabeled(event.Agent, directionLabel(event.Agent, ""), text, false, false)
 	case events.KindPeer:
 		// One entry per message, recorded on the sender's side and labeled
 		// "Sender → Receiver". The speaker's own block carries the message, so
 		// neither layout needs the old "sent"/"From" hint lines that restated
 		// the same exchange on both sides.
-		a.addLabeled(event.Agent, fmt.Sprintf("%s → %s", event.Agent, event.Peer), text, false, false)
+		a.addLabeled(event.Agent, directionLabel(event.Agent, event.Peer), text, false, false)
 	case events.KindUser:
 		a.addLabeled(protocol.Duo, "Human → Austin", text, false, false)
 	case events.KindHarness:
-		a.addLabeled(protocol.Duo, "Duo", "Harness: "+text, false, false)
+		a.addLabeled(protocol.Duo, directionLabel(protocol.Duo, ""), "Harness: "+text, false, false)
 	case events.KindError:
 		if event.Agent == protocol.Austin || event.Agent == protocol.Tony {
-			a.addLabeled(event.Agent, string(event.Agent), "ERROR: "+text, true, false)
+			a.addLabeled(event.Agent, directionLabel(event.Agent, ""), "ERROR: "+text, true, false)
 		}
 		label := "ERROR"
 		if event.Agent != "" && event.Agent != protocol.Duo {
 			label += " " + string(event.Agent)
 		}
-		a.addLabeled(protocol.Duo, "Duo", fmt.Sprintf("%s: %s", label, text), true, false)
+		a.addLabeled(protocol.Duo, directionLabel(protocol.Duo, ""), fmt.Sprintf("%s: %s", label, text), true, false)
 	case events.KindVerdict:
 		// A verdict is a workflow outcome, not a failure: warn instead of error,
 		// and keep the full report in the reporting agent's pane only. The Duo
 		// pane gets a one-line summary rather than a second copy of the report.
 		if event.Agent == protocol.Austin || event.Agent == protocol.Tony {
-			a.addLabeled(event.Agent, string(event.Agent), "VERIFY — issue found:\n"+text, false, true)
-			a.addLabeled(protocol.Duo, "Duo", fmt.Sprintf("VERIFY — %s reported issue_found; session returned to RUNNING", event.Agent), false, false)
+			a.addLabeled(event.Agent, directionLabel(event.Agent, event.Peer), "VERIFY — issue found:\n"+text, false, true)
+			a.addLabeled(protocol.Duo, directionLabel(protocol.Duo, ""), fmt.Sprintf("VERIFY — %s reported issue_found; session returned to RUNNING", event.Agent), false, false)
 		} else {
-			a.addLabeled(protocol.Duo, "Duo", text, false, true)
+			a.addLabeled(protocol.Duo, directionLabel(protocol.Duo, ""), text, false, true)
 		}
 	default:
 		if event.Agent == protocol.Austin || event.Agent == protocol.Tony {
-			a.add(event.Agent, text)
+			a.addLabeled(event.Agent, directionLabel(event.Agent, event.Peer), text, false, false)
 		} else {
-			a.add(protocol.Duo, text)
+			a.addLabeled(protocol.Duo, directionLabel(protocol.Duo, event.Peer), text, false, false)
 		}
 	}
+}
+
+// directionLabel renders a timeline header as a directed message: the speaker
+// and its target. A peer names the target; without one the message is addressed
+// to the human, so a header is never a bare agent name.
+func directionLabel(from, to protocol.AgentID) string {
+	if to == "" {
+		to = "Human"
+	}
+	return fmt.Sprintf("%s → %s", from, to)
 }
 
 func (a *App) add(agent protocol.AgentID, text string) {
@@ -294,7 +304,14 @@ func (a *App) restoreEntry(item sessionstore.TUIEntry) {
 	if agent != protocol.Austin && agent != protocol.Tony && agent != protocol.Duo {
 		return
 	}
-	a.appendEntry(agent, entry{at: item.Time, text: item.Text, error: item.Error, warning: item.Warning, label: item.Label})
+	label := item.Label
+	switch protocol.AgentID(label) {
+	case protocol.Austin, protocol.Tony, protocol.Duo:
+		// Older journals recorded the bare speaker; headers are directed pairs
+		// now, so a resumed session reads like a new one.
+		label = directionLabel(protocol.AgentID(label), "")
+	}
+	a.appendEntry(agent, entry{at: item.Time, text: item.Text, error: item.Error, warning: item.Warning, label: label})
 }
 
 func (a *App) appendEntry(agent protocol.AgentID, item entry) {

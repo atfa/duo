@@ -12,6 +12,7 @@ import (
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/terminal"
 	"github.com/atfa/duo/internal/transport"
+	"github.com/atfa/duo/internal/workspace"
 )
 
 func testApp(w, h int) *App {
@@ -367,5 +368,48 @@ func TestMultilineComposerFrameAndCursor(t *testing.T) {
 	app.clampOffsets()
 	if app.composerLayout(100).rows != 4 {
 		t.Fatal("composer rows should remain capped at four")
+	}
+}
+
+// stubWorkspace exposes a fixed Set; the header never calls the other methods.
+type stubWorkspace struct {
+	workspace.Manager
+	set workspace.Set
+}
+
+func (s stubWorkspace) Set() workspace.Set { return s.set }
+
+// The top row names the Git repository Duo resolved, not the launch directory or
+// the two agent pane titles, and fills the rest with the border dash. The native
+// attach buttons now live only in the preview band header.
+func TestRepoTitleReplacesPaneHeaders(t *testing.T) {
+	a := testApp(100, 30)
+	a.timeline = true
+	a.ws = stubWorkspace{set: workspace.Set{Repository: "/tmp/duo-repo"}}
+
+	lines := visibleLines(a.buildFrame(renderNormal))
+	top := lines[0]
+	if !strings.HasPrefix(top, "┌ /tmp/duo-repo ") || !strings.HasSuffix(top, "┐") {
+		t.Fatalf("top row = %q, want the repository title", top)
+	}
+	if !strings.Contains(top, "────────") {
+		t.Fatalf("top row is not filled with the border dash: %q", top)
+	}
+	for _, unwanted := range []string{"Austin", "Tony", "idle", "[↗]"} {
+		if strings.Contains(top, unwanted) {
+			t.Fatalf("top row still carries %q: %q", unwanted, top)
+		}
+	}
+
+	// A click on the title row no longer attaches; the band header still does.
+	if got := a.hitNativeButton(4, 1); got != "" {
+		t.Fatalf("top row click = %q, want no native button", got)
+	}
+	previewRow := a.layout().content + 3
+	if got := a.hitNativeButton(4, previewRow); got != protocol.Austin {
+		t.Fatalf("preview header click = %q, want Austin", got)
+	}
+	if got := a.hitNativeButton(a.width-2, previewRow); got != protocol.Tony {
+		t.Fatalf("preview header click = %q, want Tony", got)
 	}
 }

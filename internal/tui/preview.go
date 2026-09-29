@@ -55,14 +55,14 @@ func (a *App) writePreview(b *strings.Builder, l layout) {
 	}
 }
 
-// previewHeader is the band's title: the same state word the pane header uses,
-// plus how long the current turn has been running, which is what tells a human
-// whether a long turn is still moving or stuck. A narrow half drops the turn age
-// and then the state rather than letting header() clip them mid-word, and the
-// pane header above always carries the full state.
+// previewHeader is the band's title: the same state word the pane header used —
+// animated by the spinner frame, which is now the only place the live state
+// appears — plus how long the current turn has been running, which is what tells
+// a human whether a long turn is still moving or stuck. A narrow half drops the
+// turn age and then the state rather than letting header() clip them mid-word.
 func (a *App) previewHeader(agent protocol.AgentID, width int) string {
 	rt := a.tracker.Snapshot(agent)
-	state := stateWord(a.server.IsConnected(agent), rt, a.processState(agent))
+	state := agentState(a.server.IsConnected(agent), rt, a.frame, a.processState(agent))
 	available := width - displayWidth("[↗] ")
 	full := fmt.Sprintf(" %s preview · %s ", agent, state)
 	if age := elapsedSince(rt.TurnStarted); age != "unknown" {

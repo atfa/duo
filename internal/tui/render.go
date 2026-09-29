@@ -25,6 +25,19 @@ const (
 	ansiCode   = "\x1b[2;36m"
 	ansiLink   = "\x1b[4;36m"
 	ansiSelect = "\x1b[7m"
+
+	// Timeline headers are coloured by speaker. A message addressed to the human
+	// is highlighted in the speaker's own hue; agent-to-agent and system headers
+	// keep that hue but stay dim, so the transcript is colourful without every
+	// line shouting.
+	ansiAustinBold = "\x1b[1;36m"
+	ansiTonyBold   = "\x1b[1;35m"
+	ansiDuoBold    = "\x1b[1;33m"
+	ansiHumanBold  = "\x1b[1;32m"
+	ansiAustinDim  = "\x1b[2;36m"
+	ansiTonyDim    = "\x1b[2;35m"
+	ansiDuoDim     = "\x1b[2;33m"
+	ansiHumanDim   = "\x1b[2;32m"
 )
 
 const (
@@ -110,13 +123,7 @@ func (a *App) writeLayout(b *strings.Builder, w, h int) {
 	l := a.layoutFor(w, h)
 	a.clampPaneOffsets()
 
-	ar := a.tracker.Snapshot(protocol.Austin)
-	tr := a.tracker.Snapshot(protocol.Tony)
-
-	aState := agentState(a.server.IsConnected(protocol.Austin), ar, a.frame, a.processState(protocol.Austin))
-	tState := agentState(a.server.IsConnected(protocol.Tony), tr, a.frame, a.processState(protocol.Tony))
-
-	b.WriteString(paint(ansiBorder, "┌") + paint(ansiTitle, header(paneTitle("Austin", aState, a.austinOffset, a.austinNew), l.leftW)) + paint(ansiBorder, "┬") + paint(ansiTitle, header(paneTitle("Tony", tState, a.tonyOffset, a.tonyNew), l.rightW)) + paint(ansiBorder, "┐") + "\r\n")
+	b.WriteString(paint(ansiBorder, "┌") + paint(ansiTitle, a.repoTitle(w-2, l.leftW)) + paint(ansiBorder, "┐\r\n"))
 
 	left := a.styledPane(protocol.Austin, l.leftW, l.content, a.austinOffset)
 	right := a.styledPane(protocol.Tony, l.rightW, l.content, a.tonyOffset)
@@ -144,12 +151,7 @@ func (a *App) writeTimelineLayout(b *strings.Builder, w, h int) {
 	l := a.layoutFor(w, h)
 	a.clampPaneOffsets()
 
-	ar := a.tracker.Snapshot(protocol.Austin)
-	tr := a.tracker.Snapshot(protocol.Tony)
-	aState := agentState(a.server.IsConnected(protocol.Austin), ar, a.frame, a.processState(protocol.Austin))
-	tState := agentState(a.server.IsConnected(protocol.Tony), tr, a.frame, a.processState(protocol.Tony))
-
-	b.WriteString(paint(ansiBorder, "┌") + paint(ansiTitle, header(paneTitle("Austin", aState, a.duoOffset, a.duoNew), l.leftW)) + paint(ansiBorder, "┬") + paint(ansiTitle, header(paneTitle("Tony", tState, a.duoOffset, a.duoNew), l.rightW)) + paint(ansiBorder, "┐") + "\r\n")
+	b.WriteString(paint(ansiBorder, "┌") + paint(ansiTitle, a.repoTitle(w-2, 0)) + paint(ansiBorder, "┐\r\n"))
 
 	lines := a.styledPane(protocol.Duo, l.timelineW, l.content, a.duoOffset)
 	for i := 0; i < l.content; i++ {
@@ -211,18 +213,29 @@ func (a *App) writeFrameTail(b *strings.Builder, w int, composer composerLayout)
 	b.WriteString(paint(ansiBorder, "└") + paint(ansiHint, fit(mainFooter(), w-2, "─")) + paint(ansiBorder, "┘"))
 }
 
-// paneTitle renders a pane header, marking a scrolled pane and any unseen
-// output that arrived below it while the human was reading history.
-func paneTitle(name, state string, offset int, hasNew bool) string {
-	title := fmt.Sprintf(" %s · %s ", name, state)
-	if offset <= 0 {
-		return title
+// repoTitle is the frame's top row: the Git repository Duo resolved, not the
+// directory the binary was launched from, with the rest of the row filled by the
+// border's dash. The split layout keeps its pane ┬ at divider so the row still
+// lines up with the │ below it, and a scrolled timeline reports how far back it
+// is and whether unseen output arrived below.
+func (a *App) repoTitle(width, divider int) string {
+	title := " Duo "
+	if a.ws != nil {
+		if dir := strings.TrimSpace(a.ws.Set().Repository); dir != "" {
+			title = " " + dir + " "
+		}
 	}
-	mark := fmt.Sprintf("↑%d", offset)
-	if hasNew {
-		mark += "▼"
+	if a.timeline && a.duoOffset > 0 {
+		mark := fmt.Sprintf("↑%d", a.duoOffset)
+		if a.duoNew {
+			mark += "▼"
+		}
+		title = " " + mark + title
 	}
-	return " " + mark + title
+	if divider > 0 && divider < width {
+		return fit(title, divider, "─") + "┬" + strings.Repeat("─", width-divider-1)
+	}
+	return fit(title, width, "─")
 }
 
 // deliverySummary reports the durable hand-off state so it stays visible in the
@@ -328,8 +341,8 @@ func (a *App) processState(id protocol.AgentID) agent.ProcessState {
 
 func agentState(connected bool, runtime harness.AgentRuntime, frame int, states ...agent.ProcessState) string {
 	word := stateWord(connected, runtime, states...)
-	// Only the states that can last a long time animate; the preview band shows
-	// the plain word, so a spinner frame there cannot read as a stray border.
+	// Only the states that can last a long time animate; the quick transitions
+	// keep the plain word so a spinner reads as liveness, not decoration.
 	switch word {
 	case "tool", "thinking", "working":
 		return word + " " + []string{"|", "/", "-", "\\"}[frame%4]
@@ -583,10 +596,10 @@ func timelineIndent(width int) int {
 	return minInt(maxInt(width/4, 4), maxInt(width/2, 0))
 }
 
-// timelineEntryLines renders one message on its speaker's side: a muted
+// timelineEntryLines renders one message on its speaker's side: a coloured
 // Sender → Receiver header above a body that is at most three quarters of the
-// width. Both speakers share the header style and the bubble width; only the
-// anchoring differs, which is what makes the direction readable at a glance.
+// width. Both speakers share the bubble width; only the anchoring side and the
+// header hue differ, which is what makes the direction readable at a glance.
 func timelineEntryLines(e timelineEntry, width int, timestamps bool) []paneLine {
 	bubble := maxInt(width-timelineIndent(width), 1)
 	indent := 0
@@ -596,8 +609,13 @@ func timelineEntryLines(e timelineEntry, width int, timestamps bool) []paneLine 
 
 	head := e.entry.label
 	if head == "" {
-		head = string(e.origin)
+		// Legacy or unlabeled entries still read as a directed message instead
+		// of a bare agent name.
+		head = directionLabel(e.origin, "")
 	}
+	// The style comes from the label before the stamp is appended so the target
+	// is still parsed exactly.
+	style := speakerHeaderStyle(head)
 	if timestamps && !e.entry.at.IsZero() {
 		head += " · " + e.entry.at.Format("15:04:05")
 	}
@@ -609,21 +627,61 @@ func timelineEntryLines(e timelineEntry, width int, timestamps bool) []paneLine 
 	if e.origin == protocol.Tony {
 		headText = fit(strings.Repeat(" ", maxInt(bubble-displayWidth(head), 0))+head, bubble)
 	}
-	lines := []paneLine{{spans: []markdownSpan{{text: strings.Repeat(" ", indent) + headText, style: ansiHint}}}}
+	lines := []paneLine{{spans: []markdownSpan{{text: strings.Repeat(" ", indent) + headText, style: style}}}}
 
 	prefix := strings.Repeat(" ", indent)
 	body := strings.TrimSpace(e.entry.text)
+	var bodyLines []paneLine
 	for _, line := range markdownLines(body, bubble) {
-		for _, wrapped := range wrapMarkdown(line, bubble) {
-			wrapped.error = e.entry.error
-			wrapped.warning = e.entry.warning
-			if indent > 0 {
-				wrapped.spans = append([]markdownSpan{{text: prefix}}, wrapped.spans...)
-			}
-			lines = append(lines, wrapped)
+		bodyLines = append(bodyLines, wrapMarkdown(line, bubble)...)
+	}
+	// A Tony message that fits on one line hugs the same outer edge as his
+	// header, the way a short chat bubble does. A message that wraps — several
+	// body lines, or one long line the bubble has to break — is left-anchored at
+	// the indent instead, so every wrapped line shares one margin.
+	for i := range bodyLines {
+		bodyLines[i].error = e.entry.error
+		bodyLines[i].warning = e.entry.warning
+		lead := prefix
+		if e.origin == protocol.Tony && len(bodyLines) == 1 {
+			lead = strings.Repeat(" ", maxInt(width-displayWidth(bodyLines[i].text()), 0))
+		}
+		if lead != "" {
+			bodyLines[i].spans = append([]markdownSpan{{text: lead}}, bodyLines[i].spans...)
 		}
 	}
-	return lines
+	return append(lines, bodyLines...)
+}
+
+// speakerHeaderStyle colours a timeline header in the speaker's own hue: bold
+// for a message addressed to the human, so the human's mail stands out, and dim
+// for agent-to-agent traffic and system notices.
+func speakerHeaderStyle(label string) string {
+	from, to, _ := strings.Cut(label, " → ")
+	human := to == "Human"
+	switch protocol.AgentID(from) {
+	case protocol.Austin:
+		if human {
+			return ansiAustinBold
+		}
+		return ansiAustinDim
+	case protocol.Tony:
+		if human {
+			return ansiTonyBold
+		}
+		return ansiTonyDim
+	case protocol.Duo:
+		if human {
+			return ansiDuoBold
+		}
+		return ansiDuoDim
+	case "Human":
+		if human {
+			return ansiHumanBold
+		}
+		return ansiHumanDim
+	}
+	return ansiHint
 }
 
 func dividerLine(width int) paneLine {

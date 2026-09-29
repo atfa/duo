@@ -1,10 +1,14 @@
 package tui
 
 import (
+	"context"
+	"encoding/json"
+	"net"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/atfa/duo/internal/agent"
 	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/protocol"
 )
@@ -133,12 +137,44 @@ func TestWorkPreviewShowsTurnShape(t *testing.T) {
 	if !strings.Contains(plain, "◆ hy4-preview-f · xhigh") {
 		t.Errorf("preview does not name the thinking model:\n%s", plain)
 	}
+}
 
-	// The pane header animates the spinner; the band must not, because a bare
-	// frame there reads as a broken border.
-	for _, line := range visibleLines(a.buildFrame(renderNormal)) {
-		if strings.Contains(line, "preview · ") && strings.Contains(line, " | ") {
-			t.Fatalf("band header carries a spinner frame: %q", line)
+// The preview header is now the only live agent state, so it carries the
+// spinner: a running, connected agent must animate frame to frame.
+func TestPreviewHeaderAnimatesWhileTheAgentWorks(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	a := testApp(100, 30)
+
+	go func() { _ = a.server.ListenAndServe(ctx) }()
+	<-a.server.Ready()
+	conn, err := net.Dial("tcp", a.server.Addr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	hello := protocol.Message{Version: protocol.Version, Type: protocol.MsgHello, Agent: protocol.Tony, SessionID: "session", Token: "token"}
+	if err := json.NewEncoder(conn).Encode(hello); err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(2 * time.Second); !a.server.IsConnected(protocol.Tony) && time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+	}
+	if !a.server.IsConnected(protocol.Tony) {
+		t.Fatal("Tony did not connect")
+	}
+
+	session := agent.NewSession(agent.Config{Agent: protocol.Tony, Dir: t.TempDir(), Command: "sleep 30"})
+	a.agents.Add(session)
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer session.Stop()
+	a.tracker.Handle(protocol.Tony, protocol.ActivityProviderStart)
+
+	for frame, want := range []string{"thinking |", "thinking /", "thinking -", "thinking \\"} {
+		a.frame = frame
+		if got := a.previewHeader(protocol.Tony, 40); !strings.Contains(got, want) {
+			t.Fatalf("frame %d header = %q, want %q", frame, got, want)
 		}
 	}
 }

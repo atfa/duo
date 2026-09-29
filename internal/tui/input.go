@@ -591,9 +591,9 @@ func (a *App) hitNativeButton(x, y int) protocol.AgentID {
 		return ""
 	}
 	l := a.layout()
-	// The preview band's header carries the same attach button as a pane header.
-	onPreviewHeader := l.preview > 0 && y == l.content+3
-	if y != 1 && !onPreviewHeader {
+	// The attach button lives in the preview band header; the top row is the
+	// repository title, so a click there must not open native Pi.
+	if l.preview == 0 || y != l.content+3 {
 		return ""
 	}
 	leftW := (a.width - 1) / 2
