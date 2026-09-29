@@ -37,3 +37,21 @@ func TestParseIgnoresProse(t *testing.T) {
 		t.Fatalf("parsed %#v, want none", got)
 	}
 }
+
+// A model id may contain spaces; the id is everything between the provider and
+// the last four columns, not just the second whitespace-separated token.
+func TestParseKeepsSpacedModelID(t *testing.T) {
+	output := `provider      model                        context  max-out  thinking  images
+acme          gpt-5.3 codex preview         256K     64K      yes       no`
+
+	got := parse(output)
+	if len(got) != 1 {
+		t.Fatalf("parsed %#v, want one model", got)
+	}
+	if got[0].Provider != "acme" || got[0].ID != "gpt-5.3 codex preview" {
+		t.Fatalf("model = %#v, want acme/gpt-5.3 codex preview", got[0])
+	}
+	if !got[0].Thinking || got[0].Images {
+		t.Fatalf("flags = %#v, want thinking yes images no", got[0])
+	}
+}

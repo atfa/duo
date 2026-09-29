@@ -32,7 +32,7 @@ What is still limited in the UI:
 
 - Pane scrolling is **mouse-only**. The keyboard scroll bindings (`↑/↓`, `j/k`, `PgUp/PgDn`, `Home/End`) belong to the Help view; there is no keyboard scrolling of agent panes.
 - There is no scrollback search or per-pane scrollback export. Selection is limited to what is currently rendered in the pane.
-- The composer does not recall previously sent messages.
+- The composer recalls previously submitted tasks with `↑`/`↓`, but that history is in-memory only: it is not persisted, so `duo --resume` starts with an empty composer history and the `.duo/sessions` snapshot does not carry it.
 - `Shift+Enter` inserts a newline only when the terminal reports it as a distinct sequence. A terminal that sends a bare carriage return for `Shift+Enter` will submit the message instead.
 
 Frames are rebuilt from scratch (no partial-damage/diff updates) and capped at about 60 FPS by the renderer scheduler. This keeps redraw correctness easy to reason about, but very large terminals do redraw the whole screen on each dirty frame rather than only the changed regions.

@@ -14,8 +14,9 @@ export function registerStatusTool(pi: any, transport: DuoTransport, mode: DuoMo
       : "Set your own sign-off state for the current Duo phase. Duo Core advances only when both Austin and Tony have valid, non-stale signatures.",
     parameters: Type.Object({
       ready: Type.Boolean({
-        description:
-          "true = sign current phase; false = revoke your signature because work or objections remain.",
+        description: fast
+          ? "FAST mode: Austin-only. ready=true requests independent verification of your committed, clean HEAD; ready=false withdraws a pending request. It is not a phase sign-off."
+          : "true = sign current phase; false = revoke your signature because work or objections remain.",
       }),
       note: Type.Optional(
         Type.String({ description: "Optional concise reason or completion note." }),

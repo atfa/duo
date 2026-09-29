@@ -154,6 +154,8 @@ A build can take a long time, and the pane transcript only changes when an agent
 | `Ctrl+/` | Open or close Duo Help |
 | `Ctrl+P` | Show or hide the Austin/Tony work preview band |
 | `Ctrl+M` / `Alt+M` | Open the model picker for Austin or Tony |
+| `Ctrl+O` | Open the session overview: worktrees, verification or Plan, and delivery state |
+| `Ctrl+G` | Toggle message timestamps |
 | `Shift+Tab` | Cycle the target agent's Pi thinking level |
 | `Ctrl+Q` | Quit Duo and preserve the session |
 | `←` / `→` | Move the composer cursor |

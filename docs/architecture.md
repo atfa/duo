@@ -65,6 +65,10 @@ Owns the two real Pi processes. Each `Session` starts Pi in its own pseudo-termi
 
 This layer also owns Pi session identity: unless `DUO_PI_COMMAND` already supplies a `--session-id`, Duo appends its own so Austin and Tony keep their own conversation across a restart.
 
+### `internal/models`
+
+Reads the model catalog from the same Pi installation (and flags) Duo launches, via `pi --list-models`, so the TUI model picker always matches what the running Pi can actually select. Duo deliberately keeps no model list of its own.
+
 ### `internal/delivery`
 
 Owns the handoff back to the human's repository. `Check` inspects the original repository **without modifying it** and decides whether auto-delivery is safe; `Deliver` fast-forwards the recorded branch only when that check passes. See [Integration and delivery boundary](#integration-and-delivery-boundary).
@@ -81,7 +85,7 @@ Owns the resume path: composing a snapshot from live state, validating it agains
 
 ### `internal/events`
 
-A small in-process pub/sub bus carrying typed events (`system`, `assistant`, `peer`, `activity`, `harness`, `user`, `error`) from the coordinator, harness and transport to the UI. Delivery is non-blocking: a subscriber that cannot keep up drops events rather than stalling coordination.
+A small in-process pub/sub bus carrying typed events (`system`, `assistant`, `peer`, `activity`, `harness`, `user`, `error`, `verdict`, `model`, `thinking`) from the coordinator, harness and transport to the UI. Delivery is non-blocking: a subscriber that cannot keep up drops events rather than stalling coordination.
 
 ### `internal/tui`
 

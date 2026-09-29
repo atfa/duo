@@ -156,6 +156,8 @@ Duo 并排显示两个 Agent 的连接、进程和工作状态，下方是当前
 | `Ctrl+/` | 打开或关闭 Duo Help |
 | `Ctrl+P` | 显示或隐藏 Austin/Tony 的工作预览带 |
 | `Ctrl+M` / `Alt+M` | 打开 Austin 或 Tony 的模型选择器 |
+| `Ctrl+O` | 打开会话总览：worktree、验证或 Plan、交付状态 |
+| `Ctrl+G` | 切换消息时间戳 |
 | `Shift+Tab` | 循环切换目标 Agent 的 Pi 思考强度 |
 | `Ctrl+Q` | 退出 Duo 并保留 session |
 | `←` / `→` | 移动 composer 光标 |

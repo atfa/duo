@@ -54,11 +54,11 @@ func List(ctx context.Context, command string) ([]Model, error) {
 	return list, nil
 }
 
-// parse reads the fixed-column table printed by `pi --list-models`. The first
-// two columns are the provider and model id; the last two are the thinking and
-// images flags. Using the trailing columns keeps parsing correct even if a
-// model id ever contains a space. The header and any warning lines are ignored
-// because their last two columns are not yes/no.
+// parse reads the fixed-column table printed by `pi --list-models`: provider,
+// model id, context, max-out, then the thinking and images flags. The id is
+// everything between the provider and the last four columns, so a model id that
+// contains a space is still reconstructed faithfully. The header and any
+// warning lines are ignored because their last two columns are not yes/no.
 func parse(output string) []Model {
 	var list []Model
 	for _, line := range strings.Split(output, "\n") {
@@ -75,7 +75,7 @@ func parse(output string) []Model {
 		}
 		list = append(list, Model{
 			Provider: fields[0],
-			ID:       fields[1],
+			ID:       strings.Join(fields[1:len(fields)-4], " "),
 			Thinking: thinking == "yes",
 			Images:   images == "yes",
 		})

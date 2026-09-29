@@ -120,20 +120,9 @@ After a Duo Core, Austin or Tony crash the user must be able to continue the ori
 - [x] `Ctrl+Enter` / `Shift+Enter` inserts a composer newline
 - [x] `Ctrl+A/T/R/Y/Q` and `Ctrl+/` restored while `modifyOtherKeys` is enabled
 
-## v0.4.8 — readable output and resolvable delivery (in progress)
-
-- [x] markdown rendering in agent panes: styled headings, blockquotes, links and bold/italic/code spans
-- [x] wrapped markdown lists keep a hanging indent; nested lists indented by depth
-- [x] markdown tables drawn with real borders, aligned to the pane width
-- [x] narrow table cells wrapped instead of truncated
-- [x] mouse-drag selection in a pane with clipboard copy (`pbcopy`)
-- [x] `Ctrl+】` recognized as a return-from-native-Pi sequence
-- [x] pane transcript persisted and replayed on `duo --resume`
-- [x] delivery recognizes a user-resolved `git merge --no-ff` as already applied
-
 ## v0.5.0 — Fast Mode as the default
 
-Fast Mode makes the safety boundary the default instead of the ceremony: one driver, one independent verifier, verified delivery, no shared Plan and no dual sign-off.
+Fast Mode makes the safety boundary the default instead of the ceremony: one driver, one independent verifier, verified delivery, no shared Plan and no dual sign-off. The unreleased v0.4.8 notes were folded into this release.
 
 - [x] fixed per-session mode: `fast` (default) or `goal` (`duo --mode goal` / `-m goal`)
 - [x] concrete Fast phases: `RUNNING → VERIFY → DONE`, with `issue_found` returning to `RUNNING`
@@ -142,11 +131,25 @@ Fast Mode makes the safety boundary the default instead of the ceremony: one dri
 - [x] the verified commit is delivered by the existing fast-forward-only handoff
 - [x] mode-aware durable state, recovery, harness, TUI status and Pi prompt
 - [x] Goal mode preserves the `PLAN → EXECUTE → REVIEW → INTEGRATE → DONE` workflow unchanged
+- [x] markdown rendering in agent panes: styled headings, blockquotes, links and bold/italic/code spans
+- [x] wrapped markdown lists keep a hanging indent; nested lists indented by depth
+- [x] markdown tables drawn with real borders, aligned to the pane width
+- [x] narrow table cells wrapped instead of truncated
+- [x] mouse-drag selection in a pane with clipboard copy (`pbcopy`)
+- [x] `Ctrl+】` recognized as a return-from-native-Pi sequence
+- [x] pane transcript persisted and replayed on `duo --resume`
+- [x] delivery recognizes a user-resolved `git merge --no-ff` as already applied
+- [x] scrollable, selectable four-row system log between the panes
+- [x] sticky pane scroll that keeps position while output grows
+- [x] per-agent work preview: running tool and age, model and thinking level, tool trail, last error and stream tail (`Ctrl+P`)
+- [x] model picker with live switching through the Pi bridge (`Ctrl+M` / `Alt+M`) and thinking-level cycling (`Shift+Tab`)
+- [x] multiline composer with cursor editing and task-history recall, plus `Ctrl+O` session overview and `Ctrl+G` timestamps
+- [x] Unicode-property width measurement so emoji and the pane header button no longer shift borders
 
 ## v0.4 — configurability (remaining)
 
 - [ ] configurable agent names/roles
-- [ ] configurable model/provider per agent
+- [ ] configurable model/provider per agent (v0.5.0 adds a live per-agent model picker; a Duo-level default/config file is still missing)
 - [ ] configurable integration strategy
 - [ ] improved worktree lifecycle cleanup
 - [ ] structured artifact/task metadata if real usage justifies it
