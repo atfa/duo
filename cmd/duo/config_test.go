@@ -271,3 +271,51 @@ func TestAgentCommandDoesNotDuplicateFlags(t *testing.T) {
 		t.Fatalf("austin command = %q", austinCmd)
 	}
 }
+
+func TestTestCommandConfigurationPrecedence(t *testing.T) {
+	temp := t.TempDir()
+	configJSON := `{"testCommand": "make test"}`
+	if err := os.WriteFile(filepath.Join(temp, ".duo.json"), []byte(configJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("DUO_REPO", temp)
+	t.Setenv("DUO_TEST_COMMAND", "")
+
+	// 1. Config file
+	cfg, err := loadConfig(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.testCommand != "make test" {
+		t.Fatalf("testCommand from file = %q, want 'make test'", cfg.testCommand)
+	}
+
+	// 2. Env var overrides config file
+	t.Setenv("DUO_TEST_COMMAND", "go test ./...")
+	cfg, err = loadConfig(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.testCommand != "go test ./..." {
+		t.Fatalf("testCommand from env = %q, want 'go test ./...'", cfg.testCommand)
+	}
+
+	// 3. CLI flag overrides both
+	cfg, err = loadConfig([]string{"--test-cmd", "pytest"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.testCommand != "pytest" {
+		t.Fatalf("testCommand from CLI = %q, want 'pytest'", cfg.testCommand)
+	}
+
+	// 4. CLI flag with equals syntax
+	cfg, err = loadConfig([]string{"--test-cmd=cargo test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.testCommand != "cargo test" {
+		t.Fatalf("testCommand from CLI (=) = %q, want 'cargo test'", cfg.testCommand)
+	}
+}

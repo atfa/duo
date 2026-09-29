@@ -185,6 +185,7 @@ Everything has a working default; `duo` needs no configuration to run.
 | Variable | Default | Meaning |
 |---|---|---|
 | `DUO_MODE` | `fast` | Session mode: `fast` or `goal`. A CLI `--mode`/`-m` wins; `--resume` keeps the persisted mode. |
+| `DUO_TEST_COMMAND` | (none) | Automated deterministic test command run before verification / delivery (CLI `--test-cmd` wins). |
 | `DUO_REPO` | current directory | Repository or subdirectory to launch against. A CLI path argument wins. |
 | `DUO_SESSION` | timestamp + random hex | Session id, formatted `YYYYMMDD-HHMMSS-xxxxxxxx`. |
 | `DUO_WORKTREE_ROOT` | `~/.duo/worktrees/<repo>-<hash>/<session>` | Where the Austin/Tony worktrees are created. |
@@ -210,6 +211,7 @@ You can persist settings globally in `~/.duo/config.json` or per-repository in `
 ```json
 {
   "mode": "fast",
+  "testCommand": "go test ./...",
   "agents": {
     "austin": {
       "model": "anthropic/claude-3-7-sonnet",
@@ -228,7 +230,7 @@ You can persist settings globally in `~/.duo/config.json` or per-repository in `
 }
 ```
 
-Precedence: explicit CLI flags (`--mode`) > environment variables (`DUO_*`) > repository `.duo/config.json` > global `~/.duo/config.json` > built-in defaults.
+Precedence: explicit CLI flags (`--mode`, `--test-cmd`) > environment variables (`DUO_*`) > repository `.duo/config.json` > global `~/.duo/config.json` > built-in defaults.
 
 ## Where Duo keeps things
 

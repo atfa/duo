@@ -187,6 +187,9 @@ func (a *App) detailLines(width int) []string {
 	}
 	if snap.EffectiveMode() == project.ModeFast {
 		lines = append(lines, "Verification", "  "+snap.Verification.Label())
+		if a.coord != nil && a.coord.TestCommand() != "" {
+			lines = append(lines, "  test-gate: "+a.coord.TestCommand())
+		}
 		if head := strings.TrimSpace(snap.Verification.Head); head != "" {
 			lines = append(lines, "  head: "+head)
 		}

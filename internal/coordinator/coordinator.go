@@ -3,6 +3,9 @@ package coordinator
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -33,6 +36,9 @@ type Coordinator struct {
 	// deliveryTxnMu serializes the complete handoff transaction for this
 	// coordinator/session. Delivery is rare, so a session-wide lock is enough.
 	deliveryTxnMu sync.Mutex
+
+	testCommandMu sync.RWMutex
+	testCommand   string
 
 	// Durable session state. EnableDurability must be called once, before the
 	// event loop starts, after any resume has restored the project state.
@@ -124,6 +130,62 @@ func (c *Coordinator) CurrentDelivery() sessionstore.Delivery {
 	c.deliveryMu.RLock()
 	defer c.deliveryMu.RUnlock()
 	return c.delivery
+}
+
+// SetTestCommand configures an automated deterministic test command (e.g. `go test ./...`)
+// that must pass before verification can be accepted.
+func (c *Coordinator) SetTestCommand(cmd string) {
+	c.testCommandMu.Lock()
+	c.testCommand = strings.TrimSpace(cmd)
+	c.testCommandMu.Unlock()
+}
+
+// TestCommand returns the currently configured test command, if any.
+func (c *Coordinator) TestCommand() string {
+	c.testCommandMu.RLock()
+	defer c.testCommandMu.RUnlock()
+	return c.testCommand
+}
+
+// runTestGate executes the test command in Austin's working directory.
+func (c *Coordinator) runTestGate(ctx context.Context) error {
+	cmdStr := c.TestCommand()
+	if cmdStr == "" || c.workspace == nil {
+		return nil
+	}
+	set := c.workspace.Set()
+	dir := set.Austin.Path
+	if scopedDir, ok, err := set.AgentDir(protocol.Austin); err == nil && ok && scopedDir != "" {
+		dir = scopedDir
+	}
+	if dir == "" {
+		return nil
+	}
+
+	testCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	defer cancel()
+
+	var cmd *exec.Cmd
+	if runtime.GOOS == "windows" {
+		cmd = exec.CommandContext(testCtx, "cmd", "/C", cmdStr)
+	} else {
+		cmd = exec.CommandContext(testCtx, "sh", "-c", cmdStr)
+	}
+	cmd.Dir = dir
+	cmd.Env = os.Environ()
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			return err
+		}
+		if len(msg) > 1500 {
+			msg = msg[len(msg)-1500:]
+		}
+		return fmt.Errorf("%s", msg)
+	}
+	return nil
 }
 
 // persist writes the current snapshot. It ignores the snapshot passed by the
@@ -541,6 +603,17 @@ func (c *Coordinator) handleSetStatus(ctx context.Context, client *transport.Cli
 	}
 
 	if tr.ReadyForDelivery {
+		if c.TestCommand() != "" && c.workspace != nil {
+			if testErr := c.runTestGate(ctx); testErr != nil {
+				c.project.RevokeReady(client.Agent, "automated test gate failed")
+				c.recordEvent("test_gate_failed", map[string]any{"command": c.TestCommand(), "error": testErr.Error()})
+				c.emit(events.KindSystem, protocol.Duo, "", fmt.Sprintf("automated test gate failed on INTEGRATE: %v", testErr))
+				_ = c.respond(ctx, client, message.RequestID, false,
+					fmt.Sprintf("Automated test gate (%s) failed on integrated artifact:\n%s\nFix the issue before completing.", c.TestCommand(), testErr.Error()),
+					c.statusText(ctx))
+				return
+			}
+		}
 		c.handleFinalApproval(ctx, client, message, snap)
 		return
 	}
@@ -636,6 +709,20 @@ func (c *Coordinator) handleFastSetStatus(ctx context.Context, client *transport
 				return
 			}
 			evidence = head
+
+			if c.TestCommand() != "" && c.workspace != nil {
+				c.emit(events.KindSystem, protocol.Duo, "", fmt.Sprintf("running automated test gate: %s", c.TestCommand()))
+				if testErr := c.runTestGate(ctx); testErr != nil {
+					c.recordEvent("test_gate_failed", map[string]any{"command": c.TestCommand(), "error": testErr.Error()})
+					c.emit(events.KindSystem, protocol.Duo, "", fmt.Sprintf("automated test gate failed: %v", testErr))
+					_ = c.respond(ctx, client, message.RequestID, false,
+						fmt.Sprintf("Automated test gate (%s) failed:\n%s\nFix the test failure before requesting verification.", c.TestCommand(), testErr.Error()),
+						c.statusText(ctx))
+					return
+				}
+				c.recordEvent("test_gate_passed", map[string]any{"command": c.TestCommand()})
+				c.emit(events.KindSystem, protocol.Duo, "", fmt.Sprintf("automated test gate passed: %s", c.TestCommand()))
+			}
 		}
 	}
 
@@ -758,6 +845,16 @@ func (c *Coordinator) handleSetVerification(ctx context.Context, client *transpo
 
 	switch result {
 	case project.VerificationPassed:
+		if c.TestCommand() != "" && c.workspace != nil {
+			if testErr := c.runTestGate(ctx); testErr != nil {
+				c.recordEvent("test_gate_failed", map[string]any{"command": c.TestCommand(), "error": testErr.Error()})
+				c.emit(events.KindSystem, protocol.Duo, "", fmt.Sprintf("automated test gate failed before delivery: %v", testErr))
+				_ = c.respond(ctx, client, message.RequestID, false,
+					fmt.Sprintf("Automated test gate (%s) failed before delivery:\n%s\nFix the issue before verifying.", c.TestCommand(), testErr.Error()),
+					c.statusText(ctx))
+				return
+			}
+		}
 		c.recordEvent("verification", map[string]any{"result": "passed", "head": target})
 		c.emit(events.KindSystem, protocol.Duo, "", fmt.Sprintf("Tony independently verified %s → passed", shortSHA(target)))
 		_ = c.respond(ctx, client, message.RequestID, true,

@@ -187,6 +187,7 @@ Help 是一个完整的大屏视图，用 `↑`/`k`、`↓`/`j`、`PgUp`、`PgDn
 | 变量 | 默认值 | 含义 |
 |---|---|---|
 | `DUO_MODE` | `fast` | 会话模式：`fast` 或 `goal`。命令行 `--mode`/`-m` 优先；`--resume` 保持持久化的模式。 |
+| `DUO_TEST_COMMAND` | （无） | 自动化测试门禁命令，在验证/交付前确定性执行（命令行 `--test-cmd` 优先）。 |
 | `DUO_REPO` | 当前目录 | 启动时针对的仓库或子目录。命令行路径参数优先。 |
 | `DUO_SESSION` | 时间戳 + 随机 hex | 会话 id，格式 `YYYYMMDD-HHMMSS-xxxxxxxx`。 |
 | `DUO_WORKTREE_ROOT` | `~/.duo/worktrees/<repo>-<hash>/<session>` | 创建 Austin/Tony worktree 的位置。 |
@@ -212,6 +213,7 @@ DUO_PI_COMMAND='pi --some-flag' duo
 ```json
 {
   "mode": "fast",
+  "testCommand": "go test ./...",
   "agents": {
     "austin": {
       "model": "anthropic/claude-3-7-sonnet",
@@ -230,7 +232,7 @@ DUO_PI_COMMAND='pi --some-flag' duo
 }
 ```
 
-优先级顺序：显式命令行参数（`--mode`）> 环境变量（`DUO_*`）> 仓库 `.duo/config.json` > 全局 `~/.duo/config.json` > 内置默认值。
+优先级顺序：显式命令行参数（`--mode`, `--test-cmd`）> 环境变量（`DUO_*`）> 仓库 `.duo/config.json` > 全局 `~/.duo/config.json` > 内置默认值。
 
 ## 数据存放在哪里
 

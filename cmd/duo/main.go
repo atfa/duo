@@ -36,13 +36,14 @@ func main() {
 			return
 		case "-h", "--help", "help":
 			fmt.Println("Duo " + version)
-			fmt.Println("Usage: duo [git-repository] [--mode fast|goal] [--resume [session-id]]")
+			fmt.Println("Usage: duo [git-repository] [--mode fast|goal] [--test-cmd <cmd>] [--resume [session-id]]")
 			fmt.Println("       duo apply [session-id]")
 			fmt.Println("       duo sessions [--all] [repository]")
 			fmt.Println("       duo clean [session-id] [--all] [--all-repos] [--force] [--dry-run]")
 			fmt.Println()
 			fmt.Println("  duo                    start a new Fast session (Austin drives, Tony verifies)")
 			fmt.Println("  duo --mode goal        start a new Goal session (shared plan + dual sign-off)")
+			fmt.Println("  duo --test-cmd <cmd>   run automated test command before accepting verification")
 			fmt.Println("  duo --resume           resume this repository's unfinished session")
 			fmt.Println("  duo --resume <id>      resume one specific session (required if several are unfinished)")
 			fmt.Println("  duo apply              deliver a pending final result to this repository")
@@ -255,6 +256,9 @@ func (r *runtime) serve(ctx context.Context) error {
 	tracker := harness.NewTracker()
 	bus := events.NewBus()
 	coord := coordinator.New(server, r.state, tracker, r.ws, bus)
+	if r.cfg.testCommand != "" {
+		coord.SetTestCommand(r.cfg.testCommand)
+	}
 	coord.SetIntegration(r.integration)
 	coord.SetDelivery(r.delivery)
 	coord.EnableDurability(coordinator.Durability{

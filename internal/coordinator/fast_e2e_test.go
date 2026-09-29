@@ -300,3 +300,44 @@ func TestFastModeAustinWithdrawsInsteadOfWaiting(t *testing.T) {
 	fastRequestVerification(t, austin)
 	waitPhase(t, state, project.PhaseVerify)
 }
+
+// TestFastModeAutomatedTestGate verifies that when a test command is configured,
+// a failing test command blocks advancing from RUNNING to VERIFY, while a passing
+// test command allows verification and delivery.
+func TestFastModeAutomatedTestGate(t *testing.T) {
+	ctx := context.Background()
+	runtime := startE2EWithMode(t, ctx, project.ModeFast)
+	set, state, server := runtime.set, runtime.state, runtime.server
+
+	austin := runtime.dialAgent(t, protocol.Austin)
+	tony := runtime.dialAgent(t, protocol.Tony)
+	waitFor(t, func() bool { return server.IsConnected(protocol.Austin) && server.IsConnected(protocol.Tony) }, "both agents to connect")
+
+	// Configure a test command that checks for required.txt
+	runtime.coord.SetTestCommand("test -f required.txt")
+
+	// 1. Austin creates a commit without required.txt and requests verification
+	writeAndCommit(t, set.Austin.Path, "other.txt", "v1\n", "v1")
+	ready := true
+	resp, err := austin.request(protocol.Message{Version: protocol.Version, Type: protocol.MsgSetStatus, Ready: &ready, Note: "work complete"})
+	if err == nil {
+		t.Fatalf("verification request should fail due to failing test command: %+v", resp)
+	}
+
+	// Session must remain in RUNNING
+	if state.Snapshot().Phase != project.PhaseRunning {
+		t.Fatalf("phase = %s, want %s after failed test gate", state.Snapshot().Phase, project.PhaseRunning)
+	}
+
+	// 2. Austin adds required.txt and requests verification again
+	writeAndCommit(t, set.Austin.Path, "required.txt", "passed\n", "add required.txt")
+	fastRequestVerification(t, austin)
+	waitPhase(t, state, project.PhaseVerify)
+
+	// 3. Tony verifies passed and delivery completes
+	if _, err := fastVerdict(t, tony, "passed", ""); err != nil {
+		t.Fatalf("tony verdict passed rejected: %v", err)
+	}
+	waitPhase(t, state, project.PhaseDone)
+}
+

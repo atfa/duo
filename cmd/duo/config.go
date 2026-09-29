@@ -27,6 +27,7 @@ type config struct {
 	session       string
 	baseRef       string
 	piCommand     string
+	testCommand   string
 	agentCommands map[protocol.AgentID]string
 
 	resume        bool
@@ -50,10 +51,11 @@ func (c config) agentCommand(agent protocol.AgentID) string {
 
 // configFile describes ~/.duo/config.json or .duo/config.json.
 type configFile struct {
-	Mode      string               `json:"mode,omitempty"`
-	PiCommand string               `json:"piCommand,omitempty"`
-	Agents    map[string]agentFile `json:"agents,omitempty"`
-	Harness   harnessFile          `json:"harness,omitempty"`
+	Mode        string               `json:"mode,omitempty"`
+	PiCommand   string               `json:"piCommand,omitempty"`
+	TestCommand string               `json:"testCommand,omitempty"`
+	Agents      map[string]agentFile `json:"agents,omitempty"`
+	Harness     harnessFile          `json:"harness,omitempty"`
 }
 
 type agentFile struct {
@@ -76,6 +78,7 @@ type cliArgs struct {
 	sessionID    string
 	mode         string
 	modeExplicit bool
+	testCommand  string
 }
 
 // parseArgs understands `duo [repository] [--mode fast|goal] [--resume [id]]`.
@@ -106,8 +109,16 @@ func parseArgs(args []string) (cliArgs, error) {
 		case strings.HasPrefix(arg, "--mode=") || strings.HasPrefix(arg, "-m="):
 			out.mode = strings.TrimSpace(strings.SplitN(arg, "=", 2)[1])
 			out.modeExplicit = true
+		case arg == "--test-cmd":
+			if i+1 >= len(args) {
+				return out, fmt.Errorf("--test-cmd requires a value (e.g. \"go test ./...\")")
+			}
+			out.testCommand = strings.TrimSpace(args[i+1])
+			i++
+		case strings.HasPrefix(arg, "--test-cmd="):
+			out.testCommand = strings.TrimSpace(strings.TrimPrefix(arg, "--test-cmd="))
 		case strings.HasPrefix(arg, "-"):
-			return out, fmt.Errorf("unknown Duo flag %q (usage: duo [git-repository] [--mode fast|goal] [--resume [session-id]])", arg)
+			return out, fmt.Errorf("unknown Duo flag %q (usage: duo [git-repository] [--mode fast|goal] [--test-cmd <command>] [--resume [session-id]])", arg)
 		default:
 			if out.repository != "" {
 				return out, fmt.Errorf("unexpected extra argument %q", arg)
@@ -268,6 +279,11 @@ func loadConfig(args []string) (config, error) {
 		}
 	}
 
+	testCommand := parsed.testCommand
+	if testCommand == "" {
+		testCommand = envString("DUO_TEST_COMMAND", fileCfg.TestCommand)
+	}
+
 	return config{
 		listen:         envString("DUO_LISTEN", "127.0.0.1:0"),
 		harnessEnabled: harnessEnabled,
@@ -278,6 +294,7 @@ func loadConfig(args []string) (config, error) {
 		session:        session,
 		baseRef:        envString("DUO_BASE_REF", "HEAD"),
 		piCommand:      piCommand,
+		testCommand:    testCommand,
 		agentCommands:  agentCommands,
 		resume:         parsed.resume,
 		resumeSession:  parsed.sessionID,
@@ -323,7 +340,7 @@ func loadMergedConfigFile(launchDir string) (configFile, error) {
 	}
 	for _, p := range candidates {
 		projectCfg, err := loadConfigFile(p)
-		if err == nil && (projectCfg.Mode != "" || projectCfg.PiCommand != "" || len(projectCfg.Agents) > 0 || projectCfg.Harness != (harnessFile{})) {
+		if err == nil && (projectCfg.Mode != "" || projectCfg.PiCommand != "" || projectCfg.TestCommand != "" || len(projectCfg.Agents) > 0 || projectCfg.Harness != (harnessFile{})) {
 			mergeConfig(&merged, projectCfg)
 			break
 		} else if err != nil && !os.IsNotExist(err) {
@@ -340,6 +357,9 @@ func mergeConfig(dst *configFile, src configFile) {
 	}
 	if src.PiCommand != "" {
 		dst.PiCommand = src.PiCommand
+	}
+	if src.TestCommand != "" {
+		dst.TestCommand = src.TestCommand
 	}
 	if len(src.Agents) > 0 {
 		if dst.Agents == nil {
