@@ -277,6 +277,8 @@ func (a *App) handleKey(key string) inputAction {
 		switch key {
 		case "ctrl-slash":
 			return inputAction{kind: actionToggleHelp}
+		case "ctrl-o":
+			return inputAction{kind: actionToggleDetail}
 		case "esc":
 			return inputAction{kind: actionCloseHelp}
 		case "up", "k":

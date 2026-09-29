@@ -1,8 +1,11 @@
 package tui
 
 import (
+	"context"
 	"fmt"
+	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
@@ -35,7 +38,7 @@ var keyBindings = []keyBinding{
 	{"Ctrl+R", "", "Restart Austin if exited/failed"},
 	{"Ctrl+Y", "", "Restart Tony if exited/failed"},
 	{"Ctrl+/", "Ctrl+/ Help", "Toggle Help"},
-	{"Ctrl+O", "", "Show the full session, worktrees, verification or plan, and delivery"},
+	{"Ctrl+O", "", "Show session overview (worktrees, plan, delivery, changes diffstat)"},
 	{"Ctrl+M / Alt+M", "", "Choose the Pi model and thinking level for Austin or Tony; in the picker Tab switches agent, Space applies the model and keeps it open, Enter applies and closes, Shift+Tab cycles thinking"},
 	{"Ctrl+P", "", "Toggle the Austin/Tony work preview: current tool and arguments, last error, and the text being streamed"},
 	{"Ctrl+G", "", "Toggle message timestamps"},
@@ -205,11 +208,85 @@ func (a *App) detailLines(width int) []string {
 	}
 	lines = append(lines, "", "Delivery", "  "+a.deliverySummary())
 
+	lines = append(lines, "", "Changes (Austin vs base)")
+	changes := a.cachedChanges
+	if changes == nil && a.ws != nil {
+		a.refreshChanges()
+		changes = a.cachedChanges
+	}
+	if len(changes) == 0 {
+		lines = append(lines, "  (no changes vs base)")
+	} else {
+		for _, l := range changes {
+			lines = append(lines, "  "+l)
+		}
+	}
+
 	var out []string
 	for _, line := range lines {
 		out = append(out, wrap(line, width)...)
 	}
 	return out
+}
+
+func (a *App) refreshChanges() {
+	if a.ws == nil {
+		a.cachedChanges = nil
+		return
+	}
+	set := a.ws.Set()
+	if set.Austin.Path == "" {
+		a.cachedChanges = nil
+		return
+	}
+	base := set.BaseCommit
+	if base == "" {
+		base = set.BaseBranch
+	}
+	a.cachedChanges = gitChanges(set.Austin.Path, base)
+}
+
+func gitChanges(dir, base string) []string {
+	if dir == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	var lines []string
+	args := []string{"-C", dir, "diff", "--stat"}
+	if base != "" {
+		args = append(args, base)
+	}
+	cmd := exec.CommandContext(ctx, "git", args...)
+	if out, err := cmd.Output(); err == nil {
+		if trimmed := strings.TrimSpace(string(out)); trimmed != "" {
+			lines = append(lines, strings.Split(trimmed, "\n")...)
+		}
+	}
+
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel2()
+	cmd2 := exec.CommandContext(ctx2, "git", "-C", dir, "status", "--porcelain")
+	if out2, err := cmd2.Output(); err == nil {
+		var untracked []string
+		for _, raw := range strings.Split(string(out2), "\n") {
+			line := strings.TrimRight(raw, "\r")
+			if strings.HasPrefix(line, "?? ") {
+				untracked = append(untracked, strings.TrimPrefix(line, "?? "))
+			}
+		}
+		if len(untracked) > 0 {
+			if len(lines) > 0 {
+				lines = append(lines, "")
+			}
+			lines = append(lines, "Untracked:")
+			for _, u := range untracked {
+				lines = append(lines, "  ? "+u)
+			}
+		}
+	}
+	return lines
 }
 
 func worktreeLine(set workspace.Set, agent protocol.AgentID) string {
@@ -289,7 +366,7 @@ func (a *App) writeDetail(b *strings.Builder, w, h int) {
 	if len(lines) == 0 {
 		first, last = 0, 0
 	}
-	foot := fmt.Sprintf(" Lines %d–%d / %d · ↑↓/jk scroll · PgUp/PgDn · Esc close · Ctrl+Q quit ", first, last, len(lines))
+	foot := fmt.Sprintf(" Lines %d–%d / %d · ↑↓/jk scroll · PgUp/PgDn · Esc/Ctrl+O close · Ctrl+Q quit ", first, last, len(lines))
 	b.WriteString(paint(ansiBorder, "└") + paint(ansiHint, fit(foot, contentWidth, "─")) + paint(ansiBorder, "┘"))
 }
 

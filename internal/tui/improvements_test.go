@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -281,3 +282,49 @@ func TestPersistentComposerHistory(t *testing.T) {
 		t.Fatalf("unexpected multiline history: %v", loaded2)
 	}
 }
+
+func TestDetailViewChangesSummary(t *testing.T) {
+	a := testApp(100, 30)
+	lines := a.detailLines(90)
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "Changes (Austin vs base)") {
+		t.Fatalf("detailLines missing changes header:\n%s", joined)
+	}
+	if !strings.Contains(joined, "(no changes vs base)") {
+		t.Fatalf("detailLines missing clean note:\n%s", joined)
+	}
+
+	a.cachedChanges = []string{"file1.go | 2 +-", "Untracked:", "  ? new.txt"}
+	lines2 := a.detailLines(90)
+	joined2 := strings.Join(lines2, "\n")
+	if !strings.Contains(joined2, "file1.go | 2 +-") || !strings.Contains(joined2, "? new.txt") {
+		t.Fatalf("detailLines missing cached changes:\n%s", joined2)
+	}
+}
+
+func TestDetailViewToggleWithCtrlO(t *testing.T) {
+	a := testApp(80, 24)
+	if a.view != viewMain {
+		t.Fatalf("initial view = %v, want viewMain", a.view)
+	}
+
+	ctx := context.Background()
+	act := a.handleKey("ctrl-o")
+	if act.kind != actionToggleDetail {
+		t.Fatalf("handleKey(ctrl-o) = %+v, want actionToggleDetail", act)
+	}
+	a.applyAction(ctx, act)
+	if a.view != viewDetail {
+		t.Fatalf("view after first ctrl-o = %v, want viewDetail", a.view)
+	}
+
+	actClose := a.handleKey("ctrl-o")
+	if actClose.kind != actionToggleDetail {
+		t.Fatalf("handleKey(ctrl-o) in viewDetail = %+v, want actionToggleDetail", actClose)
+	}
+	a.applyAction(ctx, actClose)
+	if a.view != viewMain {
+		t.Fatalf("view after second ctrl-o = %v, want viewMain", a.view)
+	}
+}
+

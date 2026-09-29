@@ -146,6 +146,7 @@ func (a *App) applyAction(ctx context.Context, action inputAction) bool {
 			a.view = viewMain
 		} else {
 			a.view = viewDetail
+			a.refreshChanges()
 			a.clampDetailOffset()
 		}
 		a.requestFullClear()

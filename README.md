@@ -154,7 +154,7 @@ A build can take a long time, and the timeline only changes when an agent finish
 | `Ctrl+/` | Open or close Duo Help |
 | `Ctrl+P` | Show or hide the Austin/Tony work preview band |
 | `Ctrl+M` / `Alt+M` | Open the model picker for Austin or Tony |
-| `Ctrl+O` | Open the session overview: worktrees, verification or Plan, and delivery state |
+| `Ctrl+O` | Toggle session overview: worktrees, verification or Plan, delivery state, and Git changes diffstat |
 | `Ctrl+G` | Toggle message timestamps |
 | `Shift+Tab` | Cycle the target agent's Pi thinking level |
 | `Ctrl+Q` | Quit Duo and preserve the session |
