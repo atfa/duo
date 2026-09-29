@@ -35,6 +35,8 @@ test("mode gates the shared-plan and verification tools", () => {
   expect(isToolEnabledForMode("plan", "fast")).toBe(false);
   expect(isToolEnabledForMode("verification", "fast")).toBe(true);
   expect(isToolEnabledForMode("verification", "goal")).toBe(false);
+  expect(isToolEnabledForMode("escalate", "fast")).toBe(true);
+  expect(isToolEnabledForMode("escalate", "goal")).toBe(false);
 });
 
 test("FAST makes Tony a read-only verifier and never offers the shared plan", () => {

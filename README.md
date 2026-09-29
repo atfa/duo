@@ -87,7 +87,7 @@ Duo Core owns only a small set of reliable institutions — mode, phases, verifi
 
 ## How the collaboration works
 
-A session has one fixed **mode** for its whole lifetime. Both modes share the same isolated worktrees, Git evidence and delivery handoff; they differ in how much negotiation is required before delivery.
+A session launches in either Fast (default) or Goal mode. A Fast session can dynamically escalate to Goal mode on the fly without losing in-flight work or recreating worktrees. Both modes share the same isolated worktrees, Git evidence and delivery handoff; they differ in how much negotiation is required before delivery.
 
 ### Fast (default)
 
@@ -102,6 +102,8 @@ RUNNING → VERIFY → DONE
 | **DONE** | The verified commit was delivered to your repository. | Delivery succeeded. |
 
 Fast has no shared Plan and no dual sign-off. A passed verification is bound to the exact commit that was requested; any new commit invalidates it and returns the session to `RUNNING`. Only Austin writes to the delivered artifact — Tony's worktree is never delivered.
+
+**Dynamic Escalation**: If a task started in Fast mode turns out to be more complex than expected, either the human (typing `/escalate [reason]` or `/mode goal` in the composer) or an agent (calling `duo_escalate`) can dynamically upgrade the session to Goal mode. The session transitions to `PLAN` with a shared plan v1 seeded with the escalation reason, Tony becomes an active co-developer, and all prior commits are preserved.
 
 ### Goal (`duo --mode goal`)
 
@@ -133,6 +135,7 @@ Austin and Tony share a small tool surface installed with the Pi bridge. It is t
 | `duo_set_status` | both | In Goal, sign the current phase (`ready: true`) or revoke your signature (`ready: false`). In Fast, Austin uses `ready: true` to request verification; a Tony sign-off is rejected with guidance. |
 | `duo_set_verification` | Fast (Tony only) | Report `passed` or `issue_found` for Austin's exact commit under review. `issue_found` requires a concrete note. |
 | `duo_set_plan` | Goal | Create or replace the whole shared Plan. Each call makes a new version and resets both signatures. Not available in Fast. |
+| `duo_escalate` | Fast | Dynamically escalate the session to Goal mode on the fly (switches to PLAN phase and initializes shared plan v1). |
 | `duo_status` | both | Read the authoritative mode, phase, verification status, Plan, signatures, and both worktrees' branch, path, HEAD, cleanliness and ahead count. |
 
 Duo Core enforces these gates rather than trusting the model: Fast rejects `duo_set_plan`, and a Tony `duo_set_status` in Fast is rejected with guidance to use `duo_set_verification`. The bridge is a thin adapter — Pi events become Duo activity, Pi tools become Duo requests, Duo messages become Pi steering. It deliberately holds no project truth of its own.
@@ -390,7 +393,7 @@ The full record lives in [docs/demo.md](./docs/demo.md).
 
 ## Limitations
 
-Duo is an experimental runtime. In short: the agent topology is fixed at two agents named Austin and Tony; Pi is the only supported agent runtime; the session mode is fixed at launch, with no runtime switching or automatic escalation to Goal; Fast is single-writer, so Tony never commits to the delivered artifact; recovery cannot reconstruct an agent's *reasoning*, only its state; Duo Core itself is not auto-restarted after a crash; and sessions are per-machine and per-repository-path, not portable.
+Duo is an experimental runtime. In short: the agent topology is fixed at two agents named Austin and Tony; Pi is the only supported agent runtime; Fast mode can dynamically escalate to Goal mode on the fly (`/escalate` or `duo_escalate`), though downgrading back to Fast is unsupported; Fast is single-writer, so Tony never commits to the delivered artifact; recovery cannot reconstruct an agent's *reasoning*, only its state; Duo Core itself is not auto-restarted after a crash; and sessions are per-machine and per-repository-path, not portable.
 
 The full, current list — including what is deliberately a non-goal — is in [docs/known-limitations.md](./docs/known-limitations.md).
 

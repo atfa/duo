@@ -16,6 +16,7 @@ var (
 	ErrMissingIssue = errors.New("issue_found requires a concrete issue description")
 	ErrModeMismatch = errors.New("operation is not available in this Duo mode")
 	ErrProjectDone  = errors.New("project is already DONE")
+	ErrAlreadyGoal  = errors.New("project is already in Goal mode")
 	ErrUnknownAgent = errors.New("unknown agent")
 )
 
@@ -330,6 +331,68 @@ func (s *State) Reopen() (Snapshot, error) {
 		s.mu.Unlock()
 		return snap, err
 	}
+	snap, hook := s.snapshotLocked(), s.onChange
+	s.mu.Unlock()
+	notify(hook, snap)
+	return snap, nil
+}
+
+// EscalateToGoal transitions an active Fast mode session to Goal mode.
+// It switches mode to ModeGoal and phase to PhasePlan.
+// It seeds a shared plan v1 containing the escalation reason and any prior notes / verification issues.
+// Approvals are reset so both agents must co-design and approve the plan before execution.
+// If the session is already Goal mode, it returns ErrAlreadyGoal.
+// If the session is PhaseDone, it returns ErrProjectDone.
+func (s *State) EscalateToGoal(reason string) (Snapshot, error) {
+	s.mu.Lock()
+	if s.phase == PhaseDone {
+		snap := s.snapshotLocked()
+		s.mu.Unlock()
+		return snap, ErrProjectDone
+	}
+	if s.mode == ModeGoal {
+		snap := s.snapshotLocked()
+		s.mu.Unlock()
+		return snap, ErrAlreadyGoal
+	}
+
+	s.mode = ModeGoal
+	s.phase = PhasePlan
+
+	var b strings.Builder
+	b.WriteString("# Escalated Goal Plan\n\n")
+	if reason = strings.TrimSpace(reason); reason != "" {
+		b.WriteString("## Escalation Reason\n")
+		b.WriteString(reason)
+		b.WriteString("\n\n")
+	}
+	if austinNote := strings.TrimSpace(s.notes[protocol.Austin]); austinNote != "" {
+		b.WriteString("## Prior Austin Note\n")
+		b.WriteString(austinNote)
+		b.WriteString("\n\n")
+	}
+	if verNote := strings.TrimSpace(s.verification.Note); verNote != "" {
+		b.WriteString("## Prior Verification Note\n")
+		b.WriteString(verNote)
+		b.WriteString("\n\n")
+	}
+	b.WriteString("## Next Steps\n- [ ] Austin and Tony align on architecture and finalize plan\n- [ ] Approve plan via duo_set_status\n- [ ] Execute implementation\n- [ ] Review and integrate\n")
+
+	if strings.TrimSpace(s.plan) == "" {
+		s.plan = b.String()
+		s.planVersion = 1
+	} else {
+		if reason != "" {
+			s.plan = fmt.Sprintf("## Escalation Reason: %s\n\n%s", reason, s.plan)
+		}
+		s.planVersion++
+	}
+
+	s.resetApprovalsLocked()
+	s.verification = Verification{}
+	s.started = true
+	s.lastMutation = time.Now()
+
 	snap, hook := s.snapshotLocked(), s.onChange
 	s.mu.Unlock()
 	notify(hook, snap)

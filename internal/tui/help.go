@@ -112,7 +112,8 @@ func (a *App) helpLines(width int) []string {
 		{"Mode", []string{
 			"FAST (default): Austin drives, Tony independently verifies. No shared plan, no dual sign-off.",
 			"GOAL (duo --mode goal): shared plan + independent work + cross-review + dual sign-off.",
-			"Mode is fixed for a session's lifetime; --resume always uses the persisted mode.",
+			"Escalate FAST to GOAL on the fly: type /escalate [reason] or /mode goal in the composer, or agents call duo_escalate.",
+			"--resume always uses the persisted mode.",
 		}},
 		{"Keyboard", helpKeyboardLines()},
 		{"Collaboration Lifecycle", lifecycle},

@@ -259,6 +259,28 @@ func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 	if text == "" {
 		return nil
 	}
+
+	if text == "/mode goal" || strings.HasPrefix(text, "/escalate") {
+		reason := ""
+		if strings.HasPrefix(text, "/escalate") {
+			reason = strings.TrimSpace(strings.TrimPrefix(text, "/escalate"))
+			if strings.HasPrefix(reason, ":") {
+				reason = strings.TrimSpace(strings.TrimPrefix(reason, ":"))
+			}
+		}
+		c.reopenFinishedSession()
+		if err := c.EscalateToGoal(ctx, reason); err != nil {
+			c.emit(events.KindSystem, protocol.Duo, "", fmt.Sprintf("cannot escalate: %v", err))
+			return err
+		}
+		return nil
+	}
+	if text == "/mode fast" {
+		err := fmt.Errorf("cannot switch to Fast mode: sessions can only escalate from Fast to Goal")
+		c.emit(events.KindSystem, protocol.Duo, "", err.Error())
+		return err
+	}
+
 	if !c.server.IsConnected(protocol.Austin) {
 		return fmt.Errorf("Austin is not connected yet")
 	}
@@ -270,6 +292,71 @@ func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 		Version: 1, Type: protocol.MsgHumanPrompt, From: protocol.Duo, To: protocol.Austin,
 		Text: "[Human task from Duo]\n\n" + text, Timestamp: time.Now().UnixMilli(),
 	})
+}
+
+// EscalateToGoal dynamically escalates an active Fast mode session to Goal mode.
+// It switches mode to Goal and phase to PLAN, creates a shared plan v1 seeded
+// with the escalation reason, invalidates approvals, persists the updated state,
+// and notifies both agents of their updated roles.
+func (c *Coordinator) EscalateToGoal(ctx context.Context, reason string) error {
+	reason = strings.TrimSpace(reason)
+	if _, err := c.project.EscalateToGoal(reason); err != nil {
+		return err
+	}
+
+	c.recordEvent("mode_escalated", map[string]any{
+		"from":   project.ModeFast.String(),
+		"to":     project.ModeGoal.String(),
+		"reason": reason,
+	})
+
+	msg := "mode escalated: FAST → GOAL"
+	if reason != "" {
+		msg += fmt.Sprintf(" (reason: %s)", reason)
+	}
+	c.emit(events.KindSystem, protocol.Duo, "", msg)
+
+	_ = c.persistStrict("mode escalated")
+
+	reasonDesc := "(none provided)"
+	if reason != "" {
+		reasonDesc = reason
+	}
+
+	austinNotice := fmt.Sprintf(
+		"[Duo Mode Escalation]\nThe session has escalated from Fast mode to Goal mode.\nReason: %s\nPhase: PLAN (shared plan v1 initialized).\n\nFast-mode single-driver workflow has switched to Goal-mode collaborative workflow:\n- Both Austin and Tony must co-design the shared plan.\n- Refine the shared plan using duo_set_plan.\n- When aligned, both Austin and Tony must approve with duo_set_status(ready=true) to advance to EXECUTE.\n- Existing commits in your worktree are preserved.",
+		reasonDesc,
+	)
+	tonyNotice := fmt.Sprintf(
+		"[Duo Mode Escalation]\nThe session has escalated from Fast mode to Goal mode.\nReason: %s\nPhase: PLAN (shared plan v1 initialized).\n\nYou are now an active co-designer and co-developer (no longer read-only):\n- Read current plan with duo_status and collaborate with Austin via duo_send.\n- Refine the shared plan using duo_set_plan.\n- When aligned, both Austin and Tony must approve with duo_set_status(ready=true) to advance to EXECUTE.\n- In EXECUTE, work independently in your own worktree.",
+		reasonDesc,
+	)
+
+	if c.server != nil {
+		_ = c.server.Send(ctx, protocol.Austin, protocol.Message{
+			Version:   protocol.Version,
+			Type:      protocol.MsgDuoNotice,
+			From:      protocol.Duo,
+			To:        protocol.Austin,
+			Text:      austinNotice,
+			Timestamp: time.Now().UnixMilli(),
+		})
+		_ = c.server.Send(ctx, protocol.Tony, protocol.Message{
+			Version:   protocol.Version,
+			Type:      protocol.MsgDuoNotice,
+			From:      protocol.Duo,
+			To:        protocol.Tony,
+			Text:      tonyNotice,
+			Timestamp: time.Now().UnixMilli(),
+		})
+	}
+
+	if c.tracker != nil {
+		c.tracker.Touch(protocol.Austin)
+		c.tracker.Touch(protocol.Tony)
+	}
+
+	return nil
 }
 
 // reopenFinishedSession turns a DONE session back into an active round when the
@@ -368,6 +455,9 @@ func (c *Coordinator) OnMessage(ctx context.Context, client *transport.Client, m
 
 	case protocol.MsgSetVerification:
 		c.handleSetVerification(ctx, client, message)
+
+	case protocol.MsgEscalate:
+		c.handleEscalate(ctx, client, message)
 
 	case protocol.MsgGetStatus:
 		c.handleGetStatus(ctx, client, message)
@@ -879,6 +969,18 @@ func (c *Coordinator) handleSetVerification(ctx context.Context, client *transpo
 	}
 }
 
+func (c *Coordinator) handleEscalate(ctx context.Context, client *transport.Client, message protocol.Message) {
+	reason := strings.TrimSpace(message.Note)
+	if reason == "" {
+		reason = strings.TrimSpace(message.Text)
+	}
+	if err := c.EscalateToGoal(ctx, reason); err != nil {
+		_ = c.respond(ctx, client, message.RequestID, false, err.Error(), c.statusText(ctx))
+		return
+	}
+	_ = c.respond(ctx, client, message.RequestID, true, "escalated to Goal mode successfully; session is now in PLAN phase", c.statusText(ctx))
+}
+
 func (c *Coordinator) sendFastNotice(ctx context.Context, agent protocol.AgentID, text string) {
 	_ = c.server.Send(ctx, agent, protocol.Message{
 		Version:   protocol.Version,
@@ -1265,10 +1367,13 @@ func (c *Coordinator) handleGetStatus(ctx context.Context, client *transport.Cli
 }
 
 func (c *Coordinator) statusText(ctx context.Context) string {
-	parts := []string{c.project.Snapshot().String(), c.workspace.Set().String()}
-	for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
-		if status, err := c.workspace.Status(ctx, agent); err == nil {
-			parts = append(parts, status.String())
+	parts := []string{c.project.Snapshot().String()}
+	if c.workspace != nil {
+		parts = append(parts, c.workspace.Set().String())
+		for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+			if status, err := c.workspace.Status(ctx, agent); err == nil {
+				parts = append(parts, status.String())
+			}
 		}
 	}
 	return strings.Join(parts, "\n")

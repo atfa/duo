@@ -9,6 +9,7 @@ import { registerProjectStatusTool } from "./tools/project-status";
 import { registerSendTool } from "./tools/send";
 import { registerStatusTool } from "./tools/status";
 import { registerVerificationTool } from "./tools/verification";
+import { registerEscalateTool } from "./tools/escalate";
 
 export default function (pi: any) {
   if (process.env.DUO_ACTIVE !== "1") return;
@@ -41,6 +42,7 @@ export default function (pi: any) {
   registerStatusTool(pi, transport, mode);
   registerProjectStatusTool(pi, transport);
   registerVerificationTool(pi, transport, mode, AGENT);
+  registerEscalateTool(pi, transport, mode);
 
   pi.registerCommand("duo-test", {
     description: "Test connection to Duo Core",

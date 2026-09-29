@@ -10,7 +10,7 @@ export type DuoMessageType =
   | "hello" | "test" | "activity" | "assistant_message" | "agent_error"
   | "peer_message" | "steer" | "duo_notice" | "harness_prompt" | "human_prompt"
   | "resume_prompt" | "set_plan" | "set_status" | "get_status" | "response"
-  | "set_verification" | "set_model" | "model_state" | "cycle_thinking"
+  | "set_verification" | "escalate" | "set_model" | "model_state" | "cycle_thinking"
   | "thinking_state";
 
 /**

@@ -4,6 +4,7 @@ All notable project milestones are documented here.
 
 ## Unreleased
 
+- Dynamic mode escalation: Fast mode sessions can now dynamically escalate to Goal mode on the fly without resetting the session, re-creating worktrees, or losing in-flight commits. Escalation can be triggered by the user via the composer (`/escalate [reason]` or `/mode goal`), or autonomously by agents via the `duo_escalate` tool (or `protocol.MsgEscalate`). The session enters the `PLAN` phase, initializes a shared plan v1 seeded with the escalation reason and prior notes, transitions Tony into an active co-developer and co-signer, and persists immediately so `duo --resume` resumes in Goal mode.
 - Deterministic automated test verification gate: Duo can now execute an automated test command (e.g. `go test ./...` or `npm test`) before accepting Austin's verification request in Fast mode, before Tony's final verification, and before delivery in Goal mode. If tests fail, the failure output is reported immediately to Austin with concrete error details, blocking phase advance to `VERIFY` and keeping Tony focused on valid builds. Configure via `--test-cmd <command>`, `DUO_TEST_COMMAND`, or `"testCommand"` in `~/.duo/config.json` / `.duo/config.json`.
 - TUI usability enhancements:
   - Timeline scrolling now supports keyboard navigation with `PgUp` and `PgDn` (half-page scroll per press).

@@ -303,3 +303,88 @@ func TestNudgeStateOmitsSharedPlanBody(t *testing.T) {
 		t.Fatalf("NudgeState (%d bytes) must be smaller than String (%d bytes)", len(nudge), len(full))
 	}
 }
+
+func TestStateEscalateToGoal(t *testing.T) {
+	// 1. Goal sessions cannot escalate.
+	goal := NewState()
+	if _, err := goal.EscalateToGoal("complex architecture"); err != ErrAlreadyGoal {
+		t.Fatalf("expected ErrAlreadyGoal, got %v", err)
+	}
+
+	// 2. Fast session in VERIFY phase with Austin note and Tony issue note.
+	fast := NewStateFor(ModeFast)
+	if _, _, err := fast.SetReady(protocol.Austin, true, "austin drafted feature", "head-123"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := fast.SetVerification(protocol.Tony, VerificationIssueFound, "architecture needs dual review", "head-123"); err != nil {
+		t.Fatal(err)
+	}
+	if snap := fast.Snapshot(); snap.Phase != PhaseRunning || snap.Verification.Note != "architecture needs dual review" {
+		t.Fatalf("unexpected state before escalation: %+v", snap)
+	}
+
+	// 3. Escalate to Goal mode.
+	snap, err := fast.EscalateToGoal("unexpected complexity requiring co-design")
+	if err != nil {
+		t.Fatalf("EscalateToGoal failed: %v", err)
+	}
+	if snap.Mode != ModeGoal || snap.EffectiveMode() != ModeGoal {
+		t.Fatalf("expected ModeGoal, got %v", snap.Mode)
+	}
+	if snap.Phase != PhasePlan {
+		t.Fatalf("expected PhasePlan, got %v", snap.Phase)
+	}
+	if snap.PlanVersion != 1 {
+		t.Fatalf("expected PlanVersion 1, got %d", snap.PlanVersion)
+	}
+	if !strings.Contains(snap.Plan, "unexpected complexity requiring co-design") {
+		t.Fatalf("plan does not contain escalation reason: %s", snap.Plan)
+	}
+	if !strings.Contains(snap.Plan, "architecture needs dual review") {
+		t.Fatalf("plan does not contain prior verification note: %s", snap.Plan)
+	}
+	if snap.Ready[protocol.Austin] || snap.Ready[protocol.Tony] {
+		t.Fatal("approvals must be reset after escalation")
+	}
+	if snap.Verification != (Verification{}) {
+		t.Fatalf("verification record must be cleared, got %+v", snap.Verification)
+	}
+
+	// 4. In escalated state, Goal workflow operations work (SetPlan and dual SetReady).
+	updatedPlan := "# Co-designed Plan\n- Austin does backend\n- Tony does frontend"
+	snap, err = fast.SetPlan(protocol.Austin, updatedPlan)
+	if err != nil {
+		t.Fatalf("SetPlan failed after escalation: %v", err)
+	}
+	if snap.PlanVersion != 2 || snap.Plan != updatedPlan {
+		t.Fatalf("unexpected plan after update: %+v", snap)
+	}
+
+	// Both sign off to advance to EXECUTE.
+	if _, _, err := fast.SetReady(protocol.Austin, true, "agreed", ""); err != nil {
+		t.Fatal(err)
+	}
+	snap, tr, err := fast.SetReady(protocol.Tony, true, "agreed", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !tr.Advanced || snap.Phase != PhaseExecute {
+		t.Fatalf("expected advance to EXECUTE, got phase=%s advanced=%t", snap.Phase, tr.Advanced)
+	}
+
+	// 5. Done sessions cannot escalate.
+	fastDone := NewStateFor(ModeFast)
+	if _, _, err := fastDone.SetReady(protocol.Austin, true, "", "head-done"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := fastDone.SetVerification(protocol.Tony, VerificationPassed, "ok", "head-done"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fastDone.Complete(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fastDone.EscalateToGoal("too late"); err != ErrProjectDone {
+		t.Fatalf("expected ErrProjectDone, got %v", err)
+	}
+}
+

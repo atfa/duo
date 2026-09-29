@@ -341,3 +341,152 @@ func TestFastModeAutomatedTestGate(t *testing.T) {
 	waitPhase(t, state, project.PhaseDone)
 }
 
+// TestFastModeEscalateToGoal verifies that an active Fast mode session can be
+// dynamically escalated to Goal mode. Austin's existing work is preserved,
+// the session enters PLAN phase, both agents co-design and approve the shared
+// plan, and then execute through the full Goal workflow to DONE.
+func TestFastModeEscalateToGoal(t *testing.T) {
+	ctx := context.Background()
+	runtime := startE2EWithMode(t, ctx, project.ModeFast)
+	repo, set, store, state, server, coord := runtime.repo, runtime.set, runtime.store, runtime.state, runtime.server, runtime.coord
+
+	austin := runtime.dialAgent(t, protocol.Austin)
+	tony := runtime.dialAgent(t, protocol.Tony)
+	waitFor(t, func() bool { return server.IsConnected(protocol.Austin) && server.IsConnected(protocol.Tony) }, "both agents to connect")
+
+	// 1. Austin commits initial work in Fast mode.
+	writeAndCommit(t, set.Austin.Path, "feature.txt", "v1\n", "initial feature commit")
+
+	// 2. Escalate to Goal mode via MsgEscalate from Austin.
+	resp, err := austin.request(protocol.Message{
+		Version: protocol.Version,
+		Type:    protocol.MsgEscalate,
+		Note:    "needs dual-agent architecture co-design",
+	})
+	if err != nil {
+		t.Fatalf("escalate request failed: %v", err)
+	}
+	if !resp.OK {
+		t.Fatalf("escalate response not ok: %+v", resp)
+	}
+
+	// Session must now be Goal mode and PLAN phase.
+	snap := state.Snapshot()
+	if snap.Mode != project.ModeGoal || snap.EffectiveMode() != project.ModeGoal {
+		t.Fatalf("mode = %s, want %s", snap.Mode, project.ModeGoal)
+	}
+	if snap.Phase != project.PhasePlan {
+		t.Fatalf("phase = %s, want %s", snap.Phase, project.PhasePlan)
+	}
+	if snap.PlanVersion != 1 {
+		t.Fatalf("planVersion = %d, want 1", snap.PlanVersion)
+	}
+
+	// Verify persistence wrote Goal mode to disk.
+	persisted, err := store.Load()
+	if err != nil {
+		t.Fatalf("load persisted snapshot: %v", err)
+	}
+	if persisted.EffectiveMode() != project.ModeGoal || persisted.Phase != string(project.PhasePlan) {
+		t.Fatalf("persisted snapshot mode=%q phase=%q, want goal/PLAN", persisted.Mode, persisted.Phase)
+	}
+
+	// 3. In PLAN, Austin updates the shared plan.
+	planResp, err := austin.request(protocol.Message{
+		Version: protocol.Version,
+		Type:    protocol.MsgSetPlan,
+		Plan:    "# Co-designed Plan\n- Austin: core logic\n- Tony: tests",
+	})
+	if err != nil || !planResp.OK {
+		t.Fatalf("MsgSetPlan failed in escalated session: %v (resp: %+v)", err, planResp)
+	}
+
+	// Both agents sign the plan.
+	readyTrue := true
+	if _, err := austin.request(protocol.Message{Version: protocol.Version, Type: protocol.MsgSetStatus, Ready: &readyTrue, Note: "approved"}); err != nil {
+		t.Fatalf("austin plan approval failed: %v", err)
+	}
+	if _, err := tony.request(protocol.Message{Version: protocol.Version, Type: protocol.MsgSetStatus, Ready: &readyTrue, Note: "approved"}); err != nil {
+		t.Fatalf("tony plan approval failed: %v", err)
+	}
+
+	// Phase must advance to EXECUTE.
+	waitPhase(t, state, project.PhaseExecute)
+
+	// 4. In EXECUTE, Tony adds tests and Austin finishes core logic.
+	writeAndCommit(t, set.Tony.Path, "feature_test.txt", "test ok\n", "add tests")
+	writeAndCommit(t, set.Austin.Path, "feature.txt", "v1 + v2\n", "finish core")
+
+	// Both sign EXECUTE.
+	if _, err := austin.request(protocol.Message{Version: protocol.Version, Type: protocol.MsgSetStatus, Ready: &readyTrue, Note: "execute done"}); err != nil {
+		t.Fatalf("austin execute sign failed: %v", err)
+	}
+	if _, err := tony.request(protocol.Message{Version: protocol.Version, Type: protocol.MsgSetStatus, Ready: &readyTrue, Note: "execute done"}); err != nil {
+		t.Fatalf("tony execute sign failed: %v", err)
+	}
+
+	waitPhase(t, state, project.PhaseReview)
+
+	// Both sign REVIEW.
+	if _, err := austin.request(protocol.Message{Version: protocol.Version, Type: protocol.MsgSetStatus, Ready: &readyTrue, Note: "reviewed"}); err != nil {
+		t.Fatalf("austin review sign failed: %v", err)
+	}
+	if _, err := tony.request(protocol.Message{Version: protocol.Version, Type: protocol.MsgSetStatus, Ready: &readyTrue, Note: "reviewed"}); err != nil {
+		t.Fatalf("tony review sign failed: %v", err)
+	}
+
+	waitPhase(t, state, project.PhaseIntegrate)
+
+	// In INTEGRATE, both sign off to trigger delivery.
+	if _, err := austin.request(protocol.Message{Version: protocol.Version, Type: protocol.MsgSetStatus, Ready: &readyTrue, Note: "integrated"}); err != nil {
+		t.Fatalf("austin integrate sign failed: %v", err)
+	}
+	if _, err := tony.request(protocol.Message{Version: protocol.Version, Type: protocol.MsgSetStatus, Ready: &readyTrue, Note: "integrated"}); err != nil {
+		t.Fatalf("tony integrate sign failed: %v", err)
+	}
+
+	waitPhase(t, state, project.PhaseDone)
+
+	// Verify deliverable made it back to the original repository.
+	content, err := os.ReadFile(filepath.Join(repo, "feature.txt"))
+	if err != nil || string(content) != "v1 + v2\n" {
+		t.Fatalf("delivered feature.txt content %q, err %v", string(content), err)
+	}
+	testContent, err := os.ReadFile(filepath.Join(repo, "feature_test.txt"))
+	if err != nil || string(testContent) != "test ok\n" {
+		t.Fatalf("delivered feature_test.txt content %q, err %v", string(testContent), err)
+	}
+
+	_ = coord
+}
+
+func TestFastModeEscalateViaComposer(t *testing.T) {
+	ctx := context.Background()
+	runtime := startE2EWithMode(t, ctx, project.ModeFast)
+	state, server, coord := runtime.state, runtime.server, runtime.coord
+
+	runtime.dialAgent(t, protocol.Austin)
+	runtime.dialAgent(t, protocol.Tony)
+	waitFor(t, func() bool { return server.IsConnected(protocol.Austin) && server.IsConnected(protocol.Tony) }, "both agents to connect")
+
+	// Escalate via /escalate slash command in composer
+	if err := coord.SubmitUserTask(ctx, "/escalate refactoring is too broad"); err != nil {
+		t.Fatalf("SubmitUserTask with /escalate failed: %v", err)
+	}
+
+	snap := state.Snapshot()
+	if snap.Mode != project.ModeGoal || snap.EffectiveMode() != project.ModeGoal {
+		t.Fatalf("expected ModeGoal, got %s", snap.Mode)
+	}
+	if snap.Phase != project.PhasePlan {
+		t.Fatalf("expected PhasePlan, got %s", snap.Phase)
+	}
+
+	// Attempting /mode fast must be rejected
+	if err := coord.SubmitUserTask(ctx, "/mode fast"); err == nil {
+		t.Fatal("expected error when attempting to switch from Goal to Fast")
+	}
+}
+
+
+

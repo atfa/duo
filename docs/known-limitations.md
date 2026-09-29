@@ -10,9 +10,11 @@ The runtime currently assumes exactly two agents named **Austin** and **Tony**. 
 
 Duo targets Pi. The Go core is structured so other adapters could be added later, but no second agent runtime is currently supported.
 
-## Session mode is fixed at launch
+## Dynamic mode escalation: Fast to Goal
 
-A session runs in exactly one mode for its lifetime. There is no runtime switch and no automatic escalation from Fast to Goal; starting a larger task in Fast means restarting with `duo --mode goal`. The mode is persisted with the session, and a legacy session with no recorded mode resumes as Goal.
+A Fast mode session can be dynamically escalated to Goal mode on the fly without losing in-flight work or recreating worktrees. Escalation can be triggered by the human typing `/escalate [reason]` or `/mode goal` into the composer, or autonomously by agents calling `duo_escalate`. Upon escalation, the session enters the PLAN phase with a shared plan v1 seeded with the escalation context, and both agents transition into collaborative co-design.
+
+Downgrading from Goal mode back to Fast mode is not supported.
 
 ## Fast mode is single-writer
 

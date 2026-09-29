@@ -87,7 +87,7 @@ Duo Core 负责的是一小组可靠的"制度"：模式、阶段、验证、签
 
 ## 协作如何运作
 
-会话在启动时固定一种**模式**，整个生命周期不变。两种模式共用同一套隔离 worktree、Git 证据和交付流程；区别在于交付前需要多少协商。
+会话可启动为 Fast（默认）或 Goal 模式。Fast 会话支持在运行中动态平滑升级至 Goal 模式（无需重建 worktree、保留已有 commit）。两种模式共用同一套隔离 worktree、Git 证据和交付流程；区别在于交付前需要多少协商。
 
 ### Fast（默认）
 
@@ -102,6 +102,8 @@ RUNNING → VERIFY → DONE
 | **DONE** | 被验证的 commit 已交付进你的仓库。 | 交付成功。 |
 
 Fast 没有共享 Plan，也没有双重签字。一次 `passed` 绑定到当时被请求验证的那个确切 commit；任何新 commit 都会使其失效并把会话退回 `RUNNING`。只有 Austin 会写进被交付的成果——Tony 的 worktree 永远不会被交付。
+
+**动态模式升级**：若 Fast 模式下的任务经探索后发现复杂度超出预期，人类可在 composer 中输入 `/escalate [理由]` 或 `/mode goal`，Agent 亦可主动调用 `duo_escalate` 工具将当前会话动态升级至 Goal 模式。会话将切换至 `PLAN` 阶段并初始化携带升级上下文的共享 Plan v1，Tony 切换为活跃的协作者，所有已提交代码无损保留。
 
 ### Goal（`duo --mode goal`）
 
@@ -135,6 +137,7 @@ Austin 和 Tony 共用一套随 Pi bridge 安装的小工具面。这是它们�
 | `duo_set_status` | 两种 | Goal 下为当前阶段签字（`ready: true`）或撤销签字（`ready: false`）。Fast 下 Austin 用 `ready: true` 请求验证；Tony 的签字会被拒绝并给出指引。 |
 | `duo_set_verification` | Fast（仅 Tony） | 对正在 Review 的 Austin 确切 commit 报告 `passed` 或 `issue_found`。`issue_found` 必须附具体 note。 |
 | `duo_set_plan` | Goal | 创建或整体替换共享 Plan。每次调用产生新版本并重置双方签字。Fast 下不可用。 |
+| `duo_escalate` | Fast | 动态升级会话至 Goal 模式（切换至 PLAN 阶段并初始化共享 Plan v1），已有代码成果完整保留。 |
 | `duo_status` | 两种 | 读取权威的 mode、phase、验证状态、Plan、签字，以及两个 worktree 的 branch、路径、HEAD、clean 状态和 ahead 数。 |
 
 Duo Core 强制这些门禁而不是信任模型：Fast 拒绝 `duo_set_plan`，Fast 下 Tony 的 `duo_set_status` 会被拒绝并提示改用 `duo_set_verification`。Bridge 是一层薄适配器——Pi 事件转成 Duo 活动，Pi 工具转成 Duo 请求，Duo 消息转成 Pi 的 steer。它刻意不持有任何项目真相。
@@ -389,7 +392,7 @@ DONE
 
 ## 已知限制
 
-Duo 仍是实验性运行时。简要说：Agent 拓扑固定为两个名为 Austin 和 Tony 的 Agent；Pi 是目前唯一支持的 Agent runtime；会话模式在启动时固定，不支持运行时切换或自动升级到 Goal；Fast 是单写者，Tony 永不向被交付的成果 commit；恢复无法重建 Agent 的*推理过程*，只能恢复其状态；Duo Core 自身崩溃后不会自动重启；会话绑定机器与仓库路径，不可迁移。
+Duo 仍是实验性运行时。简要说：Agent 拓扑固定为两个名为 Austin 和 Tony 的 Agent；Pi 是目前唯一支持的 Agent runtime；Fast 模式支持在运行中动态升级到 Goal 模式（`/escalate` 或 `duo_escalate`），但暂不支持从 Goal 降级回 Fast；Fast 是单写者，Tony 永不向被交付的成果 commit；恢复无法重建 Agent 的*推理过程*，只能恢复其状态；Duo Core 自身崩溃后不会自动重启；会话绑定机器与仓库路径，不可迁移。
 
 完整清单，以及刻意划为非目标（non-goal）的部分，见 [docs/known-limitations.md](./docs/known-limitations.md)。
 
