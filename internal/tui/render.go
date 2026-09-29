@@ -3,7 +3,6 @@ package tui
 import (
 	"fmt"
 	"strings"
-	"unicode"
 	"unicode/utf8"
 
 	"github.com/atfa/duo/internal/agent"
@@ -255,8 +254,9 @@ func (a *App) paintPaneEntry(line paneLine, width int, agent protocol.AgentID, r
 	var b strings.Builder
 	used := 0
 	for _, span := range line.spans {
-		for _, r := range span.text {
-			rw := runeWidth(r)
+		spanRunes := []rune(span.text)
+		for j, r := range spanRunes {
+			rw := runeWidthNear(r, runeAfter(spanRunes, j))
 			if used+rw > from && used < to {
 				b.WriteString(paint(ansiSelect, string(r)))
 			} else if line.error {
@@ -594,8 +594,9 @@ func renderMarkdownTable(rows [][]string, align []tableAlign, width int) []paneL
 	for _, row := range rows {
 		for i, cell := range row {
 			widths[i] = maxInt(widths[i], maxInt(displayWidth(cell), 1))
-			for _, r := range cell {
-				minimums[i] = maxInt(minimums[i], runeWidth(r))
+			cellRunes := []rune(cell)
+			for j, r := range cellRunes {
+				minimums[i] = maxInt(minimums[i], runeWidthNear(r, runeAfter(cellRunes, j)))
 			}
 		}
 	}
@@ -822,6 +823,12 @@ func wrapMarkdown(line paneLine, width int) []paneLine {
 		}
 		return out
 	}
+	nextCell := func(i int) rune {
+		if i+1 < len(cells) {
+			return cells[i+1].r
+		}
+		return 0
+	}
 	trimTrailing := func(seg []cell) []cell {
 		for len(seg) > 0 {
 			if r := seg[len(seg)-1].r; r == ' ' || r == '\t' {
@@ -851,7 +858,7 @@ func wrapMarkdown(line paneLine, width int) []paneLine {
 		i := start
 		lastSpace := -1
 		for i < len(cells) {
-			rw := runeWidth(cells[i].r)
+			rw := runeWidthNear(cells[i].r, nextCell(i))
 			if used+rw > limit {
 				break
 			}
@@ -931,7 +938,11 @@ func (a *App) composerLayout(width int) composerLayout {
 			lineWidth = contentWidth
 			continue
 		}
-		rw := runeWidth(r)
+		nextValue := rune(0)
+		if i+size < len(input) {
+			nextValue, _ = utf8.DecodeRune(input[i+size:])
+		}
+		rw := runeWidthNear(r, nextValue)
 		if used+rw > lineWidth && i > start {
 			appendLine(i)
 			start = i
@@ -1076,11 +1087,12 @@ func wrap(s string, width int) []string {
 	if s == "" {
 		return []string{""}
 	}
+	runes := []rune(s)
 	var out []string
 	var b strings.Builder
 	used := 0
-	for _, r := range s {
-		rw := runeWidth(r)
+	for i, r := range runes {
+		rw := runeWidthNear(r, runeAfter(runes, i))
 		if used+rw > width && b.Len() > 0 {
 			out = append(out, b.String())
 			b.Reset()
@@ -1109,10 +1121,11 @@ func fit(s string, width int, fillOpt ...string) string {
 	if len(fillOpt) > 0 {
 		fill = fillOpt[0]
 	}
+	runes := []rune(s)
 	var b strings.Builder
 	used := 0
-	for _, r := range s {
-		rw := runeWidth(r)
+	for i, r := range runes {
+		rw := runeWidthNear(r, runeAfter(runes, i))
 		if used+rw > width {
 			break
 		}
@@ -1127,33 +1140,21 @@ func fit(s string, width int, fillOpt ...string) string {
 }
 
 func displayWidth(s string) int {
+	runes := []rune(s)
 	n := 0
-	for _, r := range s {
-		n += runeWidth(r)
+	for i, r := range runes {
+		n += runeWidthNear(r, runeAfter(runes, i))
 	}
 	return n
 }
 
-func runeWidth(r rune) int {
-	switch {
-	case r == 0 || unicode.Is(unicode.Mn, r):
-		return 0
-	case r >= 0x200b && r <= 0x200f: // zero-width space..RTL mark, including ZWJ
-		return 0
-	case r >= 0x1f3fb && r <= 0x1f3ff: // skin-tone modifiers join the base glyph
-		return 0
-	case r < 0x20 || (r >= 0x7f && r < 0xa0):
-		return 0
-	case r >= 0x1100 && (r <= 0x115f || r == 0x2329 || r == 0x232a ||
-		(r >= 0x2e80 && r <= 0xa4cf) || (r >= 0xac00 && r <= 0xd7a3) ||
-		(r >= 0xf900 && r <= 0xfaff) || (r >= 0xfe10 && r <= 0xfe19) ||
-		(r >= 0xfe30 && r <= 0xfe6f) || (r >= 0xff00 && r <= 0xff60) ||
-		(r >= 0xffe0 && r <= 0xffe6)):
-		return 2
-	case isEmojiWide(r):
-		return 2
+// runeAfter returns the rune after index i, or 0 at the end. It exists so a
+// variation selector can resolve the width of the pictograph before it.
+func runeAfter(runes []rune, i int) rune {
+	if i+1 < len(runes) {
+		return runes[i+1]
 	}
-	return 1
+	return 0
 }
 
 func clampInputPos(buf []byte, pos int) int {

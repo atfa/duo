@@ -103,10 +103,11 @@ func (a *App) selectedText() string {
 // sliceColumns returns runes touched by [from, to), using terminal display
 // columns so a wide rune is never cut in half.
 func sliceColumns(s string, from, to int) string {
+	runes := []rune(s)
 	var b strings.Builder
 	col := 0
-	for _, r := range s {
-		next := col + runeWidth(r)
+	for i, r := range runes {
+		next := col + runeWidthNear(r, runeAfter(runes, i))
 		if next > from && col < to {
 			b.WriteRune(r)
 		}

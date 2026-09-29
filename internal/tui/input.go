@@ -469,10 +469,15 @@ func (a *App) moveComposerLine(delta int) bool {
 	used := 0
 	for off < target.end {
 		r, size := utf8.DecodeRune(a.input[off:])
-		if used+runeWidth(r) > col {
+		nextValue := rune(0)
+		if off+size < target.end {
+			nextValue, _ = utf8.DecodeRune(a.input[off+size:])
+		}
+		rw := runeWidthNear(r, nextValue)
+		if used+rw > col {
 			break
 		}
-		used += runeWidth(r)
+		used += rw
 		off += size
 	}
 	a.inputPos = off

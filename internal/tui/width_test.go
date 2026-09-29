@@ -1,6 +1,10 @@
 package tui
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/atfa/duo/internal/protocol"
+)
 
 // TestDisplayWidthCountsEmojiAsTerminalColumns is the regression for emoji
 // pushing pane borders right: an emoji the terminal draws two columns wide must
@@ -24,6 +28,10 @@ func TestDisplayWidthCountsEmojiAsTerminalColumns(t *testing.T) {
 		{"skin tone sequence", "👍🏽", 2},
 		{"zero width joiner", "a\u200db", 2},
 		{"text symbol stays narrow", "©", 1},
+		// U+2197 is Extended_Pictographic but text-presentation, so a terminal
+		// draws it one column wide. Counting it as two shifted the pane header.
+		{"north east arrow", "↗", 1},
+		{"warning without selector", "⚠", 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -32,6 +40,34 @@ func TestDisplayWidthCountsEmojiAsTerminalColumns(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestPaneHeaderDividerAlignsWithContent is the regression for the header
+// button (↗) shifting the ┬ away from the │ below it.
+func TestPaneHeaderDividerAlignsWithContent(t *testing.T) {
+	a := testApp(100, 30)
+	a.add(protocol.Austin, "hello")
+	a.add(protocol.Tony, "world")
+	lines := visibleLines(a.buildFrame(renderNormal))
+	split := a.layout().leftW + 1
+	if len(lines) < 2 {
+		t.Fatalf("frame has %d lines", len(lines))
+	}
+	title := []rune(lines[0])
+	if split >= len(title) || title[split] != '┬' {
+		t.Fatalf("title divider column %d = %q, want ┬: %q", split, string(runeAt(title, split)), lines[0])
+	}
+	content := []rune(lines[1])
+	if split >= len(content) || content[split] != '│' {
+		t.Fatalf("content divider column %d = %q, want │: %q", split, string(runeAt(content, split)), lines[1])
+	}
+}
+
+func runeAt(runes []rune, i int) rune {
+	if i < 0 || i >= len(runes) {
+		return '?'
+	}
+	return runes[i]
 }
 
 // TestFitKeepsColumnWidthWithEmoji proves the padding math agrees with the

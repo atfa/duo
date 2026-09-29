@@ -1,21 +1,65 @@
 package tui
 
-import "sort"
+import (
+	"sort"
+	"unicode"
+)
 
-// emojiRanges is the Unicode Extended_Pictographic property above the ASCII
-// range: the code points a terminal may draw with a double-width emoji glyph.
-// The old width table only covered U+1F300..U+1FAFF, so common emoji such as
-// ✅ (U+2705), ❌ (U+274C), ⚠️ (U+26A0) and ⭐ (U+2B50) were counted as one
-// column while the terminal drew two. Every such line then overflowed its pane
-// and pushed the divider to the right.
+// Terminal width is measured, not guessed from the code point count. Two
+// Unicode properties matter:
 //
-// Text-default symbols that terminals keep narrow (©, ®, ™, ℹ) are
-// deliberately excluded; they are only wide as ©️ with a variation selector,
-// which is rare enough not to trade a real column for.
+//   - East Asian Wide/Fullwidth characters always occupy two columns.
+//   - Emoji occupy two columns only when they render as emoji by default
+//     (Emoji_Presentation=Yes). A text-presentation pictograph such as ⚠ or ⚑
+//     is one column on its own and two only when followed by VS16 (U+FE0F).
 //
-// Regional indicators (U+1F1E6..U+1F1FF) are excluded too: a flag is two of
-// them and the pair is two columns, so one column each is already correct.
-var emojiRanges = [][2]rune{
+// Getting this wrong corrupts every line width: an over-count shifts a border
+// left, an under-count pushes it right. The old table used the broader
+// Extended_Pictographic property, so U+2197 ↗ (the pane header button) was
+// counted as two columns even though terminals draw it as one.
+
+// wideRanges is East Asian Width W/F, the historically double-width blocks.
+var wideRanges = [][2]rune{
+	{0x1100, 0x115f}, {0x2329, 0x232a}, {0x2e80, 0xa4cf},
+	{0xac00, 0xd7a3}, {0xf900, 0xfaff}, {0xfe10, 0xfe19},
+	{0xfe30, 0xfe6f}, {0xff00, 0xff60}, {0xffe0, 0xffe6},
+}
+
+// emojiPresentationRanges is Emoji_Presentation=Yes: characters a terminal
+// draws with an emoji glyph without needing a variation selector. Regional
+// indicators are deliberately excluded; a flag is two of them and the pair is
+// two columns, so one column each is already correct.
+var emojiPresentationRanges = [][2]rune{
+	{0x231a, 0x231b}, {0x23e9, 0x23ec}, {0x23f0, 0x23f0}, {0x23f3, 0x23f3},
+	{0x25fd, 0x25fe}, {0x2614, 0x2615}, {0x2648, 0x2653}, {0x267f, 0x267f},
+	{0x2693, 0x2693}, {0x26a1, 0x26a1}, {0x26aa, 0x26ab}, {0x26bd, 0x26be},
+	{0x26c4, 0x26c5}, {0x26ce, 0x26ce}, {0x26d4, 0x26d4}, {0x26ea, 0x26ea},
+	{0x26f2, 0x26f3}, {0x26f5, 0x26f5}, {0x26fa, 0x26fa}, {0x26fd, 0x26fd},
+	{0x2705, 0x2705}, {0x270a, 0x270b}, {0x2728, 0x2728}, {0x274c, 0x274c},
+	{0x274e, 0x274e}, {0x2753, 0x2755}, {0x2757, 0x2757}, {0x2795, 0x2797},
+	{0x27b0, 0x27b0}, {0x27bf, 0x27bf}, {0x2b1b, 0x2b1c}, {0x2b50, 0x2b50},
+	{0x2b55, 0x2b55},
+	{0x1f004, 0x1f004}, {0x1f0cf, 0x1f0cf}, {0x1f18e, 0x1f18e},
+	{0x1f191, 0x1f19a}, {0x1f201, 0x1f201}, {0x1f21a, 0x1f21a},
+	{0x1f22f, 0x1f22f}, {0x1f232, 0x1f236}, {0x1f238, 0x1f23a},
+	{0x1f250, 0x1f251}, {0x1f300, 0x1f320}, {0x1f32d, 0x1f335},
+	{0x1f337, 0x1f37c}, {0x1f37e, 0x1f393}, {0x1f3a0, 0x1f3ca},
+	{0x1f3cf, 0x1f3d3}, {0x1f3e0, 0x1f3f0}, {0x1f3f4, 0x1f3f4},
+	{0x1f3f8, 0x1f43e}, {0x1f440, 0x1f440}, {0x1f442, 0x1f4fc},
+	{0x1f4ff, 0x1f53d}, {0x1f54b, 0x1f54e}, {0x1f550, 0x1f567},
+	{0x1f57a, 0x1f57a}, {0x1f595, 0x1f596}, {0x1f5a4, 0x1f5a4},
+	{0x1f5fb, 0x1f64f}, {0x1f680, 0x1f6c5}, {0x1f6cc, 0x1f6cc},
+	{0x1f6d0, 0x1f6d2}, {0x1f6d5, 0x1f6d7}, {0x1f6dc, 0x1f6df},
+	{0x1f6eb, 0x1f6ec}, {0x1f6f4, 0x1f6fc}, {0x1f7e0, 0x1f7eb},
+	{0x1f7f0, 0x1f7f0}, {0x1f90c, 0x1f93a}, {0x1f93c, 0x1f945},
+	{0x1f947, 0x1f9ff}, {0x1fa70, 0x1fa7c}, {0x1fa80, 0x1fa89},
+	{0x1fa8e, 0x1fabd}, {0x1fabf, 0x1fac5}, {0x1face, 0x1fadb},
+	{0x1fae0, 0x1fae8}, {0x1faf0, 0x1faf8},
+}
+
+// pictographicRanges is Extended_Pictographic: characters that can render as an
+// emoji. Those without Emoji_Presentation are one column unless a VS16 follows.
+var pictographicRanges = [][2]rune{
 	{0x203c, 0x203c}, {0x2049, 0x2049},
 	{0x2194, 0x2199}, {0x21a9, 0x21aa},
 	{0x231a, 0x231b}, {0x2328, 0x2328}, {0x23cf, 0x23cf}, {0x23e9, 0x23f3},
@@ -40,13 +84,44 @@ var emojiRanges = [][2]rune{
 	{0x1fa00, 0x1fa6f}, {0x1fa70, 0x1faff}, {0x1fc00, 0x1fffd},
 }
 
-// isEmojiWide reports whether r is an emoji-pictographic code point that a
-// terminal draws two columns wide. The early ASCII guard keeps the binary
-// search off the hot path for ordinary text.
-func isEmojiWide(r rune) bool {
-	if r < emojiRanges[0][0] {
-		return false
-	}
-	i := sort.Search(len(emojiRanges), func(i int) bool { return emojiRanges[i][1] >= r })
-	return i < len(emojiRanges) && emojiRanges[i][0] <= r
+// vs16 is the emoji presentation selector.
+const vs16 = 0xfe0f
+
+func inRanges(r rune, ranges [][2]rune) bool {
+	i := sort.Search(len(ranges), func(i int) bool { return ranges[i][1] >= r })
+	return i < len(ranges) && ranges[i][0] <= r
 }
+
+func isWideEastAsian(r rune) bool { return inRanges(r, wideRanges) }
+
+func isEmojiPresentation(r rune) bool { return inRanges(r, emojiPresentationRanges) }
+
+func isExtendedPictographic(r rune) bool { return inRanges(r, pictographicRanges) }
+
+// runeWidthNear returns the terminal columns for r. The following rune resolves
+// a variation selector: VS16 promotes a text-presentation pictograph to the
+// emoji glyph (two columns).
+func runeWidthNear(r, next rune) int {
+	switch {
+	case r == 0 || unicode.Is(unicode.Mn, r):
+		return 0
+	case r >= 0x200b && r <= 0x200f: // zero-width space..RTL mark, including ZWJ
+		return 0
+	case r >= 0x1f3fb && r <= 0x1f3ff: // skin-tone modifiers join the base glyph
+		return 0
+	case r < 0x20 || (r >= 0x7f && r < 0xa0):
+		return 0
+	case isWideEastAsian(r):
+		return 2
+	case isEmojiPresentation(r):
+		return 2
+	case isExtendedPictographic(r):
+		if next == vs16 {
+			return 2
+		}
+		return 1
+	}
+	return 1
+}
+
+
