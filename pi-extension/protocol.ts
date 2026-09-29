@@ -43,6 +43,11 @@ export type DuoMessage = {
   model?: string;
   thinking?: string;
 
+  /** Activity detail for the Duo work preview: the running tool and a compact
+   * argument/error summary, or the tail of the streaming assistant text. */
+  tool?: string;
+  detail?: string;
+
   activity?: string;
   timestamp?: number;
 

@@ -145,6 +145,8 @@ func keyForByte(b byte) string {
 		return "ctrl-slash"
 	case 15:
 		return "ctrl-o"
+	case 16:
+		return "ctrl-p"
 	case 7:
 		return "ctrl-g"
 	case 21:
@@ -240,6 +242,8 @@ func decodeModifiedKey(seq string) string {
 		return "ctrl-slash"
 	case 15, 111:
 		return "ctrl-o"
+	case 16, 112:
+		return "ctrl-p"
 	case 7, 103:
 		return "ctrl-g"
 	case 21, 117:
@@ -301,6 +305,14 @@ func (a *App) handleKey(key string) inputAction {
 		return inputAction{kind: actionToggleHelp}
 	case "ctrl-o":
 		return inputAction{kind: actionToggleDetail}
+	case "ctrl-p":
+		a.hidePreview = !a.hidePreview
+		if a.hidePreview {
+			a.setStatus("work preview hidden", false)
+		} else {
+			a.setStatus("work preview shown", false)
+		}
+		a.requestFullClear()
 	case "ctrl-m", "alt-m":
 		a.openModelPicker()
 	case "shift-tab":
@@ -575,7 +587,13 @@ func (a *App) insertInput(s string) {
 }
 
 func (a *App) hitNativeButton(x, y int) protocol.AgentID {
-	if y != 1 || a.width < 20 {
+	if a.width < 20 {
+		return ""
+	}
+	l := a.layout()
+	// The preview band's header carries the same attach button as a pane header.
+	onPreviewHeader := l.preview > 0 && y == l.content+3
+	if y != 1 && !onPreviewHeader {
 		return ""
 	}
 	leftW := (a.width - 1) / 2

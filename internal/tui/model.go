@@ -97,6 +97,10 @@ type App struct {
 	showTimestamps bool
 	detailOffset   int
 
+	// hidePreview collapses the native work preview band (Ctrl+P). The band is
+	// shown whenever the terminal is tall enough to keep usable panes.
+	hidePreview bool
+
 	austin []entry
 	tony   []entry
 	duo    []entry

@@ -25,6 +25,13 @@ type Message struct {
 	// Thinking carries a Pi thinking level (off…max) on a MsgThinkingState.
 	Thinking string `json:"thinking,omitempty"`
 
+	// Tool and Detail carry work detail on an activity message: the tool that is
+	// running with a compact argument or error summary, or the tail of the
+	// assistant text currently streaming. They let Duo show what an agent is doing
+	// without parsing the agent's full-screen PTY output.
+	Tool   string `json:"tool,omitempty"`
+	Detail string `json:"detail,omitempty"`
+
 	Ready *bool `json:"ready,omitempty"`
 
 	// Verification carries a structured Fast-mode verdict: "passed" or

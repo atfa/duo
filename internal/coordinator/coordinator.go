@@ -324,6 +324,7 @@ func (c *Coordinator) OnMessage(ctx context.Context, client *transport.Client, m
 
 func (c *Coordinator) handleActivity(agent protocol.AgentID, message protocol.Message) {
 	c.tracker.Handle(agent, message.Activity)
+	c.tracker.Note(agent, message.Activity, message.Tool, message.Detail)
 	if message.Activity == protocol.ActivityAgentStart {
 		c.project.MarkStarted()
 	}
@@ -401,6 +402,7 @@ func (c *Coordinator) handleAgentError(agent protocol.AgentID, message protocol.
 	}
 	c.tracker.Touch(agent)
 	c.tracker.RecordFailure(agent)
+	c.tracker.NoteError(agent, message.Text)
 	c.emit(events.KindError, agent, "", message.Text)
 }
 

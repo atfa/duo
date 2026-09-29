@@ -141,6 +141,8 @@ Duo Core enforces these gates rather than trusting the model: Fast rejects `duo_
 
 Duo shows both agents side by side with their connection, process and working state, plus the current mode, phase, verification/Plan state and transient feedback below the panes.
 
+A build can take a long time, and the pane transcript only changes when an agent finishes a message. Below the panes Duo therefore keeps a **work preview** for each agent: the state word and how long the agent has been quiet, the tool currently running with its arguments, the last error of the turn, and the tail of the text being streamed. A failed tool or a provider error is visible there immediately, so waiting does not mean guessing. `Ctrl+P` collapses the band when you want the rows back for the panes; on a short terminal it is hidden automatically.
+
 | Key | Action |
 |---|---|
 | `Enter` | Send composer text to Austin |
@@ -150,6 +152,7 @@ Duo shows both agents side by side with their connection, process and working st
 | `Ctrl+]` / `Ctrl+\` / `Ctrl+】` | Return from native Pi to Duo |
 | `Ctrl+R` / `Ctrl+Y` | Restart Austin / Tony if the process exited or failed |
 | `Ctrl+/` | Open or close Duo Help |
+| `Ctrl+P` | Show or hide the Austin/Tony work preview band |
 | `Ctrl+M` / `Alt+M` | Open the model picker for Austin or Tony |
 | `Shift+Tab` | Cycle the target agent's Pi thinking level |
 | `Ctrl+Q` | Quit Duo and preserve the session |

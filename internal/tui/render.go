@@ -120,6 +120,10 @@ func (a *App) writeLayout(b *strings.Builder, w, h int) {
 		b.WriteString(paint(ansiBorder, "│") + a.paintPaneEntry(left[i], l.leftW, protocol.Austin, i) + paint(ansiBorder, "│") + a.paintPaneEntry(right[i], l.rightW, protocol.Tony, i) + paint(ansiBorder, "│\r\n"))
 	}
 	b.WriteString(paint(ansiBorder, "├"+strings.Repeat("─", l.leftW)+"┴"+strings.Repeat("─", l.rightW)+"┤\r\n"))
+	if l.preview > 0 {
+		a.writePreview(b, l)
+		b.WriteString(paint(ansiBorder, "├"+strings.Repeat("─", l.leftW)+"┴"+strings.Repeat("─", l.rightW)+"┤\r\n"))
+	}
 
 	var status, second string
 	if snap.EffectiveMode() == project.ModeFast {
@@ -982,6 +986,7 @@ type layout struct {
 	leftW    int // Austin pane content columns
 	rightW   int // Tony pane content columns
 	content  int // pane content rows
+	preview  int // work preview rows including its header row; 0 when hidden
 	logW     int // system log content columns
 	logFirst int // first system log row
 	logLast  int // last system log row
@@ -993,14 +998,22 @@ func (a *App) layoutFor(w, h int) layout {
 	composer := a.composerLayout(w)
 	left := (w - 1) / 2
 	right := w - 1 - left
-	content := maxInt(h-7-duoLogRows-composer.rows, 0)
+	preview := a.previewRowsFor(h, composer.rows)
+	// A visible band also needs the separator that closes it before the Duo
+	// status rows.
+	band := 0
+	if preview > 0 {
+		band = 1
+	}
+	content := maxInt(h-7-duoLogRows-composer.rows-preview-band, 0)
 	return layout{
 		leftW:    maxInt(left-1, 0),
 		rightW:   maxInt(right-1, 0),
 		content:  content,
+		preview:  preview,
 		logW:     maxInt(w-4, 1),
-		logFirst: 5 + content,
-		logLast:  4 + content + duoLogRows,
+		logFirst: 5 + content + preview + band,
+		logLast:  4 + content + duoLogRows + preview + band,
 	}
 }
 

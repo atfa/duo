@@ -143,6 +143,8 @@ Duo Core 强制这些门禁而不是信任模型：Fast 拒绝 `duo_set_plan`，
 
 Duo 并排显示两个 Agent 的连接、进程和工作状态，下方是当前模式、阶段、验证/Plan 状态与瞬时反馈。
 
+一次构建可能很久，而 pane 里的对话要等 Agent 完成一条消息才会变化。因此 pane 下方为每个 Agent 保留一条 **工作预览**：状态词与"安静了多久"、当前执行的工具及其参数、本轮最近一次错误、以及正在流式输出的文本尾巴。工具失败或 provider 报错会立刻在那里显示，等待时不必靠猜。`Ctrl+P` 可以收起这条预览带，把行数还给 pane；终端太矮时会自动隐藏。
+
 | 按键 | 操作 |
 |---|---|
 | `Enter` | 把 composer 内容发送给 Austin |
@@ -152,6 +154,7 @@ Duo 并排显示两个 Agent 的连接、进程和工作状态，下方是当前
 | `Ctrl+]` / `Ctrl+\` / `Ctrl+】` | 从原生 Pi 返回 Duo |
 | `Ctrl+R` / `Ctrl+Y` | 若 Austin / Tony 进程已退出或失败，重启它 |
 | `Ctrl+/` | 打开或关闭 Duo Help |
+| `Ctrl+P` | 显示或隐藏 Austin/Tony 的工作预览带 |
 | `Ctrl+M` / `Alt+M` | 打开 Austin 或 Tony 的模型选择器 |
 | `Shift+Tab` | 循环切换目标 Agent 的 Pi 思考强度 |
 | `Ctrl+Q` | 退出 Duo 并保留 session |

@@ -80,5 +80,8 @@ const (
 	ActivityProviderEnd   ActivityType = "provider_end"
 	ActivityToolStart     ActivityType = "tool_start"
 	ActivityToolEnd       ActivityType = "tool_end"
-	ActivityStream        ActivityType = "stream"
+	// ActivityToolError is ActivityToolEnd for a tool that reported isError, so
+	// the preview can distinguish a failed tool from a successful one.
+	ActivityToolError ActivityType = "tool_error"
+	ActivityStream    ActivityType = "stream"
 )

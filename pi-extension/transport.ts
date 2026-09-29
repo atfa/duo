@@ -89,12 +89,13 @@ export class DuoTransport {
     return true;
   }
 
-  sendActivity(activity: string) {
+  sendActivity(activity: string, extra: { tool?: string; detail?: string } = {}) {
     this.send({
       version: 1,
       type: "activity",
       agent: this.agent,
       activity,
+      ...extra,
       timestamp: Date.now(),
     });
   }
