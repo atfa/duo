@@ -25,6 +25,17 @@ type entry struct {
 	warning bool
 }
 
+// paneCache memoizes the wrapped rendering of one pane. Rebuilding it parses
+// every markdown block, so a frame that only advances a spinner or moves a
+// scroll offset must reuse the previous result. `rev` is bumped on every
+// append, so a truncated 200-entry history is still invalidated correctly.
+type paneCache struct {
+	lines []paneLine
+	width int
+	rev   int
+	ts    bool
+}
+
 type App struct {
 	coord   *coordinator.Coordinator
 	state   *project.State
@@ -39,22 +50,51 @@ type App struct {
 
 	renderer *renderer
 
-	width        int
-	height       int
-	input        []byte
-	inputPos     int // byte offset at a UTF-8 rune boundary
-	status       string
-	statusError  bool
-	version      string
-	view         viewMode
-	helpOffset   int
-	austinOffset int // wrapped lines above the pane bottom
+	width       int
+	height      int
+	input       []byte
+	inputPos    int // byte offset at a UTF-8 rune boundary
+	status      string
+	statusError bool
+	version     string
+	view        viewMode
+	helpOffset  int
+
+	// Pane scroll state. An offset is the number of wrapped lines above the
+	// pane bottom; `seen` is the wrapped line count observed last time, so the
+	// offset can grow with new output and keep the view on the same content.
+	austinOffset int
 	tonyOffset   int
+	duoOffset    int
+	austinSeen   int
+	tonySeen     int
+	duoSeen      int
+	austinNew    bool
+	tonyNew      bool
+	duoNew       bool
+
+	// Composer history, recalled with Up/Down when the composer is a single
+	// line. historyDraft keeps whatever was being typed before recall started.
+	history      []string
+	historyIdx   int
+	historyDraft []byte
+
+	showTimestamps bool
+	detailOffset   int
 
 	austin []entry
 	tony   []entry
 	duo    []entry
-	frame  int
+
+	austinRev int
+	tonyRev   int
+	duoRev    int
+
+	austinCache paneCache
+	tonyCache   paneCache
+	duoCache    paneCache
+
+	frame int
 
 	native          protocol.AgentID
 	escBuf          []byte
@@ -74,7 +114,7 @@ func New(
 	history []sessionstore.TUIEntry,
 	journal *sessionstore.EventLog,
 ) *App {
-	a := &App{coord: coord, state: state, tracker: tracker, ws: ws, server: server, agents: agents, bus: bus, version: version, journal: journal}
+	a := &App{coord: coord, state: state, tracker: tracker, ws: ws, server: server, agents: agents, bus: bus, version: version, journal: journal, historyIdx: -1}
 	for _, item := range history {
 		a.restoreEntry(item)
 	}
@@ -206,11 +246,15 @@ func (a *App) restoreEntry(item sessionstore.TUIEntry) {
 
 func (a *App) appendEntry(agent protocol.AgentID, item entry) {
 	list := &a.duo
-	if agent == protocol.Austin {
+	switch agent {
+	case protocol.Austin:
 		list = &a.austin
-	}
-	if agent == protocol.Tony {
+		a.austinRev++
+	case protocol.Tony:
 		list = &a.tony
+		a.tonyRev++
+	default:
+		a.duoRev++
 	}
 	*list = append(*list, item)
 	if len(*list) > 200 {
@@ -224,6 +268,7 @@ func (a *App) submit(ctx context.Context) {
 		return
 	}
 	a.clearInput()
+	a.pushHistory(text)
 	if err := a.coord.SubmitUserTask(ctx, text); err != nil {
 		a.setStatus(err.Error(), true)
 		a.add(protocol.Duo, "ERROR: "+err.Error())

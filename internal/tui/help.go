@@ -1,9 +1,12 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/atfa/duo/internal/project"
+	"github.com/atfa/duo/internal/protocol"
+	"github.com/atfa/duo/internal/workspace"
 )
 
 type viewMode int
@@ -11,6 +14,7 @@ type viewMode int
 const (
 	viewMain viewMode = iota
 	viewHelp
+	viewDetail
 )
 
 type keyBinding struct {
@@ -30,10 +34,17 @@ var keyBindings = []keyBinding{
 	{"Ctrl+R", "", "Restart Austin if exited/failed"},
 	{"Ctrl+Y", "", "Restart Tony if exited/failed"},
 	{"Ctrl+/", "Ctrl+/ Help", "Toggle Help"},
+	{"Ctrl+O", "", "Show the full session, worktrees, verification or plan, and delivery"},
+	{"Ctrl+G", "", "Toggle message timestamps"},
 	{"Ctrl+Q", "Ctrl+Q Quit", "Quit Duo and preserve session"},
 	{"← / →", "", "Move the composer cursor"},
+	{"Alt+←/→", "", "Move the composer cursor by word"},
+	{"↑ / ↓", "", "Move between composer lines; recall task history at the first/last line"},
+	{"Home / End", "", "Move to the start or end of the composer line"},
+	{"Ctrl+U / Ctrl+K", "", "Delete to the start or end of the composer line"},
+	{"Ctrl+W", "", "Delete the previous word"},
 	{"Backspace", "", "Delete the previous composer character"},
-	{"Mouse wheel", "", "Scroll Austin or Tony pane history"},
+	{"Mouse wheel", "", "Scroll Austin, Tony or the system log history"},
 	{"Mouse drag", "", "Select pane text; copies on release (macOS)"},
 }
 
@@ -141,6 +152,142 @@ func helpKeyboardLines() []string {
 }
 
 func (a *App) helpVisibleRows() int { return maxInt(a.height-4, 1) }
+
+// detailLines is the Ctrl+O session overview: the values that used to be
+// reachable only through the session store or the Help text, plus the full
+// verification note or shared plan that the one-line status row truncates.
+func (a *App) detailLines(width int) []string {
+	if width < 1 {
+		return nil
+	}
+	snap := a.state.Snapshot()
+	set := workspace.Set{}
+	if a.ws != nil {
+		set = a.ws.Set()
+	}
+	lines := []string{
+		"Session",
+		"  id:      " + set.Session,
+		"  repo:    " + set.Repository,
+		"  branch:  " + set.BaseBranch,
+		"  mode:    " + snap.EffectiveMode().Display(),
+		"  phase:   " + string(snap.Phase),
+		"",
+		"Worktrees",
+		"  Austin:  " + worktreeLine(set, protocol.Austin),
+		"  Tony:    " + worktreeLine(set, protocol.Tony),
+		"",
+	}
+	if snap.EffectiveMode() == project.ModeFast {
+		lines = append(lines, "Verification", "  "+snap.Verification.Label())
+		if head := strings.TrimSpace(snap.Verification.Head); head != "" {
+			lines = append(lines, "  head: "+head)
+		}
+		if note := strings.TrimSpace(snap.Verification.Note); note != "" {
+			lines = append(lines, "  note:")
+			for _, l := range strings.Split(note, "\n") {
+				lines = append(lines, "    "+l)
+			}
+		}
+	} else {
+		lines = append(lines, fmt.Sprintf("Shared plan (v%d)", snap.PlanVersion))
+		plan := strings.TrimSpace(snap.Plan)
+		if plan == "" {
+			plan = "(none yet)"
+		}
+		for _, l := range strings.Split(plan, "\n") {
+			lines = append(lines, "  "+l)
+		}
+	}
+	lines = append(lines, "", "Delivery", "  "+a.deliverySummary())
+
+	var out []string
+	for _, line := range lines {
+		out = append(out, wrap(line, width)...)
+	}
+	return out
+}
+
+func worktreeLine(set workspace.Set, agent protocol.AgentID) string {
+	wt, ok := set.For(agent)
+	if !ok || wt.Path == "" {
+		return "(none)"
+	}
+	return wt.Path + "  [" + wt.Branch + "]"
+}
+
+func (a *App) detailVisibleRows() int { return maxInt(a.height-4, 1) }
+
+func (a *App) maxDetailOffset() int {
+	return maxInt(len(a.detailLines(maxInt(a.width-2, 1)))-a.detailVisibleRows(), 0)
+}
+
+func (a *App) clampDetailOffset() {
+	if a.detailOffset < 0 {
+		a.detailOffset = 0
+	}
+	if max := a.maxDetailOffset(); a.detailOffset > max {
+		a.detailOffset = max
+	}
+}
+
+func (a *App) scrollDetail(delta int) {
+	a.detailOffset += delta
+	a.clampDetailOffset()
+}
+
+// scrollOverlay routes the shared scroll keys to whichever overlay is open.
+func (a *App) scrollOverlay(delta int) {
+	if a.view == viewDetail {
+		a.scrollDetail(delta)
+		return
+	}
+	a.scrollHelp(delta)
+}
+
+// overlayTop and overlayBottom implement Home/End for both overlays.
+func (a *App) overlayTop() {
+	if a.view == viewDetail {
+		a.detailOffset = 0
+		return
+	}
+	a.helpOffset = 0
+}
+
+func (a *App) overlayBottom() {
+	if a.view == viewDetail {
+		a.detailOffset = a.maxDetailOffset()
+		return
+	}
+	a.helpOffset = a.maxHelpOffset()
+}
+
+func (a *App) writeDetail(b *strings.Builder, w, h int) {
+	contentWidth := w - 2
+	lines := a.detailLines(contentWidth)
+	a.clampDetailOffset()
+	visible := maxInt(h-4, 1)
+	title := " Duo Session · " + a.version + " "
+	b.WriteString(paint(ansiBorder, "┌") + paint(ansiTitle, fit(title, contentWidth, "─")) + paint(ansiBorder, "┐\r\n"))
+	for i := 0; i < visible; i++ {
+		line := ""
+		if at := a.detailOffset + i; at < len(lines) {
+			line = lines[at]
+		}
+		color := ansiHint
+		if line != "" && !strings.HasPrefix(line, " ") {
+			color = ansiTitle
+		}
+		b.WriteString(paint(ansiBorder, "│") + paint(color, fit(line, contentWidth)) + paint(ansiBorder, "│\r\n"))
+	}
+	b.WriteString(paint(ansiBorder, "├") + paint(ansiBorder, strings.Repeat("─", contentWidth)) + paint(ansiBorder, "┤\r\n"))
+	first, last := a.detailOffset+1, minInt(a.detailOffset+visible, len(lines))
+	if len(lines) == 0 {
+		first, last = 0, 0
+	}
+	foot := fmt.Sprintf(" Lines %d–%d / %d · ↑↓/jk scroll · PgUp/PgDn · Esc close · Ctrl+Q quit ", first, last, len(lines))
+	b.WriteString(paint(ansiBorder, "└") + paint(ansiHint, fit(foot, contentWidth, "─")) + paint(ansiBorder, "┘"))
+}
 
 func (a *App) maxHelpOffset() int {
 	return maxInt(len(a.helpLines(maxInt(a.width-2, 1)))-a.helpVisibleRows(), 0)

@@ -28,7 +28,9 @@ func testApp(w, h int) *App {
 	return app
 }
 
-var ansiPattern = regexp.MustCompile(`\x1b\[[0-9;?]*[ -/]*[@-~]`)
+// ansiPattern strips CSI styling and OSC 8 hyperlinks, so a test can measure
+// the visible text of a frame.
+var ansiPattern = regexp.MustCompile(`\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b\[[0-9;?]*[ -/]*[@-~]`)
 
 func visibleLines(frame string) []string {
 	return strings.Split(ansiPattern.ReplaceAllString(frame, ""), "\r\n")

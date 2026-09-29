@@ -20,12 +20,16 @@ func (a *App) selectionPoint(agent protocol.AgentID, x, y int) (selectionPoint, 
 	if a.hitPane(x, y) != agent {
 		return selectionPoint{}, false
 	}
-	left, _, _ := a.paneRows()
-	col := x - 2
-	if agent == protocol.Tony {
-		col = x - (left + 2)
+	l := a.layout()
+	switch agent {
+	case protocol.Austin:
+		return selectionPoint{row: y - 2, col: maxInt(x-2, 0)}, true
+	case protocol.Tony:
+		return selectionPoint{row: y - 2, col: maxInt(x-(l.leftW+3), 0)}, true
+	case protocol.Duo:
+		return selectionPoint{row: y - l.logFirst, col: maxInt(x-3, 0)}, true
 	}
-	return selectionPoint{row: y - 2, col: maxInt(col, 0)}, true
+	return selectionPoint{}, false
 }
 
 func (a *App) startSelection(mouse mouseEvent) {
@@ -74,13 +78,19 @@ func (a *App) selectedText() string {
 	if !s.active || !s.moved {
 		return ""
 	}
-	width, rightWidth, rows := a.paneRows()
-	entries, offset := a.austin, a.austinOffset
-	if s.agent == protocol.Tony {
-		width, entries, offset = rightWidth, a.tony, a.tonyOffset
+	l := a.layout()
+	var lines []paneLine
+	switch s.agent {
+	case protocol.Austin:
+		lines = a.styledPane(protocol.Austin, l.leftW, l.content, a.austinOffset)
+	case protocol.Tony:
+		lines = a.styledPane(protocol.Tony, l.rightW, l.content, a.tonyOffset)
+	case protocol.Duo:
+		lines = a.styledPane(protocol.Duo, l.logW, duoLogRows, a.duoOffset)
+	default:
+		return ""
 	}
-	lines := styledPaneLinesAt(entries, width, rows, offset)
-	selected := make([]string, 0, rows)
+	selected := make([]string, 0, len(lines))
 	for row, line := range lines {
 		from, to, ok := a.selectionColumns(s.agent, row)
 		if ok {

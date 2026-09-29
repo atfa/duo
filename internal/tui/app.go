@@ -17,15 +17,22 @@ import (
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/terminal"
+	"github.com/atfa/duo/internal/workspace"
 )
 
 // startupMessage announces the session mode, because the two modes ask for very
-// different things from the human and from the agents.
+// different things from the human and from the agents. It also names the
+// repository and session so the target of a run is visible without opening Help.
 func (a *App) startupMessage() string {
-	if a.state.Snapshot().EffectiveMode() == project.ModeFast {
-		return "Duo " + a.version + " ready (FAST mode). Type a task and press Enter; Austin drives while Tony independently verifies before Duo delivers the result."
+	set := workspace.Set{}
+	if a.ws != nil {
+		set = a.ws.Set()
 	}
-	return "Duo " + a.version + " ready (GOAL mode). Type a task and press Enter; Austin will wake Tony when collaboration is needed."
+	where := fmt.Sprintf("\nRepository: %s (branch %s) · Session: %s", set.Repository, set.BaseBranch, set.Session)
+	if a.state.Snapshot().EffectiveMode() == project.ModeFast {
+		return "Duo " + a.version + " ready (FAST mode). Type a task and press Enter; Austin drives while Tony independently verifies before Duo delivers the result." + where
+	}
+	return "Duo " + a.version + " ready (GOAL mode). Type a task and press Enter; Austin will wake Tony when collaboration is needed." + where
 }
 
 func (a *App) Run(ctx context.Context) error {
@@ -130,26 +137,42 @@ func (a *App) applyAction(ctx context.Context, action inputAction) bool {
 			a.clampHelpOffset()
 		}
 		a.requestFullClear()
+	case actionToggleDetail:
+		if a.view == viewDetail {
+			a.view = viewMain
+		} else {
+			a.view = viewDetail
+			a.clampDetailOffset()
+		}
+		a.requestFullClear()
+	case actionToggleTimestamps:
+		a.showTimestamps = !a.showTimestamps
+		if a.showTimestamps {
+			a.setStatus("timestamps on", false)
+		} else {
+			a.setStatus("timestamps off", false)
+		}
+		a.markDirty()
 	case actionCloseHelp:
 		a.view = viewMain
 		a.requestFullClear()
 	case actionScrollUp:
-		a.scrollHelp(-1)
+		a.scrollOverlay(-1)
 		a.markDirty()
 	case actionScrollDown:
-		a.scrollHelp(1)
+		a.scrollOverlay(1)
 		a.markDirty()
 	case actionPageUp:
-		a.scrollHelp(-a.helpVisibleRows())
+		a.scrollOverlay(-a.helpVisibleRows())
 		a.markDirty()
 	case actionPageDown:
-		a.scrollHelp(a.helpVisibleRows())
+		a.scrollOverlay(a.helpVisibleRows())
 		a.markDirty()
 	case actionHome:
-		a.helpOffset = 0
+		a.overlayTop()
 		a.markDirty()
 	case actionEnd:
-		a.helpOffset = a.maxHelpOffset()
+		a.overlayBottom()
 		a.markDirty()
 	case actionScrollPane:
 		a.scrollPane(action.agent, action.delta)

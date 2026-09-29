@@ -4,6 +4,13 @@ All notable project milestones are documented here.
 
 ## Unreleased
 
+TUI usability and readability:
+
+- The system log between the panes is now a real scrollable pane (four rows by default, mouse-wheel and selectable), so harness notes, delivery results and errors no longer vanish after two lines.
+- A scrolled pane keeps its place while new output arrives, shows `↑N` with `▼` when unseen output landed below, and no longer re-parses every markdown block on each frame (wrapped lines are cached until the entries or width change).
+- The composer gained Home/End, Ctrl+U/Ctrl+K, Ctrl+W, Alt+←/→, line-up/down movement and task-history recall with Up/Down; `Ctrl+G` toggles message timestamps; `Ctrl+O` opens a session overview with the worktrees, the full verification note or shared plan, and the delivery state.
+- Wrapping prefers a space boundary so words are no longer split mid-token; markdown links are OSC 8 hyperlinks whose label stays copyable; consecutive messages are separated by a dim rule; and the delivery state is always visible in the status area.
+
 - A task submitted through the Duo composer after `DONE` reopens the session for a new round instead of being answered with no path back to the peer: Fast returns to `RUNNING`, Goal to `PLAN`, and the finished round's delivery checkpoint is cleared so a fresh verification and delivery can run. Native Pi attachment (`Ctrl+A` / `Ctrl+T`) still leaves the phase untouched.
 - A Fast verifier's `issue_found` verdict is no longer rendered as a red `ERROR`. It is a normal workflow outcome, so it now shows as a warning in the verifier's pane, with a one-line summary in the Duo pane instead of a second full copy of the report.
 - Harness nudges inject a compact state block that references the shared plan (`v2, 4.8KB — read it with duo_status`) instead of re-inlining the whole plan text on every nudge. When and how the harness nudges is unchanged; only the repeated multi-KB payload is gone. `duo_status` still returns the full plan.
