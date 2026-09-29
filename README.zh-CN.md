@@ -17,7 +17,7 @@
 - **隔离，且绝不破坏。** Austin 和 Tony 从不共用工作树；Duo 也不会改写你启动它的那个仓库的历史。
 - **持久。** 会话能扛住崩溃，恢复后模式、worktree 和 Pi 对话身份都还在。
 
-当前版本：**v0.5.0** — 完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
+当前版本：**v0.5.1** — 完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ## 快速开始
 

@@ -28,16 +28,16 @@ local-first
 Current release tag:
 
 ```text
-v0.5.0
+v0.5.1
 ```
 
 Release title:
 
 ```text
-Duo v0.5.0 — Fast mode by default, live model switching, work preview
+Duo v0.5.1 — conversation timeline, coloured directed headers
 ```
 
-Everything merged so far is part of v0.5.0 and is described under that heading in [CHANGELOG.md](../CHANGELOG.md). Pushing the tag is what publishes it: the release workflow runs the tests, builds macOS and Linux archives for amd64 and arm64, and attaches them to the release for the tag.
+Everything merged so far is part of v0.5.1 and is described under that heading in [CHANGELOG.md](../CHANGELOG.md). Pushing the tag is what publishes it: the release workflow runs the tests, builds macOS and Linux archives for amd64 and arm64, and attaches them to the release for the tag.
 
 Pushing a `v*` tag builds macOS and Linux archives for amd64 and arm64 and publishes them through GitHub Actions. Users can install the latest release with:
 

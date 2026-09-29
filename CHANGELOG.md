@@ -2,13 +2,19 @@
 
 All notable project milestones are documented here.
 
-## Unreleased
+## v0.5.1 — 2026-09-29
+
+The main view is now one conversation timeline; the frame's top row names the Git repository, and every message header is a directed, speaker-coloured pair. This release also fixes two Fast-mode paper cuts.
 
 - The main view is now a single conversation **timeline** instead of two side-by-side panes. Human tasks, peer messages (`Austin → Tony`, `Tony → Austin`), Austin's messages to the human, verifier verdicts and Duo system messages are interleaved in arrival order; each message sits on its speaker's own side under a `Sender → Receiver` header. Both speakers use the same bubble width (about three quarters of the row), so the side a block sits on, not a heavier header, shows who is speaking; a Tony message that fits on one line hugs the right edge like a short chat bubble, while a wrapped one is left-anchored at its indent. Every message header carries its `HH:MM:SS` time by default (`Ctrl+G` hides or restores the stamps), so one exchange is readable end to end. A peer message is recorded once, on the sender's side, so the old split-pane `→ Tony: sent` / `← From Austin:` hint lines are gone. The work preview, status rows, composer and every keyboard shortcut are unchanged, and the timeline is one scrollable, selectable region (mouse wheel and drag).
 
 - The top border row is now one title naming the Git repository Duo resolved (never the launch directory), padded with the border dash. The `Austin · idle` / `Tony · working` pane titles and their `[↗]` attach buttons are gone: connection, process and working state, the spinner and the attach buttons all live in the work preview headers, and the header state word now animates while an agent works. The timeline's scroll mark (`↑N` / `▼`) moved to that title row.
 
 - Every timeline header is a directed pair (`Duo → Human`, `Duo → Tony`, `Austin → Tony`, `Austin → Human`, …) rather than a bare speaker name: system notices, harness notes, errors and verdicts carry the same direction, and a resumed journal that recorded a bare name is normalized. Headers are coloured by speaker, and a message addressed to the human is bold in the speaker's own colour while agent-to-agent and system headers stay dim.
+
+Bug fixes:
+
+- A model id containing a space is no longer truncated when the Pi model catalog is parsed, and the Fast `duo_set_status` tool description is mode-aware instead of describing a Goal-style phase sign-off.
 
 ## v0.5.0 — 2026-09
 
@@ -26,7 +32,8 @@ Fast Mode is now the default; Goal Mode is the explicit heavy workflow.
 TUI readability and handoff polish:
 
 - Agent output is rendered as lightweight markdown: styled headings, blockquotes, links and bold/italic/code spans, and markdown tables drawn with real, aligned borders. A table wider than its pane wraps its widest cells instead of truncating them.
-- Mouse drag over a pane selects that agent's text and copies it to the clipboard (`pbcopy` on macOS). Clicking a preview band header still opens that agent's native Pi; a click inside a pane without a drag selects nothing.- `Ctrl+】` is accepted as a third return-from-native-Pi sequence alongside `Ctrl+]` and `Ctrl+\`.
+- Mouse drag over a pane selects that agent's text and copies it to the clipboard (`pbcopy` on macOS). Clicking a preview band header still opens that agent's native Pi; a click inside a pane without a drag selects nothing.
+- `Ctrl+】` is accepted as a third return-from-native-Pi sequence alongside `Ctrl+]` and `Ctrl+\`.
 - A wrapped markdown list keeps a hanging indent, so continuation lines line up under the item text instead of the bullet. Nested lists are indented by their own depth.
 - A resumed session replays each pane's most recent 200 entries, persisted as `tui_entry` records in `events.jsonl`, so the previous conversation is visible immediately.
 - Delivery recognizes a user-resolved merge: once the final Duo commit is an ancestor of the original HEAD — including after `git merge --no-ff` — `duo apply` treats the handoff as already applied and records `DONE` without moving the branch again. A refused delivery now prints that merge command.

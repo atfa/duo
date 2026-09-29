@@ -146,6 +146,18 @@ Fast Mode makes the safety boundary the default instead of the ceremony: one dri
 - [x] multiline composer with cursor editing and task-history recall, plus `Ctrl+O` session overview and `Ctrl+G` timestamps
 - [x] Unicode-property width measurement so emoji and the pane header button no longer shift borders
 
+## v0.5.1 — conversation timeline and directed headers
+
+The main view became one conversation timeline, the frame's top row names the repository, and every message header carries a direction and a per-speaker colour.
+
+- [x] single conversation timeline replacing the two side-by-side panes, with per-speaker anchoring and one shared bubble width
+- [x] `HH:MM:SS` stamps on every header, toggled with `Ctrl+G`
+- [x] repository directory in the top border row, replacing the pane titles and their attach buttons
+- [x] directed, speaker-coloured headers (`Duo → Human`, `Austin → Tony`, …), bold for messages addressed to the human
+- [x] animated state word and native-Pi attach button in each work preview header
+- [x] short single-line Tony replies hug the right edge like a chat bubble
+- [x] model ids containing a space parse correctly from the Pi catalog
+
 ## v0.4 — configurability (remaining)
 
 - [ ] configurable agent names/roles
