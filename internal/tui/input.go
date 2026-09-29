@@ -2,6 +2,9 @@ package tui
 
 import (
 	"bytes"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"unicode"
@@ -319,6 +322,14 @@ func (a *App) handleKey(key string) inputAction {
 		return inputAction{kind: actionCycleThinking}
 	case "ctrl-g":
 		return inputAction{kind: actionToggleTimestamps}
+	case "page-up":
+		rows := a.layout().content
+		delta := maxInt(1, rows/2)
+		return inputAction{kind: actionScrollPane, agent: protocol.Duo, delta: delta}
+	case "page-down":
+		rows := a.layout().content
+		delta := maxInt(1, rows/2)
+		return inputAction{kind: actionScrollPane, agent: protocol.Duo, delta: -delta}
 	case "enter":
 		return inputAction{kind: actionSubmit}
 	case "ctrl-enter":
@@ -567,9 +578,60 @@ func (a *App) pushHistory(text string) {
 			if len(a.history) > 100 {
 				a.history = a.history[len(a.history)-100:]
 			}
+			appendComposerHistory(text)
 		}
 	}
 	a.resetHistory()
+}
+
+func historyFilePath() string {
+	if p := os.Getenv("DUO_HISTORY_FILE"); p != "" {
+		return p
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".duo", "history")
+}
+
+func loadComposerHistory() []string {
+	path := historyFilePath()
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var out []string
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimRight(line, "\r")
+		if trimmed != "" {
+			unescaped := strings.ReplaceAll(trimmed, "\\n", "\n")
+			out = append(out, unescaped)
+		}
+	}
+	if len(out) > 100 {
+		out = out[len(out)-100:]
+	}
+	return out
+}
+
+func appendComposerHistory(text string) {
+	path := historyFilePath()
+	if path == "" {
+		return
+	}
+	_ = os.MkdirAll(filepath.Dir(path), 0o755)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	escaped := strings.ReplaceAll(text, "\n", "\\n")
+	_, _ = fmt.Fprintln(f, escaped)
 }
 
 func (a *App) resetHistory() {

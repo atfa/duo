@@ -160,6 +160,7 @@ A build can take a long time, and the timeline only changes when an agent finish
 | `Ctrl+Q` | Quit Duo and preserve the session |
 | `←` / `→` | Move the composer cursor |
 | `Backspace` | Delete the preceding composer character |
+| `PgUp` / `PgDn` | Scroll the conversation timeline earlier or later |
 | Mouse wheel over the timeline | Scroll earlier messages |
 | Mouse drag over the timeline | Select text and copy it to the clipboard |
 
@@ -171,7 +172,7 @@ The model picker (`Ctrl+M`) lists the catalog Pi reports for the very installati
 
 Agent output is rendered as lightweight markdown: headings, blockquotes, links and bold/italic/code spans are styled, and markdown tables are drawn with real, aligned borders. A table wider than the timeline is narrowed by wrapping the widest cells instead of truncating them, and a wrapped list keeps a hanging indent so continuation lines stay under the item text.
 
-Mouse selection copies through the platform clipboard command, which today means `pbcopy` on macOS. On other platforms the selection still highlights but the copy step fails and Duo reports it in the status line.
+Mouse selection copies through terminal OSC 52 escape sequences (works seamlessly over SSH, tmux, and modern terminal emulators) alongside native desktop clipboard commands (`pbcopy` on macOS, `wl-copy` on Wayland, `xclip`/`xsel` on X11).
 
 \* A newline is inserted only when the terminal reports the combination distinctly (`\x1b[13;2u` CSI-u or `\x1b[27;2;13~` modifyOtherKeys, which Duo enables). Terminals that send a bare `\r` for `Shift+Enter` will **submit** instead — use `Ctrl+Enter`, which arrives as `\n`, if `Shift+Enter` submits in your terminal. The same limit applies to `Ctrl+M`: it is reported as the `m` key with Ctrl (`\x1b[27;5;109~` or `\x1b[109;5u`) only on terminals that honor those modes, and on the others it is indistinguishable from `Enter` — use `Alt+M` there.
 

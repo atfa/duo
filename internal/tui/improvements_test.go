@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -213,5 +214,70 @@ func TestStatusLabelsAreColorIndependent(t *testing.T) {
 	a.route(events.Event{Kind: events.KindVerdict, Agent: protocol.Tony, Peer: protocol.Austin, Text: "gap"})
 	if got := a.tony[len(a.tony)-1].text; !strings.HasPrefix(got, "VERIFY") {
 		t.Fatalf("verdict label = %q", got)
+	}
+}
+
+func TestTimelineKeyboardPageUpDown(t *testing.T) {
+	a := testApp(80, 24)
+	a.timeline = true
+	// Add enough entries to be scrollable
+	for i := 0; i < 40; i++ {
+		a.add(protocol.Austin, "conversation line")
+	}
+
+	act := a.handleKey("page-up")
+	if act.kind != actionScrollPane || act.agent != protocol.Duo || act.delta <= 0 {
+		t.Fatalf("page-up action = %+v, want actionScrollPane on Duo with positive delta", act)
+	}
+	a.scrollPane(act.agent, act.delta)
+	if a.duoOffset == 0 {
+		t.Fatal("timeline offset did not increase on page-up")
+	}
+
+	actDown := a.handleKey("page-down")
+	if actDown.kind != actionScrollPane || actDown.agent != protocol.Duo || actDown.delta >= 0 {
+		t.Fatalf("page-down action = %+v, want actionScrollPane on Duo with negative delta", actDown)
+	}
+	a.scrollPane(actDown.agent, actDown.delta)
+	if a.duoOffset != 0 {
+		t.Fatalf("timeline offset after page-down = %d, want 0", a.duoOffset)
+	}
+}
+
+func TestOSC52SequenceGeneration(t *testing.T) {
+	t.Setenv("TMUX", "")
+	t.Setenv("TERM", "xterm-256color")
+	seq := osc52Sequence("hello world")
+	if !strings.HasPrefix(seq, "\x1b]52;c;") || !strings.HasSuffix(seq, "\x07") {
+		t.Fatalf("unexpected standard OSC 52 sequence: %q", seq)
+	}
+
+	t.Setenv("TMUX", "1")
+	seqTmux := osc52Sequence("hello world")
+	if !strings.HasPrefix(seqTmux, "\x1bPtmux;\x1b\x1b]52;c;") || !strings.HasSuffix(seqTmux, "\x1b\\") {
+		t.Fatalf("unexpected tmux OSC 52 sequence: %q", seqTmux)
+	}
+}
+
+func TestPersistentComposerHistory(t *testing.T) {
+	temp := t.TempDir()
+	histFile := filepath.Join(temp, "history")
+	t.Setenv("DUO_HISTORY_FILE", histFile)
+
+	a := testApp(80, 24)
+	a.pushHistory("task 1")
+	a.pushHistory("task 2")
+
+	// Verify file was written
+	loaded := loadComposerHistory()
+	if len(loaded) != 2 || loaded[0] != "task 1" || loaded[1] != "task 2" {
+		t.Fatalf("unexpected loaded history: %v", loaded)
+	}
+
+	// Verify multiline task is escaped on single line and restored
+	a.pushHistory("task 3\nline 2")
+	loaded2 := loadComposerHistory()
+	if len(loaded2) != 3 || loaded2[2] != "task 3\nline 2" {
+		t.Fatalf("unexpected multiline history: %v", loaded2)
 	}
 }

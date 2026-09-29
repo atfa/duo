@@ -26,13 +26,13 @@ The composer is multiline: up to four wrapped lines are visible, with cursor edi
 
 Agent and Duo output is rendered as lightweight markdown: headings, lists, code fences and pipe tables are laid out for the timeline width, and narrow table cells wrap instead of being clipped.
 
-Text in the timeline can be selected by dragging the mouse and is copied on release. The copy step shells out to `pbcopy`, so it works on macOS only; on other platforms Duo reports a failed copy in the status line. Releasing without dragging (a plain click) clears the selection instead of copying.
+Text in the timeline can be selected by dragging the mouse and is copied to the clipboard on release. Duo emits standard OSC 52 terminal copy escape sequences (for SSH, tmux, and modern terminal emulators) and runs native clipboard utilities (`pbcopy` on macOS, `wl-copy` on Wayland, `xclip`/`xsel` on X11). Releasing without dragging (a plain click) clears the selection instead of copying.
 
 What is still limited in the UI:
 
-- Timeline scrolling is **mouse-only**. The keyboard scroll bindings (`↑/↓`, `j/k`, `PgUp/PgDn`, `Home/End`) belong to the Help view; there is no keyboard scrolling of the timeline.
+- Timeline scrolling supports mouse wheel and `PgUp` / `PgDn` keyboard scrolling, but there is no line-by-line keyboard cursor in the timeline (`↑`/`↓` belongs to the multiline composer).
 - There is no scrollback search or timeline scrollback export. Selection is limited to what is currently rendered in the timeline.
-- The composer recalls previously submitted tasks with `↑`/`↓`, but that history is in-memory only: it is not persisted, so `duo --resume` starts with an empty composer history and the `.duo/sessions` snapshot does not carry it.
+- The composer recalls previously submitted tasks with `↑`/`↓` and persists them to `~/.duo/history`. Per-session branch/verification snapshots do not carry composer history separately.
 - `Shift+Enter` inserts a newline only when the terminal reports it as a distinct sequence. A terminal that sends a bare carriage return for `Shift+Enter` will submit the message instead.
 
 Frames are rebuilt from scratch (no partial-damage/diff updates) and capped at about 60 FPS by the renderer scheduler. This keeps redraw correctness easy to reason about, but very large terminals do redraw the whole screen on each dirty frame rather than only the changed regions.

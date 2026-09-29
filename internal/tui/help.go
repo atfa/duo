@@ -43,12 +43,13 @@ var keyBindings = []keyBinding{
 	{"← / →", "", "Move the composer cursor"},
 	{"Alt+←/→", "", "Move the composer cursor by word"},
 	{"↑ / ↓", "", "Move between composer lines; recall task history at the first/last line"},
+	{"PgUp / PgDn", "", "Scroll the conversation timeline earlier or later"},
 	{"Home / End", "", "Move to the start or end of the composer line"},
 	{"Ctrl+U / Ctrl+K", "", "Delete to the start or end of the composer line"},
 	{"Ctrl+W", "", "Delete the previous word"},
 	{"Backspace", "", "Delete the previous composer character"},
 	{"Mouse wheel", "", "Scroll the conversation timeline"},
-	{"Mouse drag", "", "Select timeline text; copies on release (macOS)"},
+	{"Mouse drag", "", "Select timeline text; copies to clipboard on release"},
 }
 
 func composerPrefix() string { return " Duo → Austin > " }

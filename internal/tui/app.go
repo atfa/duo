@@ -3,11 +3,13 @@ package tui
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -200,7 +202,7 @@ func (a *App) applyAction(ctx context.Context, action inputAction) bool {
 			a.selection.active = false
 			if text == "" {
 				a.setStatus("nothing selected", false)
-			} else if err := copyClipboard(text); err != nil {
+			} else if err := a.copyClipboard(text); err != nil {
 				a.setStatus("copy failed: "+err.Error(), true)
 			} else {
 				a.setStatus("copied selection", false)
@@ -239,10 +241,50 @@ func (a *App) applyAction(ctx context.Context, action inputAction) bool {
 	return false
 }
 
-func copyClipboard(text string) error {
-	cmd := exec.Command("pbcopy")
-	cmd.Stdin = bytes.NewBufferString(text)
-	return cmd.Run()
+func (a *App) copyClipboard(text string) error {
+	var osc52Err error
+	if a.tty != nil && a.tty.File != nil {
+		_, osc52Err = a.tty.File.WriteString(osc52Sequence(text))
+	}
+
+	var sysErr error
+	switch runtime.GOOS {
+	case "darwin":
+		cmd := exec.Command("pbcopy")
+		cmd.Stdin = bytes.NewBufferString(text)
+		sysErr = cmd.Run()
+	case "linux":
+		if os.Getenv("WAYLAND_DISPLAY") != "" {
+			cmd := exec.Command("wl-copy")
+			cmd.Stdin = bytes.NewBufferString(text)
+			sysErr = cmd.Run()
+		} else {
+			cmd := exec.Command("xclip", "-selection", "clipboard")
+			cmd.Stdin = bytes.NewBufferString(text)
+			sysErr = cmd.Run()
+			if sysErr != nil {
+				cmd2 := exec.Command("xsel", "--clipboard", "--input")
+				cmd2.Stdin = bytes.NewBufferString(text)
+				sysErr = cmd2.Run()
+			}
+		}
+	}
+
+	if osc52Err == nil || sysErr == nil {
+		return nil
+	}
+	return sysErr
+}
+
+func osc52Sequence(text string) string {
+	b64 := base64.StdEncoding.EncodeToString([]byte(text))
+	if os.Getenv("TMUX") != "" {
+		return fmt.Sprintf("\x1bPtmux;\x1b\x1b]52;c;%s\x07\x1b\\", b64)
+	}
+	if strings.HasPrefix(os.Getenv("TERM"), "screen") {
+		return fmt.Sprintf("\x1bP\x1b]52;c;%s\x07\x1b\\", b64)
+	}
+	return fmt.Sprintf("\x1b]52;c;%s\x07", b64)
 }
 
 // resize applies the latest host terminal size to the agent PTYs and schedules
