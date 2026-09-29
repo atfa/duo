@@ -559,10 +559,11 @@ func (a *App) timelineEntries() []timelineEntry {
 }
 
 // buildTimelineLines merges every speaker's entries in true arrival order.
-// Austin's messages hug the left margin and Tony's are indented from the left
-// so their blocks sit on the right, the chat-style split of a two-peer
-// conversation that the human asked for. When timestamps is true each message
-// header carries its HH:MM:SS time; Ctrl+G toggles it.
+// The timeline is a chat: every message is anchored to the speaker's own side
+// (Austin, the human and Duo system lines on the left, Tony on the right) and
+// capped to the same bubble width, so the two speakers are told apart by the
+// side they sit on rather than by a heavier header. When timestamps is true
+// each message header carries its HH:MM:SS time; Ctrl+G toggles it.
 func (a *App) buildTimelineLines(width int, timestamps bool) []paneLine {
 	entries := a.timelineEntries()
 	var all []paneLine
@@ -575,12 +576,24 @@ func (a *App) buildTimelineLines(width int, timestamps bool) []paneLine {
 	return all
 }
 
+// timelineIndent is the left inset of Tony's blocks. The same value is taken
+// off every speaker's bubble width, so Austin's text stops short of the right
+// margin exactly as Tony's stops short of the left one.
+func timelineIndent(width int) int {
+	return minInt(maxInt(width/4, 4), maxInt(width/2, 0))
+}
+
+// timelineEntryLines renders one message on its speaker's side: a muted
+// Sender → Receiver header above a body that is at most three quarters of the
+// width. Both speakers share the header style and the bubble width; only the
+// anchoring differs, which is what makes the direction readable at a glance.
 func timelineEntryLines(e timelineEntry, width int, timestamps bool) []paneLine {
+	bubble := maxInt(width-timelineIndent(width), 1)
 	indent := 0
 	if e.origin == protocol.Tony {
-		indent = minInt(maxInt(width/4, 4), maxInt(width/2, 0))
+		indent = timelineIndent(width)
 	}
-	bodyWidth := maxInt(width-indent, 1)
+
 	head := e.entry.label
 	if head == "" {
 		head = string(e.origin)
@@ -589,18 +602,19 @@ func timelineEntryLines(e timelineEntry, width int, timestamps bool) []paneLine 
 		head += " · " + e.entry.at.Format("15:04:05")
 	}
 
-	var lines []paneLine
-	if indent > 0 {
-		pad := maxInt(width-indent-displayWidth(head), 0)
-		lines = append(lines, paneLine{spans: []markdownSpan{{text: strings.Repeat(" ", indent+pad) + head, style: ansiHint}}})
-	} else {
-		lines = append(lines, paneLine{spans: []markdownSpan{{text: head, style: ansiTitle}}})
+	// fit both clamps a long header and pads it to the bubble so every row still
+	// measures width. Tony's header hugs the outer (right) edge of his bubble;
+	// Austin's sits on the left one.
+	headText := fit(head, bubble)
+	if e.origin == protocol.Tony {
+		headText = fit(strings.Repeat(" ", maxInt(bubble-displayWidth(head), 0))+head, bubble)
 	}
+	lines := []paneLine{{spans: []markdownSpan{{text: strings.Repeat(" ", indent) + headText, style: ansiHint}}}}
 
 	prefix := strings.Repeat(" ", indent)
 	body := strings.TrimSpace(e.entry.text)
-	for _, line := range markdownLines(body, bodyWidth) {
-		for _, wrapped := range wrapMarkdown(line, bodyWidth) {
+	for _, line := range markdownLines(body, bubble) {
+		for _, wrapped := range wrapMarkdown(line, bubble) {
 			wrapped.error = e.entry.error
 			wrapped.warning = e.entry.warning
 			if indent > 0 {

@@ -86,24 +86,22 @@ func TestTimelinePeerRouteRecordsOneLabeledMessage(t *testing.T) {
 	}
 }
 
-// The split fallback layout still shows a short sent marker on the sender's
-// side and the full text on the receiver's.
-func TestPeerRouteShowsFullTextOnlyToReceiver(t *testing.T) {
+// The split fallback records a peer message the same way the timeline does:
+// once, on the sender's side, with the raw text. It must not restate the
+// exchange on the receiver's side or prepend the old "sent"/"From" hints.
+func TestSplitPeerRouteRecordsSenderSideWithoutHints(t *testing.T) {
 	text := "  第一行\n\n第二行 " + strings.Repeat("界", 100)
 	a := &App{}
 	a.route(events.Event{Kind: events.KindPeer, Agent: protocol.Austin, Peer: protocol.Tony, Text: text})
-	if got := a.austin[0].text; !strings.HasPrefix(got, "→ Tony: sent ") {
-		t.Fatalf("Austin message = %q", got)
-	}
-	if got := a.tony[0].text; !strings.HasPrefix(got, "→ From Austin: ") || !strings.HasSuffix(got, "\n"+strings.TrimSpace(text)) {
-		t.Fatalf("Tony message = %q", got)
-	}
 	a.route(events.Event{Kind: events.KindPeer, Agent: protocol.Tony, Peer: protocol.Austin, Text: text})
-	if got := a.tony[1].text; !strings.HasPrefix(got, "← Austin: sent ") {
-		t.Fatalf("Tony message = %q", got)
+	if len(a.austin) != 1 || len(a.tony) != 1 {
+		t.Fatalf("peer routing = austin %d, tony %d", len(a.austin), len(a.tony))
 	}
-	if got := a.austin[1].text; !strings.HasPrefix(got, "← From Tony: ") || !strings.HasSuffix(got, "\n"+strings.TrimSpace(text)) {
-		t.Fatalf("Austin message = %q", got)
+	if got := a.austin[0]; got.label != "Austin → Tony" || got.text != strings.TrimSpace(text) {
+		t.Fatalf("Austin entry = %+v", got)
+	}
+	if got := a.tony[0]; got.label != "Tony → Austin" || got.text != strings.TrimSpace(text) {
+		t.Fatalf("Tony entry = %+v", got)
 	}
 }
 

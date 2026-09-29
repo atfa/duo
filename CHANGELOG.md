@@ -4,7 +4,7 @@ All notable project milestones are documented here.
 
 ## Unreleased
 
-- The main view is now a single conversation **timeline** instead of two side-by-side panes. Human tasks, peer messages (`Austin → Tony`, `Tony → Austin`), Austin's messages to the human, verifier verdicts and Duo system messages are interleaved in arrival order; Austin's blocks sit on the left and Tony's are indented so they read on the right. Every message header carries its `HH:MM:SS` time by default (`Ctrl+G` hides or restores the stamps), so one exchange is readable end to end. The work preview, status rows, composer and every keyboard shortcut are unchanged, and the timeline is one scrollable, selectable region (mouse wheel and drag).
+- The main view is now a single conversation **timeline** instead of two side-by-side panes. Human tasks, peer messages (`Austin → Tony`, `Tony → Austin`), Austin's messages to the human, verifier verdicts and Duo system messages are interleaved in arrival order; each message sits on its speaker's own side under a muted `Sender → Receiver` header. Both speakers use the same bubble width (about three quarters of the row), so the side a block sits on, not a heavier header, shows who is speaking. Every message header carries its `HH:MM:SS` time by default (`Ctrl+G` hides or restores the stamps), so one exchange is readable end to end. A peer message is recorded once, on the sender's side, so the old split-pane `→ Tony: sent` / `← From Austin:` hint lines are gone. The work preview, status rows, composer and every keyboard shortcut are unchanged, and the timeline is one scrollable, selectable region (mouse wheel and drag).
 
 ## v0.5.0 — 2026-09
 

@@ -84,6 +84,34 @@ func TestTimelineScrollsAndSelects(t *testing.T) {
 	}
 }
 
+// Both speakers share one muted header and one bubble width, so Austin no
+// longer renders bolder and wider than Tony; only the anchoring side differs.
+func TestTimelineSpeakersShareHeaderStyleAndBubbleWidth(t *testing.T) {
+	const width = 100
+	body := strings.Repeat("x", 500)
+	austin := timelineEntryLines(timelineEntry{origin: protocol.Austin, entry: entry{label: "Austin → Tony", text: body}}, width, false)
+	tony := timelineEntryLines(timelineEntry{origin: protocol.Tony, entry: entry{label: "Tony → Austin", text: body}}, width, false)
+
+	for name, lines := range map[string][]paneLine{"Austin": austin, "Tony": tony} {
+		if got := lines[0].spans[0].style; got != ansiHint {
+			t.Fatalf("%s header style = %q, want the muted %q", name, got, ansiHint)
+		}
+	}
+
+	indent := timelineIndent(width)
+	austinBubble := displayWidth(austin[1].text())
+	tonyBubble := displayWidth(tony[1].text()) - indent
+	if austinBubble != tonyBubble {
+		t.Fatalf("bubble widths differ: Austin %d, Tony %d", austinBubble, tonyBubble)
+	}
+	if austinBubble >= width {
+		t.Fatalf("Austin bubble %d spans the full %d-column row", austinBubble, width)
+	}
+	if lead := displayWidth(tony[1].text()) - displayWidth(strings.TrimLeft(tony[1].text(), " ")); lead != indent {
+		t.Fatalf("Tony body indent = %d, want %d", lead, indent)
+	}
+}
+
 // The timeline header time is what Ctrl+G toggles, and it is on by default so
 // the chat transcript is readable without a hidden switch.
 func TestTimelineTimestampsFollowCtrlG(t *testing.T) {

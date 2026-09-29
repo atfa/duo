@@ -24,9 +24,9 @@ type entry struct {
 	text    string
 	error   bool
 	warning bool
-	// label is the timeline header for this entry ("Austin → Tony", "Austin →
-	// Human", "Duo"). It is empty for entries that only exist in the split
-	// panes, which then fall back to a plain timestamp prefix.
+	// label is the conversation header for this entry ("Austin → Tony",
+	// "Austin → Human", "Duo"). It is empty for plain system/assistant lines,
+	// which then fall back to a plain timestamp prefix.
 	label string
 	// seq is a global append order. The conversation timeline merges three
 	// per-speaker lists and must reproduce true arrival order even when two
@@ -230,25 +230,11 @@ func (a *App) route(event events.Event) {
 	case events.KindAssistant:
 		a.addLabeled(event.Agent, string(event.Agent)+" → Human", text, false, false)
 	case events.KindPeer:
-		if a.timeline {
-			// One entry per message, recorded on the sender's side, so the timeline
-			// can place senders left/right without duplicating the text.
-			a.addLabeled(event.Agent, fmt.Sprintf("%s → %s", event.Agent, event.Peer), text, false, false)
-		} else {
-			// The split panes still show a short sent marker on the sender's side
-			// and the full text on the receiver's.
-			stamp := time.Now().Format("15:04:05")
-			sentDirection := "→"
-			if event.Agent == protocol.Tony {
-				sentDirection = "←"
-			}
-			a.add(event.Agent, fmt.Sprintf("%s %s: sent %s", sentDirection, event.Peer, stamp))
-			direction := "←"
-			if event.Peer == protocol.Tony {
-				direction = "→"
-			}
-			a.add(event.Peer, fmt.Sprintf("%s From %s: %s\n%s", direction, event.Agent, stamp, text))
-		}
+		// One entry per message, recorded on the sender's side and labeled
+		// "Sender → Receiver". The speaker's own block carries the message, so
+		// neither layout needs the old "sent"/"From" hint lines that restated
+		// the same exchange on both sides.
+		a.addLabeled(event.Agent, fmt.Sprintf("%s → %s", event.Agent, event.Peer), text, false, false)
 	case events.KindUser:
 		a.addLabeled(protocol.Duo, "Human → Austin", text, false, false)
 	case events.KindHarness:
