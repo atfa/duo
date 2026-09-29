@@ -31,6 +31,9 @@ type TUIEntry struct {
 	Pane  string    `json:"pane"`
 	Text  string    `json:"text"`
 	Error bool      `json:"error"`
+	// Warning marks a notable but non-failing entry, such as a verifier's
+	// issue_found verdict. It is an optional field: older logs decode as false.
+	Warning bool `json:"warning,omitempty"`
 }
 
 func (s *Store) OpenEvents() *EventLog { return &EventLog{path: s.EventsPath()} }
@@ -76,9 +79,10 @@ func (l *EventLog) RecordTUIEntry(entry TUIEntry) {
 		entry.Time = time.Now().UTC()
 	}
 	_ = l.Append(Event{Time: entry.Time, Type: "tui_entry", Fields: map[string]any{
-		"pane":  entry.Pane,
-		"text":  entry.Text,
-		"error": entry.Error,
+		"pane":    entry.Pane,
+		"text":    entry.Text,
+		"error":   entry.Error,
+		"warning": entry.Warning,
 	}})
 }
 
@@ -101,15 +105,16 @@ func (l *EventLog) TUIEntries() []TUIEntry {
 			Time   time.Time `json:"time"`
 			Type   string    `json:"type"`
 			Fields struct {
-				Pane  string `json:"pane"`
-				Text  string `json:"text"`
-				Error bool   `json:"error"`
+				Pane    string `json:"pane"`
+				Text    string `json:"text"`
+				Error   bool   `json:"error"`
+				Warning bool   `json:"warning"`
 			} `json:"fields"`
 		}
 		if json.Unmarshal(scanner.Bytes(), &raw) != nil || raw.Type != "tui_entry" || !validTUIPane(raw.Fields.Pane) {
 			continue
 		}
-		entry := TUIEntry{Time: raw.Time, Pane: raw.Fields.Pane, Text: raw.Fields.Text, Error: raw.Fields.Error}
+		entry := TUIEntry{Time: raw.Time, Pane: raw.Fields.Pane, Text: raw.Fields.Text, Error: raw.Fields.Error, Warning: raw.Fields.Warning}
 		out = append(out, entry)
 		counts[entry.Pane]++
 		if counts[entry.Pane] > 200 {

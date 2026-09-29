@@ -24,6 +24,10 @@ type workflow interface {
 	setVerification(s *State, agent protocol.AgentID, result VerificationResult, note, head string) (Transition, error)
 	// complete performs the final agent-work → DONE transition after delivery.
 	complete(s *State) error
+	// reopen starts a new round from a finished DONE session so a follow-up
+	// human task can be worked and verified again. The mode decides the
+	// starting phase, and every signature from the finished round is cleared.
+	reopen(s *State) error
 }
 
 func (s *State) workflow() workflow {
@@ -110,6 +114,21 @@ func (goalWorkflow) complete(s *State) error {
 		return fmt.Errorf("%w: final delivery requires signed evidence from both agents", ErrWrongPhase)
 	}
 	s.phase = PhaseDone
+	s.lastMutation = time.Now()
+	return nil
+}
+
+// reopen starts a new Goal round from PLAN. A new task invalidates the previous
+// plan and both signatures, so the shared plan must be negotiated again before
+// the phase chain can advance.
+func (goalWorkflow) reopen(s *State) error {
+	if s.phase != PhaseDone {
+		return fmt.Errorf("%w: only a DONE session can be reopened", ErrWrongPhase)
+	}
+	s.phase = PhasePlan
+	s.plan = ""
+	s.resetApprovalsLocked()
+	s.started = true
 	s.lastMutation = time.Now()
 	return nil
 }
@@ -211,6 +230,21 @@ func (fastWorkflow) complete(s *State) error {
 		return fmt.Errorf("%w: Fast mode requires a passed verification before DONE", ErrWrongPhase)
 	}
 	s.phase = PhaseDone
+	s.lastMutation = time.Now()
+	return nil
+}
+
+// reopen starts a new Fast round from RUNNING with no pending request and no
+// stale verification, so Austin can drive a follow-up task and request a fresh
+// independent verdict once it is complete.
+func (fastWorkflow) reopen(s *State) error {
+	if s.phase != PhaseDone {
+		return fmt.Errorf("%w: only a DONE session can be reopened", ErrWrongPhase)
+	}
+	s.phase = PhaseRunning
+	s.verification = Verification{}
+	s.resetApprovalsLocked()
+	s.started = true
 	s.lastMutation = time.Now()
 	return nil
 }

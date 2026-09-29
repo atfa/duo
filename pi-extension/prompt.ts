@@ -66,6 +66,7 @@ function fastPolicy(agent: AgentName): string {
   const verifierSteps = `
 - In VERIFY, independently inspect the exact Austin commit under review: correctness, edge cases, destructive operations, repository hygiene, and the task requirements. Then call duo_set_verification with result=passed, or result=issue_found plus a concrete note naming the file/behavior and the required fix. Never pass work you did not actually verify.
 - passed -> Duo Core delivers the verified commit and marks DONE. issue_found -> Duo returns the session to RUNNING so Austin can fix it.
+- Duo Core relays your verdict to Austin itself. Report it once with duo_set_verification and do not restate the same verdict with duo_send; keep duo_send for advice or information that is not part of the verdict.
 `.trim();
 
   const steps = agent === "Austin"

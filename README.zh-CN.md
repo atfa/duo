@@ -119,6 +119,8 @@ PLAN → EXECUTE → REVIEW → INTEGRATE → DONE
 
 两种模式里，阶段都是**checkpoint，不是行为牢笼**：Duo 不会阻止 Agent 提前读代码或提前 Review；阶段只决定"推进需要哪些证据"。
 
+`DONE` 是**这一轮的终点，不是整个会话的终点**。在 Duo composer 里再提交一个任务会为新一轮重新打开会话——Fast 回到 `RUNNING`，Goal 回到 `PLAN`——并清掉上一轮已完成的交付 checkpoint，让后续任务可以重新验证、独立交付。而通过 native Pi（`Ctrl+A` / `Ctrl+T`）直接和某个 Agent 对话则**故意不这么做**：那条路径绕过 Duo，阶段保持不变。
+
 Goal 里 Plan 一旦更新就产生新版本，并**使双方签字同时失效**，所以反复改措辞是有可见代价的。Goal 的签字绑定到一个确切的 commit：对方推了新 commit，你之前的 Review 就过期，必须重做。
 
 冲突会显式保留给 Austin 处理，不会被静默覆盖。

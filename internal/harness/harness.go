@@ -150,7 +150,7 @@ func (m *Monitor) maybeWake(ctx context.Context) {
 	prompt := fmt.Sprintf(
 		"[Duo Harness]\n%s\n\n%s\n\nYou are the coordinator for recovery. Inspect the current phase and take the next concrete action. If your part is complete, call duo_set_status with ready=true. If Tony is the blocker, use duo_send to give Tony the exact information or nudge needed. In PLAN, create or revise the shared plan if necessary. Do not merely acknowledge this message.",
 		reason,
-		state.String(),
+		state.NudgeState(),
 	)
 
 	if m.bus != nil {
@@ -240,7 +240,7 @@ func (m *Monitor) fastNudgeAustin(ctx context.Context, state project.Snapshot) {
 	}
 	prompt := fmt.Sprintf(
 		"[Duo Harness]\n%s\n\nTony is only a copilot in Fast mode and does not block you: keep driving the task forward. Inspect the current state and take the next concrete action. When your work is genuinely complete, your worktree is clean and committed, and you have validated the result, request verification with duo_set_status ready=true. Do not merely acknowledge this message.\n\n%s",
-		reason, state.String(),
+		reason, state.NudgeState(),
 	)
 
 	// Two unsuccessful nudges is a stall, not just a pause. Ask the copilot once
@@ -281,7 +281,7 @@ func (m *Monitor) fastNudgeTony(ctx context.Context, state project.Snapshot) {
 
 	prompt := fmt.Sprintf(
 		"[Duo Harness]\nAustin requested independent verification of HEAD %s, but no verdict has arrived. Inspect that exact artifact yourself, then report result=passed, or result=issue_found with a concrete note, using duo_set_verification. Fast mode is single-writer: do not commit or edit the artifact. Do not merely acknowledge this message.\n\n%s",
-		shortSHA(state.Verification.Head), state.String(),
+		shortSHA(state.Verification.Head), state.NudgeState(),
 	)
 	if m.bus != nil {
 		m.bus.Emit(events.Event{Kind: events.KindHarness, Agent: protocol.Tony, Text: fmt.Sprintf("nudging Tony to verify after %s without activity", quietFor.Round(time.Second))})
@@ -297,7 +297,7 @@ func (m *Monitor) sendFastDiagnosis(ctx context.Context, state project.Snapshot)
 	}
 	text := fmt.Sprintf(
 		"[Duo Harness]\nAustin is not making progress in RUNNING (repeated idle nudges or a reported agent error). As copilot, give a concise diagnosis: the most likely blocker and the single next concrete step for Austin. Inspect the repository and state yourself first. This is advisory; do not take over the work or commit anything.\n\n%s",
-		state.String(),
+		state.NudgeState(),
 	)
 	if m.bus != nil {
 		m.bus.Emit(events.Event{Kind: events.KindHarness, Agent: protocol.Tony, Text: "asking Tony for a Fast stall diagnosis"})

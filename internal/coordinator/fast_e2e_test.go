@@ -127,6 +127,63 @@ func TestFastModeEndToEndVerifiesThenDelivers(t *testing.T) {
 	}
 }
 
+// TestComposerReopensDeliveredSession is the follow-up regression: a new human
+// task submitted through the Duo composer after DONE must start a fresh round so
+// Austin can request another independent verification, instead of being answered
+// with no path back to Tony. It also proves the finished round's applied
+// delivery checkpoint cannot short-circuit the new round back to DONE.
+func TestComposerReopensDeliveredSession(t *testing.T) {
+	ctx := context.Background()
+	runtime := startE2EWithMode(t, ctx, project.ModeFast)
+	set, store, state, server := runtime.set, runtime.store, runtime.state, runtime.server
+
+	austin := runtime.dialAgent(t, protocol.Austin)
+	tony := runtime.dialAgent(t, protocol.Tony)
+	waitFor(t, func() bool { return server.IsConnected(protocol.Austin) && server.IsConnected(protocol.Tony) }, "both agents to connect")
+
+	// Round 1: the normal Fast cycle delivers a verified artifact.
+	writeAndCommit(t, set.Austin.Path, "result.md", "round one\n", "round one")
+	fastRequestVerification(t, austin)
+	waitPhase(t, state, project.PhaseVerify)
+	if _, err := fastVerdict(t, tony, "passed", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitPhase(t, state, project.PhaseDone)
+	firstHead := gitHead(t, runtime.repo)
+	if delivered := coordDelivery(t, store); !delivered.Applied() || delivered.AppliedHead != firstHead {
+		t.Fatalf("round 1 delivery = %+v, want applied at %s", delivered, firstHead)
+	}
+
+	// The human submits a follow-up through the composer. It must reopen the
+	// finished session rather than leaving Austin unable to reach Tony.
+	if err := runtime.coord.SubmitUserTask(ctx, "one more change please"); err != nil {
+		t.Fatalf("SubmitUserTask after DONE: %v", err)
+	}
+	waitPhase(t, state, project.PhaseRunning)
+	if reopened := state.Snapshot(); reopened.Verification.Status != project.VerificationNone || reopened.Verification.Head != "" {
+		t.Fatalf("a reopened round must not inherit a verification: %+v", reopened.Verification)
+	}
+	if cleared := coordDelivery(t, store); cleared.Status != "" {
+		t.Fatalf("a reopened round must clear the applied delivery checkpoint, got %+v", cleared)
+	}
+
+	// Round 2 is an ordinary Fast cycle and must deliver independently.
+	writeAndCommit(t, set.Austin.Path, "result.md", "round two\n", "round two")
+	fastRequestVerification(t, austin)
+	waitPhase(t, state, project.PhaseVerify)
+	if _, err := fastVerdict(t, tony, "passed", ""); err != nil {
+		t.Fatal(err)
+	}
+	waitPhase(t, state, project.PhaseDone)
+	secondHead := gitHead(t, runtime.repo)
+	if secondHead == firstHead {
+		t.Fatal("round 2 did not deliver a new HEAD")
+	}
+	if delivered := coordDelivery(t, store); !delivered.Applied() || delivered.AppliedHead != secondHead {
+		t.Fatalf("round 2 delivery = %+v, want applied at %s", delivered, secondHead)
+	}
+}
+
 // TestFastModeRevokesVerificationWhenHeadMoves pins the single safety rule that
 // makes Fast delivery sound: a verdict describes one exact Austin HEAD, and if
 // that HEAD moves the request is revoked before the verdict can be accepted.

@@ -188,8 +188,10 @@ func (c *Coordinator) emit(kind events.Kind, agent, peer protocol.AgentID, text 
 	c.bus.Emit(events.Event{Kind: kind, Agent: agent, Peer: peer, Text: text})
 }
 
-// SubmitUserTask is the single human entry point used by the Duo TUI.
-// Austin receives the task and is responsible for waking Tony through duo_send.
+// SubmitUserTask is the single human entry point used by the Duo TUI. Austin
+// receives the task and is responsible for waking Tony through duo_send. On a
+// DONE session it first reopens the round, so a composer follow-up is a normal
+// task again instead of a dead end.
 func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -198,6 +200,7 @@ func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 	if !c.server.IsConnected(protocol.Austin) {
 		return fmt.Errorf("Austin is not connected yet")
 	}
+	c.reopenFinishedSession()
 	c.project.MarkStarted()
 	c.tracker.Touch(protocol.Austin)
 	c.emit(events.KindUser, protocol.Duo, protocol.Austin, text)
@@ -205,6 +208,36 @@ func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 		Version: 1, Type: protocol.MsgHumanPrompt, From: protocol.Duo, To: protocol.Austin,
 		Text: "[Human task from Duo]\n\n" + text, Timestamp: time.Now().UnixMilli(),
 	})
+}
+
+// reopenFinishedSession turns a DONE session back into an active round when the
+// human submits a new task through the Duo composer. Native Pi attachment
+// (Ctrl+A/Ctrl+T) writes straight to the agent PTY and never reaches this path,
+// so a conversation held directly with an agent leaves the phase untouched.
+//
+// The finished round's delivery and integration checkpoints are cleared first:
+// they are terminal evidence for the previous artifact, and an applied record
+// would otherwise let deliverFinal short-circuit the next round back to DONE
+// without a fresh verification.
+func (c *Coordinator) reopenFinishedSession() {
+	if c.project.Snapshot().Phase != project.PhaseDone {
+		return
+	}
+	c.SetDelivery(sessionstore.Delivery{})
+	c.SetIntegration(workspace.IntegrationResult{})
+	snap, err := c.project.Reopen()
+	if err != nil {
+		c.logf("reopen finished session: %v", err)
+		return
+	}
+	c.persistNow("session reopened for a new task")
+	c.recordEvent("round_started", map[string]any{"phase": string(snap.Phase)})
+	c.logf("session reopened after DONE → %s for a new human task", snap.Phase)
+	c.emit(events.KindSystem, protocol.Duo, "", fmt.Sprintf("new task after delivery: session reopened in %s", snap.Phase))
+	if !c.server.IsConnected(protocol.Tony) {
+		c.emit(events.KindError, protocol.Duo, "",
+			"Tony is not connected; restart it with Ctrl+Y, otherwise the new round cannot be verified")
+	}
 }
 
 func (c *Coordinator) StatusText(ctx context.Context) string { return c.statusText(ctx) }
@@ -641,7 +674,9 @@ func (c *Coordinator) handleSetVerification(ctx context.Context, client *transpo
 
 	case project.VerificationIssueFound:
 		c.recordEvent("verification", map[string]any{"result": "issue_found", "note": message.Note})
-		c.emit(events.KindError, protocol.Tony, protocol.Austin, "[Duo verification] "+message.Note)
+		// issue_found is the verifier doing its job, not a Duo failure: surface it
+		// as a verdict so the TUI warns instead of reporting a red ERROR.
+		c.emit(events.KindVerdict, protocol.Tony, protocol.Austin, message.Note)
 		_ = c.respond(ctx, client, message.RequestID, true,
 			"Issue recorded. The session returned to RUNNING; Austin continues and must request verification again when the fix is complete.",
 			c.statusText(ctx))

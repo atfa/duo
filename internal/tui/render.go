@@ -171,6 +171,9 @@ func paintEntry(line paneLine, width int) string {
 	if line.error {
 		return paint(ansiError, fit(line.text(), width))
 	}
+	if line.warning {
+		return paint(ansiStatus, fit(line.text(), width))
+	}
 	var b strings.Builder
 	used := 0
 	for _, span := range line.spans {
@@ -198,6 +201,8 @@ func (a *App) paintPaneEntry(line paneLine, width int, agent protocol.AgentID, r
 				b.WriteString(paint(ansiSelect, string(r)))
 			} else if line.error {
 				b.WriteString(paint(ansiError, string(r)))
+			} else if line.warning {
+				b.WriteString(paint(ansiStatus, string(r)))
 			} else if span.style != "" {
 				b.WriteString(paint(span.style, string(r)))
 			} else {
@@ -298,7 +303,7 @@ func paneLinesAt(entries []entry, width, rows, offset int) []entry {
 	styled := styledPaneLinesAt(entries, width, rows, offset)
 	out := make([]entry, len(styled))
 	for i, line := range styled {
-		out[i] = entry{text: line.text(), error: line.error}
+		out[i] = entry{text: line.text(), error: line.error, warning: line.warning}
 	}
 	return out
 }
@@ -312,6 +317,7 @@ type paneLine struct {
 	spans        []markdownSpan
 	continuation string
 	error        bool
+	warning      bool
 }
 
 func (l paneLine) text() string {
@@ -329,6 +335,7 @@ func wrappedPaneLines(entries []entry, width int) []paneLine {
 		for _, line := range markdownLines(text, width) {
 			for _, wrapped := range wrapMarkdown(line, width) {
 				wrapped.error = e.error
+				wrapped.warning = e.warning
 				all = append(all, wrapped)
 			}
 		}
@@ -920,17 +927,22 @@ func displayWidth(s string) int {
 }
 
 func runeWidth(r rune) int {
-	if r == 0 || unicode.Is(unicode.Mn, r) {
+	switch {
+	case r == 0 || unicode.Is(unicode.Mn, r):
 		return 0
-	}
-	if r < 0x20 || (r >= 0x7f && r < 0xa0) {
+	case r >= 0x200b && r <= 0x200f: // zero-width space..RTL mark, including ZWJ
 		return 0
-	}
-	if r >= 0x1100 && (r <= 0x115f || r == 0x2329 || r == 0x232a ||
+	case r >= 0x1f3fb && r <= 0x1f3ff: // skin-tone modifiers join the base glyph
+		return 0
+	case r < 0x20 || (r >= 0x7f && r < 0xa0):
+		return 0
+	case r >= 0x1100 && (r <= 0x115f || r == 0x2329 || r == 0x232a ||
 		(r >= 0x2e80 && r <= 0xa4cf) || (r >= 0xac00 && r <= 0xd7a3) ||
 		(r >= 0xf900 && r <= 0xfaff) || (r >= 0xfe10 && r <= 0xfe19) ||
 		(r >= 0xfe30 && r <= 0xfe6f) || (r >= 0xff00 && r <= 0xff60) ||
-		(r >= 0xffe0 && r <= 0xffe6) || (r >= 0x1f300 && r <= 0x1faff)) {
+		(r >= 0xffe0 && r <= 0xffe6)):
+		return 2
+	case isEmojiWide(r):
 		return 2
 	}
 	return 1

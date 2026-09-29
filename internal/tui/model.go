@@ -19,9 +19,10 @@ import (
 )
 
 type entry struct {
-	at    time.Time
-	text  string
-	error bool
+	at      time.Time
+	text    string
+	error   bool
+	warning bool
 }
 
 type App struct {
@@ -154,6 +155,16 @@ func (a *App) route(event events.Event) {
 			label += " " + string(event.Agent)
 		}
 		a.addError(protocol.Duo, fmt.Sprintf("%s: %s", label, text))
+	case events.KindVerdict:
+		// A verdict is a workflow outcome, not a failure: warn instead of error,
+		// and keep the full report in the reporting agent's pane only. The Duo
+		// pane gets a one-line summary rather than a second copy of the report.
+		if event.Agent == protocol.Austin || event.Agent == protocol.Tony {
+			a.addWarning(event.Agent, "VERIFY — issue found:\n"+text)
+			a.add(protocol.Duo, fmt.Sprintf("VERIFY — %s reported issue_found; session returned to RUNNING", event.Agent))
+		} else {
+			a.addWarning(protocol.Duo, text)
+		}
 	default:
 		if event.Agent == protocol.Austin || event.Agent == protocol.Tony {
 			a.add(event.Agent, text)
@@ -164,18 +175,24 @@ func (a *App) route(event events.Event) {
 }
 
 func (a *App) add(agent protocol.AgentID, text string) {
-	a.addEntry(agent, text, false)
+	a.addEntry(agent, text, false, false)
 }
 
 func (a *App) addError(agent protocol.AgentID, text string) {
-	a.addEntry(agent, text, true)
+	a.addEntry(agent, text, true, false)
 }
 
-func (a *App) addEntry(agent protocol.AgentID, text string, isError bool) {
-	item := entry{at: time.Now(), text: text, error: isError}
+// addWarning records a notable but non-failing entry, such as a verifier
+// reporting issue_found. It renders in the status color, never as an error.
+func (a *App) addWarning(agent protocol.AgentID, text string) {
+	a.addEntry(agent, text, false, true)
+}
+
+func (a *App) addEntry(agent protocol.AgentID, text string, isError, isWarning bool) {
+	item := entry{at: time.Now(), text: text, error: isError, warning: isWarning}
 	a.appendEntry(agent, item)
 	if a.journal != nil {
-		a.journal.RecordTUIEntry(sessionstore.TUIEntry{Time: item.at, Pane: string(agent), Text: text, Error: isError})
+		a.journal.RecordTUIEntry(sessionstore.TUIEntry{Time: item.at, Pane: string(agent), Text: text, Error: isError, Warning: isWarning})
 	}
 }
 
@@ -184,7 +201,7 @@ func (a *App) restoreEntry(item sessionstore.TUIEntry) {
 	if agent != protocol.Austin && agent != protocol.Tony && agent != protocol.Duo {
 		return
 	}
-	a.appendEntry(agent, entry{at: item.Time, text: item.Text, error: item.Error})
+	a.appendEntry(agent, entry{at: item.Time, text: item.Text, error: item.Error, warning: item.Warning})
 }
 
 func (a *App) appendEntry(agent protocol.AgentID, item entry) {

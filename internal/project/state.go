@@ -48,6 +48,32 @@ func (s Snapshot) String() string {
 	return s.goalString()
 }
 
+// NudgeState is the compact state block injected into harness nudges. Unlike
+// String it never inlines the shared plan body: a nudge repeats on a timer, and
+// re-sending a multi-KB plan every time is pure token cost. The agent already
+// has the plan in its own Pi context and can re-read it with duo_status, so the
+// nudge only has to point at it. Everything else (phase, signatures, notes and
+// evidence) is kept, so the nudge carries the same signal as before.
+func (s Snapshot) NudgeState() string {
+	if s.EffectiveMode() == ModeFast {
+		return s.fastString()
+	}
+
+	planRef := "(none yet)"
+	if plan := strings.TrimSpace(s.Plan); plan != "" {
+		planRef = fmt.Sprintf("v%d, %d bytes — read it with duo_status", s.PlanVersion, len(plan))
+	}
+
+	return fmt.Sprintf(
+		"Duo state:\n- phase: %s\n- plan version: %d\n- Austin ready: %t%s%s\n- Tony ready: %t%s%s\n- shared plan: %s",
+		s.Phase,
+		s.PlanVersion,
+		s.Ready[protocol.Austin], optionalNote(s.Notes[protocol.Austin]), optionalEvidence(s.Evidence[protocol.Austin]),
+		s.Ready[protocol.Tony], optionalNote(s.Notes[protocol.Tony]), optionalEvidence(s.Evidence[protocol.Tony]),
+		planRef,
+	)
+}
+
 // goalString is byte-for-byte the historical rendering: it is what every
 // pre-Fast test, tool response and user reasonably expects in Goal mode.
 func (s Snapshot) goalString() string {
@@ -282,6 +308,24 @@ func (s *State) SetVerification(agent protocol.AgentID, result VerificationResul
 func (s *State) Complete() (Snapshot, error) {
 	s.mu.Lock()
 	if err := s.workflow().complete(s); err != nil {
+		snap := s.snapshotLocked()
+		s.mu.Unlock()
+		return snap, err
+	}
+	snap, hook := s.snapshotLocked(), s.onChange
+	s.mu.Unlock()
+	notify(hook, snap)
+	return snap, nil
+}
+
+// Reopen starts a new round after DONE so a follow-up human task can be worked
+// and verified again. It only succeeds from DONE; the mode picks the starting
+// phase and every signature from the finished round is cleared. Round-scoped
+// checkpoints that live outside the domain state (the applied delivery record
+// and the integration result) are the caller's responsibility to clear.
+func (s *State) Reopen() (Snapshot, error) {
+	s.mu.Lock()
+	if err := s.workflow().reopen(s); err != nil {
 		snap := s.snapshotLocked()
 		s.mu.Unlock()
 		return snap, err

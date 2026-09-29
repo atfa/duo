@@ -98,6 +98,38 @@ func TestErrorRouteMarksFullAgentDetail(t *testing.T) {
 	}
 }
 
+// TestVerdictRouteWarnsWithoutDuplicatingReport pins the fix for a verifier's
+// issue_found being shown as a red ERROR: the full report stays in the verifier
+// pane as a warning, and the Duo pane gets a one-line summary instead of a
+// second copy.
+func TestVerdictRouteWarnsWithoutDuplicatingReport(t *testing.T) {
+	a := &App{}
+	report := strings.TrimSpace(strings.Repeat("reserved-name gap in .cloud\n", 40))
+	a.route(events.Event{Kind: events.KindVerdict, Agent: protocol.Tony, Peer: protocol.Austin, Text: report})
+
+	if len(a.tony) != 1 {
+		t.Fatalf("Tony pane entries = %d, want 1", len(a.tony))
+	}
+	if got := a.tony[0].text; !strings.HasPrefix(got, "VERIFY — issue found:") || !strings.Contains(got, report) {
+		t.Fatalf("Tony verdict text = %q", got)
+	}
+	if a.tony[0].error {
+		t.Fatal("a verdict must not be marked as an error")
+	}
+	if !a.tony[0].warning {
+		t.Fatal("a verdict must be marked as a warning")
+	}
+	if got := a.duo[0].text; got != "VERIFY — Tony reported issue_found; session returned to RUNNING" {
+		t.Fatalf("Duo verdict summary = %q", got)
+	}
+
+	// A warning line is painted in the status color, never the error color.
+	line := paneLine{warning: true, spans: []markdownSpan{{text: "reserved"}}}
+	if painted := paintEntry(line, 20); !strings.HasPrefix(painted, ansiStatus) || strings.HasPrefix(painted, ansiError) {
+		t.Fatalf("warning paint = %q, want the status color", painted)
+	}
+}
+
 func TestNewRestoresPaneHistoryWithoutRewritingIt(t *testing.T) {
 	history := []sessionstore.TUIEntry{
 		{Pane: "Austin", Text: "previous output", Error: true},

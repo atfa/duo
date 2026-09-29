@@ -166,6 +166,56 @@ func TestFastAustinWithdrawsCompletionRequest(t *testing.T) {
 	}
 }
 
+// TestReopenStartsANewRoundInEachMode pins the follow-up path: a finished DONE
+// session can be reopened for another round, and the mode decides where the new
+// round starts. Fast returns to RUNNING with no inherited verification; Goal
+// returns to PLAN with every signature cleared.
+func TestReopenStartsANewRoundInEachMode(t *testing.T) {
+	fast := NewStateFor(ModeFast)
+	if _, _, err := fast.SetReady(protocol.Austin, true, "done", "commit-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := fast.SetVerification(protocol.Tony, VerificationPassed, "ok", "commit-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fast.Complete(); err != nil {
+		t.Fatal(err)
+	}
+
+	snap, err := fast.Reopen()
+	if err != nil {
+		t.Fatalf("reopen a DONE Fast session: %v", err)
+	}
+	if snap.Phase != PhaseRunning || snap.Verification.Status != VerificationNone || snap.Verification.Head != "" {
+		t.Fatalf("Fast reopen = %+v, want RUNNING with no verification", snap)
+	}
+	if _, _, err := fast.SetReady(protocol.Austin, true, "", "commit-2"); err != nil {
+		t.Fatalf("a reopened round must accept a fresh request: %v", err)
+	}
+	if _, err := fast.Reopen(); err == nil {
+		t.Fatal("reopening a session that is not DONE was accepted")
+	}
+
+	goal := NewState()
+	advanceTo(t, goal, PhaseIntegrate)
+	if _, _, err := goal.SetReady(protocol.Austin, true, "final", "final-head"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := goal.SetReady(protocol.Tony, true, "final", "final-head"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := goal.Complete(); err != nil {
+		t.Fatal(err)
+	}
+	snap, err = goal.Reopen()
+	if err != nil {
+		t.Fatalf("reopen a DONE Goal session: %v", err)
+	}
+	if snap.Phase != PhasePlan || snap.Plan != "" || snap.Ready[protocol.Austin] || snap.Ready[protocol.Tony] {
+		t.Fatalf("Goal reopen = %+v, want PLAN with a cleared plan and signatures", snap)
+	}
+}
+
 func TestRestoreIsModeScopedAndLegacyIsGoal(t *testing.T) {
 	// A legacy snapshot has no mode and must load as Goal.
 	legacy := NewState()
@@ -224,5 +274,32 @@ func TestSnapshotStringIsModeAware(t *testing.T) {
 	}
 	if strings.Contains(goalText, "FAST") {
 		t.Fatalf("goal status must not claim to be FAST: %q", goalText)
+	}
+}
+
+// TestNudgeStateOmitsSharedPlanBody keeps harness nudges cheap: they repeat on a
+// timer, so they must not re-inline the whole shared plan. duo_status still
+// returns the full plan through String.
+func TestNudgeStateOmitsSharedPlanBody(t *testing.T) {
+	state := NewState()
+	plan := strings.TrimSpace("step 1: " + strings.Repeat("很长的计划内容 ", 200))
+	if _, err := state.SetPlan(protocol.Austin, plan); err != nil {
+		t.Fatal(err)
+	}
+	snap := state.Snapshot()
+
+	full := snap.String()
+	if !strings.Contains(full, plan) {
+		t.Fatal("String must keep the full shared plan for duo_status")
+	}
+	nudge := snap.NudgeState()
+	if strings.Contains(nudge, plan) || strings.Contains(nudge, "step 1:") {
+		t.Fatal("NudgeState must not inline the shared plan body")
+	}
+	if !strings.Contains(nudge, "read it with duo_status") || !strings.Contains(nudge, "plan version: 1") {
+		t.Fatalf("NudgeState must point at the plan, got %q", nudge)
+	}
+	if len(nudge) >= len(full) {
+		t.Fatalf("NudgeState (%d bytes) must be smaller than String (%d bytes)", len(nudge), len(full))
 	}
 }

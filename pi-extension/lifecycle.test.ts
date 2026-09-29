@@ -42,6 +42,8 @@ test("FAST makes Tony a read-only verifier and never offers the shared plan", ()
   expect(tony).toContain("RUNNING -> VERIFY -> DONE");
   expect(tony).toContain("READ-ONLY");
   expect(tony).toContain("duo_set_verification");
+  // The verdict is relayed by Duo Core, so Tony must not duplicate it with duo_send.
+  expect(tony).toContain("do not restate the same verdict with duo_send");
   expect(tony).not.toContain("maintain one complete shared plan");
   expect(tony).not.toContain("INTEGRATE");
 });

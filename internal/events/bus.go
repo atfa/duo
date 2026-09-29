@@ -17,6 +17,10 @@ const (
 	KindHarness   Kind = "harness"
 	KindUser      Kind = "user"
 	KindError     Kind = "error"
+	// KindVerdict is a peer's structured review outcome (for example a Fast
+	// issue_found). It is a normal workflow result, not a failure, so the TUI
+	// shows it as a warning instead of an error.
+	KindVerdict Kind = "verdict"
 )
 
 type Event struct {
