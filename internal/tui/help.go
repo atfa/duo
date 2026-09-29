@@ -50,7 +50,7 @@ var keyBindings = []keyBinding{
 	{"Home / End", "", "Move to the start or end of the composer line"},
 	{"Ctrl+U / Ctrl+K", "", "Delete to the start or end of the composer line"},
 	{"Ctrl+W", "", "Delete the previous word"},
-	{"Backspace", "", "Delete the previous composer character"},
+	{"Backspace / Delete", "", "Delete the previous or next composer character"},
 	{"Mouse wheel", "", "Scroll the conversation timeline"},
 	{"Mouse drag", "", "Select timeline text; copies to clipboard on release"},
 }

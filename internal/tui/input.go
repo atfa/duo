@@ -184,6 +184,8 @@ func decodeEscape(seq string) string {
 		return "home"
 	case "\x1b[F", "\x1b[4~":
 		return "end"
+	case "\x1b[3~":
+		return "delete"
 	case "\x1b[5~":
 		return "page-up"
 	case "\x1b[6~":
@@ -405,6 +407,14 @@ func (a *App) handleKey(key string) inputAction {
 		a.inputPos = start
 		a.resetHistory()
 		a.clampSlashCursor()
+	case "delete":
+		if a.inputPos < len(a.input) {
+			a.slashDismissed = false
+			end := nextRune(a.input, a.inputPos)
+			a.input = append(a.input[:a.inputPos], a.input[end:]...)
+			a.resetHistory()
+			a.clampSlashCursor()
+		}
 	default:
 		if (len(key) == 1 && key[0] >= 32) || (len(key) == 1 && key[0] >= 0x80) {
 			a.slashDismissed = false

@@ -90,6 +90,35 @@ func TestComposerEditingKeys(t *testing.T) {
 	if a.moveComposerLine(-1) {
 		t.Fatal("line up must stop at the first composer line")
 	}
+
+	// Forward delete (Del key) deletes character after cursor
+	if got := decodeEscape("\x1b[3~"); got != "delete" {
+		t.Fatalf("decodeEscape(\\x1b[3~) = %q, want \"delete\"", got)
+	}
+	a.input = []byte("hello")
+	a.inputPos = 0
+	a.handleKey("delete")
+	if got := string(a.input); got != "ello" || a.inputPos != 0 {
+		t.Fatalf("delete at start = %q (pos %d), want \"ello\" (pos 0)", got, a.inputPos)
+	}
+	a.inputPos = 1 // between 'e' and 'l'
+	a.handleKey("delete")
+	if got := string(a.input); got != "elo" || a.inputPos != 1 {
+		t.Fatalf("delete in middle = %q (pos %d), want \"elo\" (pos 1)", got, a.inputPos)
+	}
+	a.inputPos = len(a.input) // at end
+	a.handleKey("delete")
+	if got := string(a.input); got != "elo" {
+		t.Fatalf("delete at end should do nothing, got %q", got)
+	}
+
+	// Forward delete with multi-byte UTF-8
+	a.input = []byte("你好世界")
+	a.inputPos = len("你") // pointing to "好"
+	a.handleKey("delete")
+	if got := string(a.input); got != "你世界" || a.inputPos != len("你") {
+		t.Fatalf("delete utf-8 = %q (pos %d), want \"你世界\"", got, a.inputPos)
+	}
 }
 
 // B2: submitted tasks are recalled with Up/Down, and the draft is restored.

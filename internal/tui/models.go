@@ -143,7 +143,7 @@ func (a *App) handleModelKey(key string) inputAction {
 		a.modelCursor = 0
 	case "end":
 		a.modelCursor = maxInt(len(a.filteredModels())-1, 0)
-	case "backspace":
+	case "backspace", "delete":
 		if len(a.modelFilter) > 0 {
 			a.modelFilter = a.modelFilter[:len(a.modelFilter)-1]
 			a.clampModelCursor()

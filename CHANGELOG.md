@@ -2,12 +2,13 @@
 
 All notable project milestones are documented here.
 
-## Unreleased
+## v0.6.0 — 2026-09-30
 
 - Interactive slash command palette and autocomplete: Typing `/` in the composer opens a command palette with real-time fuzzy filtering and command descriptions. Navigate options with `↑` / `↓` (circular selection), press `Tab` to autocomplete, press `Enter` to execute immediately (or fill command arguments for `/escalate` and `/mode`), and press `Esc` to dismiss. Supported commands: `/escalate [reason]`, `/mode <fast|goal>`, `/model`, `/overview`, `/preview`, `/timestamps`, `/help`, `/status`, `/clear`, `/quit`, and `/exit`.
 - Dynamic mode escalation: Fast mode sessions can now dynamically escalate to Goal mode on the fly without resetting the session, re-creating worktrees, or losing in-flight commits. Escalation can be triggered by the user via the composer (`/escalate [reason]` or `/mode goal`), or autonomously by agents via the `duo_escalate` tool (or `protocol.MsgEscalate`). The session enters the `PLAN` phase, initializes a shared plan v1 seeded with the escalation reason and prior notes, transitions Tony into an active co-developer and co-signer, and persists immediately so `duo --resume` resumes in Goal mode.
 - Deterministic automated test verification gate: Duo can now execute an automated test command (e.g. `go test ./...` or `npm test`) before accepting Austin's verification request in Fast mode, before Tony's final verification, and before delivery in Goal mode. If tests fail, the failure output is reported immediately to Austin with concrete error details, blocking phase advance to `VERIFY` and keeping Tony focused on valid builds. Configure via `--test-cmd <command>`, `DUO_TEST_COMMAND`, or `"testCommand"` in `~/.duo/config.json` / `.duo/config.json`.
 - TUI usability enhancements:
+  - Fixed keyboard forward delete: The `Del` key (`\x1b[3~`) now correctly deletes the character ahead of the cursor in the composer and model picker filter.
   - Timeline scrolling now supports keyboard navigation with `PgUp` and `PgDn` (half-page scroll per press).
   - Universal cross-platform clipboard copy: timeline selections are emitted using terminal OSC 52 escape sequences (supporting remote SSH, tmux, and modern terminal emulators) alongside native desktop tools (`pbcopy` on macOS, `wl-copy` on Wayland, `xclip`/`xsel` on X11).
   - Persistent composer task history: submitted tasks are appended to `~/.duo/history` (overridable with `DUO_HISTORY_FILE`), so `↑`/`↓` history recall survives restarting or resuming Duo.
