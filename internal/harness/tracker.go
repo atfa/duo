@@ -25,11 +25,32 @@ type AgentRuntime struct {
 	StreamTail string
 	LastError  string
 
+	// TurnStarted, ToolStarted, Tools and Recent describe the current turn's
+	// shape: when it began, how long the running tool has been going, how many
+	// tools it has used, and how the last few ended.
+	TurnStarted time.Time
+	ToolStarted time.Time
+	Tools       int
+	Recent      []ToolNote
+
 	// Failures counts agent-error events since the agent last started a turn.
 	// The Fast harness uses it to ask the copilot for a diagnosis; Goal never
 	// reads it, so recording it cannot change Goal behavior.
 	Failures int
 }
+
+// ToolNote is one completed tool call of the current turn. The preview shows the
+// last few as a progress trail: the ✓/✗ rhythm is what separates a long turn
+// that is still moving from one stuck on the same failure.
+type ToolNote struct {
+	Name     string
+	Detail   string
+	OK       bool
+	Duration time.Duration
+}
+
+// recentTools is how many completed tool calls the preview keeps per turn.
+const recentTools = 3
 
 type Tracker struct {
 	mu     sync.RWMutex
@@ -102,11 +123,15 @@ func (t *Tracker) Note(agent protocol.AgentID, activity protocol.ActivityType, t
 	switch activity {
 	case protocol.ActivityAgentStart:
 		rt.Tool, rt.ToolDetail, rt.ToolFailed, rt.StreamTail, rt.LastError = "", "", false, "", ""
+		rt.TurnStarted, rt.ToolStarted = time.Now(), time.Time{}
+		rt.Tools, rt.Recent = 0, nil
 	case protocol.ActivityProviderStart, protocol.ActivityAgentSettled:
 		rt.StreamTail = ""
 	case protocol.ActivityToolStart:
 		rt.Tool, rt.ToolDetail, rt.ToolFailed = tool, detail, false
 		rt.StreamTail = ""
+		rt.ToolStarted = time.Now()
+		rt.Tools++
 	case protocol.ActivityToolEnd:
 		// tool_end keeps the arguments captured at tool_start; the result summary
 		// is only worth showing when it is a failure.
@@ -114,6 +139,7 @@ func (t *Tracker) Note(agent protocol.AgentID, activity protocol.ActivityType, t
 			rt.Tool = tool
 		}
 		rt.ToolFailed = false
+		rt.recordToolLocked(tool, "", true)
 	case protocol.ActivityToolError:
 		if tool != "" {
 			rt.Tool = tool
@@ -122,10 +148,32 @@ func (t *Tracker) Note(agent protocol.AgentID, activity protocol.ActivityType, t
 			rt.ToolDetail = detail
 		}
 		rt.ToolFailed = true
+		rt.recordToolLocked(tool, detail, false)
 	case protocol.ActivityStream:
 		if detail != "" {
 			rt.StreamTail = detail
 		}
+	}
+}
+
+// recordToolLocked moves a finished tool into the recent trail. The name comes
+// from the event, or from the tool it is closing when the event omits it, so a
+// bare tool_end still records the call.
+func (rt *AgentRuntime) recordToolLocked(tool, detail string, ok bool) {
+	if tool == "" {
+		tool = rt.Tool
+	}
+	if tool == "" {
+		return
+	}
+	duration := time.Duration(0)
+	if !rt.ToolStarted.IsZero() {
+		duration = time.Since(rt.ToolStarted)
+	}
+	rt.ToolStarted = time.Time{}
+	rt.Recent = append(rt.Recent, ToolNote{Name: tool, Detail: detail, OK: ok, Duration: duration})
+	if len(rt.Recent) > recentTools {
+		rt.Recent = rt.Recent[len(rt.Recent)-recentTools:]
 	}
 }
 

@@ -288,6 +288,18 @@ func (a *App) processState(id protocol.AgentID) agent.ProcessState {
 }
 
 func agentState(connected bool, runtime harness.AgentRuntime, frame int, states ...agent.ProcessState) string {
+	word := stateWord(connected, runtime, states...)
+	// Only the states that can last a long time animate; the preview band shows
+	// the plain word, so a spinner frame there cannot read as a stray border.
+	switch word {
+	case "tool", "thinking", "working":
+		return word + " " + []string{"|", "/", "-", "\\"}[frame%4]
+	}
+	return word
+}
+
+// stateWord is agentState without the animation frame.
+func stateWord(connected bool, runtime harness.AgentRuntime, states ...agent.ProcessState) string {
 	if len(states) > 0 {
 		switch states[0] {
 		case agent.ProcessStarting:
@@ -303,15 +315,14 @@ func agentState(connected bool, runtime harness.AgentRuntime, frame int, states 
 	if !connected {
 		return "connecting"
 	}
-	spinner := []string{"|", "/", "-", "\\"}[frame%4]
 	if runtime.ToolDepth > 0 {
-		return "tool " + spinner
+		return "tool"
 	}
 	if runtime.ProviderActive {
-		return "thinking " + spinner
+		return "thinking"
 	}
 	if runtime.Busy {
-		return "working " + spinner
+		return "working"
 	}
 	return "idle"
 }

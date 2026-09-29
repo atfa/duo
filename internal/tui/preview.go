@@ -51,15 +51,18 @@ func (a *App) writePreview(b *strings.Builder, l layout) {
 }
 
 // previewHeader is the band's title: the same state word the pane header uses,
-// plus how long the agent has been quiet, which is what tells a human whether a
-// long turn is still moving or stuck. A narrow half drops the elapsed time and
-// then the state rather than letting header() clip them mid-word, and the pane
-// header above always carries the full state.
+// plus how long the current turn has been running, which is what tells a human
+// whether a long turn is still moving or stuck. A narrow half drops the turn age
+// and then the state rather than letting header() clip them mid-word, and the
+// pane header above always carries the full state.
 func (a *App) previewHeader(agent protocol.AgentID, width int) string {
 	rt := a.tracker.Snapshot(agent)
-	state := agentState(a.server.IsConnected(agent), rt, a.frame, a.processState(agent))
+	state := stateWord(a.server.IsConnected(agent), rt, a.processState(agent))
 	available := width - displayWidth("[↗] ")
-	full := fmt.Sprintf(" %s preview · %s · %s ", agent, state, elapsedSince(rt.LastActivity))
+	full := fmt.Sprintf(" %s preview · %s ", agent, state)
+	if age := elapsedSince(rt.TurnStarted); age != "unknown" {
+		full = fmt.Sprintf(" %s preview · %s · %s ", agent, state, age)
+	}
 	if displayWidth(full) <= available {
 		return full
 	}
@@ -69,17 +72,24 @@ func (a *App) previewHeader(agent protocol.AgentID, width int) string {
 	return fmt.Sprintf(" %s ", agent)
 }
 
-// previewBody renders the work detail: the current tool and its arguments, the
-// last error of this turn, and the tail of the text being streamed. The newest
-// text is kept when the rows run out, so the band always shows the latest state.
+// previewBody renders the work detail of one agent: what it is doing now, the
+// turn's recent tool trail, the turn's last error, and the tail of the text
+// being streamed. Rows are spent in that order so the newest state wins when the
+// band is short.
 func (a *App) previewBody(agent protocol.AgentID, width, rows int) []string {
 	if rows < 1 {
 		return nil
 	}
 	rt := a.tracker.Snapshot(agent)
-	out := []string{previewActivity(rt)}
+	out := []string{a.previewNow(agent, rt)}
 	remaining := rows - 1
 
+	if remaining > 0 {
+		if trail := previewTrail(rt, width); trail != "" {
+			out = append(out, trail)
+			remaining--
+		}
+	}
 	if remaining > 0 && rt.LastError != "" {
 		lines := wrap("✗ "+oneLine(rt.LastError), width)
 		if len(lines) > remaining {
@@ -104,26 +114,138 @@ func (a *App) previewBody(agent protocol.AgentID, width, rows int) []string {
 	return out
 }
 
-// previewActivity is the one line that answers "what is it doing right now".
-func previewActivity(rt harness.AgentRuntime) string {
+// previewNow is the one line that answers "what is it doing right now": the
+// running tool and how long it has been running, or the model it is thinking
+// with, or how long it has been quiet. A just-updated line carries no age, so
+// the row stays a statement instead of always ending in "now".
+func (a *App) previewNow(agent protocol.AgentID, rt harness.AgentRuntime) string {
 	tool := rt.Tool
 	if tool == "" {
 		tool = "tool"
 	}
-	if rt.ToolDetail != "" {
-		tool += " · " + oneLine(rt.ToolDetail)
-	}
 	switch {
 	case rt.ToolFailed:
-		return "✗ " + tool
+		line := "✗ " + tool
+		if rt.ToolDetail != "" {
+			line += " · " + oneLine(rt.ToolDetail)
+		}
+		return line
 	case rt.ToolDepth > 0:
-		return "▶ " + tool
+		line := "▶ " + tool
+		if age := elapsedSince(rt.ToolStarted); age != "unknown" && age != "now" {
+			line += " " + age
+		}
+		if rt.ToolDetail != "" {
+			line += " · " + oneLine(rt.ToolDetail)
+		}
+		return line
 	case rt.ProviderActive:
-		return "◆ model thinking"
+		label := a.modelLabel(agent)
+		if label == "" {
+			label = "thinking"
+		}
+		return "◆ " + label + ageSuffix(rt.LastActivity)
 	case rt.Busy:
-		return "▶ working"
+		return "▶ working" + ageSuffix(rt.LastActivity)
 	default:
+		if age := elapsedSince(rt.LastActivity); age != "unknown" && age != "now" {
+			return "· waiting · quiet " + age
+		}
 		return "· waiting"
+	}
+}
+
+// modelLabel names the model an agent is thinking with, shortened to the part
+// after the provider because the provider repeats in both panes. It returns ""
+// until the bridge has reported a model.
+func (a *App) modelLabel(agent protocol.AgentID) string {
+	label := a.currentModel[agent]
+	if label == "" {
+		return ""
+	}
+	if i := strings.LastIndex(label, "/"); i >= 0 && i+1 < len(label) {
+		label = label[i+1:]
+	}
+	if level := a.currentThinking[agent]; level != "" {
+		label += " · " + level
+	}
+	return label
+}
+
+// ageSuffix renders "how long ago" only when it says something.
+func ageSuffix(at time.Time) string {
+	if age := elapsedSince(at); age != "unknown" && age != "now" {
+		return " · " + age
+	}
+	return ""
+}
+
+// previewTrail is the turn's recent tool history, newest last. The tool count
+// and the newest calls are kept while the older ones are dropped from the left,
+// so a narrow half loses history instead of the current state.
+func previewTrail(rt harness.AgentRuntime, width int) string {
+	if len(rt.Recent) == 0 {
+		return ""
+	}
+	const sep = " · "
+	budget := width - 1
+	// Newest first while choosing, oldest first when rendering, so the newest
+	// call survives a narrow half and only history is dropped.
+	pieces := make([]string, 0, len(rt.Recent))
+	for i := len(rt.Recent) - 1; i >= 0; i-- {
+		pieces = append(pieces, trailPiece(rt.Recent[i]))
+	}
+	head := ""
+	if rt.Tools > 0 {
+		head = fmt.Sprintf("%d tools", rt.Tools)
+	}
+	for kept := len(pieces); kept >= 1; kept-- {
+		chosen := make([]string, 0, kept+1)
+		if head != "" {
+			chosen = append(chosen, head)
+		}
+		for i := kept - 1; i >= 0; i-- {
+			chosen = append(chosen, pieces[i])
+		}
+		if line := strings.Join(chosen, sep); displayWidth(line) <= budget {
+			return line
+		}
+	}
+	// One call alone does not fit: show it cut rather than lose it entirely. The
+	// count gives way first, because it is the least specific fact here.
+	return strings.TrimRight(fit(pieces[0], budget), " ")
+}
+
+// trailPiece is one tool of the trail: outcome, name, how long it took, and for
+// a failure the reason, which is the part that explains a stuck turn.
+func trailPiece(note harness.ToolNote) string {
+	mark := "✓"
+	if !note.OK {
+		mark = "✗"
+	}
+	piece := mark + " " + note.Name
+	if note.Duration >= time.Second {
+		piece += " " + shortDuration(note.Duration)
+	}
+	if !note.OK && note.Detail != "" {
+		if reason := strings.TrimSpace(fit(oneLine(note.Detail), 24)); reason != "" {
+			piece += " " + reason
+		}
+	}
+	return piece
+}
+
+// shortDuration is elapsedSince for a completed call, which has no "now".
+func shortDuration(d time.Duration) string {
+	switch {
+	case d < time.Second:
+		return "<1s"
+	case d < time.Minute:
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	default:
+		return fmt.Sprintf("%dh", int(d.Hours()))
 	}
 }
 

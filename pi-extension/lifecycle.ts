@@ -111,7 +111,9 @@ export function installLifecycle(pi: any, transport: DuoTransport, agent: AgentN
     const now = Date.now();
     if (now - lastStreamActivityAt >= 1000) {
       lastStreamActivityAt = now;
-      transport.sendActivity("stream", { detail: tailText(extractAssistantText(event?.message), 400) });
+      // The preview band has a few rows to fill, so keep more than one line:
+      // this is display-only traffic over a loopback socket, not model context.
+      transport.sendActivity("stream", { detail: tailText(extractAssistantText(event?.message), 1200) });
     }
   });
 

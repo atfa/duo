@@ -3,7 +3,9 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/protocol"
 )
 
@@ -82,5 +84,87 @@ func TestPreviewRowsTradeWithPaneRows(t *testing.T) {
 	gained := hidden.content - shown.content
 	if gained != shown.preview+1 {
 		t.Fatalf("hiding the preview gave %d pane rows, want %d", gained, shown.preview+1)
+	}
+}
+
+// The band is the only live view of a long turn, so it has to show the shape of
+// the turn — model, running tool, recent tool trail — not just one word.
+func TestWorkPreviewShowsTurnShape(t *testing.T) {
+	a := testApp(120, 34)
+	a.currentModel = map[protocol.AgentID]string{protocol.Austin: "workbuddy/hy4-preview-f"}
+	a.currentThinking = map[protocol.AgentID]string{protocol.Austin: "high"}
+
+	for _, activity := range []protocol.ActivityType{
+		protocol.ActivityAgentStart, protocol.ActivityToolStart, protocol.ActivityToolEnd,
+		protocol.ActivityToolStart, protocol.ActivityToolEnd,
+		protocol.ActivityToolStart, protocol.ActivityToolError,
+		protocol.ActivityToolStart,
+	} {
+		a.tracker.Handle(protocol.Austin, activity)
+	}
+	a.tracker.Note(protocol.Austin, protocol.ActivityAgentStart, "", "")
+	a.tracker.Note(protocol.Austin, protocol.ActivityToolStart, "read", "server.js")
+	a.tracker.Note(protocol.Austin, protocol.ActivityToolEnd, "read", "")
+	a.tracker.Note(protocol.Austin, protocol.ActivityToolStart, "edit", "server.js")
+	a.tracker.Note(protocol.Austin, protocol.ActivityToolEnd, "edit", "")
+	a.tracker.Note(protocol.Austin, protocol.ActivityToolStart, "bash", "node --check server.js")
+	a.tracker.Note(protocol.Austin, protocol.ActivityToolError, "bash", "exit status 1")
+	a.tracker.Note(protocol.Austin, protocol.ActivityToolStart, "bash", "go test ./... -count=1")
+
+	plain := ansiPattern.ReplaceAllString(a.buildFrame(renderNormal), "")
+	for _, want := range []string{
+		"Austin preview",                  // band header
+		"▶ bash · go test ./... -count=1", // what it is doing now
+		"✓ read", "✓ edit",                // trail
+		"✗ bash exit status 1", // failed call keeps its reason
+	} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("preview missing %q:\n%s", want, plain)
+		}
+	}
+
+	// A thinking agent shows the model and level it is thinking with.
+	a.tracker.Handle(protocol.Tony, protocol.ActivityAgentStart)
+	a.tracker.Handle(protocol.Tony, protocol.ActivityProviderStart)
+	a.tracker.Note(protocol.Tony, protocol.ActivityProviderStart, "", "")
+	a.currentModel[protocol.Tony] = "workbuddy/hy4-preview-f"
+	a.currentThinking[protocol.Tony] = "xhigh"
+	plain = ansiPattern.ReplaceAllString(a.buildFrame(renderNormal), "")
+	if !strings.Contains(plain, "◆ hy4-preview-f · xhigh") {
+		t.Errorf("preview does not name the thinking model:\n%s", plain)
+	}
+
+	// The pane header animates the spinner; the band must not, because a bare
+	// frame there reads as a broken border.
+	for _, line := range visibleLines(a.buildFrame(renderNormal)) {
+		if strings.Contains(line, "preview · ") && strings.Contains(line, " | ") {
+			t.Fatalf("band header carries a spinner frame: %q", line)
+		}
+	}
+}
+
+// A narrow half drops history from the left and keeps the count, so the newest
+// call is never the thing that disappears.
+func TestPreviewTrailDropsOldestFirst(t *testing.T) {
+	notes := []harness.ToolNote{
+		{Name: "read", OK: true, Duration: 2 * time.Second},
+		{Name: "edit", OK: true},
+		{Name: "bash", OK: false, Detail: "exit status 1"},
+	}
+	rt := harness.AgentRuntime{Tools: 7, Recent: notes}
+
+	wide := previewTrail(rt, 60)
+	if !strings.Contains(wide, "7 tools") || !strings.Contains(wide, "✓ read") || !strings.Contains(wide, "✗ bash exit status 1") {
+		t.Fatalf("wide trail = %q", wide)
+	}
+	narrow := previewTrail(rt, 28)
+	if !strings.Contains(narrow, "✗ bash") {
+		t.Fatalf("narrow trail dropped the newest call: %q", narrow)
+	}
+	if strings.Contains(narrow, "✓ read") {
+		t.Fatalf("narrow trail kept the oldest call: %q", narrow)
+	}
+	if displayWidth(narrow) > 27 {
+		t.Fatalf("narrow trail is %d columns: %q", displayWidth(narrow), narrow)
 	}
 }

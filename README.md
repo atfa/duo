@@ -141,7 +141,7 @@ Duo Core enforces these gates rather than trusting the model: Fast rejects `duo_
 
 Duo shows both agents side by side with their connection, process and working state, plus the current mode, phase, verification/Plan state and transient feedback below the panes.
 
-A build can take a long time, and the pane transcript only changes when an agent finishes a message. Below the panes Duo therefore keeps a **work preview** for each agent: the state word and how long the agent has been quiet, the tool currently running with its arguments, the last error of the turn, and the tail of the text being streamed. A failed tool or a provider error is visible there immediately, so waiting does not mean guessing. `Ctrl+P` collapses the band when you want the rows back for the panes; on a short terminal it is hidden automatically.
+A build can take a long time, and the pane transcript only changes when an agent finishes a message. Below the panes Duo therefore keeps a **work preview** for each agent. Its header names the agent, its state and how long the current turn has been running; the rows below show what it is doing *now* (the running tool and how long it has been running, or the model and thinking level it is thinking with), the turn's recent tool trail with ✓/✗ and durations, the turn's last error, and the tail of the text being streamed. A failed tool or a provider error is visible there immediately, so waiting does not mean guessing. `Ctrl+P` collapses the band when you want the rows back for the panes; on a short terminal it is hidden automatically.
 
 | Key | Action |
 |---|---|

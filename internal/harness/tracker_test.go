@@ -62,3 +62,54 @@ func TestTrackerToolErrorStillBalancesToolDepth(t *testing.T) {
 		t.Fatalf("tool depth = %d, want 1", got)
 	}
 }
+
+// The preview shows the turn's shape from these fields: when it started, how
+// many tools it has used, and how the last few ended.
+func TestTrackerNoteRecordsTurnShape(t *testing.T) {
+	tr := NewTracker()
+	agent := protocol.Austin
+	note := func(activity protocol.ActivityType, tool, detail string) {
+		tr.Handle(agent, activity)
+		tr.Note(agent, activity, tool, detail)
+	}
+
+	note(protocol.ActivityAgentStart, "", "")
+	if rt := tr.Snapshot(agent); rt.TurnStarted.IsZero() || rt.Tools != 0 || len(rt.Recent) != 0 {
+		t.Fatalf("agent_start must open a clean turn: %+v", rt)
+	}
+
+	for i, tool := range []string{"read", "edit", "bash", "write"} {
+		note(protocol.ActivityToolStart, tool, "arg")
+		if i == 2 {
+			note(protocol.ActivityToolError, tool, "exit status 1")
+		} else {
+			note(protocol.ActivityToolEnd, tool, "")
+		}
+	}
+	rt := tr.Snapshot(agent)
+	if rt.Tools != 4 {
+		t.Fatalf("tool count = %d, want 4", rt.Tools)
+	}
+	// Only the most recent calls are kept, and the failing one keeps its reason.
+	if len(rt.Recent) != 3 || rt.Recent[2].Name != "write" || !rt.Recent[2].OK {
+		t.Fatalf("recent trail = %+v", rt.Recent)
+	}
+	if rt.Recent[0].Name != "edit" || !rt.Recent[0].OK {
+		t.Fatalf("oldest kept note = %+v, want edit", rt.Recent[0])
+	}
+	if rt.Recent[1].Name != "bash" || rt.Recent[1].OK || rt.Recent[1].Detail != "exit status 1" {
+		t.Fatalf("failed note = %+v", rt.Recent[1])
+	}
+	if !rt.ToolStarted.IsZero() {
+		t.Fatal("a finished tool must clear the start time")
+	}
+
+	note(protocol.ActivityToolStart, "bash", "go test ./...")
+	if rt := tr.Snapshot(agent); rt.ToolStarted.IsZero() {
+		t.Fatal("a running tool must keep its start time so the preview can show its age")
+	}
+	note(protocol.ActivityToolEnd, "bash", "")
+	if rt := tr.Snapshot(agent); !rt.ToolStarted.IsZero() {
+		t.Fatal("a finished tool must clear the start time")
+	}
+}
