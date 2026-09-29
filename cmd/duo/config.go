@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/project"
+	"github.com/atfa/duo/internal/protocol"
 )
 
 type config struct {
@@ -19,12 +21,13 @@ type config struct {
 	harnessEnabled bool
 	harness        harness.Config
 
-	repository   string
-	launchDir    string
-	worktreeRoot string
-	session      string
-	baseRef      string
-	piCommand    string
+	repository    string
+	launchDir     string
+	worktreeRoot  string
+	session       string
+	baseRef       string
+	piCommand     string
+	agentCommands map[protocol.AgentID]string
 
 	resume        bool
 	resumeSession string
@@ -36,6 +39,34 @@ type config struct {
 	modeSource   string
 	modeRaw      string
 	modeExplicit bool
+}
+
+func (c config) agentCommand(agent protocol.AgentID) string {
+	if cmd, ok := c.agentCommands[agent]; ok && cmd != "" {
+		return cmd
+	}
+	return c.piCommand
+}
+
+// configFile describes ~/.duo/config.json or .duo/config.json.
+type configFile struct {
+	Mode      string               `json:"mode,omitempty"`
+	PiCommand string               `json:"piCommand,omitempty"`
+	Agents    map[string]agentFile `json:"agents,omitempty"`
+	Harness   harnessFile          `json:"harness,omitempty"`
+}
+
+type agentFile struct {
+	Command  string `json:"command,omitempty"`
+	Model    string `json:"model,omitempty"`
+	Thinking string `json:"thinking,omitempty"`
+}
+
+type harnessFile struct {
+	Enabled         *bool `json:"enabled,omitempty"`
+	IdleSeconds     int   `json:"idleSeconds,omitempty"`
+	StallSeconds    int   `json:"stallSeconds,omitempty"`
+	CooldownSeconds int   `json:"cooldownSeconds,omitempty"`
 }
 
 // cliArgs is the parsed command line.
@@ -91,8 +122,8 @@ func parseArgs(args []string) (cliArgs, error) {
 }
 
 // resolveNewMode applies the documented precedence for a NEW session:
-// explicit --mode > DUO_MODE > built-in default (fast).
-func resolveNewMode(parsed cliArgs) (project.Mode, string, error) {
+// explicit --mode > DUO_MODE > config file > built-in default (fast).
+func resolveNewMode(parsed cliArgs, fileMode ...string) (project.Mode, string, error) {
 	if parsed.modeExplicit {
 		mode, err := project.ParseMode(parsed.mode)
 		if err != nil {
@@ -106,6 +137,13 @@ func resolveNewMode(parsed cliArgs) (project.Mode, string, error) {
 			return "", "", fmt.Errorf("invalid DUO_MODE: %w", err)
 		}
 		return mode, "env", nil
+	}
+	if len(fileMode) > 0 && fileMode[0] != "" {
+		mode, err := project.ParseMode(fileMode[0])
+		if err != nil {
+			return "", "", fmt.Errorf("invalid config file mode %q: %w", fileMode[0], err)
+		}
+		return mode, "config", nil
 	}
 	return project.DefaultMode, "default", nil
 }
@@ -155,15 +193,33 @@ func loadConfig(args []string) (config, error) {
 		launch = abs
 	}
 
+	fileCfg, err := loadMergedConfigFile(launch)
+	if err != nil {
+		return config{}, err
+	}
+
 	session := strings.TrimSpace(os.Getenv("DUO_SESSION"))
 	if session == "" {
 		session = defaultSession()
 	}
 
+	idleFallback := 15
+	if fileCfg.Harness.IdleSeconds > 0 {
+		idleFallback = fileCfg.Harness.IdleSeconds
+	}
+	stallFallback := 300
+	if fileCfg.Harness.StallSeconds > 0 {
+		stallFallback = fileCfg.Harness.StallSeconds
+	}
+	cooldownFallback := 30
+	if fileCfg.Harness.CooldownSeconds > 0 {
+		cooldownFallback = fileCfg.Harness.CooldownSeconds
+	}
+
 	harnessConfig := harness.Config{
-		IdleThreshold:  time.Duration(envInt("DUO_HARNESS_IDLE_SECONDS", 15)) * time.Second,
-		StallThreshold: time.Duration(envInt("DUO_HARNESS_STALL_SECONDS", 300)) * time.Second,
-		Cooldown:       time.Duration(envInt("DUO_HARNESS_COOLDOWN_SECONDS", 30)) * time.Second,
+		IdleThreshold:  time.Duration(envInt("DUO_HARNESS_IDLE_SECONDS", idleFallback)) * time.Second,
+		StallThreshold: time.Duration(envInt("DUO_HARNESS_STALL_SECONDS", stallFallback)) * time.Second,
+		Cooldown:       time.Duration(envInt("DUO_HARNESS_COOLDOWN_SECONDS", cooldownFallback)) * time.Second,
 		TickInterval:   2 * time.Second,
 	}
 	if parsed.resume {
@@ -172,12 +228,41 @@ func loadConfig(args []string) (config, error) {
 		harnessConfig.RecoveryGrace = time.Duration(envInt("DUO_HARNESS_RESUME_GRACE_SECONDS", 45)) * time.Second
 	}
 
+	harnessEnabled := true
+	if fileCfg.Harness.Enabled != nil {
+		harnessEnabled = *fileCfg.Harness.Enabled
+	}
+	harnessEnabled = envBool("DUO_HARNESS", harnessEnabled)
+
+	defaultPiCmd := "pi"
+	if fileCfg.PiCommand != "" {
+		defaultPiCmd = fileCfg.PiCommand
+	}
+	piCommand := envString("DUO_PI_COMMAND", defaultPiCmd)
+
+	agentCommands := make(map[protocol.AgentID]string)
+	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		key := strings.ToLower(string(id))
+		agentCfg := fileCfg.Agents[key]
+		baseCmd := piCommand
+		if agentCfg.Command != "" {
+			baseCmd = agentCfg.Command
+		}
+		if agentCfg.Model != "" && !hasFlag(baseCmd, "--model") {
+			baseCmd = baseCmd + " --model " + agentCfg.Model
+		}
+		if agentCfg.Thinking != "" && !hasFlag(baseCmd, "--thinking") {
+			baseCmd = baseCmd + " --thinking " + agentCfg.Thinking
+		}
+		agentCommands[id] = baseCmd
+	}
+
 	var mode project.Mode
 	var modeSource string
 	if !parsed.resume {
 		// A resumed session takes its mode from persisted state, so only a new
-		// session resolves CLI > DUO_MODE > default here.
-		mode, modeSource, err = resolveNewMode(parsed)
+		// session resolves CLI > DUO_MODE > config > default here.
+		mode, modeSource, err = resolveNewMode(parsed, fileCfg.Mode)
 		if err != nil {
 			return config{}, err
 		}
@@ -185,14 +270,15 @@ func loadConfig(args []string) (config, error) {
 
 	return config{
 		listen:         envString("DUO_LISTEN", "127.0.0.1:0"),
-		harnessEnabled: envBool("DUO_HARNESS", true),
+		harnessEnabled: harnessEnabled,
 		harness:        harnessConfig,
 		repository:     launch,
 		launchDir:      launch,
 		worktreeRoot:   strings.TrimSpace(os.Getenv("DUO_WORKTREE_ROOT")),
 		session:        session,
 		baseRef:        envString("DUO_BASE_REF", "HEAD"),
-		piCommand:      envString("DUO_PI_COMMAND", "pi"),
+		piCommand:      piCommand,
+		agentCommands:  agentCommands,
 		resume:         parsed.resume,
 		resumeSession:  parsed.sessionID,
 		mode:           mode,
@@ -200,6 +286,100 @@ func loadConfig(args []string) (config, error) {
 		modeRaw:        parsed.mode,
 		modeExplicit:   parsed.modeExplicit,
 	}, nil
+}
+
+func loadConfigFile(path string) (configFile, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return configFile{}, nil
+		}
+		return configFile{}, err
+	}
+	var out configFile
+	if err := json.Unmarshal(data, &out); err != nil {
+		return configFile{}, fmt.Errorf("parse config file %s: %w", path, err)
+	}
+	return out, nil
+}
+
+func loadMergedConfigFile(launchDir string) (configFile, error) {
+	var merged configFile
+
+	// 1. Global config (~/.duo/config.json)
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		globalPath := filepath.Join(home, ".duo", "config.json")
+		if globalCfg, err := loadConfigFile(globalPath); err == nil {
+			mergeConfig(&merged, globalCfg)
+		} else if !os.IsNotExist(err) {
+			return configFile{}, err
+		}
+	}
+
+	// 2. Project config (.duo/config.json or .duo.json)
+	candidates := []string{
+		filepath.Join(launchDir, ".duo", "config.json"),
+		filepath.Join(launchDir, ".duo.json"),
+	}
+	for _, p := range candidates {
+		projectCfg, err := loadConfigFile(p)
+		if err == nil && (projectCfg.Mode != "" || projectCfg.PiCommand != "" || len(projectCfg.Agents) > 0 || projectCfg.Harness != (harnessFile{})) {
+			mergeConfig(&merged, projectCfg)
+			break
+		} else if err != nil && !os.IsNotExist(err) {
+			return configFile{}, err
+		}
+	}
+
+	return merged, nil
+}
+
+func mergeConfig(dst *configFile, src configFile) {
+	if src.Mode != "" {
+		dst.Mode = src.Mode
+	}
+	if src.PiCommand != "" {
+		dst.PiCommand = src.PiCommand
+	}
+	if len(src.Agents) > 0 {
+		if dst.Agents == nil {
+			dst.Agents = make(map[string]agentFile)
+		}
+		for k, v := range src.Agents {
+			existing := dst.Agents[k]
+			if v.Command != "" {
+				existing.Command = v.Command
+			}
+			if v.Model != "" {
+				existing.Model = v.Model
+			}
+			if v.Thinking != "" {
+				existing.Thinking = v.Thinking
+			}
+			dst.Agents[k] = existing
+		}
+	}
+	if src.Harness.Enabled != nil {
+		dst.Harness.Enabled = src.Harness.Enabled
+	}
+	if src.Harness.IdleSeconds > 0 {
+		dst.Harness.IdleSeconds = src.Harness.IdleSeconds
+	}
+	if src.Harness.StallSeconds > 0 {
+		dst.Harness.StallSeconds = src.Harness.StallSeconds
+	}
+	if src.Harness.CooldownSeconds > 0 {
+		dst.Harness.CooldownSeconds = src.Harness.CooldownSeconds
+	}
+}
+
+func hasFlag(command, flag string) bool {
+	for _, token := range strings.Fields(command) {
+		if token == flag || strings.HasPrefix(token, flag+"=") {
+			return true
+		}
+	}
+	return false
 }
 
 func defaultSession() string {

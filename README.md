@@ -202,6 +202,33 @@ To run a non-default Pi command:
 DUO_PI_COMMAND='pi --some-flag' duo
 ```
 
+### Configuration files
+
+You can persist settings globally in `~/.duo/config.json` or per-repository in `.duo/config.json` (or `.duo.json`):
+
+```json
+{
+  "mode": "fast",
+  "agents": {
+    "austin": {
+      "model": "anthropic/claude-3-7-sonnet",
+      "thinking": "high"
+    },
+    "tony": {
+      "model": "openai/o3-mini",
+      "thinking": "medium"
+    }
+  },
+  "harness": {
+    "enabled": true,
+    "idleSeconds": 15,
+    "stallSeconds": 300
+  }
+}
+```
+
+Precedence: explicit CLI flags (`--mode`) > environment variables (`DUO_*`) > repository `.duo/config.json` > global `~/.duo/config.json` > built-in defaults.
+
 ## Where Duo keeps things
 
 ```text

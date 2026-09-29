@@ -320,7 +320,7 @@ func (r *runtime) serve(ctx context.Context) error {
 			Port:           port,
 			Session:        r.sessionID,
 			Token:          token,
-			Command:        r.cfg.piCommand,
+			Command:        r.cfg.agentCommand(agentID),
 			PiSessionID:    r.piSessions[agentID],
 		})
 		agents.Add(session)

@@ -168,3 +168,106 @@ func TestPiSessionIDsAreStableAndDistinct(t *testing.T) {
 		t.Fatalf("partial ids handled incorrectly: %+v", partial)
 	}
 }
+
+func TestLoadConfigFileAndPrecedence(t *testing.T) {
+	temp := t.TempDir()
+	duoDir := filepath.Join(temp, ".duo")
+	if err := os.MkdirAll(duoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	configJSON := `{
+		"mode": "goal",
+		"piCommand": "pi-custom",
+		"harness": {
+			"idleSeconds": 42,
+			"stallSeconds": 420
+		},
+		"agents": {
+			"austin": {
+				"model": "anthropic/claude-3-7-sonnet",
+				"thinking": "high"
+			},
+			"tony": {
+				"model": "openai/o3-mini"
+			}
+		}
+	}`
+	if err := os.WriteFile(filepath.Join(duoDir, "config.json"), []byte(configJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("DUO_REPO", temp)
+	t.Setenv("DUO_MODE", "")
+	t.Setenv("DUO_PI_COMMAND", "")
+
+	// 1. From config file
+	cfg, err := loadConfig(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.mode != "goal" || cfg.modeSource != "config" {
+		t.Fatalf("mode = %q (source %q), want goal (config)", cfg.mode, cfg.modeSource)
+	}
+	if cfg.piCommand != "pi-custom" {
+		t.Fatalf("piCommand = %q, want pi-custom", cfg.piCommand)
+	}
+	if cfg.harness.IdleThreshold != 42*time.Second {
+		t.Fatalf("idle threshold = %v, want 42s", cfg.harness.IdleThreshold)
+	}
+	austinCmd := cfg.agentCommand(protocol.Austin)
+	if austinCmd != "pi-custom --model anthropic/claude-3-7-sonnet --thinking high" {
+		t.Fatalf("austin command = %q", austinCmd)
+	}
+	tonyCmd := cfg.agentCommand(protocol.Tony)
+	if tonyCmd != "pi-custom --model openai/o3-mini" {
+		t.Fatalf("tony command = %q", tonyCmd)
+	}
+
+	// 2. Env var overrides config file
+	t.Setenv("DUO_MODE", "fast")
+	cfg, err = loadConfig(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.mode != "fast" || cfg.modeSource != "env" {
+		t.Fatalf("mode = %q (source %q), want fast (env)", cfg.mode, cfg.modeSource)
+	}
+
+	// 3. CLI flag overrides env var and config file
+	cfg, err = loadConfig([]string{"--mode", "goal"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.mode != "goal" || cfg.modeSource != "cli" {
+		t.Fatalf("mode = %q (source %q), want goal (cli)", cfg.mode, cfg.modeSource)
+	}
+}
+
+func TestAgentCommandDoesNotDuplicateFlags(t *testing.T) {
+	temp := t.TempDir()
+	configJSON := `{
+		"agents": {
+			"austin": {
+				"model": "claude-3-7-sonnet",
+				"thinking": "high"
+			}
+		}
+	}`
+	if err := os.WriteFile(filepath.Join(temp, ".duo.json"), []byte(configJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("DUO_REPO", temp)
+	t.Setenv("DUO_PI_COMMAND", "pi --model custom-model")
+	cfg, err := loadConfig(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Austin should NOT append --model because DUO_PI_COMMAND already has --model, but SHOULD append --thinking
+	austinCmd := cfg.agentCommand(protocol.Austin)
+	if austinCmd != "pi --model custom-model --thinking high" {
+		t.Fatalf("austin command = %q", austinCmd)
+	}
+}

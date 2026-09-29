@@ -204,6 +204,33 @@ Help 是一个完整的大屏视图，用 `↑`/`k`、`↓`/`j`、`PgUp`、`PgDn
 DUO_PI_COMMAND='pi --some-flag' duo
 ```
 
+### 配置文件
+
+你可以在全局 `~/.duo/config.json` 或项目级 `.duo/config.json`（或 `.duo.json`）中持久化默认配置：
+
+```json
+{
+  "mode": "fast",
+  "agents": {
+    "austin": {
+      "model": "anthropic/claude-3-7-sonnet",
+      "thinking": "high"
+    },
+    "tony": {
+      "model": "openai/o3-mini",
+      "thinking": "medium"
+    }
+  },
+  "harness": {
+    "enabled": true,
+    "idleSeconds": 15,
+    "stallSeconds": 300
+  }
+}
+```
+
+优先级顺序：显式命令行参数（`--mode`）> 环境变量（`DUO_*`）> 仓库 `.duo/config.json` > 全局 `~/.duo/config.json` > 内置默认值。
+
 ## 数据存放在哪里
 
 ```text
