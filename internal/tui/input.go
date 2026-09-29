@@ -332,46 +332,85 @@ func (a *App) handleKey(key string) inputAction {
 		rows := a.layout().content
 		delta := maxInt(1, rows/2)
 		return inputAction{kind: actionScrollPane, agent: protocol.Duo, delta: -delta}
+	case "esc":
+		if a.hasSlashMenu() {
+			a.slashDismissed = true
+			return inputAction{}
+		}
 	case "enter":
+		if a.hasSlashMenu() {
+			if a.selectSlashCommand() {
+				return inputAction{}
+			}
+		}
 		return inputAction{kind: actionSubmit}
+	case "tab":
+		if a.hasSlashMenu() {
+			a.autocompleteSlashCommand()
+			return inputAction{}
+		}
 	case "ctrl-enter":
 		a.insertInput("\n")
 		a.setStatus("", false)
 	case "left":
 		a.inputPos = previousRune(a.input, a.inputPos)
+		a.clampSlashCursor()
 	case "right":
 		a.inputPos = nextRune(a.input, a.inputPos)
+		a.clampSlashCursor()
 	case "alt-left":
 		a.moveWordBack()
+		a.clampSlashCursor()
 	case "alt-right":
 		a.moveWordForward()
+		a.clampSlashCursor()
 	case "home":
 		a.inputPos, _ = a.lineBounds()
+		a.clampSlashCursor()
 	case "end":
 		_, a.inputPos = a.lineBounds()
+		a.clampSlashCursor()
 	case "up":
+		if a.hasSlashMenu() {
+			a.slashUp()
+			return inputAction{}
+		}
 		if !a.moveComposerLine(-1) {
 			a.historyPrev()
 		}
 	case "down":
+		if a.hasSlashMenu() {
+			a.slashDown()
+			return inputAction{}
+		}
 		if !a.moveComposerLine(1) {
 			a.historyNext()
 		}
 	case "ctrl-u":
 		a.deleteToLineStart()
+		a.slashDismissed = false
+		a.clampSlashCursor()
 	case "ctrl-k":
 		a.deleteToLineEnd()
+		a.slashDismissed = false
+		a.clampSlashCursor()
 	case "ctrl-w":
 		a.deleteWordBack()
+		a.slashDismissed = false
+		a.clampSlashCursor()
 	case "backspace":
+		a.slashDismissed = false
 		start := previousRune(a.input, a.inputPos)
 		a.input = append(a.input[:start], a.input[a.inputPos:]...)
 		a.inputPos = start
 		a.resetHistory()
+		a.clampSlashCursor()
 	default:
 		if (len(key) == 1 && key[0] >= 32) || (len(key) == 1 && key[0] >= 0x80) {
+			a.slashDismissed = false
 			a.insertInput(key)
 			a.setStatus("", false)
+			a.clampSlashCursor()
 		}
 	}
 	return inputAction{}

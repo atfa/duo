@@ -223,7 +223,9 @@ func (a *App) applyAction(ctx context.Context, action inputAction) bool {
 		}
 		a.markDirty()
 	case actionSubmit:
-		a.submit(ctx)
+		if a.submit(ctx) {
+			return true
+		}
 		a.markDirty()
 	case actionApplyModel:
 		a.applySelectedModel(ctx, false)

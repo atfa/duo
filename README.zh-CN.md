@@ -173,6 +173,23 @@ Duo 的主界面是一条会话 **时间线**：单一时间顺序的消息流�
 
 composer 支持多行，一次最多显示四行。原生接管是全屏接管：在 Pi 里，`/model`、`/settings`、`/tree` 以及所有 Pi 快捷键都归 Pi 管。
 
+### 斜杠命令（Slash Commands）
+
+在 composer 中输入 `/` 即可实时弹出交互式斜杠命令选择菜单与说明。使用 `↑` / `↓` 循环上下选择候选命令，按 `Tab` 补全命令名，按 `Enter` 确认执行（无参命令直接触发，有参命令如 `/escalate` 和 `/mode` 自动补全前缀便于继续输入参数），按 `Esc` 随时关闭菜单。
+
+| 命令 | 说明 |
+|---|---|
+| `/escalate [reason]` | 动态将当前 Fast 模式会话无缝升级为 Goal 模式 |
+| `/mode [fast\|goal]` | 切换会话运行模式（如 `/mode goal` 触发升级） |
+| `/model` | 打开 Austin/Tony 模型与思考强度选择器（等同于 `Ctrl+M`） |
+| `/overview` | 切换会话总览与 Git 变更统计详情（等同于 `Ctrl+O`） |
+| `/preview` | 展开或折叠 Agent 工作预览带（等同于 `Ctrl+P`） |
+| `/timestamps` | 切换时间线消息时间戳显示（等同于 `Ctrl+G`） |
+| `/help` | 打开 Duo 交互式帮助大屏（等同于 `Ctrl+/`） |
+| `/status` | 打印当前权威的模式、阶段与 worktree 状态 |
+| `/clear` | 清空当前输入框并重置状态提示 |
+| `/quit` 或 `/exit` | 退出 Duo 并保留当前会话状态 |
+
 模型选择器（`Ctrl+M`）列出 Duo 启动 Pi 所用的同一套安装（`pi --list-models`）上报的模型目录。输入即可过滤，用 `↑`/`↓`（或 `PgUp`/`PgDn`、`Home`/`End`）移动，用 `Tab` 在 Austin 与 Tony 之间切换目标，用 `Shift+Tab` 循环该 Agent 的思考强度，用 `Enter` 应用模型并关闭，或用 `Space` 应用模型但不关闭——这样一次打开就能同时设好模型和思考强度。切换是实时的：Pi 保留对话，并把模型与思考强度记入 session 记录，因此重启或 resume（`Ctrl+R`/`Ctrl+Y`）后仍然有效。`▶` 标记选择器光标，`●` 标记目标 Agent 当前使用的模型。
 
 Agent 输出按轻量 markdown 渲染：标题、引用、链接以及粗体/斜体/行内代码都有样式，markdown 表格会画出对齐的真实边框。表格宽度超过时间线时，Duo 会折行最宽的单元格，而不是截断内容；折行的列表项会保持悬挂缩进，续行对齐在条目正文下方。

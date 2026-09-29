@@ -88,6 +88,10 @@ type App struct {
 	historyIdx   int
 	historyDraft []byte
 
+	// Slash command autocomplete menu.
+	slashCursor    int
+	slashDismissed bool
+
 	// Model picker (Ctrl+M). The catalog is read once from `pi --list-models`;
 	// the active model and thinking level are reported by each agent's bridge, so
 	// the picker only displays what Pi confirms.
@@ -337,19 +341,26 @@ func (a *App) appendEntry(agent protocol.AgentID, item entry) {
 	}
 }
 
-func (a *App) submit(ctx context.Context) {
+func (a *App) submit(ctx context.Context) bool {
 	text := composerText(a.input)
 	if text == "" {
-		return
+		return false
 	}
 	a.clearInput()
 	a.pushHistory(text)
+	if a.runSlashCommand(ctx, text) {
+		return text == "/quit" || text == "/exit"
+	}
+	if a.coord == nil {
+		return false
+	}
 	if err := a.coord.SubmitUserTask(ctx, text); err != nil {
 		a.setStatus(err.Error(), true)
 		a.add(protocol.Duo, "ERROR: "+err.Error())
 	} else {
 		a.setStatus("sent to Austin", false)
 	}
+	return false
 }
 
 func composerText(input []byte) string { return strings.TrimSpace(string(input)) }
@@ -357,4 +368,6 @@ func composerText(input []byte) string { return strings.TrimSpace(string(input))
 func (a *App) clearInput() {
 	a.input = a.input[:0]
 	a.inputPos = 0
+	a.slashCursor = 0
+	a.slashDismissed = false
 }

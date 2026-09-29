@@ -207,6 +207,9 @@ func (a *App) writeFrameTail(b *strings.Builder, w int, composer composerLayout)
 		statusColor = ansiError
 	}
 	b.WriteString(paint(ansiBorder, "│") + paint(statusColor, fit(statusLine, w-2)) + paint(ansiBorder, "│\r\n"))
+	if a.hasSlashMenu() {
+		a.writeSlashMenu(b, w, a.height)
+	}
 	for _, line := range composer.lines {
 		b.WriteString(paint(ansiBorder, "│") + paint(ansiStatus, line.prefix) + fit(line.text, line.width) + paint(ansiBorder, "│\r\n"))
 	}
@@ -1219,7 +1222,8 @@ func (a *App) layoutFor(w, h int) layout {
 	composer := a.composerLayout(w)
 	left := (w - 1) / 2
 	right := w - 1 - left
-	preview := a.previewRowsFor(h, composer.rows)
+	menuRows := a.slashMenuRows(w, h)
+	preview := a.previewRowsFor(h, composer.rows+menuRows)
 	// A visible band also needs the separator that closes it before the Duo
 	// status rows.
 	band := 0
@@ -1228,9 +1232,9 @@ func (a *App) layoutFor(w, h int) layout {
 	}
 	if a.timeline {
 		// header + timeline + separator + preview band + two status rows +
-		// status line + composer + footer = content + preview + band + composer + 7,
+		// status line + menuRows + composer + footer = content + preview + band + composer + menuRows + 7,
 		// which leaves the last terminal row unused like the split layout.
-		content := maxInt(h-7-preview-band-composer.rows, 0)
+		content := maxInt(h-7-preview-band-composer.rows-menuRows, 0)
 		return layout{
 			leftW:     maxInt(left-1, 0),
 			rightW:    maxInt(right-1, 0),
@@ -1239,7 +1243,7 @@ func (a *App) layoutFor(w, h int) layout {
 			timelineW: maxInt(w-2, 1),
 		}
 	}
-	content := maxInt(h-7-duoLogRows-composer.rows-preview-band, 0)
+	content := maxInt(h-7-duoLogRows-composer.rows-preview-band-menuRows, 0)
 	return layout{
 		leftW:    maxInt(left-1, 0),
 		rightW:   maxInt(right-1, 0),

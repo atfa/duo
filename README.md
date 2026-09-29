@@ -171,6 +171,23 @@ Each timeline message header carries its `HH:MM:SS` time by default (`Austin →
 
 The composer holds multiple lines and shows up to four at a time. Native attach is a fullscreen takeover: inside Pi, `/model`, `/settings`, `/tree` and all Pi shortcuts belong to Pi.
 
+### Slash Commands
+
+Typing `/` in the composer opens an interactive command palette showing available slash commands and descriptions. Use `↑` / `↓` to cycle through selections, `Tab` to autocomplete the command name, `Enter` to select (which executes immediate commands or fills in the command prefix for commands that take arguments), and `Esc` to dismiss the menu.
+
+| Command | Description |
+|---|---|
+| `/escalate [reason]` | Dynamically upgrade the current Fast mode session to Goal mode |
+| `/mode [fast\|goal]` | Switch session mode (`/mode goal` to escalate) |
+| `/model` | Open the model and thinking level picker (`Ctrl+M`) |
+| `/overview` | Toggle the session overview and git diffstat (`Ctrl+O`) |
+| `/preview` | Toggle the agent work preview band (`Ctrl+P`) |
+| `/timestamps` | Toggle timeline message timestamps (`Ctrl+G`) |
+| `/help` | Open the full Duo interactive help screen (`Ctrl+/`) |
+| `/status` | Show authoritative session mode, phase, and worktree info |
+| `/clear` | Clear composer and reset status notice |
+| `/quit` or `/exit` | Exit Duo and preserve session state |
+
 The model picker (`Ctrl+M`) lists the catalog Pi reports for the very installation Duo launched (`pi --list-models`). Type to filter, move with `↑`/`↓` (or `PgUp`/`PgDn`, `Home`/`End`), switch the target between Austin and Tony with `Tab`, cycle that agent's thinking level with `Shift+Tab`, and apply the model with `Enter` (apply and close) or `Space` (apply and keep the picker open, so a model and a thinking level can be set in one visit). The switch is live: Pi keeps the conversation and records both the model and the thinking level in the session transcript, so a restart or resume (`Ctrl+R`/`Ctrl+Y`) keeps the choice. `▶` marks the picker cursor and `●` the target's current model.
 
 Agent output is rendered as lightweight markdown: headings, blockquotes, links and bold/italic/code spans are styled, and markdown tables are drawn with real, aligned borders. A table wider than the timeline is narrowed by wrapping the widest cells instead of truncating them, and a wrapped list keeps a hanging indent so continuation lines stay under the item text.
