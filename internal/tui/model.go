@@ -212,16 +212,19 @@ func (a *App) route(event events.Event) {
 	case events.KindAssistant:
 		a.add(event.Agent, text)
 	case events.KindPeer:
+		// Peer coordination lines carry an inline timestamp so the two halves of
+		// one exchange can be correlated even when Ctrl+G pane timestamps are off.
+		stamp := time.Now().Format("15:04:05")
 		sentDirection := "→"
 		if event.Agent == protocol.Tony {
 			sentDirection = "←"
 		}
-		a.add(event.Agent, fmt.Sprintf("%s %s: sent", sentDirection, event.Peer))
+		a.add(event.Agent, fmt.Sprintf("%s %s: sent %s", sentDirection, event.Peer, stamp))
 		direction := "←"
 		if event.Peer == protocol.Tony {
 			direction = "→"
 		}
-		a.add(event.Peer, fmt.Sprintf("%s From %s:\n%s", direction, event.Agent, text))
+		a.add(event.Peer, fmt.Sprintf("%s From %s: %s\n%s", direction, event.Agent, stamp, text))
 	case events.KindUser:
 		a.add(protocol.Duo, "Human → Austin: "+text)
 	case events.KindHarness:

@@ -165,6 +165,8 @@ Duo 并排显示两个 Agent 的连接、进程和工作状态，下方是当前
 | 鼠标滚轮悬停在某个 pane | 滚动该 Agent 的更早输出 |
 | 鼠标在 pane 内拖拽选择 | 选中该 Agent 的文本并复制到剪贴板 |
 
+peer 协作行会内联一个 `HH:MM:SS` 时间（`→ Tony: sent 14:30:05`、`→ From Austin: 14:30:05`），方便把一次往来的两端对应起来；`Ctrl+G` 则会额外为每一条消息加上自身时间前缀。
+
 composer 支持多行，一次最多显示四行。原生接管是全屏接管：在 Pi 里，`/model`、`/settings`、`/tree` 以及所有 Pi 快捷键都归 Pi 管。
 
 模型选择器（`Ctrl+M`）列出 Duo 启动 Pi 所用的同一套安装（`pi --list-models`）上报的模型目录。输入即可过滤，用 `↑`/`↓`（或 `PgUp`/`PgDn`、`Home`/`End`）移动，用 `Tab` 在 Austin 与 Tony 之间切换目标，用 `Shift+Tab` 循环该 Agent 的思考强度，用 `Enter` 应用模型并关闭，或用 `Space` 应用模型但不关闭——这样一次打开就能同时设好模型和思考强度。切换是实时的：Pi 保留对话，并把模型与思考强度记入 session 记录，因此重启或 resume（`Ctrl+R`/`Ctrl+Y`）后仍然有效。`▶` 标记选择器光标，`●` 标记目标 Agent 当前使用的模型。

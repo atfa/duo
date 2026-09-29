@@ -163,6 +163,8 @@ A build can take a long time, and the pane transcript only changes when an agent
 | Mouse wheel over a pane | Scroll that agent's earlier output |
 | Mouse drag over a pane | Select that agent's text and copy it to the clipboard |
 
+Peer coordination lines carry an inline `HH:MM:SS` time (`→ Tony: sent 14:30:05`, `→ From Austin: 14:30:05`) so the two sides of one exchange can be correlated; `Ctrl+G` additionally prefixes every entry with its own time.
+
 The composer holds multiple lines and shows up to four at a time. Native attach is a fullscreen takeover: inside Pi, `/model`, `/settings`, `/tree` and all Pi shortcuts belong to Pi.
 
 The model picker (`Ctrl+M`) lists the catalog Pi reports for the very installation Duo launched (`pi --list-models`). Type to filter, move with `↑`/`↓` (or `PgUp`/`PgDn`, `Home`/`End`), switch the target between Austin and Tony with `Tab`, cycle that agent's thinking level with `Shift+Tab`, and apply the model with `Enter` (apply and close) or `Space` (apply and keep the picker open, so a model and a thinking level can be set in one visit). The switch is live: Pi keeps the conversation and records both the model and the thinking level in the session transcript, so a restart or resume (`Ctrl+R`/`Ctrl+Y`) keeps the choice. `▶` marks the picker cursor and `●` the target's current model.

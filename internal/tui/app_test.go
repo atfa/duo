@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/harness"
@@ -69,19 +70,27 @@ func TestPeerRouteShowsFullTextOnlyToReceiver(t *testing.T) {
 	text := "  第一行\n\n第二行 " + strings.Repeat("界", 100)
 	a := &App{}
 	a.route(events.Event{Kind: events.KindPeer, Agent: protocol.Austin, Peer: protocol.Tony, Text: text})
-	if got := a.austin[0].text; got != "→ Tony: sent" {
+	// The peer line carries an inline timestamp after the direction marker.
+	if got := a.austin[0].text; !strings.HasPrefix(got, "→ Tony: sent ") || !validClockStamp(got[len("→ Tony: sent "):]) {
 		t.Fatalf("Austin message = %q", got)
 	}
-	if got := a.tony[0].text; got != "→ From Austin:\n"+strings.TrimSpace(text) {
+	if got := a.tony[0].text; !strings.HasPrefix(got, "→ From Austin: ") || !strings.HasSuffix(got, "\n"+strings.TrimSpace(text)) {
 		t.Fatalf("Tony message = %q", got)
 	}
 	a.route(events.Event{Kind: events.KindPeer, Agent: protocol.Tony, Peer: protocol.Austin, Text: text})
-	if got := a.tony[1].text; got != "← Austin: sent" {
+	if got := a.tony[1].text; !strings.HasPrefix(got, "← Austin: sent ") || !validClockStamp(got[len("← Austin: sent "):]) {
 		t.Fatalf("Tony message = %q", got)
 	}
-	if got := a.austin[1].text; got != "← From Tony:\n"+strings.TrimSpace(text) {
+	if got := a.austin[1].text; !strings.HasPrefix(got, "← From Tony: ") || !strings.HasSuffix(got, "\n"+strings.TrimSpace(text)) {
 		t.Fatalf("Austin message = %q", got)
 	}
+}
+
+// validClockStamp reports whether s is an HH:MM:SS timestamp, which is what the
+// inline peer stamp always renders.
+func validClockStamp(s string) bool {
+	_, err := time.Parse("15:04:05", s)
+	return err == nil
 }
 
 func TestErrorRouteMarksFullAgentDetail(t *testing.T) {

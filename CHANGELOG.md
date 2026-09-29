@@ -2,6 +2,10 @@
 
 All notable project milestones are documented here.
 
+## Unreleased
+
+- Peer coordination lines now carry an inline `HH:MM:SS` time after the direction marker (`→ Tony: sent 14:30:05`, `→ From Austin: 14:30:05`), so the two halves of one live exchange can be correlated even when `Ctrl+G` pane timestamps are off.
+
 ## v0.5.0 — 2026-09
 
 Fast Mode is now the default; Goal Mode is the explicit heavy workflow.
