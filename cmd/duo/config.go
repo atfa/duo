@@ -29,6 +29,7 @@ type config struct {
 	piCommand     string
 	testCommand   string
 	agentCommands map[protocol.AgentID]string
+	agentDrivers  map[protocol.AgentID]string
 
 	resume        bool
 	resumeSession string
@@ -49,10 +50,18 @@ func (c config) agentCommand(agent protocol.AgentID) string {
 	return c.piCommand
 }
 
+func (c config) agentDriver(agent protocol.AgentID) string {
+	if drv, ok := c.agentDrivers[agent]; ok && drv != "" {
+		return drv
+	}
+	return "pi"
+}
+
 // configFile describes ~/.duo/config.json or .duo/config.json.
 type configFile struct {
 	Mode        string               `json:"mode,omitempty"`
 	PiCommand   string               `json:"piCommand,omitempty"`
+	Driver      string               `json:"driver,omitempty"`
 	TestCommand string               `json:"testCommand,omitempty"`
 	Agents      map[string]agentFile `json:"agents,omitempty"`
 	Harness     harnessFile          `json:"harness,omitempty"`
@@ -60,6 +69,7 @@ type configFile struct {
 
 type agentFile struct {
 	Command  string `json:"command,omitempty"`
+	Driver   string `json:"driver,omitempty"`
 	Model    string `json:"model,omitempty"`
 	Thinking string `json:"thinking,omitempty"`
 }
@@ -79,6 +89,9 @@ type cliArgs struct {
 	mode         string
 	modeExplicit bool
 	testCommand  string
+	driver       string
+	austinDriver string
+	tonyDriver   string
 }
 
 // parseArgs understands `duo [repository] [--mode fast|goal] [--resume [id]]`.
@@ -117,8 +130,32 @@ func parseArgs(args []string) (cliArgs, error) {
 			i++
 		case strings.HasPrefix(arg, "--test-cmd="):
 			out.testCommand = strings.TrimSpace(strings.TrimPrefix(arg, "--test-cmd="))
+		case arg == "--agent" || arg == "--driver":
+			if i+1 >= len(args) {
+				return out, fmt.Errorf("%s requires a value (pi or agy)", arg)
+			}
+			out.driver = strings.TrimSpace(args[i+1])
+			i++
+		case strings.HasPrefix(arg, "--agent=") || strings.HasPrefix(arg, "--driver="):
+			out.driver = strings.TrimSpace(strings.SplitN(arg, "=", 2)[1])
+		case arg == "--austin-driver" || arg == "--austin-agent":
+			if i+1 >= len(args) {
+				return out, fmt.Errorf("%s requires a value", arg)
+			}
+			out.austinDriver = strings.TrimSpace(args[i+1])
+			i++
+		case strings.HasPrefix(arg, "--austin-driver=") || strings.HasPrefix(arg, "--austin-agent="):
+			out.austinDriver = strings.TrimSpace(strings.SplitN(arg, "=", 2)[1])
+		case arg == "--tony-driver" || arg == "--tony-agent":
+			if i+1 >= len(args) {
+				return out, fmt.Errorf("%s requires a value", arg)
+			}
+			out.tonyDriver = strings.TrimSpace(args[i+1])
+			i++
+		case strings.HasPrefix(arg, "--tony-driver=") || strings.HasPrefix(arg, "--tony-agent="):
+			out.tonyDriver = strings.TrimSpace(strings.SplitN(arg, "=", 2)[1])
 		case strings.HasPrefix(arg, "-"):
-			return out, fmt.Errorf("unknown Duo flag %q (usage: duo [git-repository] [--mode fast|goal] [--test-cmd <command>] [--resume [session-id]])", arg)
+			return out, fmt.Errorf("unknown Duo flag %q (usage: duo [git-repository] [--mode fast|goal] [--test-cmd <command>] [--agent pi|agy] [--resume [session-id]])", arg)
 		default:
 			if out.repository != "" {
 				return out, fmt.Errorf("unexpected extra argument %q", arg)
@@ -252,10 +289,35 @@ func loadConfig(args []string) (config, error) {
 	piCommand := envString("DUO_PI_COMMAND", defaultPiCmd)
 
 	agentCommands := make(map[protocol.AgentID]string)
+	agentDrivers := make(map[protocol.AgentID]string)
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
 		key := strings.ToLower(string(id))
 		agentCfg := fileCfg.Agents[key]
+
+		driverType := "pi"
+		if fileCfg.Driver != "" {
+			driverType = fileCfg.Driver
+		}
+		if agentCfg.Driver != "" {
+			driverType = agentCfg.Driver
+		}
+		if envDrv := os.Getenv("DUO_DRIVER"); envDrv != "" {
+			driverType = envDrv
+		}
+		if parsed.driver != "" {
+			driverType = parsed.driver
+		}
+		if id == protocol.Austin && parsed.austinDriver != "" {
+			driverType = parsed.austinDriver
+		}
+		if id == protocol.Tony && parsed.tonyDriver != "" {
+			driverType = parsed.tonyDriver
+		}
+
 		baseCmd := piCommand
+		if driverType == "agy" && baseCmd == "pi" {
+			baseCmd = "agy"
+		}
 		if agentCfg.Command != "" {
 			baseCmd = agentCfg.Command
 		}
@@ -265,7 +327,11 @@ func loadConfig(args []string) (config, error) {
 		if agentCfg.Thinking != "" && !hasFlag(baseCmd, "--thinking") {
 			baseCmd = baseCmd + " --thinking " + agentCfg.Thinking
 		}
+		if strings.HasPrefix(baseCmd, "agy") || strings.Contains(baseCmd, "/agy") {
+			driverType = "agy"
+		}
 		agentCommands[id] = baseCmd
+		agentDrivers[id] = driverType
 	}
 
 	var mode project.Mode
@@ -296,6 +362,7 @@ func loadConfig(args []string) (config, error) {
 		piCommand:      piCommand,
 		testCommand:    testCommand,
 		agentCommands:  agentCommands,
+		agentDrivers:   agentDrivers,
 		resume:         parsed.resume,
 		resumeSession:  parsed.sessionID,
 		mode:           mode,

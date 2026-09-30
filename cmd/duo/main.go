@@ -314,21 +314,41 @@ func (r *runtime) serve(ctx context.Context) error {
 		if !ok || wt.Path == "" || !hasDir {
 			return fmt.Errorf("session has no worktree for %s", agentID)
 		}
-		session := agent.NewSession(agent.Config{
-			Agent:          agentID,
-			Mode:           r.mode.String(),
-			Dir:            dir,
-			RepositoryRoot: r.set.Repository,
-			ScopePath:      r.set.ScopePath,
-			Host:           host,
-			Port:           port,
-			Session:        r.sessionID,
-			Token:          token,
-			Command:        r.cfg.agentCommand(agentID),
-			PiSessionID:    r.piSessions[agentID],
-		})
+		driverType := r.cfg.agentDriver(agentID)
+		var session agent.Driver
+		if driverType == "agy" {
+			session = agent.NewAgySession(agent.Config{
+				Agent:             agentID,
+				DriverType:        "agy",
+				Mode:              r.mode.String(),
+				Dir:               dir,
+				RepositoryRoot:    r.set.Repository,
+				ScopePath:         r.set.ScopePath,
+				Host:              host,
+				Port:              port,
+				Session:           r.sessionID,
+				Token:             token,
+				Command:           r.cfg.agentCommand(agentID),
+				AgyConversationID: r.sessionID + "-" + string(agentID),
+			})
+		} else {
+			session = agent.NewPiSession(agent.Config{
+				Agent:          agentID,
+				DriverType:     "pi",
+				Mode:           r.mode.String(),
+				Dir:            dir,
+				RepositoryRoot: r.set.Repository,
+				ScopePath:      r.set.ScopePath,
+				Host:           host,
+				Port:           port,
+				Session:        r.sessionID,
+				Token:          token,
+				Command:        r.cfg.agentCommand(agentID),
+				PiSessionID:    r.piSessions[agentID],
+			})
+		}
 		agents.Add(session)
-		r.logger.Printf("%s: worktree=%s cwd=%s piSession=%s command=%s", agentID, wt.Path, dir, session.PiSessionID(), session.EffectiveCommand())
+		r.logger.Printf("%s: driver=%s worktree=%s cwd=%s sessionID=%s command=%s", agentID, session.DriverType(), wt.Path, dir, session.SessionID(), session.EffectiveCommand())
 	}
 
 	if err := agents.StartAll(ctx); err != nil {

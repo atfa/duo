@@ -55,3 +55,30 @@ acme          gpt-5.3 codex preview         256K     64K      yes       no`
 		t.Fatalf("flags = %#v, want thinking yes images no", got[0])
 	}
 }
+
+func TestParseAgyModels(t *testing.T) {
+	output := `⠋ Fetching available models...⠙ Fetching available models...gemini-3.8-flash-high     Gemini 3.8 Flash (High)
+gemini-3.8-flash-medium   Gemini 3.8 Flash (Medium)
+gemini-3.1-pro-low        Gemini 3.1 Pro (Low)
+claude-sonnet-4-6         Claude Sonnet 4.6 (Thinking)
+gpt-oss-120b-medium       GPT-OSS 120B (Medium)
+custom-model-fast         Custom Fast Model`
+
+	got := parseAgyModels(output)
+	want := []Model{
+		{Provider: "google", ID: "gemini-3.8-flash-high", Thinking: true, Images: true},
+		{Provider: "google", ID: "gemini-3.8-flash-medium", Thinking: true, Images: true},
+		{Provider: "google", ID: "gemini-3.1-pro-low", Thinking: false, Images: true},
+		{Provider: "anthropic", ID: "claude-sonnet-4-6", Thinking: true, Images: true},
+		{Provider: "openai", ID: "gpt-oss-120b-medium", Thinking: true, Images: true},
+		{Provider: "agy", ID: "custom-model-fast", Thinking: false, Images: true},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("parsed %d models, want %d: %#v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("model %d = %#v, want %#v", i, got[i], want[i])
+		}
+	}
+}

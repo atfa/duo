@@ -319,3 +319,54 @@ func TestTestCommandConfigurationPrecedence(t *testing.T) {
 		t.Fatalf("testCommand from CLI (=) = %q, want 'cargo test'", cfg.testCommand)
 	}
 }
+
+func TestDriverConfigurationResolution(t *testing.T) {
+	temp := t.TempDir()
+	t.Setenv("DUO_REPO", temp)
+	t.Setenv("DUO_DRIVER", "")
+
+	// 1. Defaults to pi
+	cfg, err := loadConfig(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := cfg.agentDriver(protocol.Austin); d != "pi" {
+		t.Fatalf("austin default driver = %q, want pi", d)
+	}
+	if d := cfg.agentDriver(protocol.Tony); d != "pi" {
+		t.Fatalf("tony default driver = %q, want pi", d)
+	}
+
+	// 2. Global --driver / --agent flag
+	cfg, err = loadConfig([]string{"--driver", "agy"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := cfg.agentDriver(protocol.Austin); d != "agy" {
+		t.Fatalf("austin driver with --driver agy = %q, want agy", d)
+	}
+	if d := cfg.agentDriver(protocol.Tony); d != "agy" {
+		t.Fatalf("tony driver with --driver agy = %q, want agy", d)
+	}
+
+	// 3. Heterogeneous pairing via CLI flags
+	cfg, err = loadConfig([]string{"--austin-driver", "agy", "--tony-driver", "pi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := cfg.agentDriver(protocol.Austin); d != "agy" {
+		t.Fatalf("austin driver = %q, want agy", d)
+	}
+	if d := cfg.agentDriver(protocol.Tony); d != "pi" {
+		t.Fatalf("tony driver = %q, want pi", d)
+	}
+
+	// 4. Inferred driver when command is agy
+	cfg, err = loadConfig([]string{"--austin-agent=agy"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cmd := cfg.agentCommand(protocol.Austin); cmd != "agy" {
+		t.Fatalf("austin command for agy driver = %q, want agy", cmd)
+	}
+}

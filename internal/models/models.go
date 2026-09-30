@@ -35,7 +35,15 @@ func List(ctx context.Context, command string) ([]Model, error) {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "sh", "-lc", command+" --list-models")
+	var listCmd string
+	isAgy := strings.HasPrefix(command, "agy") || strings.Contains(command, "/agy")
+	if isAgy {
+		listCmd = command + " models"
+	} else {
+		listCmd = command + " --list-models"
+	}
+
+	cmd := exec.CommandContext(ctx, "sh", "-lc", listCmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
@@ -47,11 +55,61 @@ func List(ctx context.Context, command string) ([]Model, error) {
 		return nil, fmt.Errorf("list models: %s", detail)
 	}
 
-	list := parse(stdout.String())
+	var list []Model
+	if isAgy {
+		list = parseAgyModels(stdout.String())
+	} else {
+		list = parse(stdout.String())
+	}
 	if len(list) == 0 {
 		return nil, fmt.Errorf("no models reported by %q", command)
 	}
 	return list, nil
+}
+
+func parseAgyModels(output string) []Model {
+	var list []Model
+	output = strings.ReplaceAll(output, "\r", "\n")
+	for _, rawLine := range strings.Split(output, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" {
+			continue
+		}
+		if idx := strings.LastIndex(line, "Fetching available models..."); idx != -1 {
+			line = strings.TrimSpace(line[idx+len("Fetching available models..."):])
+		}
+		if line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		id := fields[0]
+		if id == "NAME" || id == "MODEL" || id == "Available" {
+			continue
+		}
+		provider := "agy"
+		switch {
+		case strings.HasPrefix(id, "gemini"):
+			provider = "google"
+		case strings.HasPrefix(id, "claude"):
+			provider = "anthropic"
+		case strings.HasPrefix(id, "gpt"):
+			provider = "openai"
+		}
+		thinking := strings.Contains(line, "Thinking") ||
+			strings.Contains(id, "high") ||
+			strings.Contains(id, "medium") ||
+			strings.Contains(id, "thinking")
+		list = append(list, Model{
+			Provider: provider,
+			ID:       id,
+			Thinking: thinking,
+			Images:   true,
+		})
+	}
+	return list
 }
 
 // parse reads the fixed-column table printed by `pi --list-models`: provider,

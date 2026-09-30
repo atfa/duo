@@ -57,12 +57,15 @@ func (s ProcessState) String() string {
 
 type Config struct {
 	Agent                                    protocol.AgentID
+	DriverType                               string // "pi" or "agy"
 	Mode                                     string
 	Dir, Host, Port, Session, Token, Command string
 	RepositoryRoot, ScopePath                string
 	// PiSessionID is Duo's stable identity for this agent's Pi conversation. It
 	// is persisted per session and reused verbatim across restarts and resumes.
 	PiSessionID string
+	// AgyConversationID is Duo's stable identity for this agent's Agy conversation.
+	AgyConversationID string
 	// OnExit observes process termination for durable logging.
 	OnExit func(ExitEvent)
 }
@@ -90,10 +93,68 @@ type Session struct {
 }
 
 func NewSession(cfg Config) *Session {
+	if strings.TrimSpace(cfg.DriverType) == "" {
+		cfg.DriverType = "pi"
+	}
 	if strings.TrimSpace(cfg.Command) == "" {
-		cfg.Command = "pi"
+		if cfg.DriverType == "agy" {
+			cfg.Command = "agy"
+		} else {
+			cfg.Command = "pi"
+		}
 	}
 	return &Session{cfg: cfg, size: pty.Winsize{Cols: 80, Rows: 24}}
+}
+
+func NewPiSession(cfg Config) *Session {
+	cfg.DriverType = "pi"
+	return NewSession(cfg)
+}
+
+func NewAgySession(cfg Config) *Session {
+	cfg.DriverType = "agy"
+	if strings.TrimSpace(cfg.Command) == "" {
+		cfg.Command = "agy"
+	}
+	if strings.TrimSpace(cfg.AgyConversationID) == "" {
+		cfg.AgyConversationID = cfg.Session + "-" + string(cfg.Agent)
+	}
+	return NewSession(cfg)
+}
+
+func (s *Session) Agent() protocol.AgentID { return s.cfg.Agent }
+func (s *Session) DriverType() string {
+	if s.cfg.DriverType != "" {
+		return s.cfg.DriverType
+	}
+	return "pi"
+}
+func (s *Session) SessionID() string {
+	if s.DriverType() == "agy" {
+		return s.AgyConversationID()
+	}
+	return s.cfg.PiSessionID
+}
+func (s *Session) Command() string { return s.cfg.Command }
+func (s *Session) SetOnExit(fn func(ExitEvent)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cfg.OnExit = fn
+}
+
+func (s *Session) Restart(ctx context.Context) error {
+	if s.Running() {
+		return fmt.Errorf("%s is still running; restart refused", s.cfg.Agent)
+	}
+	return s.Start(ctx)
+}
+
+// AgyConversationID returns the stable Agy conversation identity for this agent.
+func (s *Session) AgyConversationID() string {
+	if s.cfg.AgyConversationID != "" {
+		return s.cfg.AgyConversationID
+	}
+	return s.cfg.Session + "-" + string(s.cfg.Agent)
 }
 
 // sessionFlags are the Pi CLI flags that select or control a session. When
@@ -112,10 +173,15 @@ func hasSessionFlag(command string) bool {
 	return false
 }
 
-// commandLine is the shell command used to launch Pi. The stable Pi session id
-// travels through the environment as $DUO_PI_SESSION_ID and is expanded by the
-// shell, so an id can never break quoting or be read as shell syntax.
+// commandLine is the shell command used to launch the agent.
 func (s *Session) commandLine() string {
+	if s.DriverType() == "agy" {
+		return s.agyCommandLine()
+	}
+	return s.piCommandLine()
+}
+
+func (s *Session) piCommandLine() string {
 	base := strings.TrimSpace(s.cfg.Command)
 	if base == "" {
 		base = "pi"
@@ -124,6 +190,17 @@ func (s *Session) commandLine() string {
 		return base
 	}
 	return base + ` --session-id "$DUO_PI_SESSION_ID"`
+}
+
+func (s *Session) agyCommandLine() string {
+	base := strings.TrimSpace(s.cfg.Command)
+	if base == "" {
+		base = "agy"
+	}
+	if strings.Contains(base, "--conversation") || strings.Contains(base, "-c") {
+		return base
+	}
+	return base + ` --conversation "$DUO_AGY_CONVERSATION_ID" --dangerously-skip-permissions`
 }
 
 // EffectiveCommand returns the command Duo will actually run, for diagnostics.
@@ -149,7 +226,21 @@ func (s *Session) Start(ctx context.Context) error {
 	// and expands "$DUO_PI_SESSION_ID" safely.
 	cmd := exec.Command("sh", "-lc", "exec "+s.commandLine())
 	cmd.Dir = s.cfg.Dir
-	cmd.Env = append(os.Environ(), "DUO_ACTIVE=1", "DUO_AGENT="+string(s.cfg.Agent), "DUO_MODE="+modeEnv(s.cfg.Mode), "DUO_HOST="+s.cfg.Host, "DUO_PORT="+s.cfg.Port, "DUO_SESSION="+s.cfg.Session, "DUO_TOKEN="+s.cfg.Token, "DUO_PI_SESSION_ID="+s.cfg.PiSessionID, "DUO_REPOSITORY_ROOT="+s.cfg.RepositoryRoot, "DUO_SCOPE_PATH="+s.cfg.ScopePath, "TERM=xterm-256color")
+	cmd.Env = append(os.Environ(),
+		"DUO_ACTIVE=1",
+		"DUO_DRIVER="+s.DriverType(),
+		"DUO_AGENT="+string(s.cfg.Agent),
+		"DUO_MODE="+modeEnv(s.cfg.Mode),
+		"DUO_HOST="+s.cfg.Host,
+		"DUO_PORT="+s.cfg.Port,
+		"DUO_SESSION="+s.cfg.Session,
+		"DUO_TOKEN="+s.cfg.Token,
+		"DUO_PI_SESSION_ID="+s.cfg.PiSessionID,
+		"DUO_AGY_CONVERSATION_ID="+s.AgyConversationID(),
+		"DUO_REPOSITORY_ROOT="+s.cfg.RepositoryRoot,
+		"DUO_SCOPE_PATH="+s.cfg.ScopePath,
+		"TERM=xterm-256color",
+	)
 	ptmx, err := pty.StartWithSize(cmd, &s.size)
 	if err != nil {
 		s.state = ProcessFailed
