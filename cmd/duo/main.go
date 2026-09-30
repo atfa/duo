@@ -40,17 +40,20 @@ func main() {
 			fmt.Println("       duo apply [session-id]")
 			fmt.Println("       duo sessions [--all] [repository]")
 			fmt.Println("       duo clean [session-id] [--all] [--all-repos] [--force] [--dry-run]")
+			fmt.Println("       duo plugins")
 			fmt.Println("       duo mcp-server [--agent austin|tony] [--export-config]")
 			fmt.Println()
 			fmt.Println("  duo                    start a new Fast session (Austin drives, Tony verifies)")
 			fmt.Println("  duo --mode goal        start a new Goal session (shared plan + dual sign-off)")
 			fmt.Println("  duo --test-cmd <cmd>   run automated test command before accepting verification")
+			fmt.Println("  duo --agent pi|agy     select agent driver (or --austin-driver / --tony-driver)")
 			fmt.Println("  duo --resume           resume this repository's unfinished session")
 			fmt.Println("  duo --resume <id>      resume one specific session (required if several are unfinished)")
 			fmt.Println("  duo apply              deliver a pending final result to this repository")
 			fmt.Println("  duo apply <id>         apply one specific session's final result")
 			fmt.Println("  duo sessions           list sessions for this repository (--all for all repositories)")
 			fmt.Println("  duo clean              clean completed sessions and worktrees (--force for unfinished)")
+			fmt.Println("  duo plugins            list built-in and discovered external agent driver plugins")
 			fmt.Println("  duo mcp-server         serve Model Context Protocol (MCP) state machine tools")
 			fmt.Println()
 			fmt.Println("Mode is fixed for a session's lifetime. DUO_MODE sets the default for new sessions;")
@@ -91,6 +94,9 @@ func main() {
 			if err := runMCPServer(ctx, os.Args[2:]); err != nil && ctx.Err() == nil {
 				log.Fatal(err)
 			}
+			return
+		case "plugins", "plugin":
+			runPlugins()
 			return
 		}
 	}
@@ -323,7 +329,8 @@ func (r *runtime) serve(ctx context.Context) error {
 		}
 		driverType := r.cfg.agentDriver(agentID)
 		var session agent.Driver
-		if driverType == "agy" {
+		switch driverType {
+		case "agy":
 			session = agent.NewAgySession(agent.Config{
 				Agent:             agentID,
 				DriverType:        "agy",
@@ -341,7 +348,7 @@ func (r *runtime) serve(ctx context.Context) error {
 					coord.RecordActivity(ag, msg)
 				}),
 			})
-		} else {
+		case "pi", "":
 			session = agent.NewPiSession(agent.Config{
 				Agent:          agentID,
 				DriverType:     "pi",
@@ -356,6 +363,25 @@ func (r *runtime) serve(ctx context.Context) error {
 				Command:        r.cfg.agentCommand(agentID),
 				PiSessionID:    r.piSessions[agentID],
 			})
+		default:
+			pluginPath, ok := agent.LookupPlugin(driverType)
+			if !ok {
+				return fmt.Errorf("unknown driver %q for %s: no built-in driver or plugin (duo-driver-%s / duo-%s) found in ~/.duo/plugins/ or PATH", driverType, agentID, driverType, driverType)
+			}
+			session = agent.NewExternalSession(agent.Config{
+				Agent:          agentID,
+				DriverType:     driverType,
+				Mode:           r.mode.String(),
+				Dir:            dir,
+				RepositoryRoot: r.set.Repository,
+				ScopePath:      r.set.ScopePath,
+				Host:           host,
+				Port:           port,
+				Session:        r.sessionID,
+				Token:          token,
+				Command:        pluginPath,
+				PiSessionID:    r.piSessions[agentID],
+			}, pluginPath)
 		}
 		agents.Add(session)
 		r.logger.Printf("%s: driver=%s worktree=%s cwd=%s sessionID=%s command=%s", agentID, session.DriverType(), wt.Path, dir, session.SessionID(), session.EffectiveCommand())
@@ -406,4 +432,22 @@ func bridgeAddress(listen string) (string, string) {
 		host = "127.0.0.1"
 	}
 	return host, port
+}
+
+func runPlugins() {
+	fmt.Println("Available Agent Drivers:")
+	fmt.Println("  pi   [built-in]   Pi CLI coding agent driver (socket streaming)")
+	fmt.Println("  agy  [built-in]   Google Antigravity CLI driver (transcript observation)")
+	plugins := agent.ListDiscoveredPlugins()
+	if len(plugins) > 0 {
+		fmt.Println("\nDiscovered External Driver Plugins:")
+		for _, p := range plugins {
+			path, _ := agent.LookupPlugin(p)
+			fmt.Printf("  %s   [plugin]     %s\n", p, path)
+		}
+	} else {
+		fmt.Println("\nDiscovered External Plugins:")
+		fmt.Println("  (none found in ~/.duo/plugins/ or PATH)")
+		fmt.Println("  To install a plugin driver, place an executable named 'duo-driver-<name>' or 'duo-<name>' in ~/.duo/plugins/ or in your PATH.")
+	}
 }

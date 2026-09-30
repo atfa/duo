@@ -137,11 +137,12 @@ type AgentDriver interface {
   - 配置文件 `~/.duo/config.json` 支持 `"driver": "agy"` 或分角指定。
 - [x] 编写专门的集成测试与验证用例（`TestAgyDriverSessionWithActivitySink`, `TestAgyWatcherTailLoop` 等全量通过）。
 
-### Milestone 4: 独立插件体系化（Out-of-Tree Plugin Protocol）
-- [ ] 定义可执行插件发现规范：
-  - 检查 `~/.duo/plugins/duo-<name>` 与系统 `$PATH`。
-- [ ] 实现 `ExternalProcessDriver`，通过子进程拉起第三方插件。
-- [ ] 将 `duo-pi` 与 `duo-agy` 打包为独立二进制发布工件，验证外部社区适配器扩展能力。
+### Milestone 4: 独立插件体系化（Out-of-Tree Plugin Protocol，已完成）
+- [x] 定义可执行插件发现规范（`internal/agent/plugin.go`）：
+  - 检查 `~/.duo/plugins/duo-<name>`、`~/.duo/plugins/duo-driver-<name>` 与系统 `$PATH`。
+  - 支持 `duo plugins` 命令查看内置驱动与已发现的外部插件。
+- [x] 实现 `NewExternalSession`，通过子进程挂载 PTY 拉起第三方插件。
+- [x] 将 `duo-pi` 与 `duo-agy` 打包为独立二进制发布工件（`cmd/duo-pi/` 与 `cmd/duo-agy/`），验证外部适配器扩展能力。
 
 ---
 

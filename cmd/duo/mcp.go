@@ -14,6 +14,7 @@ import (
 type mcpServerArgs struct {
 	cfg        mcp.Config
 	exportJSON bool
+	help       bool
 }
 
 func parseMCPServerArgs(args []string) (mcpServerArgs, error) {
@@ -66,6 +67,7 @@ func parseMCPServerArgs(args []string) (mcpServerArgs, error) {
 			out.cfg.Port = strings.TrimSpace(strings.TrimPrefix(arg, "--port="))
 		case arg == "-h" || arg == "--help" || arg == "help":
 			printMCPHelp()
+			out.help = true
 			return out, nil
 		default:
 			return out, fmt.Errorf("unknown flag %q", arg)
@@ -93,6 +95,9 @@ func runMCPServer(ctx context.Context, args []string) error {
 	parsed, err := parseMCPServerArgs(args)
 	if err != nil {
 		return err
+	}
+	if parsed.help {
+		return nil
 	}
 
 	// Fill unset fields from environment variables
