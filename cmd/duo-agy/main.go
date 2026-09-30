@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
+
+	"github.com/atfa/duo/internal/agent"
 )
 
 func main() {
@@ -12,7 +14,21 @@ func main() {
 		fmt.Println("duo-agy driver plugin v0.7.0")
 		return
 	}
-	cmd := exec.Command("agy", os.Args[1:]...)
+	if cwd, err := os.Getwd(); err == nil {
+		_ = agent.EnsureAgyWorkspaceTrusted(cwd)
+	}
+	args := os.Args[1:]
+	hasSkip := false
+	for _, arg := range args {
+		if arg == "--dangerously-skip-permissions" {
+			hasSkip = true
+			break
+		}
+	}
+	if !hasSkip {
+		args = append([]string{"--dangerously-skip-permissions"}, args...)
+	}
+	cmd := exec.Command("agy", args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

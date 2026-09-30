@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -179,9 +180,14 @@ func hasSessionFlag(command string) bool {
 	return false
 }
 
+func (s *Session) isAgy() bool {
+	drv := s.DriverType()
+	return drv == "agy" || strings.Contains(drv, "agy") || strings.HasPrefix(s.cfg.Command, "agy") || strings.Contains(s.cfg.Command, "duo-agy")
+}
+
 // commandLine is the shell command used to launch the agent.
 func (s *Session) commandLine() string {
-	if s.DriverType() == "agy" {
+	if s.isAgy() {
 		return s.agyCommandLine()
 	}
 	return s.piCommandLine()
@@ -237,6 +243,9 @@ func (s *Session) Start(ctx context.Context) error {
 		return fmt.Errorf("%s: unsupported platform %s", s.cfg.Agent, runtime.GOOS)
 	}
 	s.state = ProcessStarting
+	if s.isAgy() {
+		_ = EnsureAgyWorkspaceTrusted(s.cfg.Dir, s.cfg.RepositoryRoot)
+	}
 	// A shell preserves the existing DUO_PI_COMMAND behavior (including arguments)
 	// and expands "$DUO_PI_SESSION_ID" safely.
 	cmd := exec.Command("sh", "-lc", "exec "+s.commandLine())
@@ -303,7 +312,7 @@ func (s *Session) Start(ctx context.Context) error {
 			onExit(ExitEvent{Agent: s.cfg.Agent, State: final, Err: err})
 		}
 	}()
-	if s.DriverType() == "agy" && s.cfg.ActivitySink != nil {
+	if s.isAgy() && s.cfg.ActivitySink != nil {
 		go s.startAgyWatcher(ctx)
 	}
 	return nil
@@ -407,6 +416,80 @@ func agyAppDataDir() string {
 		return ""
 	}
 	return filepath.Join(home, ".gemini", "antigravity-cli")
+}
+
+// EnsureAgyWorkspaceTrusted adds the given directory paths to agy's trustedWorkspaces
+// in settings.json so the interactive workspace trust prompt is bypassed when
+// running autonomous agent turns.
+func EnsureAgyWorkspaceTrusted(paths ...string) error {
+	dir := agyAppDataDir()
+	if dir == "" {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	settingsPath := filepath.Join(dir, "settings.json")
+
+	settings := make(map[string]any)
+	if data, err := os.ReadFile(settingsPath); err == nil {
+		_ = json.Unmarshal(data, &settings)
+	}
+
+	var trusted []string
+	if raw, ok := settings["trustedWorkspaces"].([]any); ok {
+		for _, item := range raw {
+			if s, ok := item.(string); ok && s != "" {
+				trusted = append(trusted, s)
+			}
+		}
+	} else if raw, ok := settings["trustedWorkspaces"].([]string); ok {
+		trusted = append(trusted, raw...)
+	}
+
+	seen := make(map[string]bool)
+	for _, t := range trusted {
+		seen[filepath.Clean(t)] = true
+	}
+
+	changed := false
+	for _, p := range paths {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		clean := filepath.Clean(p)
+		if !seen[clean] {
+			trusted = append(trusted, clean)
+			seen[clean] = true
+			changed = true
+		}
+		if real, err := filepath.EvalSymlinks(clean); err == nil && real != clean {
+			realClean := filepath.Clean(real)
+			if !seen[realClean] {
+				trusted = append(trusted, realClean)
+				seen[realClean] = true
+				changed = true
+			}
+		}
+	}
+
+	if !changed {
+		return nil
+	}
+
+	settings["trustedWorkspaces"] = trusted
+	data, err := json.MarshalIndent(settings, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+
+	tmpFile := settingsPath + ".tmp"
+	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmpFile, settingsPath)
 }
 
 func agyTranscriptPath(convID string) string {
