@@ -126,16 +126,16 @@ type AgentDriver interface {
 - [x] 将当前写在 `pi-extension/tools/*.ts` 中的状态机工具完整映射为通用的 MCP Tools Schema（duo_status, duo_send, duo_set_status, duo_set_verification, duo_set_plan, duo_escalate）。
 - [x] 支持通过 `duo mcp-server` 运行标准 stdio MCP 服务，并支持 `--export-config` 导出给外部 Agent CLI 使用。
 
-### Milestone 3: 研发与接入 `AgyDriver`（支持 Google Antigravity）
-- [ ] 实现 `internal/driver/agy`：
-  - 启动参数编排（工作区、环境变量、会话定位）；
-  - `transcript.jsonl` 增量解析与事件流生成；
+### Milestone 3: 研发与接入 `AgyDriver`（支持 Google Antigravity，已完成）
+- [x] 实现 `internal/agent/agy_watcher.go` 与 `internal/agent/session.go` 中的 Agy 驱动支持：
+  - 启动参数编排（工作区、环境变量、`--dangerously-skip-permissions`、`--log-file`、会话定位）；
+  - `transcript.jsonl` 增量解析与事件流生成（ToolStart、ToolEnd、ToolError、Stream、AgentStart、AgentSettled）；
   - PTY 交互绑定与退出监听。
-- [ ] 在 CLI 与配置文件中增加驱动选项：
-  - `duo --agent agy`
-  - `duo --austin agy --tony pi`（支持异构混合对等）
-  - 配置文件 `~/.duo/config.json` 支持 `"agent": "agy"` 或分角指定。
-- [ ] 编写专门的集成测试与验证用例。
+- [x] 在 CLI 与配置文件中增加驱动选项：
+  - `duo --driver agy` 或 `duo --agent agy`
+  - `duo --austin-driver agy --tony-driver pi`（支持异构混合对等）
+  - 配置文件 `~/.duo/config.json` 支持 `"driver": "agy"` 或分角指定。
+- [x] 编写专门的集成测试与验证用例（`TestAgyDriverSessionWithActivitySink`, `TestAgyWatcherTailLoop` 等全量通过）。
 
 ### Milestone 4: 独立插件体系化（Out-of-Tree Plugin Protocol）
 - [ ] 定义可执行插件发现规范：

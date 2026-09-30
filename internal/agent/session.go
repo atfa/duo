@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -66,6 +67,10 @@ type Config struct {
 	PiSessionID string
 	// AgyConversationID is Duo's stable identity for this agent's Agy conversation.
 	AgyConversationID string
+	// ActivitySink receives observed activity events (used by agy driver).
+	ActivitySink AgyActivitySink
+	// LogFile is the path to the CLI log file where conversation IDs are logged.
+	LogFile string
 	// OnExit observes process termination for durable logging.
 	OnExit func(ExitEvent)
 }
@@ -90,6 +95,7 @@ type Session struct {
 	stopped  chan struct{}
 	waitErr  error
 	size     pty.Winsize
+	watcher  *AgyWatcher
 }
 
 func NewSession(cfg Config) *Session {
@@ -116,8 +122,8 @@ func NewAgySession(cfg Config) *Session {
 	if strings.TrimSpace(cfg.Command) == "" {
 		cfg.Command = "agy"
 	}
-	if strings.TrimSpace(cfg.AgyConversationID) == "" {
-		cfg.AgyConversationID = cfg.Session + "-" + string(cfg.Agent)
+	if strings.TrimSpace(cfg.LogFile) == "" {
+		cfg.LogFile = filepath.Join(os.TempDir(), fmt.Sprintf("duo-agy-%s-%d.log", cfg.Agent, time.Now().UnixNano()))
 	}
 	return NewSession(cfg)
 }
@@ -197,10 +203,19 @@ func (s *Session) agyCommandLine() string {
 	if base == "" {
 		base = "agy"
 	}
-	if strings.Contains(base, "--conversation") || strings.Contains(base, "-c") {
-		return base
+	parts := []string{base}
+	if !strings.Contains(base, "--conversation") && !strings.Contains(base, "-c") {
+		if strings.TrimSpace(s.AgyConversationID()) != "" {
+			parts = append(parts, `--conversation "$DUO_AGY_CONVERSATION_ID"`)
+		}
 	}
-	return base + ` --conversation "$DUO_AGY_CONVERSATION_ID" --dangerously-skip-permissions`
+	if !strings.Contains(base, "--dangerously-skip-permissions") {
+		parts = append(parts, "--dangerously-skip-permissions")
+	}
+	if s.cfg.LogFile != "" && !strings.Contains(base, "--log-file") {
+		parts = append(parts, fmt.Sprintf("--log-file %q", s.cfg.LogFile))
+	}
+	return strings.Join(parts, " ")
 }
 
 // EffectiveCommand returns the command Duo will actually run, for diagnostics.
@@ -237,6 +252,7 @@ func (s *Session) Start(ctx context.Context) error {
 		"DUO_TOKEN="+s.cfg.Token,
 		"DUO_PI_SESSION_ID="+s.cfg.PiSessionID,
 		"DUO_AGY_CONVERSATION_ID="+s.AgyConversationID(),
+		"DUO_AGY_LOG_FILE="+s.cfg.LogFile,
 		"DUO_REPOSITORY_ROOT="+s.cfg.RepositoryRoot,
 		"DUO_SCOPE_PATH="+s.cfg.ScopePath,
 		"TERM=xterm-256color",
@@ -287,6 +303,9 @@ func (s *Session) Start(ctx context.Context) error {
 			onExit(ExitEvent{Agent: s.cfg.Agent, State: final, Err: err})
 		}
 	}()
+	if s.DriverType() == "agy" && s.cfg.ActivitySink != nil {
+		go s.startAgyWatcher(ctx)
+	}
 	return nil
 }
 
@@ -349,6 +368,10 @@ func (s *Session) Resize(cols, rows int) error {
 }
 func (s *Session) Stop() {
 	s.mu.Lock()
+	if s.watcher != nil {
+		s.watcher.Stop()
+		s.watcher = nil
+	}
 	cmd := s.cmd
 	done := s.stopped
 	running := s.state == ProcessRunning
@@ -371,3 +394,80 @@ func (s *Session) Stop() {
 	}
 }
 func (s *Session) WaitError() error { s.mu.RLock(); defer s.mu.RUnlock(); return s.waitErr }
+
+func agyAppDataDir() string {
+	if dir := os.Getenv("GEMINI_APP_DATA_DIR"); dir != "" {
+		return dir
+	}
+	if dir := os.Getenv("ANTIGRAVITY_APP_DATA_DIR"); dir != "" {
+		return dir
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".gemini", "antigravity-cli")
+}
+
+func agyTranscriptPath(convID string) string {
+	base := agyAppDataDir()
+	if base == "" || convID == "" {
+		return ""
+	}
+	return filepath.Join(base, "brain", convID, ".system_generated", "logs", "transcript.jsonl")
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
+func (s *Session) startAgyWatcher(ctx context.Context) {
+	convID := s.cfg.AgyConversationID
+	transcript := agyTranscriptPath(convID)
+
+	// If transcript file doesn't exist yet, poll log file for conversation ID
+	if transcript == "" || !fileExists(transcript) {
+		deadline := time.Now().Add(10 * time.Second)
+		for time.Now().Before(deadline) {
+			select {
+			case <-ctx.Done():
+				return
+			case <-s.stopped:
+				return
+			default:
+			}
+
+			if s.cfg.LogFile != "" && fileExists(s.cfg.LogFile) {
+				if f, err := os.Open(s.cfg.LogFile); err == nil {
+					id, _ := ExtractConversationID(f)
+					_ = f.Close()
+					if id != "" {
+						convID = id
+						s.mu.Lock()
+						s.cfg.AgyConversationID = id
+						s.mu.Unlock()
+						transcript = agyTranscriptPath(id)
+						break
+					}
+				}
+			}
+			time.Sleep(150 * time.Millisecond)
+		}
+	}
+
+	if transcript == "" {
+		return
+	}
+
+	s.mu.Lock()
+	if !s.started || s.stopping {
+		s.mu.Unlock()
+		return
+	}
+	watcher := NewAgyWatcher(s.cfg.Agent, transcript, s.cfg.ActivitySink)
+	s.watcher = watcher
+	s.mu.Unlock()
+
+	watcher.Start(ctx)
+}

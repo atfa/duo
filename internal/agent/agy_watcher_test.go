@@ -1,0 +1,186 @@
+package agent
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/atfa/duo/internal/protocol"
+)
+
+func TestExtractConversationID(t *testing.T) {
+	cases := []struct {
+		input    string
+		expected string
+	}{
+		{
+			input:    "I0930 08:40:41.075572       1 server.go:1248] Created conversation e5e9d0a4-89ef-4605-90ee-e5fbcfef8d3c\n",
+			expected: "e5e9d0a4-89ef-4605-90ee-e5fbcfef8d3c",
+		},
+		{
+			input:    "I0930 08:49:15.680585       1 server.go:3175] GetConversationDetail: found conversation 061bdff2-a98c-4a7a-8353-409ca6fa375b (active=false)\n",
+			expected: "061bdff2-a98c-4a7a-8353-409ca6fa375b",
+		},
+		{
+			input:    "I0930 08:49:15.681141       1 printmode.go:181] Print mode: starting (promptLength=15, model=\"\", conversationID=\"77a99eec-2991-4e73-9d78-5fd6614b5afe\")\n",
+			expected: "77a99eec-2991-4e73-9d78-5fd6614b5afe",
+		},
+		{
+			input:    "no conversation here\njust some other log\n",
+			expected: "",
+		},
+	}
+
+	for i, tc := range cases {
+		id, err := ExtractConversationID(strings.NewReader(tc.input))
+		if err != nil && tc.expected != "" {
+			t.Errorf("case %d unexpected error: %v", i, err)
+		}
+		if id != tc.expected {
+			t.Errorf("case %d got %q, want %q", i, id, tc.expected)
+		}
+	}
+}
+
+func TestSummarizeToolArgs(t *testing.T) {
+	// 1. duo_send
+	s := SummarizeToolArgs("duo_send", map[string]any{"message": "proposal for auth"})
+	if s != "proposal for auth" {
+		t.Errorf("duo_send got %q", s)
+	}
+
+	// 2. duo_set_status
+	s = SummarizeToolArgs("duo_set_status", map[string]any{"ready": true})
+	if s != "ready=true" {
+		t.Errorf("duo_set_status got %q", s)
+	}
+
+	// 3. duo_set_verification
+	s = SummarizeToolArgs("duo_set_verification", map[string]any{"verdict": "passed"})
+	if s != "passed" {
+		t.Errorf("duo_set_verification got %q", s)
+	}
+
+	// 4. run_command
+	s = SummarizeToolArgs("run_command", map[string]any{
+		"toolSummary": "\"Git status check\"",
+		"CommandLine": "\"git status\"",
+	})
+	if s != "Git status check" {
+		t.Errorf("run_command got %q", s)
+	}
+
+	// 5. view_file
+	s = SummarizeToolArgs("view_file", map[string]any{
+		"AbsolutePath": "/Users/test/projects/duo/cmd/duo/main.go",
+	})
+	if s != "main.go" {
+		t.Errorf("view_file got %q", s)
+	}
+}
+
+func TestAgyWatcherProcessLine(t *testing.T) {
+	var events []protocol.Message
+	sink := FuncActivitySink(func(agent protocol.AgentID, msg protocol.Message) {
+		events = append(events, msg)
+	})
+
+	w := NewAgyWatcher(protocol.Austin, "/dummy/path", sink)
+
+	// Step 0: USER_INPUT
+	line0 := `{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-09-30T00:00:00Z","content":"fix bug"}`
+	w.ProcessLine([]byte(line0))
+	if len(events) != 1 || events[0].Activity != protocol.ActivityAgentStart {
+		t.Fatalf("expected ActivityAgentStart, got: %#v", events)
+	}
+
+	// Step 1: PLANNER_RESPONSE with thinking and tool call
+	events = nil
+	line1 := `{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-09-30T00:00:01Z","thinking":"I should check git status","tool_calls":[{"name":"run_command","args":{"toolSummary":"\"Check git status\"","CommandLine":"\"git status\""}}]}`
+	w.ProcessLine([]byte(line1))
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(events))
+	}
+	if events[0].Activity != protocol.ActivityStream || !strings.Contains(events[0].Detail, "I should check git status") {
+		t.Errorf("expected ActivityStream thinking, got: %#v", events[0])
+	}
+	if events[1].Activity != protocol.ActivityToolStart || events[1].Tool != "run_command" || events[1].Detail != "Check git status" {
+		t.Errorf("expected ActivityToolStart run_command, got: %#v", events[1])
+	}
+
+	// Step 2: GENERIC with DONE
+	events = nil
+	line2 := `{"step_index":2,"source":"MODEL","type":"GENERIC","status":"DONE","created_at":"2026-09-30T00:00:02Z","content":"Output:\nclean"}`
+	w.ProcessLine([]byte(line2))
+	if len(events) != 1 || events[0].Activity != protocol.ActivityToolEnd || events[0].Tool != "run_command" {
+		t.Fatalf("expected ActivityToolEnd for run_command, got: %#v", events)
+	}
+
+	// Step 3: PLANNER_RESPONSE with answer (no tools) -> Settled
+	events = nil
+	line3 := `{"step_index":3,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-09-30T00:00:03Z","content":"Everything is done."}`
+	w.ProcessLine([]byte(line3))
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events (stream + settled), got %d", len(events))
+	}
+	if events[0].Activity != protocol.ActivityStream || events[0].Detail != "Everything is done." {
+		t.Errorf("expected ActivityStream, got: %#v", events[0])
+	}
+	if events[1].Activity != protocol.ActivityAgentSettled {
+		t.Errorf("expected ActivityAgentSettled, got: %#v", events[1])
+	}
+}
+
+func TestAgyWatcherTailLoop(t *testing.T) {
+	tmpDir := t.TempDir()
+	transcriptPath := filepath.Join(tmpDir, "transcript.jsonl")
+
+	msgCh := make(chan protocol.Message, 10)
+	sink := FuncActivitySink(func(_ protocol.AgentID, msg protocol.Message) {
+		msgCh <- msg
+	})
+
+	w := NewAgyWatcher(protocol.Austin, transcriptPath, sink)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	w.Start(ctx)
+	defer w.Stop()
+
+	// Append first line after a slight delay
+	time.Sleep(100 * time.Millisecond)
+	f, err := os.OpenFile(transcriptPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, _ = f.WriteString(`{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-09-30T00:00:00Z","content":"start"}` + "\n")
+	_ = f.Sync()
+
+	select {
+	case msg := <-msgCh:
+		if msg.Activity != protocol.ActivityAgentStart {
+			t.Fatalf("expected ActivityAgentStart, got %v", msg.Activity)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for ActivityAgentStart")
+	}
+
+	// Append tool call
+	_, _ = f.WriteString(`{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-09-30T00:00:01Z","tool_calls":[{"name":"duo_set_status","args":{"ready":true}}]}` + "\n")
+	_ = f.Sync()
+
+	select {
+	case msg := <-msgCh:
+		if msg.Activity != protocol.ActivityToolStart || msg.Tool != "duo_set_status" || msg.Detail != "ready=true" {
+			t.Fatalf("unexpected message: %#v", msg)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for ActivityToolStart")
+	}
+
+	_ = f.Close()
+}

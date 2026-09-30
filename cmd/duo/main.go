@@ -336,7 +336,10 @@ func (r *runtime) serve(ctx context.Context) error {
 				Session:           r.sessionID,
 				Token:             token,
 				Command:           r.cfg.agentCommand(agentID),
-				AgyConversationID: r.sessionID + "-" + string(agentID),
+				AgyConversationID: r.piSessions[agentID],
+				ActivitySink: agent.FuncActivitySink(func(ag protocol.AgentID, msg protocol.Message) {
+					coord.RecordActivity(ag, msg)
+				}),
 			})
 		} else {
 			session = agent.NewPiSession(agent.Config{

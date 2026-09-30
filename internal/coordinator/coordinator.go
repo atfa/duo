@@ -483,6 +483,11 @@ func (c *Coordinator) handleActivity(agent protocol.AgentID, message protocol.Me
 	}
 }
 
+// RecordActivity records agent activity observations (used by observation-based drivers like agy).
+func (c *Coordinator) RecordActivity(agent protocol.AgentID, message protocol.Message) {
+	c.handleActivity(agent, message)
+}
+
 func (c *Coordinator) handleAssistant(agent protocol.AgentID, message protocol.Message) {
 	if strings.TrimSpace(message.Text) == "" {
 		return

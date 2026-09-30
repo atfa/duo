@@ -2,9 +2,12 @@ package agent
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/atfa/duo/internal/protocol"
 )
@@ -143,3 +146,80 @@ func TestDriverLifecycleAndExitObserver(t *testing.T) {
 		t.Fatalf("expected 2 agent_exit events, got %d", exitCount)
 	}
 }
+
+func TestAgyDriverSessionWithActivitySink(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tmpDir := t.TempDir()
+	logFile := filepath.Join(tmpDir, "agy.log")
+	convID := "test-conv-1234-5678-90ab"
+
+	// Mock brain directory
+	brainDir := filepath.Join(tmpDir, "brain", convID, ".system_generated", "logs")
+	if err := os.MkdirAll(brainDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	transcriptFile := filepath.Join(brainDir, "transcript.jsonl")
+
+	// Set env to redirect agyAppDataDir
+	t.Setenv("ANTIGRAVITY_APP_DATA_DIR", tmpDir)
+
+	// Write log file with conversation ID
+	if err := os.WriteFile(logFile, []byte("I0930 08:40:41.075572 1 server.go:1248] Created conversation "+convID+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Write initial transcript
+	if err := os.WriteFile(transcriptFile, []byte("{\"step_index\":0,\"source\":\"USER_EXPLICIT\",\"type\":\"USER_INPUT\",\"status\":\"DONE\",\"created_at\":\"2026-09-30T00:00:00Z\",\"content\":\"test\"}\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	activityCh := make(chan protocol.Message, 10)
+	sink := FuncActivitySink(func(_ protocol.AgentID, msg protocol.Message) {
+		activityCh <- msg
+	})
+
+	agySession := NewAgySession(Config{
+		Agent:             protocol.Austin,
+		DriverType:        "agy",
+		Dir:               tmpDir,
+		LogFile:           logFile,
+		AgyConversationID: convID,
+		ActivitySink:      sink,
+		Command:           "sh -c 'sleep 2'",
+	})
+
+	if err := agySession.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer agySession.Stop()
+
+	// Verify activity was captured
+	select {
+	case msg := <-activityCh:
+		if msg.Activity != protocol.ActivityAgentStart {
+			t.Fatalf("expected ActivityAgentStart, got %v", msg.Activity)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for activity from agy watcher")
+	}
+
+	// Now append a tool call
+	f, err := os.OpenFile(transcriptFile, os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = f.WriteString("{\"step_index\":1,\"source\":\"MODEL\",\"type\":\"PLANNER_RESPONSE\",\"status\":\"DONE\",\"created_at\":\"2026-09-30T00:00:01Z\",\"tool_calls\":[{\"name\":\"duo_send\",\"args\":{\"message\":\"hello peer\"}}]}\n")
+	_ = f.Close()
+
+	select {
+	case msg := <-activityCh:
+		if msg.Activity != protocol.ActivityToolStart || msg.Tool != "duo_send" || msg.Detail != "hello peer" {
+			t.Fatalf("expected ActivityToolStart duo_send with 'hello peer', got: %#v", msg)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for duo_send activity")
+	}
+}
+
