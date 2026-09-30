@@ -121,10 +121,10 @@ type AgentDriver interface {
 - [x] 在 `internal/models` 支持 `agy models` 与 `pi --list-models` 统一目录解析。
 - [x] 确保全量测试通过（`make check` 100% PASS）。
 
-### Milestone 2: 内置轻量 MCP Tool Server（状态机工具通用化）
-- [ ] 实现 Duo 内置的 `mcp_server.go`（基于 JSON-RPC stdio 或本地 socket）。
-- [ ] 将当前写在 `pi-extension/tools/*.ts` 中的状态机工具映射为通用的 MCP Tools Schema。
-- [ ] 支持通过 `--mcp-config` 导出给外部 Agent CLI 使用。
+### Milestone 2: 内置轻量 MCP Tool Server（状态机工具通用化，已完成）
+- [x] 实现 Duo 内置的 `internal/mcp/server.go`（基于 JSON-RPC 2.0 stdio，连接 Duo internal bridge）。
+- [x] 将当前写在 `pi-extension/tools/*.ts` 中的状态机工具完整映射为通用的 MCP Tools Schema（duo_status, duo_send, duo_set_status, duo_set_verification, duo_set_plan, duo_escalate）。
+- [x] 支持通过 `duo mcp-server` 运行标准 stdio MCP 服务，并支持 `--export-config` 导出给外部 Agent CLI 使用。
 
 ### Milestone 3: 研发与接入 `AgyDriver`（支持 Google Antigravity）
 - [ ] 实现 `internal/driver/agy`：

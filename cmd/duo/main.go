@@ -40,6 +40,7 @@ func main() {
 			fmt.Println("       duo apply [session-id]")
 			fmt.Println("       duo sessions [--all] [repository]")
 			fmt.Println("       duo clean [session-id] [--all] [--all-repos] [--force] [--dry-run]")
+			fmt.Println("       duo mcp-server [--agent austin|tony] [--export-config]")
 			fmt.Println()
 			fmt.Println("  duo                    start a new Fast session (Austin drives, Tony verifies)")
 			fmt.Println("  duo --mode goal        start a new Goal session (shared plan + dual sign-off)")
@@ -50,6 +51,7 @@ func main() {
 			fmt.Println("  duo apply <id>         apply one specific session's final result")
 			fmt.Println("  duo sessions           list sessions for this repository (--all for all repositories)")
 			fmt.Println("  duo clean              clean completed sessions and worktrees (--force for unfinished)")
+			fmt.Println("  duo mcp-server         serve Model Context Protocol (MCP) state machine tools")
 			fmt.Println()
 			fmt.Println("Mode is fixed for a session's lifetime. DUO_MODE sets the default for new sessions;")
 			fmt.Println("an explicit --mode wins, and --resume always uses the session's persisted mode.")
@@ -82,6 +84,11 @@ func main() {
 			return
 		case "clean":
 			if err := runClean(ctx, os.Args[2:]); err != nil && ctx.Err() == nil {
+				log.Fatal(err)
+			}
+			return
+		case "mcp-server", "mcp":
+			if err := runMCPServer(ctx, os.Args[2:]); err != nil && ctx.Err() == nil {
 				log.Fatal(err)
 			}
 			return
