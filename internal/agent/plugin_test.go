@@ -32,6 +32,18 @@ func TestPluginDiscoveryAndExternalSession(t *testing.T) {
 		t.Fatalf("LookupPlugin found %q, want %q", foundPath, pluginPath)
 	}
 
+	discovered := ListDiscoveredPlugins()
+	foundInDiscovered := false
+	for _, p := range discovered {
+		if p == "mock" {
+			foundInDiscovered = true
+			break
+		}
+	}
+	if !foundInDiscovered {
+		t.Fatalf("expected ListDiscoveredPlugins() to contain \"mock\", got %#v", discovered)
+	}
+
 	// Negative case
 	if _, ok := LookupPlugin("non_existent_plugin_xyz"); ok {
 		t.Fatalf("expected non_existent_plugin_xyz to not be found")

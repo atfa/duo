@@ -78,6 +78,20 @@ func ListDiscoveredPlugins() []string {
 		}
 	}
 
+	// Check directories in PATH
+	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+		if dir == "" {
+			continue
+		}
+		if entries, err := os.ReadDir(dir); err == nil {
+			for _, entry := range entries {
+				if !entry.IsDir() {
+					checkFile(entry.Name(), filepath.Join(dir, entry.Name()))
+				}
+			}
+		}
+	}
+
 	return plugins
 }
 

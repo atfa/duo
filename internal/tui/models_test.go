@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/atfa/duo/internal/agent"
 	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/models"
 	"github.com/atfa/duo/internal/protocol"
@@ -159,5 +160,26 @@ func TestWriteModelMarksCurrentAndShowsThinking(t *testing.T) {
 		if got := displayWidth(ansiPattern.ReplaceAllString(line, "")); got != a.width {
 			t.Errorf("picker row %d is %d columns wide, want %d: %q", i, got, a.width, line)
 		}
+	}
+}
+
+func TestWriteModelShowsLoadingDriverName(t *testing.T) {
+	a := pickerFixture()
+	a.width, a.height = 80, 24
+	a.modelLoading = true
+
+	var b strings.Builder
+	a.writeModel(&b, a.width, a.height)
+	if !strings.Contains(b.String(), "Loading models from pi…") {
+		t.Errorf("expected default pi driver loading message, got:\n%s", b.String())
+	}
+
+	mgr := agent.NewManager()
+	mgr.Add(agent.NewAgySession(agent.Config{Agent: protocol.Austin, DriverType: "agy"}))
+	a.agents = mgr
+	b.Reset()
+	a.writeModel(&b, a.width, a.height)
+	if !strings.Contains(b.String(), "Loading models from agy…") {
+		t.Errorf("expected agy driver loading message, got:\n%s", b.String())
 	}
 }

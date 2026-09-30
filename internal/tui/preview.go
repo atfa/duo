@@ -60,21 +60,29 @@ func (a *App) writePreview(b *strings.Builder, l layout) {
 // appears — plus how long the current turn has been running, which is what tells
 // a human whether a long turn is still moving or stuck. A narrow half drops the
 // turn age and then the state rather than letting header() clip them mid-word.
+func (a *App) driverName(agent protocol.AgentID) string {
+	if a.agents != nil {
+		return a.agents.DriverTypeFor(agent)
+	}
+	return "pi"
+}
+
 func (a *App) previewHeader(agent protocol.AgentID, width int) string {
 	rt := a.tracker.Snapshot(agent)
 	state := agentState(a.server.IsConnected(agent), rt, a.frame, a.processState(agent))
 	available := width - displayWidth("[↗] ")
-	full := fmt.Sprintf(" %s preview · %s ", agent, state)
+	drv := a.driverName(agent)
+	full := fmt.Sprintf(" %s preview (%s) · %s ", agent, drv, state)
 	if age := elapsedSince(rt.TurnStarted); age != "unknown" {
-		full = fmt.Sprintf(" %s preview · %s · %s ", agent, state, age)
+		full = fmt.Sprintf(" %s preview (%s) · %s · %s ", agent, drv, state, age)
 	}
 	if displayWidth(full) <= available {
 		return full
 	}
-	if short := fmt.Sprintf(" %s · %s ", agent, state); displayWidth(short) <= available {
+	if short := fmt.Sprintf(" %s (%s) · %s ", agent, drv, state); displayWidth(short) <= available {
 		return short
 	}
-	return fmt.Sprintf(" %s ", agent)
+	return fmt.Sprintf(" %s (%s) ", agent, drv)
 }
 
 // previewBody renders the work detail of one agent: what it is doing now, the

@@ -9,8 +9,10 @@ mkdir -p "$BIN_DIR"
 cd "$ROOT"
 go test ./...
 go build -o "$BIN_DIR/duo" ./cmd/duo
+go build -o "$BIN_DIR/duo-pi" ./cmd/duo-pi
+go build -o "$BIN_DIR/duo-agy" ./cmd/duo-agy
 
 echo
-echo "Installed Duo binary: $BIN_DIR/duo"
+echo "Installed Duo binaries to $BIN_DIR: duo, duo-pi, duo-agy"
 echo "Ensure $BIN_DIR is in PATH, then run:"
 echo "  cd /path/to/git/repo && duo"

@@ -92,6 +92,28 @@ func (m *Manager) Command() string {
 	return ""
 }
 
+// CommandFor returns the command used by the specified agent.
+func (m *Manager) CommandFor(agent protocol.AgentID) string {
+	if m == nil {
+		return ""
+	}
+	if d, ok := m.Driver(agent); ok {
+		return d.Command()
+	}
+	return ""
+}
+
+// DriverTypeFor returns the driver type name (e.g. "pi", "agy") used by the specified agent.
+func (m *Manager) DriverTypeFor(agent protocol.AgentID) string {
+	if m == nil {
+		return "pi"
+	}
+	if d, ok := m.Driver(agent); ok {
+		return d.DriverType()
+	}
+	return "pi"
+}
+
 func (m *Manager) ResizeAll(cols, rows int) error {
 	for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
 		if d, ok := m.Driver(agent); ok {

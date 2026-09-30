@@ -9,11 +9,69 @@ import (
 	"github.com/atfa/duo/internal/protocol"
 )
 
-// modelsResult carries an asynchronous `pi --list-models` read back to the event
-// loop. Pi takes over a second to start, so the picker must never block on it.
+// modelsResult carries an asynchronous model catalog read back to the event
+// loop. Driver CLI commands can take seconds to start, so the picker must never block on them.
 type modelsResult struct {
-	models []models.Model
-	err    error
+	agent   protocol.AgentID
+	command string
+	models  []models.Model
+	err     error
+}
+
+func (a *App) commandForTarget() string {
+	if a.agents != nil {
+		return a.agents.CommandFor(a.modelTarget)
+	}
+	return ""
+}
+
+func (a *App) driverType(agent protocol.AgentID) string {
+	if a.agents != nil {
+		return a.agents.DriverTypeFor(agent)
+	}
+	return "pi"
+}
+
+func (a *App) initModelMaps() {
+	if a.modelsByAgent == nil {
+		a.modelsByAgent = make(map[protocol.AgentID][]models.Model)
+	}
+	if a.modelLoadedByAgent == nil {
+		a.modelLoadedByAgent = make(map[protocol.AgentID]bool)
+	}
+	if a.modelLoadingByAgent == nil {
+		a.modelLoadingByAgent = make(map[protocol.AgentID]bool)
+	}
+	if a.modelErrByAgent == nil {
+		a.modelErrByAgent = make(map[protocol.AgentID]string)
+	}
+}
+
+func (a *App) syncModelsForTarget() {
+	a.initModelMaps()
+	target := a.modelTarget
+	if loaded, ok := a.modelLoadedByAgent[target]; ok && loaded {
+		a.models = a.modelsByAgent[target]
+		a.modelLoaded = true
+		a.modelLoading = false
+		a.modelErr = a.modelErrByAgent[target]
+		a.clampModelCursor()
+		return
+	}
+	if a.modelLoadingByAgent[target] {
+		a.models = nil
+		a.modelLoaded = false
+		a.modelLoading = true
+		a.modelErr = ""
+		a.clampModelCursor()
+		return
+	}
+	a.models = nil
+	a.modelLoaded = false
+	a.modelLoading = false
+	a.modelErr = ""
+	a.clampModelCursor()
+	a.loadModels()
 }
 
 // openModelPicker shows the picker and lazily reads the catalog on first use.
@@ -22,7 +80,7 @@ func (a *App) openModelPicker() {
 	a.modelFilter = a.modelFilter[:0]
 	a.modelCursor = 0
 	a.requestFullClear()
-	a.loadModels()
+	a.syncModelsForTarget()
 }
 
 func (a *App) closeModelPicker() {
@@ -32,30 +90,52 @@ func (a *App) closeModelPicker() {
 }
 
 func (a *App) loadModels() {
-	if a.modelLoading || a.modelLoaded {
+	a.initModelMaps()
+	target := a.modelTarget
+	if a.modelLoadingByAgent[target] || a.modelLoadedByAgent[target] {
 		return
 	}
-	command := ""
-	if a.agents != nil {
-		command = a.agents.Command()
-	}
+	command := a.commandForTarget()
 	a.modelLoading = true
+	a.modelLoadingByAgent[target] = true
 	go func() {
 		list, err := models.List(context.Background(), command)
-		a.modelCh <- modelsResult{models: list, err: err}
+		a.modelCh <- modelsResult{agent: target, command: command, models: list, err: err}
 	}()
 }
 
 func (a *App) applyModelList(res modelsResult) {
-	a.modelLoading = false
+	a.initModelMaps()
+	a.modelLoadingByAgent[res.agent] = false
 	if res.err != nil {
-		a.modelErr = res.err.Error()
-		a.setStatus(a.modelErr, true)
+		a.modelErrByAgent[res.agent] = res.err.Error()
 	} else {
-		a.models = res.models
-		a.modelLoaded = true
-		a.modelErr = ""
-		a.clampModelCursor()
+		a.modelsByAgent[res.agent] = res.models
+		a.modelLoadedByAgent[res.agent] = true
+		a.modelErrByAgent[res.agent] = ""
+
+		other := otherAgent(res.agent)
+		otherCmd := ""
+		if a.agents != nil {
+			otherCmd = a.agents.CommandFor(other)
+		}
+		if otherCmd == res.command && !a.modelLoadedByAgent[other] {
+			a.modelsByAgent[other] = res.models
+			a.modelLoadedByAgent[other] = true
+		}
+	}
+
+	if a.modelTarget == res.agent {
+		a.modelLoading = false
+		if res.err != nil {
+			a.modelErr = res.err.Error()
+			a.setStatus(a.modelErr, true)
+		} else {
+			a.models = res.models
+			a.modelLoaded = true
+			a.modelErr = ""
+			a.clampModelCursor()
+		}
 	}
 	a.markDirty()
 }
@@ -128,7 +208,11 @@ func (a *App) handleModelKey(key string) inputAction {
 		a.closeModelPicker()
 	case "tab":
 		a.modelTarget = otherAgent(a.modelTarget)
-		a.clampModelCursor()
+		if len(a.modelsByAgent) > 0 || a.modelLoadedByAgent[a.modelTarget] || a.modelLoadingByAgent[a.modelTarget] {
+			a.syncModelsForTarget()
+		} else {
+			a.clampModelCursor()
+		}
 	case "shift-tab":
 		return inputAction{kind: actionCycleThinking}
 	case "up":
@@ -195,10 +279,11 @@ func (a *App) writeModel(b *strings.Builder, w, h int) {
 
 	list := a.filteredModels()
 	a.clampModelCursor()
+	drv := a.driverType(a.modelTarget)
 	status := ""
 	switch {
 	case a.modelLoading:
-		status = " Loading models from Pi…"
+		status = fmt.Sprintf(" Loading models from %s…", drv)
 	case a.modelErr != "":
 		status = " " + a.modelErr
 	case len(list) == 0:

@@ -18,7 +18,7 @@ jobs:
           go-version: stable
       - run: go test ./...
       - run: go vet ./...
-      - run: CGO_ENABLED=0 go build ./cmd/duo
+      - run: CGO_ENABLED=0 go build ./cmd/duo ./cmd/duo-pi ./cmd/duo-agy
 
   build:
     needs: test
@@ -39,6 +39,8 @@ jobs:
         run: |
           mkdir -p dist/package
           CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" go build -trimpath -ldflags="-s -w" -o dist/package/duo ./cmd/duo
+          CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" go build -trimpath -ldflags="-s -w" -o dist/package/duo-pi ./cmd/duo-pi
+          CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" go build -trimpath -ldflags="-s -w" -o dist/package/duo-agy ./cmd/duo-agy
           cp -R pi-extension dist/package/pi-extension
           cp README.md LICENSE dist/package/
           tar -C dist/package -czf "dist/duo_${TARGET_OS}_${TARGET_ARCH}.tar.gz" .

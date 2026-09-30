@@ -204,3 +204,21 @@ func TestPreviewTrailDropsOldestFirst(t *testing.T) {
 		t.Fatalf("narrow trail is %d columns: %q", displayWidth(narrow), narrow)
 	}
 }
+
+func TestPreviewHeaderShowsDriver(t *testing.T) {
+	a := testApp(100, 30)
+	mgr := agent.NewManager()
+	mgr.Add(agent.NewAgySession(agent.Config{Agent: protocol.Austin, DriverType: "agy"}))
+	mgr.Add(agent.NewPiSession(agent.Config{Agent: protocol.Tony, DriverType: "pi"}))
+	a.agents = mgr
+
+	austinHeader := a.previewHeader(protocol.Austin, 50)
+	if !strings.Contains(austinHeader, "Austin preview (agy)") {
+		t.Fatalf("austinHeader = %q, want 'Austin preview (agy)'", austinHeader)
+	}
+
+	tonyHeader := a.previewHeader(protocol.Tony, 50)
+	if !strings.Contains(tonyHeader, "Tony preview (pi)") {
+		t.Fatalf("tonyHeader = %q, want 'Tony preview (pi)'", tonyHeader)
+	}
+}

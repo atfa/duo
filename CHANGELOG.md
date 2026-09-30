@@ -2,6 +2,22 @@
 
 All notable project milestones are documented here.
 
+## v0.7.0 — 2026-09-30
+
+- Pluggable Agent Driver Architecture: Refactored Duo agent orchestration into a universal `Driver` interface (`agent.Driver`), abstracting process lifecycle, PTY interaction, and activity monitoring away from Pi-specific assumptions.
+- Antigravity Driver (`agy`): Added first-class support for Google Antigravity CLI agents. Operates via live JSONL transcript observation and streaming activity extraction to monitor tools, thinking states, streamed text, and errors seamlessly in the Duo TUI.
+- Embedded Stdio MCP Server: Added an embedded Model Context Protocol (MCP) server (`internal/mcp`) exposing standard Duo coordination tools (`duo_send`, `duo_set_status`, `duo_set_plan`, `duo_set_verification`, `duo_escalate`) via JSON-RPC 2.0 stdio transport for MCP-native agents.
+- External Driver Plugin Discovery & Standalone Binaries:
+  - Added support for external driver plugins following the `duo-driver-<name>` and `duo-<name>` naming conventions in `~/.duo/plugins/` and `$PATH`.
+  - Added standalone `duo-pi` and `duo-agy` binaries.
+  - New `duo plugins` command lists built-in drivers (`pi`, `agy`) and discovered external plugins with executable paths and readiness status.
+  - Per-agent driver selection via CLI (`--austin-driver`, `--tony-driver`, `--driver`), environment variables (`DUO_AUSTIN_DRIVER`, `DUO_TONY_DRIVER`), and config files.
+- Multi-driver TUI Experience:
+  - Work preview headers for Austin and Tony now prominently indicate the active driver, e.g. `Austin preview (agy) · working · 5s` or `Tony preview (pi) · idle`.
+  - The model picker (`Ctrl+M`) displays dynamic, driver-accurate loading status (" Loading models from <driver>…") matching the target agent's driver.
+  - Model catalog queries automatically execute the appropriate driver command (`pi --list-models` or `agy models`) and cache catalogs per agent, allowing Austin and Tony to run on different drivers simultaneously.
+- Packaging & Distribution: Updated `scripts/install.sh`, `scripts/install-release.sh`, and GitHub Actions release workflows to build, package, and distribute `duo`, `duo-pi`, and `duo-agy`.
+
 ## v0.6.0 — 2026-09-30
 
 - Interactive slash command palette and autocomplete: Typing `/` in the composer opens a command palette with real-time fuzzy filtering and command descriptions. Navigate options with `↑` / `↓` (circular selection), press `Tab` to autocomplete, press `Enter` to execute immediately (or fill command arguments for `/escalate` and `/mode`), and press `Esc` to dismiss. Supported commands: `/escalate [reason]`, `/mode <fast|goal>`, `/model`, `/overview`, `/preview`, `/timestamps`, `/help`, `/status`, `/clear`, `/quit`, and `/exit`.

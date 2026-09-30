@@ -359,7 +359,7 @@ func (s *Server) handleRequest(ctx context.Context, req jsonRPCRequest) *jsonRPC
 				},
 				"serverInfo": map[string]any{
 					"name":    "duo-mcp-server",
-					"version": "v0.6.0",
+					"version": "v0.7.0",
 				},
 			},
 		}

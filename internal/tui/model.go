@@ -92,19 +92,23 @@ type App struct {
 	slashCursor    int
 	slashDismissed bool
 
-	// Model picker (Ctrl+M). The catalog is read once from `pi --list-models`;
+	// Model picker (Ctrl+M). The catalog is read from the agent's driver CLI;
 	// the active model and thinking level are reported by each agent's bridge, so
-	// the picker only displays what Pi confirms.
-	modelTarget     protocol.AgentID
-	modelFilter     []byte
-	modelCursor     int
-	models          []models.Model
-	modelLoading    bool
-	modelLoaded     bool
-	modelErr        string
-	modelCh         chan modelsResult
-	currentModel    map[protocol.AgentID]string
-	currentThinking map[protocol.AgentID]string
+	// the picker only displays what the driver confirms.
+	modelTarget         protocol.AgentID
+	modelFilter         []byte
+	modelCursor         int
+	models              []models.Model
+	modelLoading        bool
+	modelLoaded         bool
+	modelErr            string
+	modelCh             chan modelsResult
+	modelsByAgent       map[protocol.AgentID][]models.Model
+	modelLoadedByAgent  map[protocol.AgentID]bool
+	modelLoadingByAgent map[protocol.AgentID]bool
+	modelErrByAgent     map[protocol.AgentID]string
+	currentModel        map[protocol.AgentID]string
+	currentThinking     map[protocol.AgentID]string
 
 	showTimestamps bool
 	detailOffset   int
@@ -157,9 +161,13 @@ func New(
 	a := &App{coord: coord, state: state, tracker: tracker, ws: ws, server: server, agents: agents, bus: bus, version: version, journal: journal, historyIdx: -1,
 		history:        loadComposerHistory(),
 		modelTarget:    protocol.Austin, modelCh: make(chan modelsResult, 1),
-		timeline:       true,
-		showTimestamps: true,
-		currentModel:   map[protocol.AgentID]string{}, currentThinking: map[protocol.AgentID]string{}}
+		modelsByAgent:       map[protocol.AgentID][]models.Model{},
+		modelLoadedByAgent:  map[protocol.AgentID]bool{},
+		modelLoadingByAgent: map[protocol.AgentID]bool{},
+		modelErrByAgent:     map[protocol.AgentID]string{},
+		timeline:            true,
+		showTimestamps:      true,
+		currentModel:        map[protocol.AgentID]string{}, currentThinking: map[protocol.AgentID]string{}}
 	for _, item := range history {
 		a.restoreEntry(item)
 	}

@@ -30,6 +30,8 @@ bin_dir="${HOME}/.local/bin"
 extension_dir="${HOME}/.pi/agent/extensions/duo"
 mkdir -p "$bin_dir" "$(dirname "$extension_dir")"
 install -m 0755 "$tmp/duo" "$bin_dir/duo"
+[ -f "$tmp/duo-pi" ] && install -m 0755 "$tmp/duo-pi" "$bin_dir/duo-pi"
+[ -f "$tmp/duo-agy" ] && install -m 0755 "$tmp/duo-agy" "$bin_dir/duo-agy"
 rm -rf "$extension_dir"
 cp -R "$tmp/pi-extension" "$extension_dir"
 

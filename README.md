@@ -17,7 +17,7 @@ The runtime is a Go coordination core plus a deliberately thin Pi bridge. Duo en
 - **Isolated, never destructive.** Austin and Tony never share a working tree, and Duo will not rewrite the history of the repository you launched it from.
 - **Durable.** Sessions survive a crash and can be resumed, including their mode, worktrees and Pi conversation identity.
 
-Current release: **v0.6.0** — see [CHANGELOG.md](./CHANGELOG.md) for the full history.
+Current release: **v0.7.0** — see [CHANGELOG.md](./CHANGELOG.md) for the full history.
 
 ## Quick start
 
