@@ -236,10 +236,6 @@ func (a *App) applySelectedModel(ctx context.Context, keepOpen bool) {
 		a.setStatus(err.Error(), true)
 		return
 	}
-	if a.currentModel == nil {
-		a.currentModel = make(map[protocol.AgentID]string)
-	}
-	a.currentModel[a.modelTarget] = model.Reference()
 	if a.agents != nil {
 		if d, ok := a.agents.Driver(a.modelTarget); ok {
 			// The launch flag needs the provider-qualified reference: opencode
@@ -247,10 +243,23 @@ func (a *App) applySelectedModel(ctx context.Context, keepOpen bool) {
 			// provider prefix itself, and pi takes the model over the bridge.
 			d.SetModel(model.Reference())
 			if needsRestartForModel(d.DriverType()) {
-				_ = d.RestartRunning(ctx)
+				// The model only reaches a non-pi agent as a startup flag, and
+				// RestartRunning stops before it starts, so a failure here leaves
+				// the agent dead. Report it instead of claiming the new model.
+				if err := d.RestartRunning(ctx); err != nil {
+					a.setStatus(fmt.Sprintf("%s model → %s failed: %v", a.modelTarget, model.Reference(), err), true)
+					if !keepOpen {
+						a.closeModelPicker()
+					}
+					return
+				}
 			}
 		}
 	}
+	if a.currentModel == nil {
+		a.currentModel = make(map[protocol.AgentID]string)
+	}
+	a.currentModel[a.modelTarget] = model.Reference()
 	if a.ws != nil && a.ws.Set().Repository != "" {
 		repoRoot := a.ws.Set().Repository
 		agentDrivers := map[protocol.AgentID]string{

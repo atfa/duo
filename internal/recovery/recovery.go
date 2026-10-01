@@ -265,6 +265,18 @@ func Reconcile(ctx context.Context, ws *workspace.GitManager, snap sessionstore.
 	out := snap
 	report := Report{Phase: project.Phase(snap.Phase)}
 
+	// A hand-edited or truncated state.json can decode without these objects, and
+	// the rules below assign into them.
+	if out.Ready == nil {
+		out.Ready = make(map[protocol.AgentID]bool, len(agents))
+	}
+	if out.Notes == nil {
+		out.Notes = make(map[protocol.AgentID]string, len(agents))
+	}
+	if out.Evidence == nil {
+		out.Evidence = make(map[protocol.AgentID]string, len(agents))
+	}
+
 	mergeState, err := ws.MergeState(ctx, protocol.Austin)
 	if err != nil {
 		return Result{}, err
@@ -303,7 +315,11 @@ func Reconcile(ctx context.Context, ws *workspace.GitManager, snap sessionstore.
 		if err != nil {
 			return Result{}, err
 		}
-		if merged && tonyHead != "" && austinHead != snap.BaseCommit {
+		// Both sides must have moved off the base commit. Capturing an artifact
+		// only requires a clean worktree, not a new commit, so Tony legitimately
+		// sits at base; base is then an ancestor of Austin and `merged` is
+		// trivially true, which would record a merge that never happened.
+		if merged && tonyHead != "" && tonyHead != snap.BaseCommit && austinHead != snap.BaseCommit {
 			report.IntegrationRecovered = true
 			report.Notes = append(report.Notes, "Tony's work is already merged into Austin; integration recorded as complete")
 			report.Phase = project.PhaseIntegrate
@@ -331,7 +347,7 @@ func Reconcile(ctx context.Context, ws *workspace.GitManager, snap sessionstore.
 				out.Notes[protocol.Tony] = ""
 				out.Notes[protocol.Austin] = "the verified artifact changed; verification revoked on resume, request verification again when ready"
 				report.Phase = project.PhaseRunning
-				report.Revoked = append(report.Revoked, protocol.Tony)
+				report.Revoked = append(report.Revoked, protocol.Austin)
 				report.Notes = append(report.Notes, "Fast verification no longer matches Austin's HEAD; returned to RUNNING")
 			}
 		}
