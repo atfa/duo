@@ -23,14 +23,20 @@ type ProjectAgentFile struct {
 	Model  string `json:"model,omitempty"`
 }
 
-// EnsureGitIgnore ensures that both .gitignore and .git/info/exclude exclude .duo/.
+// EnsureGitIgnore excludes .duo/ from Git using .git/info/exclude only.
+//
+// Duo deliberately does not write to the user's .gitignore. That file is
+// tracked, so adding a line dirties the repository the user is working in and
+// makes "is my repo clean?" depend on Duo having run. .git/info/exclude is
+// local, untracked, and shared by every worktree of the repository, so it hides
+// .duo/ everywhere without touching anything the user can see in a commit.
 func EnsureGitIgnore(repoRoot string) error {
 	repoRoot = strings.TrimSpace(repoRoot)
 	if repoRoot == "" {
 		return nil
 	}
 	ensureGitExclude(repoRoot)
-	return appendLineIfMissing(filepath.Join(repoRoot, ".gitignore"), ".duo/")
+	return nil
 }
 
 func appendLineIfMissing(path string, entry string) error {

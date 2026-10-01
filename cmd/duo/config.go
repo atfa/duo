@@ -154,7 +154,7 @@ func parseArgs(args []string) (cliArgs, error) {
 			out.testCommand = strings.TrimSpace(strings.TrimPrefix(arg, "--test-cmd="))
 		case arg == "--agent" || arg == "--driver":
 			if i+1 >= len(args) {
-				return out, fmt.Errorf("%s requires a value (pi or agy)", arg)
+				return out, fmt.Errorf("%s requires a value (pi, agy or opencode)", arg)
 			}
 			out.driver = strings.TrimSpace(args[i+1])
 			i++
@@ -350,7 +350,12 @@ func loadConfig(args []string) (config, error) {
 		}
 
 		baseCmd := "agy"
-		if driverType != "agy" {
+		switch driverType {
+		case "agy":
+			baseCmd = "agy"
+		case "opencode":
+			baseCmd = "opencode"
+		default:
 			baseCmd = piCommand
 		}
 		if agentCfg.Command != "" {
@@ -358,6 +363,9 @@ func loadConfig(args []string) (config, error) {
 		}
 		if strings.HasPrefix(baseCmd, "agy") || strings.Contains(baseCmd, "/agy") {
 			driverType = "agy"
+		}
+		if strings.Contains(baseCmd, "opencode") {
+			driverType = "opencode"
 		}
 
 		model := agentCfg.Model
@@ -376,8 +384,15 @@ func loadConfig(args []string) (config, error) {
 			}
 			baseCmd = baseCmd + " --model " + modelArg
 		}
-		if agentCfg.Thinking != "" && !hasFlag(baseCmd, "--thinking") {
-			baseCmd = baseCmd + " --thinking " + agentCfg.Thinking
+		if agentCfg.Thinking != "" {
+			// opencode spells reasoning effort --variant.
+			flag := "--thinking"
+			if driverType == "opencode" {
+				flag = "--variant"
+			}
+			if !hasFlag(baseCmd, flag) {
+				baseCmd = baseCmd + " " + flag + " " + agentCfg.Thinking
+			}
 		}
 		agentCommands[id] = baseCmd
 		agentDrivers[id] = driverType

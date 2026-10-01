@@ -59,7 +59,7 @@ func (s ProcessState) String() string {
 
 type Config struct {
 	Agent                                    protocol.AgentID
-	DriverType                               string // "pi" or "agy"
+	DriverType                               string // "pi", "agy" or "opencode"
 	Mode                                     string
 	Dir, Host, Port, Session, Token, Command string
 	RepositoryRoot, ScopePath                string
@@ -68,6 +68,13 @@ type Config struct {
 	PiSessionID string
 	// AgyConversationID is Duo's stable identity for this agent's Agy conversation.
 	AgyConversationID string
+	// OpencodeSessionID is the opencode session this agent reattaches to. Unlike
+	// pi and agy, opencode assigns session ids server-side, so this is empty on a
+	// first run and learned from the plugin afterwards (see OpencodeSessionFile).
+	OpencodeSessionID string
+	// OpencodeSessionFile is a path the opencode plugin writes its session id to.
+	// Duo reads it once the agent is running so the identity can be persisted.
+	OpencodeSessionFile string
 	// ActivitySink receives observed activity events (used by agy driver).
 	ActivitySink AgyActivitySink
 	// LogFile is the path to the CLI log file where conversation IDs are logged.
@@ -108,9 +115,12 @@ func NewSession(cfg Config) *Session {
 		cfg.DriverType = "pi"
 	}
 	if strings.TrimSpace(cfg.Command) == "" {
-		if cfg.DriverType == "agy" {
+		switch cfg.DriverType {
+		case "agy":
 			cfg.Command = "agy"
-		} else {
+		case "opencode":
+			cfg.Command = "opencode"
+		default:
 			cfg.Command = "pi"
 		}
 	}
@@ -133,6 +143,24 @@ func NewAgySession(cfg Config) *Session {
 	return NewSession(cfg)
 }
 
+func NewOpencodeSession(cfg Config) *Session {
+	cfg.DriverType = "opencode"
+	if strings.TrimSpace(cfg.Command) == "" {
+		cfg.Command = "opencode"
+	}
+	// opencode rejects --session for an id it has never issued ("Session not
+	// found"), and it owns the id format. Anything that is not an opencode
+	// session id is ignored rather than passed through: a fresh Duo run has a
+	// placeholder identity here, and opencode must be allowed to mint its own.
+	if !strings.HasPrefix(strings.TrimSpace(cfg.OpencodeSessionID), "ses_") {
+		cfg.OpencodeSessionID = ""
+	}
+	if strings.TrimSpace(cfg.OpencodeSessionFile) == "" {
+		cfg.OpencodeSessionFile = filepath.Join(os.TempDir(), fmt.Sprintf("duo-opencode-%s-%s.session", cfg.Session, strings.ToLower(string(cfg.Agent))))
+	}
+	return NewSession(cfg)
+}
+
 func (s *Session) Agent() protocol.AgentID { return s.cfg.Agent }
 func (s *Session) DriverType() string {
 	if s.cfg.DriverType != "" {
@@ -141,10 +169,14 @@ func (s *Session) DriverType() string {
 	return "pi"
 }
 func (s *Session) SessionID() string {
-	if s.DriverType() == "agy" {
+	switch {
+	case s.isAgy():
 		return s.AgyConversationID()
+	case s.isOpencode():
+		return s.OpencodeSessionID()
+	default:
+		return s.cfg.PiSessionID
 	}
-	return s.cfg.PiSessionID
 }
 func (s *Session) Command() string { return s.cfg.Command }
 func (s *Session) SetOnExit(fn func(ExitEvent)) {
@@ -200,20 +232,92 @@ func (s *Session) AgyConversationID() string {
 	return s.cfg.Session + "-" + string(s.cfg.Agent)
 }
 
-// sessionFlags are the Pi CLI flags that select or control a session. When
-// DUO_PI_COMMAND already contains one, Duo never injects its own --session-id,
-// so an explicit operator choice is preserved rather than overridden.
+// OpencodeSessionID returns the opencode session identity for this agent, which
+// opencode assigns itself. It is empty until the plugin has reported it.
+func (s *Session) OpencodeSessionID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return strings.TrimSpace(s.cfg.OpencodeSessionID)
+}
+
+// Flags that suppress Duo's own flag injection, per driver. Detection matches
+// whole tokens only: a substring test for "-c" also matches "--config", which
+// silently cost an agy agent its conversation ID.
+var (
+	piSessionFlags       = []string{"--session-id", "--session", "--continue", "--resume", "--fork", "--no-session", "-c", "-r"}
+	agySessionFlags      = []string{"--conversation", "-c"}
+	opencodeSessionFlags = []string{"--session", "-s", "--continue", "-c", "--fork"}
+)
+
+// hasSessionFlag reports whether the operator's Pi command already selects a
+// session, so an explicit choice is preserved rather than overridden.
 func hasSessionFlag(command string) bool {
+	return hasAnyFlag(command, piSessionFlags)
+}
+
+func hasAnyFlag(command string, names []string) bool {
 	for _, token := range strings.Fields(command) {
-		switch token {
-		case "--session-id", "--session", "--continue", "--resume", "--fork", "--no-session", "-c", "-r":
-			return true
-		}
-		if strings.HasPrefix(token, "--session-id=") || strings.HasPrefix(token, "--session=") {
-			return true
+		for _, name := range names {
+			if token == name || strings.HasPrefix(token, name+"=") {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+// shellQuote quotes a value for /bin/sh. It is used instead of %q because %q
+// produces Go escaping, not shell escaping: "a$b" would expand $b and
+// "x`id`y" would run id. Single quotes suppress both.
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
+}
+
+// stripProviderPrefix removes a provider prefix from a model reference. A model
+// ID may itself contain a slash, so the last segment is the model.
+func stripProviderPrefix(model string) string {
+	model = strings.TrimSpace(model)
+	if idx := strings.LastIndex(model, "/"); idx != -1 {
+		return model[idx+1:]
+	}
+	return model
+}
+
+// readFlagValue returns the value of flag in a command string, accepting both
+// the "--flag value" and "--flag=value" spellings.
+func readFlagValue(command, flag string) (string, bool) {
+	tokens := strings.Fields(command)
+	for i, token := range tokens {
+		if token == flag && i+1 < len(tokens) {
+			return strings.Trim(tokens[i+1], `"'`), true
+		}
+		if strings.HasPrefix(token, flag+"=") {
+			return strings.Trim(strings.TrimPrefix(token, flag+"="), `"'`), true
+		}
+	}
+	return "", false
+}
+
+// setFlagInCommand sets flag=value in a shell command string, replacing any
+// existing occurrence and appending when absent. It returns the command with
+// the flag applied. Values are shell-quoted.
+func setFlagInCommand(command, flag, value string) string {
+	tokens := strings.Fields(command)
+	prefix := flag + "="
+	for i := 0; i < len(tokens); i++ {
+		if tokens[i] == flag && i+1 < len(tokens) {
+			tokens[i+1] = shellQuote(value)
+			return strings.Join(tokens, " ")
+		}
+		if strings.HasPrefix(tokens[i], prefix) {
+			tokens[i] = prefix + shellQuote(value)
+			return strings.Join(tokens, " ")
+		}
+	}
+	if value == "" {
+		return command
+	}
+	return command + " " + flag + " " + shellQuote(value)
 }
 
 func (s *Session) isAgy() bool {
@@ -221,12 +325,21 @@ func (s *Session) isAgy() bool {
 	return drv == "agy" || strings.Contains(drv, "agy") || strings.HasPrefix(s.cfg.Command, "agy") || strings.Contains(s.cfg.Command, "duo-agy")
 }
 
+func (s *Session) isOpencode() bool {
+	drv := s.DriverType()
+	return drv == "opencode" || strings.Contains(drv, "opencode") || strings.Contains(s.cfg.Command, "opencode")
+}
+
 // commandLine is the shell command used to launch the agent.
 func (s *Session) commandLine() string {
-	if s.isAgy() {
+	switch {
+	case s.isOpencode():
+		return s.opencodeCommandLine()
+	case s.isAgy():
 		return s.agyCommandLine()
+	default:
+		return s.piCommandLine()
 	}
-	return s.piCommandLine()
 }
 
 func (s *Session) piCommandLine() string {
@@ -241,46 +354,15 @@ func (s *Session) piCommandLine() string {
 }
 
 func setAgyModel(base string, model string) string {
-	if idx := strings.Index(model, "/"); idx != -1 {
-		model = model[idx+1:]
+	if model = stripProviderPrefix(model); model != "" {
+		return setFlagInCommand(base, "--model", model)
 	}
-	model = strings.TrimSpace(model)
-	tokens := strings.Fields(base)
-	hasModel := false
-	for i := 0; i < len(tokens); i++ {
-		if tokens[i] == "--model" {
-			if i+1 < len(tokens) {
-				if model != "" {
-					tokens[i+1] = fmt.Sprintf("%q", model)
-				} else {
-					val := strings.Trim(tokens[i+1], `"'`)
-					if idx := strings.Index(val, "/"); idx != -1 {
-						val = val[idx+1:]
-					}
-					tokens[i+1] = fmt.Sprintf("%q", val)
-				}
-				hasModel = true
-				break
-			}
-		} else if strings.HasPrefix(tokens[i], "--model=") {
-			if model != "" {
-				tokens[i] = fmt.Sprintf("--model=%q", model)
-			} else {
-				val := strings.TrimPrefix(tokens[i], "--model=")
-				val = strings.Trim(val, `"'`)
-				if idx := strings.Index(val, "/"); idx != -1 {
-					val = val[idx+1:]
-				}
-				tokens[i] = fmt.Sprintf("--model=%q", val)
-			}
-			hasModel = true
-			break
-		}
+	// No model was selected, but the operator's own command may still carry a
+	// provider-prefixed --model. Normalize it in place so agy sees the bare name.
+	if existing, ok := readFlagValue(base, "--model"); ok {
+		return setFlagInCommand(base, "--model", stripProviderPrefix(existing))
 	}
-	if !hasModel && model != "" {
-		tokens = append(tokens, fmt.Sprintf("--model %q", model))
-	}
-	return strings.Join(tokens, " ")
+	return base
 }
 
 func setAgyEffort(base string, effort string) string {
@@ -288,25 +370,7 @@ func setAgyEffort(base string, effort string) string {
 	if effort == "" {
 		return base
 	}
-	tokens := strings.Fields(base)
-	hasEffort := false
-	for i := 0; i < len(tokens); i++ {
-		if tokens[i] == "--effort" {
-			if i+1 < len(tokens) {
-				tokens[i+1] = fmt.Sprintf("%q", effort)
-				hasEffort = true
-				break
-			}
-		} else if strings.HasPrefix(tokens[i], "--effort=") {
-			tokens[i] = fmt.Sprintf("--effort=%q", effort)
-			hasEffort = true
-			break
-		}
-	}
-	if !hasEffort {
-		tokens = append(tokens, fmt.Sprintf("--effort %q", effort))
-	}
-	return strings.Join(tokens, " ")
+	return setFlagInCommand(base, "--effort", effort)
 }
 
 func (s *Session) agyCommandLine() string {
@@ -319,7 +383,10 @@ func (s *Session) agyCommandLine() string {
 		base = setAgyEffort(base, s.effort)
 	}
 	parts := []string{base}
-	if !strings.Contains(base, "--conversation") && !strings.Contains(base, "-c") {
+	// Token-exact match: a substring test for "-c" also matches "--config",
+	// which would silently drop the conversation ID and lose this agent's
+	// identity across restarts.
+	if !hasAnyFlag(base, agySessionFlags) {
 		if strings.TrimSpace(s.AgyConversationID()) != "" {
 			parts = append(parts, `--conversation "$DUO_AGY_CONVERSATION_ID"`)
 		}
@@ -328,13 +395,37 @@ func (s *Session) agyCommandLine() string {
 		parts = append(parts, "--dangerously-skip-permissions")
 	}
 	if s.cfg.LogFile != "" && !strings.Contains(base, "--log-file") {
-		parts = append(parts, fmt.Sprintf("--log-file %q", s.cfg.LogFile))
+		parts = append(parts, "--log-file "+shellQuote(s.cfg.LogFile))
 	}
 	return strings.Join(parts, " ")
 }
 
 // EffectiveCommand returns the command Duo will actually run, for diagnostics.
 func (s *Session) EffectiveCommand() string { return s.commandLine() }
+
+// opencodeCommandLine builds the opencode launch command. opencode's session id
+// is assigned by the server, so --session is only injected once Duo knows it
+// (a resumed session); on a first run the plugin reports the id back and Duo
+// persists it for next time.
+func (s *Session) opencodeCommandLine() string {
+	base := strings.TrimSpace(s.cfg.Command)
+	if base == "" {
+		base = "opencode"
+	}
+	if m := strings.TrimSpace(s.model); m != "" {
+		base = setFlagInCommand(base, "--model", m)
+	}
+	parts := []string{base}
+	if sid := strings.TrimSpace(s.cfg.OpencodeSessionID); sid != "" && !hasAnyFlag(base, opencodeSessionFlags) {
+		parts = append(parts, "--session "+shellQuote(sid))
+	}
+	// Agents run unattended in their own worktree, so tool calls must not block
+	// on an interactive permission prompt.
+	if !strings.Contains(base, "--auto") {
+		parts = append(parts, "--auto")
+	}
+	return strings.Join(parts, " ")
+}
 
 // PiSessionID returns the stable Pi session identity for this agent.
 func (s *Session) PiSessionID() string { return s.cfg.PiSessionID }
@@ -358,6 +449,13 @@ func (s *Session) Start(ctx context.Context) error {
 		}
 		_ = EnsureAgyWorkspaceTrusted(s.cfg.Dir, s.cfg.RepositoryRoot)
 	}
+	if s.isOpencode() {
+		// The plugin rewrites this file with the id opencode assigned, so a stale
+		// value from a previous run must never be picked up as this run's id.
+		if s.cfg.OpencodeSessionFile != "" {
+			_ = os.Remove(s.cfg.OpencodeSessionFile)
+		}
+	}
 	// A shell preserves the existing DUO_PI_COMMAND behavior (including arguments)
 	// and expands "$DUO_PI_SESSION_ID" safely.
 	cmd := exec.Command("sh", "-lc", "exec "+s.commandLine())
@@ -374,6 +472,8 @@ func (s *Session) Start(ctx context.Context) error {
 		"DUO_PI_SESSION_ID="+s.cfg.PiSessionID,
 		"DUO_AGY_CONVERSATION_ID="+s.AgyConversationID(),
 		"DUO_AGY_LOG_FILE="+s.cfg.LogFile,
+		"DUO_OPENCODE_SESSION_ID="+s.cfg.OpencodeSessionID,
+		"DUO_OPENCODE_SESSION_FILE="+s.cfg.OpencodeSessionFile,
 		"DUO_REPOSITORY_ROOT="+s.cfg.RepositoryRoot,
 		"DUO_SCOPE_PATH="+s.cfg.ScopePath,
 		"TERM=xterm-256color",
@@ -427,7 +527,45 @@ func (s *Session) Start(ctx context.Context) error {
 	if s.isAgy() && s.cfg.ActivitySink != nil {
 		go s.startAgyWatcher(ctx)
 	}
+	if s.isOpencode() {
+		go s.watchOpencodeSession(ctx)
+	}
 	return nil
+}
+
+// watchOpencodeSession waits for the plugin to report the session id opencode
+// assigned. The id is the only thing that survives a restart, so it is read as
+// soon as it appears and kept on the session for the snapshot to persist.
+func (s *Session) watchOpencodeSession(ctx context.Context) {
+	path := strings.TrimSpace(s.cfg.OpencodeSessionFile)
+	if path == "" {
+		return
+	}
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			data, err := os.ReadFile(path)
+			if err != nil {
+				continue
+			}
+			id := strings.TrimSpace(string(data))
+			if id == "" || !strings.HasPrefix(id, "ses_") {
+				continue
+			}
+			s.mu.Lock()
+			if s.cfg.OpencodeSessionID == id {
+				s.mu.Unlock()
+				return
+			}
+			s.cfg.OpencodeSessionID = id
+			s.mu.Unlock()
+			return
+		}
+	}
 }
 
 func (s *Session) readLoop(r io.Reader, done <-chan struct{}) {

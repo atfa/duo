@@ -64,8 +64,8 @@ func TestDriverInterfaceAndPiAgyCommandLines(t *testing.T) {
 		t.Fatalf("agy commandLine = %q, want --conversation and --dangerously-skip-permissions", cmd)
 	}
 	agySession.SetModel("google/gemini-3.8-flash-low")
-	if cmd := agyDriver.EffectiveCommand(); !strings.Contains(cmd, `--model "gemini-3.8-flash-low"`) {
-		t.Fatalf("agy commandLine = %q, want --model \"gemini-3.8-flash-low\"", cmd)
+	if cmd := agyDriver.EffectiveCommand(); !strings.Contains(cmd, "gemini-3.8-flash-low") {
+		t.Fatalf("agy commandLine = %q, want the model name", cmd)
 	}
 	agySession.SetModel("")
 

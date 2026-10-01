@@ -33,9 +33,9 @@ func (m Model) Reference() string {
 	return m.Provider + "/" + m.ID
 }
 
-// List runs `pi --list-models` and returns the catalog. The command is the same
-// one Duo launches its agents with, so flags such as a custom config directory
-// are honored; `--list-models` is appended last.
+// List runs the driver's own model-listing command and returns the catalog. The
+// command is the same one Duo launches its agents with, so flags such as a custom
+// config directory are honored; the listing flag is appended last.
 func List(ctx context.Context, command string) ([]Model, error) {
 	command = strings.TrimSpace(command)
 	if command == "" {
@@ -45,10 +45,13 @@ func List(ctx context.Context, command string) ([]Model, error) {
 	defer cancel()
 
 	var listCmd string
-	isAgy := strings.HasPrefix(command, "agy") || strings.Contains(command, "/agy")
-	if isAgy {
+	kind := driverKind(command)
+	switch kind {
+	case "agy":
 		listCmd = command + " models"
-	} else {
+	case "opencode":
+		listCmd = command + " models"
+	default:
 		listCmd = command + " --list-models"
 	}
 
@@ -65,15 +68,62 @@ func List(ctx context.Context, command string) ([]Model, error) {
 	}
 
 	var list []Model
-	if isAgy {
+	switch kind {
+	case "agy":
 		list = parseAgyModels(stdout.String())
-	} else {
+	case "opencode":
+		list = parseOpencodeModels(stdout.String())
+	default:
 		list = parse(stdout.String())
 	}
 	if len(list) == 0 {
 		return nil, fmt.Errorf("no models reported by %q", command)
 	}
 	return list, nil
+}
+
+// driverKind identifies which agent CLI a launch command refers to, so the
+// model catalog is read with that CLI's own listing syntax.
+func driverKind(command string) string {
+	trimmed := strings.TrimSpace(command)
+	switch {
+	case strings.HasPrefix(trimmed, "agy") || strings.Contains(trimmed, "/agy"):
+		return "agy"
+	case strings.HasPrefix(trimmed, "opencode") || strings.Contains(trimmed, "opencode"):
+		return "opencode"
+	default:
+		return "pi"
+	}
+}
+
+// parseOpencodeModels reads `opencode models`, which prints one plain
+// provider/model reference per line.
+func parseOpencodeModels(output string) []Model {
+	var list []Model
+	seen := make(map[string]bool)
+	output = strings.ReplaceAll(output, "\r", "\n")
+	for _, rawLine := range strings.Split(output, "\n") {
+		line := strings.TrimSpace(rawLine)
+		if line == "" {
+			continue
+		}
+		provider, id, ok := strings.Cut(line, "/")
+		if !ok {
+			continue
+		}
+		provider = strings.TrimSpace(provider)
+		id = strings.TrimSpace(id)
+		if provider == "" || id == "" {
+			continue
+		}
+		key := provider + "/" + id
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		list = append(list, Model{Provider: provider, ID: id})
+	}
+	return list
 }
 
 func parseAgyModels(output string) []Model {
@@ -145,10 +195,18 @@ func parse(output string) []Model {
 // For "agy", it returns "gemini-3.8-flash-high".
 // For "pi" (or unspecified), it inspects ~/.pi/agent/settings.json if present,
 // falling back to "anthropic/claude-sonnet-4-6".
+// For "opencode" it returns the user's configured model, or "" to let opencode
+// resolve its own default.
 func DefaultModelForDriver(driverType string) string {
 	switch strings.ToLower(strings.TrimSpace(driverType)) {
 	case "agy":
 		return "gemini-3.8-flash-high"
+	case "opencode":
+		// opencode resolves its own default model (global config, then its
+		// built-in catalog). Injecting a foreign provider id here would fail
+		// with "Model not found", so an unconfigured opencode gets no --model
+		// and keeps opencode's own choice.
+		return opencodeConfiguredModel()
 	case "pi", "":
 		if home, err := os.UserHomeDir(); err == nil {
 			settingsPath := filepath.Join(home, ".pi", "agent", "settings.json")
@@ -176,4 +234,24 @@ func DefaultModelForDriver(driverType string) string {
 	default:
 		return "anthropic/claude-sonnet-4-6"
 	}
+}
+
+// opencodeConfiguredModel reads the model the user already configured for
+// opencode, so Duo does not override their choice with a guess.
+func opencodeConfiguredModel() string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(home, ".config", "opencode", "opencode.json"))
+	if err != nil {
+		return ""
+	}
+	var cfg struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(cfg.Model)
 }

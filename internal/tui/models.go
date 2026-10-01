@@ -26,6 +26,13 @@ func (a *App) commandForTarget() string {
 	return ""
 }
 
+// needsRestartForModel reports whether a driver picks up a new model only at
+// launch. Pi has a live bridge and switches in place; the CLI-only drivers take
+// the model as a startup flag, so changing it means restarting the agent.
+func needsRestartForModel(driverType string) bool {
+	return driverType != "pi"
+}
+
 func (a *App) driverType(agent protocol.AgentID) string {
 	if a.agents != nil {
 		return a.agents.DriverTypeFor(agent)
@@ -236,7 +243,7 @@ func (a *App) applySelectedModel(ctx context.Context, keepOpen bool) {
 	if a.agents != nil {
 		if d, ok := a.agents.Driver(a.modelTarget); ok {
 			d.SetModel(model.ID)
-			if d.DriverType() == "agy" {
+			if needsRestartForModel(d.DriverType()) {
 				_ = d.RestartRunning(ctx)
 			}
 		}

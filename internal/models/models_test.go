@@ -97,3 +97,42 @@ func TestDefaultModelForDriver(t *testing.T) {
 	}
 }
 
+// `opencode models` prints one plain provider/model reference per line.
+func TestParseOpencodeModels(t *testing.T) {
+	output := "opencode/claude-sonnet-4-6\nanthropic/claude-sonnet-4-5\nopencode/gemini-3.8-flash\nbroken-line-without-provider\n\n/opencode/leading-slash\n"
+
+	got := parseOpencodeModels(output)
+	want := []Model{
+		{Provider: "opencode", ID: "claude-sonnet-4-6"},
+		{Provider: "anthropic", ID: "claude-sonnet-4-5"},
+		{Provider: "opencode", ID: "gemini-3.8-flash"},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("parsed %d models, want %d: %#v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("model %d = %#v, want %#v", i, got[i], want[i])
+		}
+	}
+	if ref := got[0].Reference(); ref != "opencode/claude-sonnet-4-6" {
+		t.Errorf("Reference() = %q, want opencode/claude-sonnet-4-6", ref)
+	}
+}
+
+func TestDriverKind(t *testing.T) {
+	cases := map[string]string{
+		"pi":                          "pi",
+		"":                            "pi",
+		"agy":                         "agy",
+		"agy --log-file /tmp/x.log":   "agy",
+		"opencode":                    "opencode",
+		"opencode --auto":             "opencode",
+		"/opt/tools/duo-opencode/bin": "opencode",
+	}
+	for command, want := range cases {
+		if got := driverKind(command); got != want {
+			t.Errorf("driverKind(%q) = %q, want %q", command, got, want)
+		}
+	}
+}

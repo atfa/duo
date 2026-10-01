@@ -46,7 +46,8 @@ func main() {
 			fmt.Println("  duo                    start a new Fast session (Austin drives, Tony verifies)")
 			fmt.Println("  duo --mode goal        start a new Goal session (shared plan + dual sign-off)")
 			fmt.Println("  duo --test-cmd <cmd>   run automated test command before accepting verification")
-			fmt.Println("  duo --agent pi|agy     select agent driver (or --austin-driver / --tony-driver)")
+			fmt.Println("  duo --agent pi|agy|opencode")
+			fmt.Println("                       select agent driver (or --austin-driver / --tony-driver)")
 			fmt.Println("  duo --resume           resume this repository's unfinished session")
 			fmt.Println("  duo --resume <id>      resume one specific session (required if several are unfinished)")
 			fmt.Println("  duo apply              deliver a pending final result to this repository")
@@ -397,6 +398,22 @@ func (r *runtime) serve(ctx context.Context) error {
 					coord.RecordActivity(ag, msg)
 				}),
 			})
+		case "opencode":
+			session = agent.NewOpencodeSession(agent.Config{
+				Agent:             agentID,
+				DriverType:        "opencode",
+				Mode:              r.mode.String(),
+				Dir:               dir,
+				RepositoryRoot:    r.set.Repository,
+				ScopePath:         r.set.ScopePath,
+				Host:              host,
+				Port:              port,
+				Session:           r.sessionID,
+				Token:             token,
+				Command:           r.cfg.agentCommand(agentID),
+				OpencodeSessionID: r.piSessions[agentID],
+				Model:             modelName,
+			})
 		case "pi", "":
 			session = agent.NewPiSession(agent.Config{
 				Agent:          agentID,
@@ -492,8 +509,9 @@ func bridgeAddress(listen string) (string, string) {
 
 func runPlugins() {
 	fmt.Println("Available Agent Drivers:")
-	fmt.Println("  pi   [built-in]   Pi CLI coding agent driver (socket streaming)")
-	fmt.Println("  agy  [built-in]   Google Antigravity CLI driver (transcript observation)")
+	fmt.Println("  pi       [built-in]   Pi CLI coding agent driver (socket streaming)")
+	fmt.Println("  agy      [built-in]   Google Antigravity CLI driver (transcript observation)")
+	fmt.Println("  opencode [built-in]   opencode CLI coding agent driver (socket streaming)")
 	plugins := agent.ListDiscoveredPlugins()
 	if len(plugins) > 0 {
 		fmt.Println("\nDiscovered External Driver Plugins:")

@@ -253,22 +253,22 @@ func TestGitManagerPrepareKeepsCustomBaseRefError(t *testing.T) {
 	}
 }
 
-func TestPrepareAllowsDuoGitIgnoreAddition(t *testing.T) {
+func TestPrepareAllowsDuoInternalFiles(t *testing.T) {
 	ctx := context.Background()
 	repo := initRepo(t)
 
-	// Create .duo/ directory and modify .gitignore with .duo/
+	// Duo's own .duo/ directory is hidden via .git/info/exclude, so creating it
+	// must not make the user's repository dirty.
 	if err := EnsureGitIgnore(repo); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(repo, ".duo"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(repo, ".duo", "config.json"), []byte("{}"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".duo", "config.json"), []byte("{}"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Prepare should SUCCEED even though .gitignore is modified and .duo exists
 	m := NewGitManager(GitConfig{
 		Repository: repo,
 		Root:       filepath.Join(t.TempDir(), "worktrees"),
@@ -276,7 +276,7 @@ func TestPrepareAllowsDuoGitIgnoreAddition(t *testing.T) {
 	})
 	set, err := m.Prepare(ctx)
 	if err != nil {
-		t.Fatalf("Prepare failed with benign .duo/.gitignore additions: %v", err)
+		t.Fatalf("Prepare failed with Duo's own .duo/ present: %v", err)
 	}
 	if set.Austin.Path == "" || set.Tony.Path == "" {
 		t.Fatalf("expected valid worktrees, got: %+v", set)

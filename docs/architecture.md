@@ -61,13 +61,21 @@ Owns Git-specific isolation and evidence:
 
 ### `internal/agent`
 
-Owns the two real Pi processes. Each `Session` starts Pi in its own pseudo-terminal (`creack/pty`), keeps a bounded raw-output ring buffer for native-attach replay, and tracks a process state that distinguishes `exited` from `failed`. `Manager` starts, resizes, restarts and stops both sessions and emits lifecycle events so the caller can journal them.
+Owns the two real agent processes. Each `Session` starts the agent in its own pseudo-terminal (`creack/pty`), keeps a bounded raw-output ring buffer for native-attach replay, and tracks a process state that distinguishes `exited` from `failed`. `Manager` starts, resizes, restarts and stops both sessions and emits lifecycle events so the caller can journal them.
 
-This layer also owns Pi session identity: unless `DUO_PI_COMMAND` already supplies a `--session-id`, Duo appends its own so Austin and Tony keep their own conversation across a restart.
+This layer also owns per-driver session identity, and the three drivers get there differently:
+
+- **pi** — unless `DUO_PI_COMMAND` already supplies a `--session-id`, Duo appends its own.
+- **agy** — Duo supplies a stable conversation id, unless the operator's command already carries one. Flag detection matches whole tokens: a substring test for `-c` also matches `--config`, which would silently drop the identity.
+- **opencode** — opencode assigns session ids server-side and rejects `--session` for an id it never issued. On a first run Duo therefore injects no id, the bridge writes the real one to `DUO_OPENCODE_SESSION_FILE`, and Duo picks it up and persists it. Later runs pass `--session <id>`.
+
+Values Duo injects into a command are shell-quoted with single quotes, never Go's `%q`: `%q` is Go escaping, so a model containing `$` would be expanded by the shell and one containing a backtick would be executed.
 
 ### `internal/models`
 
-Reads the model catalog from the same Pi installation (and flags) Duo launches, via `pi --list-models`, so the TUI model picker always matches what the running Pi can actually select. Duo deliberately keeps no model list of its own.
+Reads the model catalog from the same agent installation (and flags) Duo launches — `pi --list-models`, `agy models`, `opencode models` — so the TUI model picker always matches what the running agent can actually select. Duo deliberately keeps no model list of its own.
+
+The default model is per-driver. pi reads `~/.pi/agent/settings.json`; agy has a fixed default; opencode gets no injected default at all, because a foreign provider id would fail with "Model not found" and opencode already resolves its own.
 
 ### `internal/delivery`
 
@@ -106,6 +114,20 @@ Duo msg  → Pi steer
 ```
 
 It publishes a mode-aware system prompt: a common base (worktree model and shared rules) plus exactly one policy section (`Fast driver`, `Fast verifier`, or `Goal`), selected from `DUO_MODE`. Tool registration is mode-gated too — `duo_set_plan` is offered only in Goal and `duo_set_verification` only in Fast — but the Go core still rejects the wrong tool. The extension should not become a second source of project truth.
+
+### `opencode-extension`
+
+The same three-way mapping for opencode, over opencode's own plugin API:
+
+```text
+opencode event → Duo activity
+Duo tool       → Duo request
+Duo msg        → opencode prompt on the live session
+```
+
+`protocol.ts`, `transport.ts` and `mode.ts` are shared verbatim with `pi-extension`: both bridges speak wire protocol version 1, so only the host binding differs. Inbound Duo messages become `client.session.promptAsync` calls on the tracked session, which is how a peer message or harness nudge reaches the agent mid-turn instead of being typed at a PTY.
+
+opencode exposes `experimental.chat.system.transform` with a mutable `system: string[]`, so the Duo policy is appended as one extra section instead of replacing anything opencode built. The plugin is inert unless `DUO_ACTIVE=1`, so a normal opencode session behaves exactly as it would without Duo installed.
 
 ## Why worktrees instead of file locks?
 

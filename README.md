@@ -35,8 +35,8 @@ Then type a task in the composer and press `Enter`. The composer always sends to
 Requirements:
 
 - Git
-- Pi available as `pi` on `PATH` (override with `DUO_PI_COMMAND`)
-- macOS or Linux — Duo owns both Pi PTYs directly, so no `script` wrapper is needed
+- macOS or Linux — Duo owns both agent PTYs directly, so no `script` wrapper is needed
+- At least one supported agent CLI on `PATH`: [Pi](#agent-drivers), [agy](#agent-drivers), or [opencode](#agent-drivers)
 
 ## Install
 
@@ -211,6 +211,7 @@ Everything has a working default; `duo` needs no configuration to run.
 | `DUO_WORKTREE_ROOT` | `~/.duo/worktrees/<repo>-<hash>/<session>` | Where the Austin/Tony worktrees are created. |
 | `DUO_BASE_REF` | `HEAD` | Ref the worktrees are branched from. |
 | `DUO_PI_COMMAND` | `pi` | Command used to launch each Pi agent. |
+| `DUO_DRIVER` | `pi` | Default agent driver: `pi`, `agy` or `opencode`. Per-agent flags and config win. |
 | `DUO_LISTEN` | `127.0.0.1:0` | Bridge listen address (an OS-assigned port by default). |
 | `DUO_HARNESS` | `true` | Enable the idle/stall watchdog that nudges coordination back to life. |
 | `DUO_HARNESS_IDLE_SECONDS` | `15` | Quiet period before an agent counts as idle. |
@@ -223,6 +224,57 @@ To run a non-default Pi command:
 ```bash
 DUO_PI_COMMAND='pi --some-flag' duo
 ```
+
+Duo hides its own `.duo/` directory through `.git/info/exclude`, so it never
+modifies your `.gitignore` and never leaves your working tree dirty.
+
+### Agent drivers
+
+Duo drives whichever agent CLI you install. All three speak the same Duo bridge
+protocol, so the modes, tools, evidence rules and delivery flow are identical —
+only how Duo launches and observes the agent differs.
+
+| Driver | Select with | How Duo talks to it |
+|---|---|---|
+| `pi` (default) | `--agent pi` | A Pi bridge extension connects back over a local socket. Full streaming: tool activity, peer messages and model switching are live. |
+| `agy` | `--agent agy` | Google Antigravity CLI. No bridge, so Duo watches the conversation transcript and writes messages into the PTY. |
+| `opencode` | `--agent opencode` | An opencode plugin connects back over a local socket, the same way the Pi bridge does. |
+
+Pick one per agent to mix them, for example `duo --austin-driver opencode --tony-driver pi`.
+
+```bash
+duo --agent opencode                       # both agents on opencode
+duo --austin-driver opencode --tony-driver pi
+```
+
+or persist it per repository in `.duo/config.json`:
+
+```json
+{
+  "driver": "opencode"
+}
+```
+
+Two notes specific to `opencode`:
+
+- **Session identity is discovered, not chosen.** opencode assigns session ids
+  server-side, so on a first run Duo lets opencode mint one, learns it from the
+  bridge, and persists it with the session. Every later run — including
+  `--resume` after a crash — passes `--session <id>` so the agent keeps its
+  conversation.
+- **The model is yours to choose.** Duo does not inject a default model for
+  opencode; it uses whatever your opencode config or catalog already resolves,
+  and `--variant` carries a configured reasoning effort.
+
+Duo runs agents with tool calls auto-approved (`--auto` for opencode,
+`--dangerously-skip-permissions` for agy) because they work unattended in their
+own isolated worktree. `duo plugins` lists the built-in drivers plus any
+`duo-driver-<name>` / `duo-<name>` executables found in `~/.duo/plugins/` or on
+`PATH`.
+
+The opencode bridge is installed by the install scripts to
+`~/.config/opencode/plugin/duo/`. Restart any running opencode processes after
+installing.
 
 ### Configuration files
 

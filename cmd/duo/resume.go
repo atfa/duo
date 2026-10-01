@@ -129,8 +129,13 @@ func runResume(ctx context.Context, cfg config, root, repoID, baseDir string) er
 			if drv := reconciled.AgentDrivers[ag]; drv != "" {
 				if !cfg.agentDriverExplicit[ag] {
 					cfg.agentDrivers[ag] = drv
-					if drv == "agy" && (cfg.agentCommands[ag] == "pi" || cfg.agentCommands[ag] == "") {
-						cfg.agentCommands[ag] = "agy"
+					if cfg.agentCommands[ag] == "pi" || cfg.agentCommands[ag] == "" {
+						switch drv {
+						case "agy":
+							cfg.agentCommands[ag] = "agy"
+						case "opencode":
+							cfg.agentCommands[ag] = "opencode"
+						}
 					}
 				}
 			}

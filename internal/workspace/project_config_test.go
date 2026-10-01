@@ -1,54 +1,78 @@
 package workspace
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/atfa/duo/internal/protocol"
 )
 
-func TestEnsureGitIgnore(t *testing.T) {
+func TestEnsureGitIgnoreUsesInfoExcludeAndLeavesGitignoreAlone(t *testing.T) {
 	tempDir := t.TempDir()
+	run(t, tempDir, "git", "init", "-q")
 
-	// 1. When .gitignore does not exist
 	if err := EnsureGitIgnore(tempDir); err != nil {
 		t.Fatalf("EnsureGitIgnore failed: %v", err)
 	}
-	content, err := os.ReadFile(filepath.Join(tempDir, ".gitignore"))
-	if err != nil {
-		t.Fatalf("failed reading .gitignore: %v", err)
-	}
-	if string(content) != ".duo/\n" {
-		t.Fatalf("expected .duo/\\n, got %q", string(content))
+
+	// The user's .gitignore must not be created or modified: it is tracked, so
+	// writing to it would dirty the repository the user is working in.
+	if _, err := os.Stat(filepath.Join(tempDir, ".gitignore")); !os.IsNotExist(err) {
+		t.Fatalf("expected no .gitignore to be created, stat err = %v", err)
 	}
 
-	// 2. Call again, should not duplicate
+	exclude := filepath.Join(tempDir, ".git", "info", "exclude")
+	content, err := os.ReadFile(exclude)
+	if err != nil {
+		t.Fatalf("expected .git/info/exclude to be written: %v", err)
+	}
+	if !strings.Contains(string(content), ".duo/") {
+		t.Fatalf("expected .duo/ in info/exclude, got %q", string(content))
+	}
+
+	// Idempotent: a second call must not duplicate the entry.
 	if err := EnsureGitIgnore(tempDir); err != nil {
 		t.Fatalf("second EnsureGitIgnore failed: %v", err)
 	}
-	content2, err := os.ReadFile(filepath.Join(tempDir, ".gitignore"))
-	if err != nil {
-		t.Fatalf("failed reading .gitignore: %v", err)
+	content2, _ := os.ReadFile(exclude)
+	if got := strings.Count(string(content2), ".duo/"); got != 1 {
+		t.Fatalf("expected exactly one .duo/ entry, got %d: %q", got, string(content2))
 	}
-	if string(content2) != ".duo/\n" {
-		t.Fatalf("expected no duplicates, got %q", string(content2))
+}
+
+// A user's own untracked .gitignore is real uncommitted work. It must read as
+// dirty, otherwise delivery would fast-forward over it and silently discard it.
+func TestUntrackedGitignoreCountsAsDirty(t *testing.T) {
+	repo := t.TempDir()
+	run(t, repo, "git", "init", "-q")
+	run(t, repo, "git", "config", "user.email", "t@example.com")
+	run(t, repo, "git", "config", "user.name", "t")
+	if err := os.WriteFile(filepath.Join(repo, "a.txt"), []byte("hi\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(t, repo, "git", "add", "-A")
+	run(t, repo, "git", "commit", "-m", "init")
+	if err := EnsureGitIgnore(repo); err != nil {
+		t.Fatal(err)
+	}
+	// The user writes their own .gitignore and has not committed it.
+	if err := os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("node_modules\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 
-	// 3. Existing .gitignore with other content
-	tempDir2 := t.TempDir()
-	_ = os.WriteFile(filepath.Join(tempDir2, ".gitignore"), []byte("node_modules\n.DS_Store"), 0644)
-	if err := EnsureGitIgnore(tempDir2); err != nil {
-		t.Fatalf("EnsureGitIgnore failed on existing: %v", err)
-	}
-	content3, err := os.ReadFile(filepath.Join(tempDir2, ".gitignore"))
+	porcelain, err := gitOutput(context.Background(), repo, "status", "--porcelain")
 	if err != nil {
-		t.Fatalf("failed reading .gitignore: %v", err)
+		t.Fatalf("git status failed: %v", err)
 	}
-	expected := "node_modules\n.DS_Store\n.duo/\n"
-	if string(content3) != expected {
-		t.Fatalf("expected %q, got %q", expected, string(content3))
+	if !strings.Contains(porcelain, ".gitignore") {
+		t.Fatalf("porcelain should report the untracked .gitignore, got %q", porcelain)
+	}
+	if strings.TrimSpace(porcelain) == "" {
+		t.Fatal("untracked user .gitignore must be treated as dirty, not ignored")
 	}
 }
 
@@ -66,12 +90,6 @@ func TestSaveProjectConfig(t *testing.T) {
 
 	if err := SaveProjectConfig(tempDir, "agy", agentDrivers, agentModels); err != nil {
 		t.Fatalf("SaveProjectConfig failed: %v", err)
-	}
-
-	// Check .gitignore exists
-	giContent, err := os.ReadFile(filepath.Join(tempDir, ".gitignore"))
-	if err != nil || string(giContent) != ".duo/\n" {
-		t.Fatalf("expected .duo/ in .gitignore, got: %s", string(giContent))
 	}
 
 	// Check .duo/config.json

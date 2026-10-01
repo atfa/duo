@@ -35,8 +35,8 @@ duo --mode goal  # 完整协商式工作流
 运行要求：
 
 - Git
-- `pi` 在 `PATH` 上（可用 `DUO_PI_COMMAND` 覆盖）
-- macOS 或 Linux —— Duo 直接持有两个 Pi 的 PTY，不需要 `script` 包装
+- macOS 或 Linux —— Duo 直接持有两个 Agent 的 PTY，不需要 `script` 包装
+- `PATH` 上至少装有一种受支持的 Agent CLI：[Pi](#agent-drivers)、[agy](#agent-drivers) 或 [opencode](#agent-drivers)
 
 ## 安装
 
@@ -213,6 +213,7 @@ Help 是一个完整的大屏视图，用 `↑`/`k`、`↓`/`j`、`PgUp`、`PgDn
 | `DUO_WORKTREE_ROOT` | `~/.duo/worktrees/<repo>-<hash>/<session>` | 创建 Austin/Tony worktree 的位置。 |
 | `DUO_BASE_REF` | `HEAD` | worktree 从哪个 ref 切出。 |
 | `DUO_PI_COMMAND` | `pi` | 启动每个 Pi Agent 所用的命令。 |
+| `DUO_DRIVER` | `pi` | 默认 Agent driver：`pi`、`agy` 或 `opencode`。按 Agent 的参数与配置优先。 |
 | `DUO_LISTEN` | `127.0.0.1:0` | Bridge 监听地址（默认由系统分配端口）。 |
 | `DUO_HARNESS` | `true` | 启用 idle/stall 看门狗，把失去动力的协调推回来。 |
 | `DUO_HARNESS_IDLE_SECONDS` | `15` | 静默多久算 idle。 |
@@ -225,6 +226,52 @@ Help 是一个完整的大屏视图，用 `↑`/`k`、`↓`/`j`、`PgUp`、`PgDn
 ```bash
 DUO_PI_COMMAND='pi --some-flag' duo
 ```
+
+Duo 通过 `.git/info/exclude` 隐藏自己的 `.duo/` 目录，因此不会修改你的
+`.gitignore`，也不会让工作区变脏。
+
+### Agent drivers
+
+Duo 可以驱动你安装的任意一种 Agent CLI。三者使用同一套 Duo bridge 协议，
+因此模式、工具、证据规则与交付流程完全一致 —— 区别只在于 Duo 如何启动和观测 Agent。
+
+| Driver | 选择方式 | Duo 的通信方式 |
+|---|---|---|
+| `pi`（默认） | `--agent pi` | Pi bridge 扩展通过本地 socket 回连。完整流式能力：工具活动、peer 消息与模型切换都是实时的。 |
+| `agy` | `--agent agy` | Google Antigravity CLI。没有 bridge，因此 Duo 观测对话 transcript，并把消息写进 PTY。 |
+| `opencode` | `--agent opencode` | opencode 插件通过本地 socket 回连，与 Pi bridge 同一机制。 |
+
+可以为每个 Agent 单独指定，从而混用，例如
+`duo --austin-driver opencode --tony-driver pi`：
+
+```bash
+duo --agent opencode                       # 两个 Agent 都用 opencode
+duo --austin-driver opencode --tony-driver pi
+```
+
+也可以在项目级 `.duo/config.json` 中持久化：
+
+```json
+{
+  "driver": "opencode"
+}
+```
+
+`opencode` 有两点值得注意：
+
+- **会话身份是探测得到的，而不是指定的。** opencode 的 session id 由服务端分配，
+  因此首次运行时 Duo 让 opencode 自己生成一个，从 bridge 读到后随会话持久化。
+  之后每次运行（包括崩溃后 `--resume`）都会带上 `--session <id>`，让 Agent 保留上下文。
+- **模型由你决定。** Duo 不会为 opencode 注入默认模型，而是沿用你的 opencode 配置
+  或模型目录解析出的结果；配置了思考强度时通过 `--variant` 传递。
+
+Duo 以自动批准工具调用的方式运行 Agent（opencode 用 `--auto`，agy 用
+`--dangerously-skip-permissions`），因为它们要在各自隔离的 worktree 中无人值守地工作。
+`duo plugins` 会列出内置 driver，以及在 `~/.duo/plugins/` 或 `PATH` 中发现的
+`duo-driver-<name>` / `duo-<name>` 可执行文件。
+
+opencode bridge 由安装脚本部署到 `~/.config/opencode/plugin/duo/`。
+安装后请重启所有正在运行的 opencode 进程。
 
 ### 配置文件
 

@@ -89,7 +89,7 @@ Each Duo run uses a dynamic localhost port and a random session token. This isol
 
 ## PTY and process recovery
 
-Native Pi sessions use direct Go-owned PTYs; host SIGWINCH is coalesced and resizes both Pi PTYs, even while detached. Manual restart is available for exited agents, but automatic crash restart is not implemented. Reattach replays at most 1 MiB of raw output, not a reconstructed terminal screen. Below 60×18 Duo shows a bounded too-small notice rather than rendering a full UI.
+Native agent sessions use direct Go-owned PTYs; host SIGWINCH is coalesced and resizes both Pi PTYs, even while detached. Manual restart is available for exited agents, but automatic crash restart is not implemented. Reattach replays at most 1 MiB of raw output, not a reconstructed terminal screen. Below 60×18 Duo shows a bounded too-small notice rather than rendering a full UI.
 
 ## Harness is heuristic
 
@@ -98,6 +98,14 @@ The harness detects idle/stall situations from runtime activity. It improves liv
 ## Agent behavior still matters
 
 Duo supplies coordination infrastructure; it does not make model judgment infallible. Agents can still misunderstand code, produce bad plans, or approve weak work. Git evidence makes completion auditable, not automatically correct.
+
+## opencode model and effort changes restart the agent
+
+opencode takes its model and reasoning effort as startup flags, so changing either from the TUI picker restarts that agent, exactly as it does for agy. Pi is the only driver with a live bridge and therefore switches in place. A restart preserves the conversation because the session id is persisted, but in-flight work is interrupted.
+
+## opencode session identity is discovered, not chosen
+
+opencode assigns session ids server-side and rejects `--session` for an id it never issued. A brand-new opencode agent therefore starts with no id, and Duo learns the assigned one from the bridge and persists it. If Duo is killed in the window before the bridge reports the id, that agent's conversation is not recoverable and the next run starts a fresh opencode session. Agents that had already reported an id resume normally.
 
 ## Plan is intentionally lightweight
 

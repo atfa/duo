@@ -311,6 +311,74 @@ func TestAgyDriverUsesAgyExecutableWithPiCommandConfigured(t *testing.T) {
 	}
 }
 
+// The opencode driver must resolve to the opencode executable, not the pi
+// command, and must keep the provider-qualified model id opencode expects.
+func TestOpencodeDriverUsesOpencodeExecutable(t *testing.T) {
+	temp := t.TempDir()
+	configJSON := `{
+		"driver": "opencode",
+		"piCommand": "pi-custom",
+		"agents": {
+			"austin": { "model": "opencode/claude-sonnet-4-6" }
+		}
+	}`
+	if err := os.WriteFile(filepath.Join(temp, ".duo.json"), []byte(configJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("DUO_REPO", temp)
+	t.Setenv("DUO_DRIVER", "")
+	t.Setenv("DUO_PI_COMMAND", "")
+
+	cfg, err := loadConfig(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.agentDriver(protocol.Austin); got != "opencode" {
+		t.Fatalf("agentDriver(Austin) = %q, want opencode", got)
+	}
+	cmd := cfg.agentCommand(protocol.Austin)
+	if !strings.HasPrefix(cmd, "opencode") {
+		t.Fatalf("expected the opencode executable, got: %q", cmd)
+	}
+	if strings.Contains(cmd, "pi-custom") {
+		t.Fatalf("opencode driver must not inherit the pi command: %q", cmd)
+	}
+	// opencode model ids are provider-qualified and must not be stripped.
+	if !strings.Contains(cmd, "--model opencode/claude-sonnet-4-6") {
+		t.Fatalf("expected the provider-qualified model, got: %q", cmd)
+	}
+	if strings.Contains(cfg.agentModel(protocol.Austin), "pi") {
+		t.Fatalf("model for opencode should not fall back to pi: %q", cfg.agentModel(protocol.Austin))
+	}
+}
+
+// Reasoning effort is --variant on opencode, not --thinking.
+func TestOpencodeThinkingUsesVariantFlag(t *testing.T) {
+	temp := t.TempDir()
+	configJSON := `{
+		"driver": "opencode",
+		"agents": { "austin": { "thinking": "high" } }
+	}`
+	if err := os.WriteFile(filepath.Join(temp, ".duo.json"), []byte(configJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DUO_REPO", temp)
+	t.Setenv("DUO_DRIVER", "")
+
+	cfg, err := loadConfig(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := cfg.agentCommand(protocol.Austin)
+	if !strings.Contains(cmd, "--variant high") {
+		t.Fatalf("expected --variant high, got: %q", cmd)
+	}
+	if strings.Contains(cmd, "--thinking") {
+		t.Fatalf("opencode does not accept --thinking: %q", cmd)
+	}
+}
+
 func TestTestCommandConfigurationPrecedence(t *testing.T) {
 	temp := t.TempDir()
 	configJSON := `{"testCommand": "make test"}`
@@ -469,4 +537,3 @@ func TestDriverAndModelProjectConfigAndDefault(t *testing.T) {
 		t.Fatalf("austin command = %q, want --model gemini-3.7-flash-high", projCfg.agentCommand(protocol.Austin))
 	}
 }
-

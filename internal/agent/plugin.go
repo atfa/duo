@@ -7,6 +7,10 @@ import (
 	"strings"
 )
 
+// builtinDrivers are the drivers Duo ships. They must never be reported as
+// external plugins even when a same-named executable exists on PATH.
+var builtinDrivers = map[string]bool{"pi": true, "agy": true, "opencode": true}
+
 // LookupPlugin searches for an external driver plugin executable by driver name.
 // It checks ~/.duo/plugins/duo-driver-<name>, ~/.duo/plugins/duo-<name>,
 // and then system $PATH for duo-driver-<name> and duo-<name>.
@@ -60,7 +64,7 @@ func ListDiscoveredPlugins() []string {
 		case strings.HasPrefix(name, "duo-") && name != "duo-mcp-server":
 			drvName = strings.TrimPrefix(name, "duo-")
 		}
-		if drvName != "" && !seen[drvName] && drvName != "pi" && drvName != "agy" {
+		if drvName != "" && !seen[drvName] && !builtinDrivers[drvName] {
 			seen[drvName] = true
 			plugins = append(plugins, drvName)
 		}

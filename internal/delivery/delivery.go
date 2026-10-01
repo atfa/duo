@@ -15,8 +15,6 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-
-	"github.com/atfa/duo/internal/workspace"
 )
 
 // Manager describes one delivery target and the artifact to deliver.
@@ -99,7 +97,7 @@ func (m Manager) Check(ctx context.Context) (Check, error) {
 	if err != nil {
 		return check, err
 	}
-	check.Clean = strings.TrimSpace(workspace.FilterBenignDirty(ctx, check.Repository, porcelain)) == ""
+	check.Clean = strings.TrimSpace(porcelain) == ""
 
 	// The final artifact is already part of the current history: delivery is a
 	// no-op. This also recognizes a user-resolved non-fast-forward merge.

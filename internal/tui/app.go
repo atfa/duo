@@ -249,7 +249,7 @@ func (a *App) applyAction(ctx context.Context, action inputAction) bool {
 			if a.agents != nil {
 				if d, ok := a.agents.Driver(a.modelTarget); ok {
 					d.SetEffort(thinking)
-					if d.DriverType() == "agy" {
+					if needsRestartForModel(d.DriverType()) {
 						_ = d.RestartRunning(ctx)
 					}
 				}
