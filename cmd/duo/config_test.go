@@ -205,6 +205,7 @@ func TestLoadConfigFileAndPrecedence(t *testing.T) {
 	t.Setenv("DUO_REPO", temp)
 	t.Setenv("DUO_MODE", "")
 	t.Setenv("DUO_PI_COMMAND", "")
+	t.Setenv("DUO_DRIVER", "")
 
 	// 1. From config file
 	cfg, err := loadConfig(nil)
@@ -264,6 +265,7 @@ func TestAgentCommandDoesNotDuplicateFlags(t *testing.T) {
 	}
 
 	t.Setenv("DUO_REPO", temp)
+	t.Setenv("DUO_DRIVER", "")
 	t.Setenv("DUO_PI_COMMAND", "pi --model custom-model")
 	cfg, err := loadConfig(nil)
 	if err != nil {
@@ -274,6 +276,38 @@ func TestAgentCommandDoesNotDuplicateFlags(t *testing.T) {
 	austinCmd := cfg.agentCommand(protocol.Austin)
 	if austinCmd != "pi --model custom-model --thinking high" {
 		t.Fatalf("austin command = %q", austinCmd)
+	}
+}
+
+func TestAgyDriverUsesAgyExecutableWithPiCommandConfigured(t *testing.T) {
+	temp := t.TempDir()
+	configJSON := `{
+		"driver": "agy",
+		"piCommand": "pi-custom",
+		"agents": {
+			"austin": {
+				"model": "google/gemini-3.8-flash-high"
+			}
+		}
+	}`
+	if err := os.WriteFile(filepath.Join(temp, ".duo.json"), []byte(configJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("DUO_REPO", temp)
+	t.Setenv("DUO_DRIVER", "")
+	t.Setenv("DUO_PI_COMMAND", "")
+
+	cfg, err := loadConfig(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	austinCmd := cfg.agentCommand(protocol.Austin)
+	if !strings.HasPrefix(austinCmd, "agy ") {
+		t.Fatalf("expected austinCmd to start with agy, got: %q", austinCmd)
+	}
+	if !strings.Contains(austinCmd, "--model gemini-3.8-flash-high") {
+		t.Fatalf("expected sanitized model in austinCmd, got: %q", austinCmd)
 	}
 }
 

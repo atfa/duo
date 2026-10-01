@@ -95,9 +95,9 @@ func TestSaveProjectConfig(t *testing.T) {
 		t.Fatalf("expected tony driver agy, got %s", parsed.Agents["tony"].Driver)
 	}
 
-	// When per-agent drivers are not specified, top-level driver is kept
+	// When per-agent drivers are not specified, top-level driver is kept and models are sanitized
 	tempDir2 := t.TempDir()
-	if err := SaveProjectConfig(tempDir2, "agy", nil, nil); err != nil {
+	if err := SaveProjectConfig(tempDir2, "agy", nil, map[protocol.AgentID]string{protocol.Austin: "google/gemini-3.8-flash-high"}); err != nil {
 		t.Fatalf("SaveProjectConfig failed: %v", err)
 	}
 	cfgData2, err := os.ReadFile(filepath.Join(tempDir2, ".duo", "config.json"))
@@ -110,5 +110,8 @@ func TestSaveProjectConfig(t *testing.T) {
 	}
 	if parsed2.Driver != "agy" {
 		t.Fatalf("expected driver agy, got %s", parsed2.Driver)
+	}
+	if parsed2.Agents["austin"].Model != "gemini-3.8-flash-high" {
+		t.Fatalf("expected austin model gemini-3.8-flash-high, got %s", parsed2.Agents["austin"].Model)
 	}
 }

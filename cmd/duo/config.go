@@ -349,6 +349,17 @@ func loadConfig(args []string) (config, error) {
 			driverType = parsed.tonyDriver
 		}
 
+		baseCmd := "agy"
+		if driverType != "agy" {
+			baseCmd = piCommand
+		}
+		if agentCfg.Command != "" {
+			baseCmd = agentCfg.Command
+		}
+		if strings.HasPrefix(baseCmd, "agy") || strings.Contains(baseCmd, "/agy") {
+			driverType = "agy"
+		}
+
 		model := agentCfg.Model
 		if driverType == "agy" && strings.Contains(model, "/") {
 			model = model[strings.LastIndex(model, "/")+1:]
@@ -358,19 +369,6 @@ func loadConfig(args []string) (config, error) {
 		}
 		agentModels[id] = model
 
-		baseCmd := piCommand
-		if driverType == "agy" && baseCmd == "pi" {
-			baseCmd = "agy"
-		}
-		if agentCfg.Command != "" {
-			baseCmd = agentCfg.Command
-		}
-		if strings.HasPrefix(baseCmd, "agy") || strings.Contains(baseCmd, "/agy") {
-			driverType = "agy"
-			if strings.Contains(agentModels[id], "/") {
-				agentModels[id] = agentModels[id][strings.LastIndex(agentModels[id], "/")+1:]
-			}
-		}
 		if agentCfg.Model != "" && !hasFlag(baseCmd, "--model") {
 			modelArg := agentCfg.Model
 			if driverType == "agy" && strings.Contains(modelArg, "/") {

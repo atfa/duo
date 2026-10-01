@@ -142,7 +142,17 @@ func SaveProjectConfig(repoRoot string, driver string, agentDrivers map[protocol
 		key := strings.ToLower(string(id))
 		entry := cfg.Agents[key]
 		if model != "" {
-			if (entry.Driver == "agy" || agentDrivers[id] == "agy") && strings.Contains(model, "/") {
+			drv := entry.Driver
+			if drv == "" {
+				drv = agentDrivers[id]
+			}
+			if drv == "" {
+				drv = cfg.Driver
+			}
+			if drv == "" {
+				drv = driver
+			}
+			if drv == "agy" && strings.Contains(model, "/") {
 				model = model[strings.LastIndex(model, "/")+1:]
 			}
 			entry.Model = model
