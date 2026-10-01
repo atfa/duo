@@ -263,10 +263,6 @@ func (a *App) applyAction(ctx context.Context, action inputAction) bool {
 			if thinking == "" {
 				thinking = "unknown"
 			}
-			if a.currentThinking == nil {
-				a.currentThinking = make(map[protocol.AgentID]string)
-			}
-			a.currentThinking[a.modelTarget] = thinking
 			if a.agents != nil {
 				if d, ok := a.agents.Driver(a.modelTarget); ok {
 					d.SetEffort(thinking)
@@ -277,7 +273,9 @@ func (a *App) applyAction(ctx context.Context, action inputAction) bool {
 						// claiming the new level took effect.
 						if err := d.RestartRunning(ctx); err != nil {
 							// Report the failure and skip the success line;
-							// returning true here would quit the TUI.
+							// returning true here would quit the TUI. The level
+							// is recorded only once the agent has it, so the
+							// picker header cannot advertise one it never got.
 							a.setStatus(fmt.Sprintf("%s thinking: %s failed: %v", a.modelTarget, thinking, err), true)
 							a.markDirty()
 							return false
@@ -285,6 +283,10 @@ func (a *App) applyAction(ctx context.Context, action inputAction) bool {
 					}
 				}
 			}
+			if a.currentThinking == nil {
+				a.currentThinking = make(map[protocol.AgentID]string)
+			}
+			a.currentThinking[a.modelTarget] = thinking
 			a.setStatus(fmt.Sprintf("%s thinking: %s", a.modelTarget, thinking), false)
 		}
 		a.markDirty()

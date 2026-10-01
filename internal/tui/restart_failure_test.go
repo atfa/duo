@@ -108,4 +108,9 @@ func TestCycleThinkingReportsFailedRestart(t *testing.T) {
 	if !strings.Contains(a.status, "failed") {
 		t.Errorf("status = %q, want it to report the failure", a.status)
 	}
+	// The picker header renders currentThinking, so recording the level the
+	// agent never received is the same defect as the status line.
+	if got := a.currentThinking[protocol.Austin]; got != "" {
+		t.Errorf("currentThinking = %q, want unchanged: the agent never got the level", got)
+	}
 }
