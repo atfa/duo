@@ -142,8 +142,8 @@ func TestDriverKind(t *testing.T) {
 		"pi --config /tmp/agy.json": "pi",
 	}
 	for command, want := range cases {
-		if got := driverKind(command); got != want {
-			t.Errorf("driverKind(%q) = %q, want %q", command, got, want)
+		if got := DriverKind(command); got != want {
+			t.Errorf("DriverKind(%q) = %q, want %q", command, got, want)
 		}
 	}
 }

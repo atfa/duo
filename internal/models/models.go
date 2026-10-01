@@ -55,7 +55,7 @@ func List(ctx context.Context, command string) ([]Model, error) {
 	defer cancel()
 
 	listCmd := listCommand(command)
-	kind := driverKind(command)
+	kind := DriverKind(command)
 
 	cmd := exec.CommandContext(ctx, "sh", "-lc", listCmd)
 	var stdout, stderr bytes.Buffer
@@ -86,7 +86,7 @@ func List(ctx context.Context, command string) ([]Model, error) {
 
 // listCommand builds the model-listing invocation for a launch command.
 func listCommand(command string) string {
-	switch driverKind(command) {
+	switch DriverKind(command) {
 	case "agy", "opencode":
 		return executable(command) + " models"
 	default:
@@ -116,13 +116,15 @@ func executable(command string) string {
 	return trimmed
 }
 
-// driverKind identifies which agent CLI a launch command refers to, so the
-// model catalog is read with that CLI's own listing syntax. Only the executable
-// is inspected: matching anywhere in the command also matched flag values (a pi
+// DriverKind identifies which agent CLI a launch command refers to, so the
+// model catalog is read with that CLI's own listing syntax and the driver is
+// recorded as the one the command actually runs. Only the executable is
+// inspected: matching anywhere in the command also matched flag values (a pi
 // `--config /tmp/agy.json` is still pi), while a program name carrying a
 // wrapper prefix was missed. The shipped duo-agy/duo-opencode bridges are the
 // wrappers that matter, and the agent package already recognizes them by name.
-func driverKind(command string) string {
+// It returns "pi" for an unrecognized command, which is Duo's default driver.
+func DriverKind(command string) string {
 	name := executable(command)
 	switch {
 	case strings.Contains(name, "opencode"):
@@ -307,8 +309,8 @@ func opencodeConfiguredModel() string {
 	return strings.TrimSpace(cfg.Model)
 }
 
-// stripJSONComments removes // and /* */ comments and trailing commas so a
-// JSONC config can be parsed with encoding/json. String literals are preserved.
+// stripJSONComments removes // and /* */ comments so a JSONC config can be
+// parsed with encoding/json. String literals are preserved.
 func stripJSONComments(src string) string {
 	var out strings.Builder
 	inString := false

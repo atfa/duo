@@ -361,11 +361,12 @@ func loadConfig(args []string) (config, error) {
 		if agentCfg.Command != "" {
 			baseCmd = agentCfg.Command
 		}
-		if strings.HasPrefix(baseCmd, "agy") || strings.Contains(baseCmd, "/agy") {
-			driverType = "agy"
-		}
-		if strings.Contains(baseCmd, "opencode") {
-			driverType = "opencode"
+		// An operator's command may name a driver Duo does not recognize by
+		// driver flag, including the shipped duo-agy/duo-opencode bridges. The
+		// same detection reads the model catalog, so a wrapper must not be
+		// recorded as pi and handed pi's default model.
+		if kind := models.DriverKind(baseCmd); kind != "pi" {
+			driverType = kind
 		}
 
 		model := agentCfg.Model

@@ -242,7 +242,10 @@ func (a *App) applySelectedModel(ctx context.Context, keepOpen bool) {
 	a.currentModel[a.modelTarget] = model.Reference()
 	if a.agents != nil {
 		if d, ok := a.agents.Driver(a.modelTarget); ok {
-			d.SetModel(model.ID)
+			// The launch flag needs the provider-qualified reference: opencode
+			// only accepts provider/model and aborts on a bare id. agy strips any
+			// provider prefix itself, and pi takes the model over the bridge.
+			d.SetModel(model.Reference())
 			if needsRestartForModel(d.DriverType()) {
 				_ = d.RestartRunning(ctx)
 			}

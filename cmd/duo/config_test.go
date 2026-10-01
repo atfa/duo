@@ -478,6 +478,44 @@ func TestDriverConfigurationResolution(t *testing.T) {
 	}
 }
 
+// The shipped duo-agy and duo-opencode bridges wrap their CLI, so an agent
+// command is never spelled "agy" or "opencode". A wrapper must still be
+// recognized as its driver instead of being recorded as pi, which handed an
+// agy agent pi's default model.
+func TestBridgeWrapperCommandsIdentifyTheDriver(t *testing.T) {
+	load := func(t *testing.T, command string) config {
+		t.Helper()
+		temp := t.TempDir()
+		configJSON := `{"piCommand": "pi-custom", "agents": {"austin": {"command": "` + command + `"}}}`
+		if err := os.WriteFile(filepath.Join(temp, ".duo.json"), []byte(configJSON), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("DUO_REPO", temp)
+		t.Setenv("DUO_DRIVER", "")
+		t.Setenv("DUO_PI_COMMAND", "")
+		cfg, err := loadConfig(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cfg
+	}
+
+	agyCfg := load(t, "duo-agy")
+	if got := agyCfg.agentDriver(protocol.Austin); got != "agy" {
+		t.Fatalf("austin driver for the duo-agy bridge = %q, want agy", got)
+	}
+	if got := agyCfg.agentModel(protocol.Austin); got != "gemini-3.8-flash-high" {
+		t.Fatalf("austin model for the duo-agy bridge = %q, want the agy default", got)
+	}
+	if got := agyCfg.agentCommand(protocol.Austin); !strings.HasPrefix(got, "duo-agy") {
+		t.Fatalf("austin command = %q, want the configured bridge", got)
+	}
+
+	if got := load(t, "duo-opencode").agentDriver(protocol.Austin); got != "opencode" {
+		t.Fatalf("austin driver for the duo-opencode bridge = %q, want opencode", got)
+	}
+}
+
 func TestDriverAndModelProjectConfigAndDefault(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("DUO_DRIVER", "")

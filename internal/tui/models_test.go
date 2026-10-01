@@ -102,6 +102,56 @@ func TestModelRowMarksCursorAndCurrentSeparately(t *testing.T) {
 	}
 }
 
+// opencode only accepts provider/model as --model and aborts on a bare id, so
+// the launch flag must receive the provider-qualified reference. agy strips any
+// provider prefix itself, and pi takes the model over the bridge.
+func TestApplySelectedModelPassesQualifiedReferenceToDriver(t *testing.T) {
+	a := pickerFixture()
+	a.width, a.height = 80, 24
+	bus := events.NewBus()
+	state := project.NewStateFor(project.ModeFast)
+	a.coord = coordinator.New(nil, state, harness.NewTracker(), nil, bus)
+	eventsCh, unsub := bus.Subscribe(20)
+	defer unsub()
+	go func() {
+		for e := range eventsCh {
+			a.route(e)
+		}
+	}()
+	drv := &modelRecordingDriver{agentID: protocol.Austin, driverType: "opencode"}
+	mgr := agent.NewManager()
+	mgr.Add(drv)
+	a.agents = mgr
+
+	// The cursor is on cline/anthropic/claude-opus.
+	a.applySelectedModel(context.Background(), false)
+	if drv.model != "cline/anthropic/claude-opus" {
+		t.Fatalf("driver model = %q, want the provider-qualified reference", drv.model)
+	}
+	if drv.restarts != 1 {
+		t.Fatalf("restarts = %d, want the CLI-only driver restarted once", drv.restarts)
+	}
+}
+
+type modelRecordingDriver struct {
+	agent.Driver
+	agentID    protocol.AgentID
+	driverType string
+	model      string
+	restarts   int
+}
+
+func (d *modelRecordingDriver) Agent() protocol.AgentID            { return d.agentID }
+func (d *modelRecordingDriver) DriverType() string                 { return d.driverType }
+func (d *modelRecordingDriver) State() agent.ProcessState          { return agent.ProcessExited }
+func (d *modelRecordingDriver) Running() bool                      { return false }
+func (d *modelRecordingDriver) SetModel(model string)              { d.model = model }
+func (d *modelRecordingDriver) SetOnExit(fn func(agent.ExitEvent)) {}
+func (d *modelRecordingDriver) RestartRunning(ctx context.Context) error {
+	d.restarts++
+	return nil
+}
+
 func TestCtrlMIsDistinctFromEnter(t *testing.T) {
 	// The m key with Ctrl, in both encodings Duo enables, must not look like Enter.
 	for _, seq := range []string{"\x1b[27;5;109~", "\x1b[109;5u"} {
