@@ -21,5 +21,7 @@ fi
 rm -rf "$DEST"
 cp -R "$ROOT/pi-extension" "$DEST"
 
-echo "Installed Duo v0.4.0 Pi bridge to: $DEST"
+# No version is printed here on purpose: this installer is shared by every
+# release, and a hardcoded string is what previously drifted four releases behind.
+echo "Installed Duo Pi bridge to: $DEST"
 echo "Restart any running Pi processes before starting Duo."

@@ -5,11 +5,13 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
+
+	"github.com/atfa/duo/internal/version"
 )
 
 func main() {
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "version") {
-		fmt.Println("duo-pi driver plugin v0.7.0")
+		fmt.Println("duo-pi driver plugin " + version.Version)
 		return
 	}
 	cmd := exec.Command("pi", os.Args[1:]...)

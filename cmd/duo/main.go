@@ -23,19 +23,18 @@ import (
 	"github.com/atfa/duo/internal/sessionstore"
 	"github.com/atfa/duo/internal/transport"
 	"github.com/atfa/duo/internal/tui"
+	"github.com/atfa/duo/internal/version"
 	"github.com/atfa/duo/internal/workspace"
 )
-
-const version = "v0.7.0"
 
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "--version", "version":
-			fmt.Println("Duo " + version)
+			fmt.Println("Duo " + version.Version)
 			return
 		case "-h", "--help", "help":
-			fmt.Println("Duo " + version)
+			fmt.Println("Duo " + version.Version)
 			fmt.Println("Usage: duo [git-repository] [--mode fast|goal] [--test-cmd <cmd>] [--resume [session-id]]")
 			fmt.Println("       duo apply [session-id]")
 			fmt.Println("       duo sessions [--all] [repository]")
@@ -207,7 +206,7 @@ func (r *runtime) composeSnapshot(coord *coordinator.Coordinator) sessionstore.S
 		}
 	}
 	return recovery.Compose(recovery.ComposeInput{
-		DuoVersion:   version,
+		DuoVersion:   version.Version,
 		SessionID:    r.sessionID,
 		RepoID:       r.repoID,
 		Repository:   r.set.Repository,
@@ -278,7 +277,7 @@ func runFresh(ctx context.Context, cfg config, root, scope, repoID, baseDir stri
 		piSessions: piSessions,
 		mode:       cfg.mode,
 	}
-	r.logger.Printf("starting Duo %s session %s mode=%s (source=%s) repository=%s scope=%s", version, r.sessionID, r.mode, r.cfg.modeSource, root, set.ScopePath)
+	r.logger.Printf("starting Duo %s session %s mode=%s (source=%s) repository=%s scope=%s", version.Version, r.sessionID, r.mode, r.cfg.modeSource, root, set.ScopePath)
 	r.journal.Record("session_start", map[string]any{
 		"sessionId":  r.sessionID,
 		"mode":       r.mode.String(),
@@ -286,7 +285,7 @@ func runFresh(ctx context.Context, cfg config, root, scope, repoID, baseDir stri
 		"baseCommit": set.BaseCommit,
 		"repository": set.Repository,
 		"scope":      set.ScopePath,
-		"duoVersion": version,
+		"duoVersion": version.Version,
 	})
 
 	// The initial checkpoint must exist before any agent starts, so a crash
@@ -472,7 +471,7 @@ func (r *runtime) serve(ctx context.Context) error {
 		go monitor.Run(ctx)
 	}
 
-	app := tui.New(coord, r.state, tracker, r.ws, server, agents, bus, version, r.tuiHistory, r.journal)
+	app := tui.New(coord, r.state, tracker, r.ws, server, agents, bus, version.Version, r.tuiHistory, r.journal)
 	if err := app.Run(ctx); err != nil && ctx.Err() == nil {
 		log.Printf("Duo TUI: %v", err)
 	}

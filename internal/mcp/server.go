@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/atfa/duo/internal/protocol"
+	"github.com/atfa/duo/internal/version"
 )
 
 // Tool represents an MCP tool definition.
@@ -360,7 +361,7 @@ func (s *Server) handleRequest(ctx context.Context, req jsonRPCRequest) *jsonRPC
 				},
 				"serverInfo": map[string]any{
 					"name":    "duo-mcp-server",
-					"version": "v0.7.0",
+					"version": version.Version,
 				},
 			},
 		}

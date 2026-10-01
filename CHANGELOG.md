@@ -2,6 +2,38 @@
 
 All notable project milestones are documented here.
 
+## v0.8.0 — 2026-10-01
+
+Duo can now drive **opencode** alongside Pi and agy, and four correctness bugs that were hiding in the driver layer are fixed. Two of them could damage a user's repository or execute unintended commands.
+
+### opencode driver
+
+- **Built-in `opencode` driver** (`duo --agent opencode`), selectable per agent like any other driver. Like Pi it is driven by a real bridge rather than transcript scraping: an opencode plugin (`opencode-extension/`) connects back over the local socket, registers Duo's six coordination tools, maps opencode's event bus onto Duo activity, and injects inbound Duo messages into the live session with `session.promptAsync`, so a peer message or harness nudge reaches the agent mid-turn instead of being typed at a PTY.
+- **`opencode-extension/`** shares `protocol.ts`, `transport.ts` and `mode.ts` with `pi-extension` verbatim, because both bridges speak wire protocol version 1; only the host binding differs. The plugin is inert unless `DUO_ACTIVE=1`, so a normal opencode session behaves exactly as it would without Duo installed. Installed to `~/.config/opencode/plugin/duo/`.
+- **Session identity is discovered, not chosen.** opencode assigns session ids server-side and rejects `--session` for an id it never issued. On a first run Duo injects no id, the bridge reports the real one, and Duo persists it with the session; every later run, including `--resume` after a crash, passes `--session <id>`.
+- **The first task still travels through Duo's PTY fallback**, exactly as it does for agy. opencode's TUI only mints its session on the agent's first input, and a session the plugin creates for itself is never rendered in the TUI the human is watching, so driving one would work while showing an empty pane.
+- **Per-driver model catalogs**: `opencode models` is read for the model picker alongside `pi --list-models` and `agy models`. opencode gets no injected default model, because a foreign provider id fails with "Model not found" and opencode already resolves its own; a configured reasoning effort is passed as `--variant`.
+- **`duo-opencode`** driver shim, plus release packaging for it and for the opencode plugin.
+
+### Correctness fixes
+
+- **Duo no longer modifies your `.gitignore`.** It used to write `.duo/` into that tracked file, dirtying the repository it was launched in, and then needed ~80 lines of filtering to pretend otherwise. `.git/info/exclude` alone hides `.duo/` in every worktree of the repository without touching anything the user can see in a commit, so the filter is deleted. It also had a data-loss hole: an untracked user `.gitignore` was treated as a clean tree, so delivery could fast-forward over real uncommitted work.
+- **Agent commands are shell-quoted instead of Go-escaped.** Values Duo injects were built with `%q`, which is Go escaping, not shell escaping: a model containing `$` was expanded by the shell and one containing a backtick executed it. Values are now single-quoted.
+- **agy keeps its conversation id when `DUO_PI_COMMAND` contains `--config`.** The check was `strings.Contains(base, "-c")`, which also matches `--config`, so the id was silently dropped and the agent lost its identity across restarts. Flag detection now matches whole tokens.
+- **A persisted model no longer outlives the driver it was chosen for.** `.duo/config.json` stored a driver and a model per agent but rewrote only the driver, so switching an agent from agy to another driver handed agy's model id to a CLI that rejects it and the agent died at startup. The model is now cleared on a driver change, and a model opencode cannot use is ignored so existing config files repair themselves.
+
+### Interface
+
+- Every agent now reports as connected, not only the ones with a bridge. A driver whose bridge cannot announce itself is announced when its process starts; previously an opencode agent looked absent for the whole time before its first task.
+- The work preview reports a dead process instead of saying `waiting`, which contradicted its own header and hid the reason an agent was stuck.
+- `duo plugins` lists the three built-in drivers with aligned columns.
+
+### Packaging
+
+- The version string lives in one place (`internal/version`) and is shared by the CLI, the three driver shims and the embedded MCP server. Duplicating it is what previously let the Pi bridge installer report a version four releases behind.
+- `scripts/install.sh`, `scripts/install-release.sh` and the release workflow build and ship `duo`, `duo-pi`, `duo-agy`, `duo-opencode`, `pi-extension/` and `opencode-extension/`.
+- Documentation covers the three drivers, per-driver session identity, model catalogs and the fact that model or effort changes restart a CLI-only driver. Verified against the code: `duo sessions -a`, `duo clean -f/-n` and the `duo mcp-server` flags documented in the README all behave as described.
+
 ## v0.7.0 — 2026-09-30
 
 - Pluggable Agent Driver Architecture: Refactored Duo agent orchestration into a universal `Driver` interface (`agent.Driver`), abstracting process lifecycle, PTY interaction, and activity monitoring away from Pi-specific assumptions.

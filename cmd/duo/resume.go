@@ -11,6 +11,7 @@ import (
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/recovery"
 	"github.com/atfa/duo/internal/sessionstore"
+	"github.com/atfa/duo/internal/version"
 	"github.com/atfa/duo/internal/workspace"
 )
 
@@ -73,7 +74,7 @@ func runResume(ctx context.Context, cfg config, root, repoID, baseDir string) er
 	// Persist the reconciled checkpoint before starting anything, so a crash
 	// during startup cannot resurrect revoked signatures or a duplicate merge.
 	reconciled := result.Snapshot
-	reconciled.DuoVersion = version
+	reconciled.DuoVersion = version.Version
 	if err := store.Save(reconciled); err != nil {
 		return fmt.Errorf("persist reconciled session state: %w", err)
 	}
@@ -87,7 +88,7 @@ func runResume(ctx context.Context, cfg config, root, repoID, baseDir string) er
 		"phase":                string(result.Report.Phase),
 		"revoked":              revoked,
 		"integrationRecovered": result.Report.IntegrationRecovered,
-		"duoVersion":           version,
+		"duoVersion":           version.Version,
 	})
 	logger.Printf("recovered: %s", result.Report.String())
 
