@@ -2,9 +2,9 @@
 
 All notable project milestones are documented here.
 
-## Unreleased
+## v0.8.1 — 2026-10-02
 
-Eight correctness bugs in the resume and driver paths, plus a data race in the model picker's own tests. The build, the unit suites and the end-to-end suites were all green before and after, so none of these were caught by a failing test: they were found by reading the code and by `go test -race`. Three of them could lose or corrupt session state, or leave an agent dead while the UI claimed otherwise.
+A patch release, because every fix in it is a correctness fix and nothing here changes how a session is driven. It carries eight correctness bugs in the resume and driver paths, a data race in the model picker's own tests, and one new feature: a readable Markdown transcript of every session, written into the repository. The build, the unit suites and the end-to-end suites were all green before and after, so none of these were caught by a failing test: they were found by reading the code and by `go test -race`. Three of them could lose or corrupt session state, or leave an agent dead while the UI claimed otherwise.
 
 ### Resume
 
@@ -22,6 +22,12 @@ Eight correctness bugs in the resume and driver paths, plus a data race in the m
 - **A failed model or effort switch is no longer reported as a success.** The model reaches a non-pi driver as a startup flag, and `RestartRunning` stops the process before starting it, so a failed restart left the agent **dead** — not stale — while the status line announced the new model and the picker recorded it as current. The picker header therefore advertised a model and a thinking level the agent never received. Both now report the failure, and both record the new value only once the agent actually has it. Bridge (pi) drivers are unaffected: they take the change live and still record it.
 - **The verification verdict shows up in the activity line.** The agy activity summary read the tool argument `verdict`, but both bridge extensions send `result` — `verdict` is the MCP spelling, which is a different transport — so the verdict never rendered. The test that covered it used the same wrong key and stayed green.
 - **The activity line for an unhandled tool no longer changes between renders.** The fallback summary walked the argument map in Go's randomized iteration order and returned the first string it found, so the same tool call could display a different argument on each frame.
+
+### Session logs
+
+- **Every session now leaves a readable transcript in the repository.** Each run writes Markdown to `.duo/logs/` in the main repository, named after the session id, which already begins with a sortable timestamp. The file holds every line the interface displayed, in the order it appeared, with the agent's own Markdown passed through unchanged so code blocks survive. Entries are appended as they are displayed rather than written at the end, so an interrupted session still leaves its transcript behind. The files live in the main repository and never in an agent worktree, which is what makes them survive `duo clean` and stay where the user works. `.duo/` is already hidden through `.git/info/exclude`, so a transcript never dirties the repository.
+- **Austin and Tony each get their own log.** A session writes `<id>-austin.md` and `<id>-tony.md` beside the full transcript, holding every entry that involves that agent: the task the human gave it, what it said back, and what it exchanged with its peer. Selecting by pane would have been wrong: the interface files a message under its *speaker*, so `Human → Austin` appears in Duo's pane, and a peer message appears in both agents' logs because both of them received it.
+- **`duo logs` lists the transcripts**, grouped by session and newest first, with sizes and full paths. The files are never pruned automatically.
 
 ## v0.8.0 — 2026-10-01
 
