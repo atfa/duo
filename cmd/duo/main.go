@@ -38,6 +38,7 @@ func main() {
 			fmt.Println("Usage: duo [git-repository] [--mode fast|goal] [--test-cmd <cmd>] [--resume [session-id]]")
 			fmt.Println("       duo apply [session-id]")
 			fmt.Println("       duo sessions [--all] [repository]")
+			fmt.Println("       duo logs [repository]")
 			fmt.Println("       duo clean [session-id] [--all] [--all-repos] [--force] [--dry-run]")
 			fmt.Println("       duo plugins")
 			fmt.Println("       duo mcp-server [--agent austin|tony] [--export-config]")
@@ -52,6 +53,7 @@ func main() {
 			fmt.Println("  duo apply              deliver a pending final result to this repository")
 			fmt.Println("  duo apply <id>         apply one specific session's final result")
 			fmt.Println("  duo sessions           list sessions for this repository (--all for all repositories)")
+			fmt.Println("  duo logs               list the Markdown transcripts written to .duo/logs")
 			fmt.Println("  duo clean              clean completed sessions and worktrees (--force for unfinished)")
 			fmt.Println("  duo plugins            list built-in and discovered external agent driver plugins")
 			fmt.Println("  duo mcp-server         serve Model Context Protocol (MCP) state machine tools")
@@ -82,6 +84,11 @@ func main() {
 			return
 		case "sessions":
 			if err := runSessions(ctx, os.Args[2:]); err != nil && ctx.Err() == nil {
+				log.Fatal(err)
+			}
+			return
+		case "logs":
+			if err := runLogs(ctx, os.Args[2:]); err != nil && ctx.Err() == nil {
 				log.Fatal(err)
 			}
 			return
@@ -461,6 +468,22 @@ func (r *runtime) serve(ctx context.Context) error {
 	_ = workspace.EnsureGitIgnore(r.set.Repository)
 	_ = workspace.SaveProjectConfig(r.set.Repository, r.cfg.agentDriver(protocol.Austin), r.cfg.agentDrivers, r.cfg.agentModels)
 
+	// Transcripts live in the main repository, never in an agent worktree, so
+	// they survive `duo clean` and stay where the user works.
+	transcripts, err := sessionstore.NewLogWriter(r.set.Repository, sessionstore.Transcript{
+		SessionID:  r.sessionID,
+		Mode:       string(r.state.Snapshot().Mode),
+		Repository: r.set.Repository,
+		Branch:     r.set.BaseBranch,
+		BaseCommit: r.set.BaseCommit,
+	})
+	if err != nil {
+		r.logger.Printf("session log: %v", err)
+	}
+	if transcripts != nil {
+		defer transcripts.Close()
+	}
+
 	if err := agents.StartAll(ctx); err != nil {
 		return err
 	}
@@ -471,7 +494,7 @@ func (r *runtime) serve(ctx context.Context) error {
 		go monitor.Run(ctx)
 	}
 
-	app := tui.New(coord, r.state, tracker, r.ws, server, agents, bus, version.Version, r.tuiHistory, r.journal)
+	app := tui.New(coord, r.state, tracker, r.ws, server, agents, bus, version.Version, r.tuiHistory, r.journal, transcripts)
 	if err := app.Run(ctx); err != nil && ctx.Err() == nil {
 		log.Printf("Duo TUI: %v", err)
 	}

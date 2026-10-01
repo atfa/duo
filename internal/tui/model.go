@@ -54,6 +54,10 @@ type App struct {
 	agents  *agent.Manager
 	bus     *events.Bus
 	journal *sessionstore.EventLog
+	// logs mirrors the journal into Markdown transcripts under the main
+	// repository's .duo/logs, so a finished session is readable without
+	// hunting for its journal or its worktrees.
+	logs *sessionstore.LogWriter
 
 	tty *terminal.TTY
 
@@ -157,8 +161,9 @@ func New(
 	version string,
 	history []sessionstore.TUIEntry,
 	journal *sessionstore.EventLog,
+	logs *sessionstore.LogWriter,
 ) *App {
-	a := &App{coord: coord, state: state, tracker: tracker, ws: ws, server: server, agents: agents, bus: bus, version: version, journal: journal, historyIdx: -1,
+	a := &App{coord: coord, state: state, tracker: tracker, ws: ws, server: server, agents: agents, bus: bus, version: version, journal: journal, logs: logs, historyIdx: -1,
 		history:        loadComposerHistory(),
 		modelTarget:    protocol.Austin, modelCh: make(chan modelsResult, 1),
 		modelsByAgent:       map[protocol.AgentID][]models.Model{},
@@ -312,8 +317,14 @@ func (a *App) addEntry(agent protocol.AgentID, text string, isError, isWarning b
 func (a *App) addLabeled(agent protocol.AgentID, label, text string, isError, isWarning bool) {
 	item := entry{at: time.Now(), text: text, error: isError, warning: isWarning, label: label}
 	a.appendEntry(agent, item)
-	if a.journal != nil {
-		a.journal.RecordTUIEntry(sessionstore.TUIEntry{Time: item.at, Pane: string(agent), Text: text, Error: isError, Warning: isWarning, Label: label})
+	// One funnel for everything the interface shows, so the journal and the
+	// Markdown transcripts cannot drift apart.
+	if a.journal != nil || a.logs != nil {
+		recorded := sessionstore.TUIEntry{Time: item.at, Pane: string(agent), Text: text, Error: isError, Warning: isWarning, Label: label}
+		if a.journal != nil {
+			a.journal.RecordTUIEntry(recorded)
+		}
+		a.logs.Append(recorded)
 	}
 }
 
