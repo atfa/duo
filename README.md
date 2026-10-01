@@ -40,19 +40,19 @@ Requirements:
 
 ## Install
 
-**Released binaries** (macOS/Linux, amd64/arm64; installs `~/.local/bin/duo` and the Pi bridge):
+**Released binaries** (macOS/Linux, amd64/arm64; installs `~/.local/bin/duo`, the per-driver bridges `duo-pi` / `duo-agy` / `duo-opencode`, the Pi bridge and the opencode plugin):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash
 ```
 
-**From source** (runs the test suite first, then installs the same two pieces; requires Go 1.22+):
+**From source** (runs the test suite first, then installs the same pieces; requires Go 1.22+):
 
 ```bash
 ./scripts/install.sh
 ```
 
-Restart any running Pi processes after installing the bridge.
+Restart any running Pi or opencode processes after installing the bridges.
 
 ## How Duo differs from a planner/worker setup
 
@@ -144,7 +144,7 @@ Duo Core enforces these gates rather than trusting the model: Fast rejects `duo_
 
 Duo's main view is one conversation **timeline**: a single chronological stream in which each message appears on its speaker's own side — Austin, the human and Duo system lines on the left, Tony's pushed to the right — under a `Sender → Receiver` header. Headers are coloured by speaker: a message addressed to the human is bold in the speaker's own colour, while agent-to-agent and system headers stay dim. System notices, harness notes, errors and verdicts are labeled the same way (`Duo → Human`, `Duo → Tony`, …), never with a bare speaker name. Both speakers share the same bubble width (about three quarters of the row), so the side a block sits on, not a heavier header, tells you who is speaking; a Tony message that fits on one line hugs the right edge, while a wrapped one is left-anchored at its indent. The top border row names the Git repository Duo resolved (never the launch directory), so the target of the session is visible without opening Help. Human tasks, peer messages, verifier verdicts and Duo system messages are interleaved in arrival order, and the current mode, phase, verification/Plan state and transient feedback stay below the timeline.
 
-A build can take a long time, and the timeline only changes when an agent finishes a message. Below it Duo therefore keeps a **work preview** for each agent. Its header names the agent, its animated state and how long the current turn has been running — the state spinner and the `[↗]` attach button live here now; the rows below show what it is doing *now* (the running tool and how long it has been running, or the model and thinking level it is thinking with), the turn's recent tool trail with ✓/✗ and durations, the turn's last error, and the tail of the text being streamed. A failed tool or a provider error is visible there immediately, so waiting does not mean guessing. `Ctrl+P` collapses the band when you want the rows back for the timeline; on a short terminal it is hidden automatically.
+A build can take a long time, and the timeline only changes when an agent finishes a message. Below it Duo therefore keeps a **work preview** for each agent. Its header names the agent, its driver, its animated state and how long the current turn has been running (`Austin preview (agy) · working · 5s`, `Tony preview (pi) · idle`) — the state spinner and the `[↗]` attach button live here now; the rows below show what it is doing *now* (the running tool and how long it has been running, or the model and thinking level it is thinking with), the turn's recent tool trail with ✓/✗ and durations, the turn's last error, and the tail of the text being streamed. A failed tool or a provider error is visible there immediately, so waiting does not mean guessing. `Ctrl+P` collapses the band when you want the rows back for the timeline; on a short terminal it is hidden automatically.
 
 | Key | Action |
 |---|---|
@@ -159,10 +159,15 @@ A build can take a long time, and the timeline only changes when an agent finish
 | `Ctrl+M` / `Alt+M` | Open the model picker for Austin or Tony |
 | `Ctrl+O` | Toggle session overview: worktrees, verification or Plan, delivery state, and Git changes diffstat |
 | `Ctrl+G` | Toggle message timestamps |
-| `Shift+Tab` | Cycle the target agent's Pi thinking level |
+| `Shift+Tab` | Cycle the target agent's thinking level |
 | `Ctrl+Q` | Quit Duo and preserve the session |
 | `←` / `→` | Move the composer cursor |
-| `Backspace` | Delete the preceding composer character |
+| `Alt+←` / `Alt+→` | Move the composer cursor by word |
+| `↑` / `↓` | Move between composer lines; recall task history at the first/last line |
+| `Home` / `End` | Move to the start or end of the composer line |
+| `Ctrl+U` / `Ctrl+K` | Delete to the start or end of the composer line |
+| `Ctrl+W` | Delete the previous word |
+| `Backspace` / `Del` | Delete the preceding or following composer character |
 | `PgUp` / `PgDn` | Scroll the conversation timeline earlier or later |
 | Mouse wheel over the timeline | Scroll earlier messages |
 | Mouse drag over the timeline | Select text and copy it to the clipboard |
@@ -188,7 +193,7 @@ Typing `/` in the composer opens an interactive command palette showing availabl
 | `/clear` | Clear composer and reset status notice |
 | `/quit` or `/exit` | Exit Duo and preserve session state |
 
-The model picker (`Ctrl+M`) lists the catalog Pi reports for the very installation Duo launched (`pi --list-models`). Type to filter, move with `↑`/`↓` (or `PgUp`/`PgDn`, `Home`/`End`), switch the target between Austin and Tony with `Tab`, cycle that agent's thinking level with `Shift+Tab`, and apply the model with `Enter` (apply and close) or `Space` (apply and keep the picker open, so a model and a thinking level can be set in one visit). The switch is live: Pi keeps the conversation and records both the model and the thinking level in the session transcript, so a restart or resume (`Ctrl+R`/`Ctrl+Y`) keeps the choice. `▶` marks the picker cursor and `●` the target's current model.
+The model picker (`Ctrl+M`) lists the catalog the *target's own driver* reports for the very installation Duo launched (`pi --list-models`, `agy models`, `opencode models`), so Austin and Tony can sit on different catalogs in the same session. Type to filter, move with `↑`/`↓` (or `PgUp`/`PgDn`, `Home`/`End`), switch the target between Austin and Tony with `Tab`, cycle that agent's thinking level with `Shift+Tab`, and apply the model with `Enter` (apply and close) or `Space` (apply and keep the picker open, so a model and a thinking level can be set in one visit). On `pi` the switch is live: Pi keeps the conversation and records both the model and the thinking level in the session transcript, so a restart or resume (`Ctrl+R`/`Ctrl+Y`) keeps the choice. `agy` and `opencode` take model and effort as startup flags, so Duo restarts that agent instead — the conversation survives, because the session id is persisted, but in-flight work is interrupted. `▶` marks the picker cursor and `●` the target's current model.
 
 Agent output is rendered as lightweight markdown: headings, blockquotes, links and bold/italic/code spans are styled, and markdown tables are drawn with real, aligned borders. A table wider than the timeline is narrowed by wrapping the widest cells instead of truncating them, and a wrapped list keeps a hanging indent so continuation lines stay under the item text.
 
@@ -218,6 +223,7 @@ Everything has a working default; `duo` needs no configuration to run.
 | `DUO_HARNESS_STALL_SECONDS` | `300` | No progress for this long counts as a stall. |
 | `DUO_HARNESS_COOLDOWN_SECONDS` | `30` | Minimum gap between harness nudges. |
 | `DUO_HARNESS_RESUME_GRACE_SECONDS` | `45` | Extra grace after `--resume`, so reconnecting is not mistaken for a stall. |
+| `DUO_HISTORY_FILE` | `~/.duo/history` | Composer task history recalled with `↑`/`↓`. |
 
 To run a non-default Pi command:
 
@@ -230,15 +236,18 @@ modifies your `.gitignore` and never leaves your working tree dirty.
 
 ### Agent drivers
 
-Duo drives whichever agent CLI you install. All three speak the same Duo bridge
-protocol, so the modes, tools, evidence rules and delivery flow are identical —
-only how Duo launches and observes the agent differs.
+Duo drives whichever agent CLI you install. All three speak the same Duo
+coordination protocol, so the modes, tools, evidence rules and delivery flow are
+identical — only how Duo launches the agent and observes it differs.
 
 | Driver | Select with | How Duo talks to it |
 |---|---|---|
 | `pi` (default) | `--agent pi` | A Pi bridge extension connects back over a local socket. Full streaming: tool activity, peer messages and model switching are live. |
 | `agy` | `--agent agy` | Google Antigravity CLI. No bridge, so Duo watches the conversation transcript and writes messages into the PTY. |
 | `opencode` | `--agent opencode` | An opencode plugin connects back over a local socket, the same way the Pi bridge does. |
+
+`--driver` is an alias for `--agent`, and `--austin-agent` / `--tony-agent` are
+aliases for `--austin-driver` / `--tony-driver`.
 
 Pick one per agent to mix them, for example `duo --austin-driver opencode --tony-driver pi`.
 
@@ -276,6 +285,22 @@ The opencode bridge is installed by the install scripts to
 `~/.config/opencode/plugin/duo/`. Restart any running opencode processes after
 installing.
 
+### MCP server (`duo mcp-server`)
+
+An agent CLI that speaks Model Context Protocol can drive the same state machine
+through `duo mcp-server`, which serves the six Duo tools above over JSON-RPC 2.0
+on stdio and forwards them to the running session's bridge:
+
+```bash
+duo mcp-server --agent austin --session <session-id> --token <token> --port <port>
+duo mcp-server --agent tony --export-config   # print MCP client config JSON
+```
+
+Connection parameters default to `DUO_AGENT`, `DUO_SESSION`, `DUO_TOKEN`,
+`DUO_HOST` and `DUO_PORT`, which Duo sets for the agents it launches, so a
+client started inside a session needs no arguments. `duo mcp` is an alias, and
+`--export-config` prints a ready-to-paste `mcpServers` entry instead of serving.
+
 ### Configuration files
 
 You can persist settings globally in `~/.duo/config.json` or per-repository in `.duo/config.json` (or `.duo.json`):
@@ -284,8 +309,12 @@ You can persist settings globally in `~/.duo/config.json` or per-repository in `
 {
   "mode": "fast",
   "testCommand": "go test ./...",
+  "driver": "pi",
+  "piCommand": "pi",
   "agents": {
     "austin": {
+      "command": "pi",
+      "driver": "pi",
       "model": "anthropic/claude-3-7-sonnet",
       "thinking": "high"
     },
@@ -297,12 +326,25 @@ You can persist settings globally in `~/.duo/config.json` or per-repository in `
   "harness": {
     "enabled": true,
     "idleSeconds": 15,
-    "stallSeconds": 300
+    "stallSeconds": 300,
+    "cooldownSeconds": 30
   }
 }
 ```
 
-Precedence: explicit CLI flags (`--mode`, `--test-cmd`) > environment variables (`DUO_*`) > repository `.duo/config.json` > global `~/.duo/config.json` > built-in defaults.
+`agents.<name>.command` overrides the launch command and `agents.<name>.driver`
+the driver for one agent only; the top-level `driver` and `piCommand` set the
+defaults both agents start from. Duo appends `--model` and the thinking flag
+(`--variant` for opencode) unless the command already carries them.
+
+Precedence: explicit CLI flags (`--mode`, `--test-cmd`, `--agent`/`--austin-driver`/`--tony-driver`) > environment variables (`DUO_*`) > repository `.duo/config.json` > global `~/.duo/config.json` > built-in defaults.
+
+Duo also **writes** the repository `.duo/config.json`: on every launch it records
+each agent's active driver and model there, so a model chosen in the picker is
+remembered on the next run. A model belonging to a previous driver is dropped
+when the driver changes, since its id means nothing to the new CLI. Because
+`.duo/` is excluded through `.git/info/exclude`, those writes never show up in
+`git status`.
 
 ## Where Duo keeps things
 
@@ -317,6 +359,10 @@ Precedence: explicit CLI flags (`--mode`, `--test-cmd`) > environment variables 
 ~/.duo/worktrees/<repo>-<hash>/<session>/
     austin/         Austin's worktree — also the integration worktree
     tony/           Tony's worktree
+
+~/.duo/config.json  global settings you can edit
+~/.duo/history      composer task history (↑/↓ recall)
+~/.duo/plugins/     optional `duo-driver-<name>` / `duo-<name>` executables
 ```
 
 Session directories are created owner-only and contain no credentials, but they do describe your project's state; see [SECURITY.md](./SECURITY.md).
@@ -398,6 +444,10 @@ duo clean --dry-run          # preview what would be cleaned without modifying d
 
 Cleaning a session removes its Git worktrees (`git worktree remove --force`), prunes the worktree registry, deletes temporary branches (`duo/<session>/*`), and removes the session snapshot directory. Any session currently locked by an active Duo process is safely skipped.
 
+`duo sessions <repository>` lists another repository's sessions, `-a` and `-f` are short forms of `--all` and `--force`, and `-n` is `--dry-run`.
+
+The remaining commands do not touch sessions: `duo plugins` lists the built-in drivers plus every discovered external plugin, [`duo mcp-server`](#mcp-server-duo-mcp-server) serves the Duo tools over MCP, and `duo version` (`--version`) and `duo help` (`-h`, `--help`) print the version and full usage.
+
 ## Traces from real runs
 
 ### Fast mode (default)
@@ -462,14 +512,14 @@ The full record lives in [docs/demo.md](./docs/demo.md).
 
 ## Limitations
 
-Duo is an experimental runtime. In short: the agent topology is fixed at two agents named Austin and Tony; Pi is the only supported agent runtime; Fast mode can dynamically escalate to Goal mode on the fly (`/escalate` or `duo_escalate`), though downgrading back to Fast is unsupported; Fast is single-writer, so Tony never commits to the delivered artifact; recovery cannot reconstruct an agent's *reasoning*, only its state; Duo Core itself is not auto-restarted after a crash; and sessions are per-machine and per-repository-path, not portable.
+Duo is an experimental runtime. In short: the agent topology is fixed at two agents named Austin and Tony, each running one of the [supported drivers](#agent-drivers) (`pi`, `agy`, `opencode`, or an external plugin); Fast mode can dynamically escalate to Goal mode on the fly (`/escalate` or `duo_escalate`), though downgrading back to Fast is unsupported; Fast is single-writer, so Tony never commits to the delivered artifact; recovery cannot reconstruct an agent's *reasoning*, only its state; Duo Core itself is not auto-restarted after a crash; and sessions are per-machine and per-repository-path, not portable.
 
 The full, current list — including what is deliberately a non-goal — is in [docs/known-limitations.md](./docs/known-limitations.md).
 
 ## Development
 
 ```bash
-make check     # go test ./... && go vet ./... && go build ./cmd/duo
+make check     # go test ./... && go vet ./... && go build ./cmd/...
 ```
 
 Or individually:
@@ -477,10 +527,10 @@ Or individually:
 ```bash
 go test ./...
 go vet ./...
-go build ./cmd/duo
+go build ./cmd/...
 ```
 
-The suite covers Git worktree and integration behavior, PTY supervision, durable session reconcile, delivery concurrency, and phase transition rules. CI runs it on Go 1.22.x and Go stable across Ubuntu and macOS; pushing a `v*` tag builds and publishes the four release archives.
+The suite covers Git worktree and integration behavior, PTY supervision, durable session reconcile, delivery concurrency, and phase transition rules. If you change the Pi bridge, run its own suite too (`cd pi-extension && bun test`). CI runs the Go suite on Go 1.22.x and Go stable across Ubuntu and macOS; pushing a `v*` tag builds and publishes the four release archives.
 
 ## Documentation
 

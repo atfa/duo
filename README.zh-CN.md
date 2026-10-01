@@ -40,19 +40,19 @@ duo --mode goal  # 完整协商式工作流
 
 ## 安装
 
-**发布版二进制**（macOS/Linux，amd64/arm64；安装 `~/.local/bin/duo` 与 Pi bridge）：
+**发布版二进制**（macOS/Linux，amd64/arm64；安装 `~/.local/bin/duo`、各 driver 对应的 `duo-pi` / `duo-agy` / `duo-opencode`、Pi bridge 与 opencode 插件）：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash
 ```
 
-**从源码安装**（先跑测试，再装同样的两部分）：
+**从源码安装**（先跑测试，再装同样的这些部件）：
 
 ```bash
 ./scripts/install.sh
 ```
 
-装完 bridge 后请重启所有正在运行的 Pi 进程。从源码构建还需要 Go 1.22+。
+装完 bridge 后请重启所有正在运行的 Pi 与 opencode 进程。从源码构建还需要 Go 1.22+。
 
 ## Duo 与常见多 Agent 框架的区别
 
@@ -146,7 +146,7 @@ Duo Core 强制这些门禁而不是信任模型：Fast 拒绝 `duo_set_plan`，
 
 Duo 的主界面是一条会话 **时间线**：单一时间顺序的消息流，每条消息都显示在说话者自己那一侧——Austin、人类与 Duo 系统消息靠左，Tony 的消息靠右——上方是按说话方着色的 `说话方 → 接收方` 标题行：发送给人类的消息用说话方本色的高亮粗体，Agent 之间与系统消息则保持暗色。系统通知、harness 提示、错误与验证结论也一律标注方向（如 `Duo → Human`、`Duo → Tony`），不会只显示一个名字。双方使用相同的气泡宽度（约占整行四分之三），因此判断谁在说话看的是消息所在的一侧，而不是更粗的标题样式；Tony 的消息如果一行就能显示完整，会靠右边缘对齐，需要换行的消息则固定左缩进对齐。顶部边框行显示 Duo 解析出的 Git 仓库目录（不是启动目录），无需打开 Help 就能确认本轮的目标仓库。人类任务、peer 消息、验证结论与 Duo 系统消息按到达顺序交织排列，当前模式、阶段、验证/Plan 状态与瞬时反馈位于时间线下方。
 
-一次构建可能很久，而时间线只在 Agent 完成一条消息时变化。因此时间线下方为每个 Agent 保留一条 **工作预览**：标题行是 Agent、带动画的状态与本轮已运行时长——状态 spinner 与 `[↗]` 附着按钮现在都在这里；下方各行显示"此刻在做什么"（正在跑的工具及其已运行时间，或正在思考所用的模型与思考级别）、本轮最近的工具轨迹（✓/✗ 与耗时）、本轮最近一次错误、以及正在流式输出的文本尾巴。工具失败或 provider 报错会立刻在那里显示，等待时不必靠猜。`Ctrl+P` 可以收起这条预览带，把行数还给时间线；终端太矮时会自动隐藏。
+一次构建可能很久，而时间线只在 Agent 完成一条消息时变化。因此时间线下方为每个 Agent 保留一条 **工作预览**：标题行是 Agent、它的 driver、带动画的状态与本轮已运行时长（如 `Austin preview (agy) · working · 5s`、`Tony preview (pi) · idle`）——状态 spinner 与 `[↗]` 附着按钮现在都在这里；下方各行显示"此刻在做什么"（正在跑的工具及其已运行时间，或正在思考所用的模型与思考级别）、本轮最近的工具轨迹（✓/✗ 与耗时）、本轮最近一次错误、以及正在流式输出的文本尾巴。工具失败或 provider 报错会立刻在那里显示，等待时不必靠猜。`Ctrl+P` 可以收起这条预览带，把行数还给时间线；终端太矮时会自动隐藏。
 
 | 按键 | 操作 |
 |---|---|
@@ -161,10 +161,15 @@ Duo 的主界面是一条会话 **时间线**：单一时间顺序的消息流�
 | `Ctrl+M` / `Alt+M` | 打开 Austin 或 Tony 的模型选择器 |
 | `Ctrl+O` | 切换会话总览：worktree、验证或 Plan、交付状态与 Git 变更 diffstat |
 | `Ctrl+G` | 切换消息时间戳 |
-| `Shift+Tab` | 循环切换目标 Agent 的 Pi 思考强度 |
+| `Shift+Tab` | 循环切换目标 Agent 的思考强度 |
 | `Ctrl+Q` | 退出 Duo 并保留 session |
 | `←` / `→` | 移动 composer 光标 |
-| `Backspace` | 删除前一个字符 |
+| `Alt+←` / `Alt+→` | 按词移动 composer 光标 |
+| `↑` / `↓` | 在 composer 各行间移动；在首行/末行时改为回溯历史任务 |
+| `Home` / `End` | 移到 composer 当前行的开头/结尾 |
+| `Ctrl+U` / `Ctrl+K` | 删除到 composer 当前行的开头/结尾 |
+| `Ctrl+W` | 删除前一个词 |
+| `Backspace` / `Del` | 删除前一个/后一个 composer 字符 |
 | `PgUp` / `PgDn` | 向上/向下滚动会话时间线 |
 | 鼠标滚轮悬停在时间线上 | 滚动更早的消息 |
 | 鼠标在时间线上拖拽选择 | 选中文本并复制到剪贴板 |
@@ -190,7 +195,7 @@ composer 支持多行，一次最多显示四行。原生接管是全屏接管�
 | `/clear` | 清空当前输入框并重置状态提示 |
 | `/quit` 或 `/exit` | 退出 Duo 并保留当前会话状态 |
 
-模型选择器（`Ctrl+M`）列出 Duo 启动 Pi 所用的同一套安装（`pi --list-models`）上报的模型目录。输入即可过滤，用 `↑`/`↓`（或 `PgUp`/`PgDn`、`Home`/`End`）移动，用 `Tab` 在 Austin 与 Tony 之间切换目标，用 `Shift+Tab` 循环该 Agent 的思考强度，用 `Enter` 应用模型并关闭，或用 `Space` 应用模型但不关闭——这样一次打开就能同时设好模型和思考强度。切换是实时的：Pi 保留对话，并把模型与思考强度记入 session 记录，因此重启或 resume（`Ctrl+R`/`Ctrl+Y`）后仍然有效。`▶` 标记选择器光标，`●` 标记目标 Agent 当前使用的模型。
+模型选择器（`Ctrl+M`）列出**目标 Agent 自己那个 driver** 所上报的模型目录——即 Duo 启动该 Agent 所用的同一套安装（`pi --list-models`、`agy models`、`opencode models`），因此同一会话里 Austin 与 Tony 可以各自使用不同目录。输入即可过滤，用 `↑`/`↓`（或 `PgUp`/`PgDn`、`Home`/`End`）移动，用 `Tab` 在 Austin 与 Tony 之间切换目标，用 `Shift+Tab` 循环该 Agent 的思考强度，用 `Enter` 应用模型并关闭，或用 `Space` 应用模型但不关闭——这样一次打开就能同时设好模型和思考强度。在 `pi` 上切换是实时的：Pi 保留对话，并把模型与思考强度记入 session 记录，因此重启或 resume（`Ctrl+R`/`Ctrl+Y`）后仍然有效。`agy` 与 `opencode` 把模型和思考强度当作启动参数，因此 Duo 会重启该 Agent——对话仍会保留（session id 已持久化），但正在进行的工作会被打断。`▶` 标记选择器光标，`●` 标记目标 Agent 当前使用的模型。
 
 Agent 输出按轻量 markdown 渲染：标题、引用、链接以及粗体/斜体/行内代码都有样式，markdown 表格会画出对齐的真实边框。表格宽度超过时间线时，Duo 会折行最宽的单元格，而不是截断内容；折行的列表项会保持悬挂缩进，续行对齐在条目正文下方。
 
@@ -220,6 +225,7 @@ Help 是一个完整的大屏视图，用 `↑`/`k`、`↓`/`j`、`PgUp`、`PgDn
 | `DUO_HARNESS_STALL_SECONDS` | `300` | 多久没有进展算 stall。 |
 | `DUO_HARNESS_COOLDOWN_SECONDS` | `30` | 两次 harness 提醒之间的最小间隔。 |
 | `DUO_HARNESS_RESUME_GRACE_SECONDS` | `45` | `--resume` 之后的额外宽限期，避免把重连误判成 stall。 |
+| `DUO_HISTORY_FILE` | `~/.duo/history` | composer 历史任务记录，用 `↑`/`↓` 回溯。 |
 
 启动非默认 Pi 命令：
 
@@ -232,7 +238,7 @@ Duo 通过 `.git/info/exclude` 隐藏自己的 `.duo/` 目录，因此不会修�
 
 ### Agent drivers
 
-Duo 可以驱动你安装的任意一种 Agent CLI。三者使用同一套 Duo bridge 协议，
+Duo 可以驱动你安装的任意一种 Agent CLI。三者使用同一套 Duo 协调协议，
 因此模式、工具、证据规则与交付流程完全一致 —— 区别只在于 Duo 如何启动和观测 Agent。
 
 | Driver | 选择方式 | Duo 的通信方式 |
@@ -240,6 +246,9 @@ Duo 可以驱动你安装的任意一种 Agent CLI。三者使用同一套 Duo b
 | `pi`（默认） | `--agent pi` | Pi bridge 扩展通过本地 socket 回连。完整流式能力：工具活动、peer 消息与模型切换都是实时的。 |
 | `agy` | `--agent agy` | Google Antigravity CLI。没有 bridge，因此 Duo 观测对话 transcript，并把消息写进 PTY。 |
 | `opencode` | `--agent opencode` | opencode 插件通过本地 socket 回连，与 Pi bridge 同一机制。 |
+
+`--driver` 是 `--agent` 的别名，`--austin-agent` / `--tony-agent` 则是
+`--austin-driver` / `--tony-driver` 的别名。
 
 可以为每个 Agent 单独指定，从而混用，例如
 `duo --austin-driver opencode --tony-driver pi`：
@@ -273,6 +282,21 @@ Duo 以自动批准工具调用的方式运行 Agent（opencode 用 `--auto`，a
 opencode bridge 由安装脚本部署到 `~/.config/opencode/plugin/duo/`。
 安装后请重启所有正在运行的 opencode 进程。
 
+### MCP 服务（`duo mcp-server`）
+
+如果某个 Agent CLI 原生支持 Model Context Protocol，它可以通过
+`duo mcp-server` 驱动同一套状态机：该命令用 JSON-RPC 2.0 在 stdio 上提供上面的六个
+Duo 工具，并把调用转发给当前会话的 bridge：
+
+```bash
+duo mcp-server --agent austin --session <session-id> --token <token> --port <port>
+duo mcp-server --agent tony --export-config   # 打印 MCP 客户端配置 JSON
+```
+
+连接参数默认取自 `DUO_AGENT`、`DUO_SESSION`、`DUO_TOKEN`、`DUO_HOST` 与
+`DUO_PORT`——Duo 启动 Agent 时会设置它们，因此在会话内部启动的客户端无需任何参数。
+`duo mcp` 是别名；`--export-config` 只打印可直接粘贴的 `mcpServers` 配置，不启动服务。
+
 ### 配置文件
 
 你可以在全局 `~/.duo/config.json` 或项目级 `.duo/config.json`（或 `.duo.json`）中持久化默认配置：
@@ -281,8 +305,12 @@ opencode bridge 由安装脚本部署到 `~/.config/opencode/plugin/duo/`。
 {
   "mode": "fast",
   "testCommand": "go test ./...",
+  "driver": "pi",
+  "piCommand": "pi",
   "agents": {
     "austin": {
+      "command": "pi",
+      "driver": "pi",
       "model": "anthropic/claude-3-7-sonnet",
       "thinking": "high"
     },
@@ -294,12 +322,23 @@ opencode bridge 由安装脚本部署到 `~/.config/opencode/plugin/duo/`。
   "harness": {
     "enabled": true,
     "idleSeconds": 15,
-    "stallSeconds": 300
+    "stallSeconds": 300,
+    "cooldownSeconds": 30
   }
 }
 ```
 
-优先级顺序：显式命令行参数（`--mode`, `--test-cmd`）> 环境变量（`DUO_*`）> 仓库 `.duo/config.json` > 全局 `~/.duo/config.json` > 内置默认值。
+`agents.<name>.command` 只覆盖这一个 Agent 的启动命令，`agents.<name>.driver`
+只覆盖它自己的 driver；顶层的 `driver` 与 `piCommand` 则是两个 Agent 的共同默认。
+除非命令里已经带了这些参数，Duo 会自行追加 `--model` 以及思考强度参数
+（opencode 用 `--variant`）。
+
+优先级顺序：显式命令行参数（`--mode`, `--test-cmd`, `--agent`/`--austin-driver`/`--tony-driver`）> 环境变量（`DUO_*`）> 仓库 `.duo/config.json` > 全局 `~/.duo/config.json` > 内置默认值。
+
+Duo 也会**写入**项目级 `.duo/config.json`：每次启动都把各 Agent 当前生效的 driver
+与模型记录进去，因此在选择器里选过的模型下次运行仍然有效。若某个模型属于上一个
+driver，切换 driver 时它会被丢弃——那个 id 对新的 CLI 没有意义。由于 `.duo/`
+已通过 `.git/info/exclude` 排除，这些写入不会出现在 `git status` 里。
 
 ## 数据存放在哪里
 
@@ -314,6 +353,10 @@ opencode bridge 由安装脚本部署到 `~/.config/opencode/plugin/duo/`。
 ~/.duo/worktrees/<repo>-<hash>/<session>/
     austin/         Austin 的 worktree —— 同时也是 integration worktree
     tony/           Tony 的 worktree
+
+~/.duo/config.json  你可以编辑的全局配置
+~/.duo/history      composer 历史任务（用 ↑/↓ 回溯）
+~/.duo/plugins/     可选的 `duo-driver-<name>` / `duo-<name>` 可执行文件
 ```
 
 会话目录以仅属主权限创建，且不含凭据；但它确实描述了你项目的状态，详见 [SECURITY.md](./SECURITY.md)。
@@ -395,6 +438,10 @@ duo clean --dry-run          # 仅预览将被清理的内容，不修改磁盘
 
 清理会话会自动安全移除对应的 Git 工作树（`git worktree remove --force`）、执行 `git worktree prune` 修剪、删除临时分支（`duo/<session>/*`），并删除对应的会话快照目录。正在被另一个运行中的 Duo 进程持有的会话会被 `flock` 锁保护，自动予以跳过。
 
+`duo sessions <repository>` 可以列出其他仓库的会话；`-a`、`-f`、`-n` 分别是 `--all`、`--force`、`--dry-run` 的短选项。
+
+其余命令不涉及会话：`duo plugins` 列出内置 driver 与所有已发现的外部插件，[`duo mcp-server`](#mcp-服务duo-mcp-server) 通过 MCP 提供 Duo 工具，`duo version`（`--version`）与 `duo help`（`-h`、`--help`）分别打印版本号与完整用法。
+
 ## 真实流程记录
 
 ### Fast（默认）
@@ -456,14 +503,14 @@ DONE
 
 ## 已知限制
 
-Duo 仍是实验性运行时。简要说：Agent 拓扑固定为两个名为 Austin 和 Tony 的 Agent；Pi 是目前唯一支持的 Agent runtime；Fast 模式支持在运行中动态升级到 Goal 模式（`/escalate` 或 `duo_escalate`），但暂不支持从 Goal 降级回 Fast；Fast 是单写者，Tony 永不向被交付的成果 commit；恢复无法重建 Agent 的*推理过程*，只能恢复其状态；Duo Core 自身崩溃后不会自动重启；会话绑定机器与仓库路径，不可迁移。
+Duo 仍是实验性运行时。简要说：Agent 拓扑固定为两个名为 Austin 和 Tony 的 Agent，各自使用一种[受支持的 driver](#agent-drivers)（`pi`、`agy`、`opencode`，或外部插件）；Fast 模式支持在运行中动态升级到 Goal 模式（`/escalate` 或 `duo_escalate`），但暂不支持从 Goal 降级回 Fast；Fast 是单写者，Tony 永不向被交付的成果 commit；恢复无法重建 Agent 的*推理过程*，只能恢复其状态；Duo Core 自身崩溃后不会自动重启；会话绑定机器与仓库路径，不可迁移。
 
 完整清单，以及刻意划为非目标（non-goal）的部分，见 [docs/known-limitations.md](./docs/known-limitations.md)。
 
 ## 开发
 
 ```bash
-make check     # go test ./... && go vet ./... && go build ./cmd/duo
+make check     # go test ./... && go vet ./... && go build ./cmd/...
 ```
 
 或逐项执行：
@@ -471,10 +518,10 @@ make check     # go test ./... && go vet ./... && go build ./cmd/duo
 ```bash
 go test ./...
 go vet ./...
-go build ./cmd/duo
+go build ./cmd/...
 ```
 
-测试覆盖 Git worktree 与集成行为、PTY 监管、持久会话对账、交付并发，以及阶段流转规则。CI 在 Ubuntu 与 macOS 上分别用 Go 1.22.x 和 Go stable 跑一遍；推送 `v*` tag 会构建并发布四平台归档。
+测试覆盖 Git worktree 与集成行为、PTY 监管、持久会话对账、交付并发，以及阶段流转规则。如果改动了 Pi bridge，请另外跑它自己的测试（`cd pi-extension && bun test`）。CI 在 Ubuntu 与 macOS 上分别用 Go 1.22.x 和 Go stable 跑一遍；推送 `v*` tag 会构建并发布四平台归档。
 
 ## 文档
 

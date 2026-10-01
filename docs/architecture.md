@@ -1,6 +1,6 @@
 # Architecture
 
-Duo is intentionally split into a **thin Pi adapter** and an **authoritative Go coordination core**.
+Duo is intentionally split into **thin agent adapters** — one per supported agent CLI — and an **authoritative Go coordination core**.
 
 ## Design goal
 
@@ -24,7 +24,7 @@ Everything else should remain flexible enough for the models to collaborate natu
 
 ### `internal/protocol`
 
-Wire messages and stable Austin/Tony identifiers. No Git, Pi or UI logic should live here.
+Wire messages and stable Austin/Tony identifiers. No Git, agent-CLI or UI logic should live here.
 
 ### `internal/transport`
 
@@ -61,7 +61,7 @@ Owns Git-specific isolation and evidence:
 
 ### `internal/agent`
 
-Owns the two real agent processes. Each `Session` starts the agent in its own pseudo-terminal (`creack/pty`), keeps a bounded raw-output ring buffer for native-attach replay, and tracks a process state that distinguishes `exited` from `failed`. `Manager` starts, resizes, restarts and stops both sessions and emits lifecycle events so the caller can journal them.
+Owns the two real agent processes behind one `Driver` interface (`pi`, `agy`, `opencode`, or an external plugin), so process lifecycle, PTY interaction and activity monitoring are not Pi-specific. Each `Session` starts the agent in its own pseudo-terminal (`creack/pty`), keeps a bounded raw-output ring buffer for native-attach replay, and tracks a process state that distinguishes `exited` from `failed`. `Manager` starts, resizes, restarts and stops both sessions and emits lifecycle events so the caller can journal them.
 
 This layer also owns per-driver session identity, and the three drivers get there differently:
 
@@ -128,6 +128,10 @@ Duo msg        → opencode prompt on the live session
 `protocol.ts`, `transport.ts` and `mode.ts` are shared verbatim with `pi-extension`: both bridges speak wire protocol version 1, so only the host binding differs. Inbound Duo messages become `client.session.promptAsync` calls on the tracked session, which is how a peer message or harness nudge reaches the agent mid-turn instead of being typed at a PTY.
 
 opencode exposes `experimental.chat.system.transform` with a mutable `system: string[]`, so the Duo policy is appended as one extra section instead of replacing anything opencode built. The plugin is inert unless `DUO_ACTIVE=1`, so a normal opencode session behaves exactly as it would without Duo installed.
+
+### `internal/mcp`
+
+Serves the same coordination tools over the Model Context Protocol (JSON-RPC 2.0 on stdio) instead of a socket bridge, for agent CLIs that speak MCP. Each tool is validated and forwarded to the coordinator exactly as the bridge version is, so the state machine has one implementation and one set of gates; the MCP layer adds transport, not policy.
 
 ## Why worktrees instead of file locks?
 

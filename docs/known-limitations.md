@@ -6,9 +6,21 @@ Duo is an experimental runtime. The collaboration model works, but the current r
 
 The runtime currently assumes exactly two agents named **Austin** and **Tony**. Agent names, count and role templates are not yet configurable.
 
-## Pi-specific adapter
+## Agent drivers are pluggable but not interchangeable
 
-Duo targets Pi. The Go core is structured so other adapters could be added later, but no second agent runtime is currently supported.
+Duo does not target Pi alone. Three drivers are built in — `pi`, `agy`
+(Google Antigravity CLI, observed through its transcript rather than a bridge)
+and `opencode` — and any other driver can be supplied as a `duo-driver-<name>` /
+`duo-<name>` executable in `~/.duo/plugins/` or on `PATH`. `duo plugins` lists
+what is available.
+
+The protocol, phases, evidence rules and delivery are driver-independent; what
+varies is what Duo can observe. `pi` and `opencode` report through a bridge;
+`agy` has no bridge at all, so Duo observes its transcript and writes into the
+PTY. Only `pi` applies a model or thinking-level change in place — the others
+take them as startup flags, so Duo restarts that agent. An external plugin is
+treated like `agy`: its process is supervised and steered through the PTY, and
+it is responsible for calling the Duo tools itself.
 
 ## Dynamic mode escalation: Fast to Goal
 
@@ -63,7 +75,7 @@ Duo restarts Austin and Tony when it starts, and an exited agent can be restarte
 
 ## Worktree cleanup is manual / conservative
 
-Worktrees are preserved when Duo stops so unfinished work is not destroyed. Automatic lifecycle cleanup and pruning are not yet a polished user-facing workflow.
+Worktrees are preserved when Duo stops so unfinished work is not destroyed. Reclaiming them is an explicit step: `duo clean` (see the README) removes worktrees, temporary branches and session snapshots, `--dry-run` previews it, and anything held by a live Duo process is skipped. Automatic cleanup at the end of a session is not implemented.
 
 ## Integration is intentionally asymmetric
 
@@ -101,7 +113,7 @@ Duo supplies coordination infrastructure; it does not make model judgment infall
 
 ## opencode model and effort changes restart the agent
 
-opencode takes its model and reasoning effort as startup flags, so changing either from the TUI picker restarts that agent, exactly as it does for agy. Pi is the only driver with a live bridge and therefore switches in place. A restart preserves the conversation because the session id is persisted, but in-flight work is interrupted.
+opencode takes its model and reasoning effort as startup flags, so changing either from the TUI picker restarts that agent, exactly as it does for agy. Pi is the only driver that applies the change in place, because it is the only one whose bridge reports a model switch back to Duo. A restart preserves the conversation because the session id is persisted, but in-flight work is interrupted.
 
 ## opencode session identity is discovered, not chosen
 
