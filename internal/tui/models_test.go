@@ -113,11 +113,18 @@ func TestApplySelectedModelPassesQualifiedReferenceToDriver(t *testing.T) {
 	a.coord = coordinator.New(nil, state, harness.NewTracker(), nil, bus)
 	eventsCh, unsub := bus.Subscribe(20)
 	defer unsub()
-	go func() {
-		for e := range eventsCh {
-			a.route(e)
+	// The App is single-goroutine state: production routes events on the event
+	// loop, so the test drains them the same way instead of racing the apply.
+	drain := func() {
+		for {
+			select {
+			case e := <-eventsCh:
+				a.route(e)
+			default:
+				return
+			}
 		}
-	}()
+	}
 	drv := &modelRecordingDriver{agentID: protocol.Austin, driverType: "opencode"}
 	mgr := agent.NewManager()
 	mgr.Add(drv)
@@ -125,6 +132,7 @@ func TestApplySelectedModelPassesQualifiedReferenceToDriver(t *testing.T) {
 
 	// The cursor is on cline/anthropic/claude-opus.
 	a.applySelectedModel(context.Background(), false)
+	drain()
 	if drv.model != "cline/anthropic/claude-opus" {
 		t.Fatalf("driver model = %q, want the provider-qualified reference", drv.model)
 	}
@@ -247,15 +255,23 @@ func TestApplySelectedModelAndCycleThinkingOffline(t *testing.T) {
 	a.coord = coordinator.New(nil, state, harness.NewTracker(), nil, bus)
 	eventsCh, unsub := bus.Subscribe(20)
 	defer unsub()
-	go func() {
-		for e := range eventsCh {
-			a.route(e)
+	// The App is single-goroutine state: production routes events on the event
+	// loop, so the test drains them the same way instead of racing the apply.
+	drain := func() {
+		for {
+			select {
+			case e := <-eventsCh:
+				a.route(e)
+			default:
+				return
+			}
 		}
-	}()
+	}
 
 	// Cursor is on index 0: cline/anthropic/claude-opus
 	// 1. Space applies and keeps picker open
 	a.applySelectedModel(ctx, true)
+	drain()
 	if a.view != viewModel {
 		t.Fatalf("picker closed on space, view = %v", a.view)
 	}
@@ -272,6 +288,7 @@ func TestApplySelectedModelAndCycleThinkingOffline(t *testing.T) {
 
 	// 2. Shift+Tab cycles thinking
 	a.applyAction(ctx, inputAction{kind: actionCycleThinking})
+	drain()
 	if a.currentThinking[protocol.Austin] != "low" {
 		t.Fatalf("currentThinking = %q, want low", a.currentThinking[protocol.Austin])
 	}
@@ -284,6 +301,7 @@ func TestApplySelectedModelAndCycleThinkingOffline(t *testing.T) {
 	// 3. Enter applies and closes
 	a.moveModelCursor(1) // cline/deepseek/flash
 	a.applySelectedModel(ctx, false)
+	drain()
 	if a.view != viewMain {
 		t.Fatalf("picker did not close on enter, view = %v", a.view)
 	}

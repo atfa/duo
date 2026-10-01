@@ -58,8 +58,9 @@ func TestSummarizeToolArgs(t *testing.T) {
 		t.Errorf("duo_set_status got %q", s)
 	}
 
-	// 3. duo_set_verification
-	s = SummarizeToolArgs("duo_set_verification", map[string]any{"verdict": "passed"})
+	// 3. duo_set_verification. The bridge extensions send "result"; "verdict" is
+	// the MCP spelling for a different transport.
+	s = SummarizeToolArgs("duo_set_verification", map[string]any{"result": "passed"})
 	if s != "passed" {
 		t.Errorf("duo_set_verification got %q", s)
 	}
@@ -186,4 +187,27 @@ func TestAgyWatcherTailLoop(t *testing.T) {
 	}
 
 	_ = f.Close()
+}
+
+// A tool outside the switch falls back to "first string arg wins". Go
+// randomizes map iteration, so the old unsorted walk could pick a different
+// argument for the very same call on each render, making the activity line
+// flicker. The summary must be stable and ordered.
+func TestSummarizeToolArgsFallbackIsDeterministic(t *testing.T) {
+	args := map[string]any{
+		"result": "passed",
+		"note":   "checked the cache path",
+		"head":   "abc1234",
+	}
+	// A tool with no case in the switch, so the fallback runs.
+	const tool = "some_unhandled_tool"
+	first := SummarizeToolArgs(tool, args)
+	if !strings.HasPrefix(first, "head=") {
+		t.Fatalf("fallback picked %q, want the first key in sorted order (head=)", first)
+	}
+	for i := 0; i < 200; i++ {
+		if got := SummarizeToolArgs(tool, args); got != first {
+			t.Fatalf("summary changed between renders: %q then %q", first, got)
+		}
+	}
 }

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -78,7 +79,8 @@ func SummarizeToolArgs(tool string, args map[string]any) string {
 			return fmt.Sprintf("ready=%v", r)
 		}
 	case "duo_set_verification":
-		if v, ok := args["verdict"].(string); ok {
+		// The bridge extensions send "result"; "verdict" is the MCP spelling.
+		if v, ok := args["result"].(string); ok {
 			return v
 		}
 	case "duo_set_plan":
@@ -112,8 +114,15 @@ func SummarizeToolArgs(tool string, args map[string]any) string {
 		}
 	}
 
-	for k, v := range args {
-		if s, ok := v.(string); ok && s != "" {
+	// Sorted: Go randomizes map iteration, so an unsorted walk would pick a
+	// different argument for the same tool call on every render.
+	keys := make([]string, 0, len(args))
+	for k := range args {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if s, ok := args[k].(string); ok && s != "" {
 			return fmt.Sprintf("%s=%s", k, truncateStr(s, 40))
 		}
 	}
