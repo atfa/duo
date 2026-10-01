@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -164,5 +165,58 @@ func TestAgyCommandLineModelSanitization(t *testing.T) {
 	}
 	if !strings.Contains(cmd3, "claude-sonnet-4-6") {
 		t.Fatalf("commandLine() expected updated model, got: %s", cmd3)
+	}
+}
+
+// The agy watcher writes cfg.AgyConversationID and the TUI writes the model from
+// other goroutines, while composeSnapshot reads both back on the transport
+// goroutines to persist the session. Those reads were unsynchronized, so the
+// race detector flagged them. Run with -race to see this fail without the fix.
+func TestSessionIdentityAndCommandAreSafeUnderConcurrentWrites(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		driverType string
+	}{
+		{"agy", "agy"},
+		{"opencode", "opencode"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := NewSession(Config{Agent: protocol.Austin, DriverType: tc.driverType, Session: "s1"})
+			// A model is always selected, so --model is always part of the
+			// command and a missing one means the read lost the write.
+			s.SetModel("provider/initial-model")
+
+			var wg sync.WaitGroup
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for i := 0; i < 2000; i++ {
+					// What SetModel and the agy watcher do.
+					s.SetModel("provider/model-name")
+					s.SetEffort("high")
+					s.mu.Lock()
+					s.cfg.AgyConversationID = "11111111-2222-3333-4444-555555555555"
+					s.mu.Unlock()
+				}
+			}()
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for i := 0; i < 2000; i++ {
+					// What composeSnapshot and the startup diagnostics do. An
+					// opencode identity is legitimately empty until the plugin
+					// reports one, so only agy must always resolve.
+					if id := s.SessionID(); id == "" && tc.driverType == "agy" {
+						t.Error("SessionID returned an empty identity")
+						return
+					}
+					if cmd := s.EffectiveCommand(); !strings.Contains(cmd, "--model") {
+						t.Errorf("EffectiveCommand lost the model: %q", cmd)
+						return
+					}
+				}
+			}()
+			wg.Wait()
+		})
 	}
 }

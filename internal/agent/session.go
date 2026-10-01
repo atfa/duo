@@ -235,7 +235,16 @@ func (s *Session) RestartRunning(ctx context.Context) error {
 }
 
 // AgyConversationID returns the stable Agy conversation identity for this agent.
+// The agy watcher goroutine fills cfg.AgyConversationID in once agy reports it,
+// so the read is taken under the same lock as the write.
 func (s *Session) AgyConversationID() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.agyConversationIDLocked()
+}
+
+// agyConversationIDLocked is AgyConversationID for callers already holding s.mu.
+func (s *Session) agyConversationIDLocked() string {
 	if s.cfg.AgyConversationID != "" {
 		return s.cfg.AgyConversationID
 	}
@@ -247,6 +256,11 @@ func (s *Session) AgyConversationID() string {
 func (s *Session) OpencodeSessionID() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.opencodeSessionIDLocked()
+}
+
+// opencodeSessionIDLocked is OpencodeSessionID for callers already holding s.mu.
+func (s *Session) opencodeSessionIDLocked() string {
 	return strings.TrimSpace(s.cfg.OpencodeSessionID)
 }
 
@@ -340,19 +354,29 @@ func (s *Session) isOpencode() bool {
 	return drv == "opencode" || strings.Contains(drv, "opencode") || strings.Contains(s.cfg.Command, "opencode")
 }
 
-// commandLine is the shell command used to launch the agent.
+// commandLine renders the launch command. The model and the agy conversation id
+// are written by other goroutines (SetModel from the TUI, the agy watcher), so
+// the read is taken under the same lock as the write.
 func (s *Session) commandLine() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.commandLineLocked()
+}
+
+// commandLineLocked is commandLine for callers already holding s.mu. Start holds
+// the write lock for its whole body, so it must not re-acquire it.
+func (s *Session) commandLineLocked() string {
 	switch {
 	case s.isOpencode():
-		return s.opencodeCommandLine()
+		return s.opencodeCommandLineLocked()
 	case s.isAgy():
-		return s.agyCommandLine()
+		return s.agyCommandLineLocked()
 	default:
-		return s.piCommandLine()
+		return s.piCommandLineLocked()
 	}
 }
 
-func (s *Session) piCommandLine() string {
+func (s *Session) piCommandLineLocked() string {
 	base := strings.TrimSpace(s.cfg.Command)
 	if base == "" {
 		base = "pi"
@@ -383,7 +407,7 @@ func setAgyEffort(base string, effort string) string {
 	return setFlagInCommand(base, "--effort", effort)
 }
 
-func (s *Session) agyCommandLine() string {
+func (s *Session) agyCommandLineLocked() string {
 	base := strings.TrimSpace(s.cfg.Command)
 	if base == "" {
 		base = "agy"
@@ -397,7 +421,7 @@ func (s *Session) agyCommandLine() string {
 	// which would silently drop the conversation ID and lose this agent's
 	// identity across restarts.
 	if !hasAnyFlag(base, agySessionFlags) {
-		if strings.TrimSpace(s.AgyConversationID()) != "" {
+		if strings.TrimSpace(s.agyConversationIDLocked()) != "" {
 			parts = append(parts, `--conversation "$DUO_AGY_CONVERSATION_ID"`)
 		}
 	}
@@ -417,7 +441,7 @@ func (s *Session) EffectiveCommand() string { return s.commandLine() }
 // is assigned by the server, so --session is only injected once Duo knows it
 // (a resumed session); on a first run the plugin reports the id back and Duo
 // persists it for next time.
-func (s *Session) opencodeCommandLine() string {
+func (s *Session) opencodeCommandLineLocked() string {
 	base := strings.TrimSpace(s.cfg.Command)
 	if base == "" {
 		base = "opencode"
@@ -468,7 +492,7 @@ func (s *Session) Start(ctx context.Context) error {
 	}
 	// A shell preserves the existing DUO_PI_COMMAND behavior (including arguments)
 	// and expands "$DUO_PI_SESSION_ID" safely.
-	cmd := exec.Command("sh", "-lc", "exec "+s.commandLine())
+	cmd := exec.Command("sh", "-lc", "exec "+s.commandLineLocked())
 	cmd.Dir = s.cfg.Dir
 	cmd.Env = append(os.Environ(),
 		"DUO_ACTIVE=1",
@@ -480,9 +504,9 @@ func (s *Session) Start(ctx context.Context) error {
 		"DUO_SESSION="+s.cfg.Session,
 		"DUO_TOKEN="+s.cfg.Token,
 		"DUO_PI_SESSION_ID="+s.cfg.PiSessionID,
-		"DUO_AGY_CONVERSATION_ID="+s.AgyConversationID(),
+		"DUO_AGY_CONVERSATION_ID="+s.agyConversationIDLocked(),
 		"DUO_AGY_LOG_FILE="+s.cfg.LogFile,
-		"DUO_OPENCODE_SESSION_ID="+s.cfg.OpencodeSessionID,
+		"DUO_OPENCODE_SESSION_ID="+s.opencodeSessionIDLocked(),
 		"DUO_OPENCODE_SESSION_FILE="+s.cfg.OpencodeSessionFile,
 		"DUO_REPOSITORY_ROOT="+s.cfg.RepositoryRoot,
 		"DUO_SCOPE_PATH="+s.cfg.ScopePath,
@@ -535,7 +559,7 @@ func (s *Session) Start(ctx context.Context) error {
 		}
 	}()
 	if s.isAgy() && s.cfg.ActivitySink != nil {
-		go s.startAgyWatcher(ctx)
+		go s.startAgyWatcher(ctx, done)
 	}
 	if s.isOpencode() {
 		go s.watchOpencodeSession(ctx)
@@ -765,7 +789,11 @@ func fileExists(path string) bool {
 	return err == nil && !info.IsDir()
 }
 
-func (s *Session) startAgyWatcher(ctx context.Context) {
+// startAgyWatcher follows the agy transcript for activity. done is the stopped
+// channel of the process run it belongs to: the field is reassigned by a
+// restart, so a watcher that read it directly could latch onto the next run's
+// channel and never notice its own process was gone.
+func (s *Session) startAgyWatcher(ctx context.Context, done <-chan struct{}) {
 	convID := s.AgyConversationID()
 	transcript := agyTranscriptPath(convID)
 
@@ -790,7 +818,7 @@ func (s *Session) startAgyWatcher(ctx context.Context) {
 			select {
 			case <-ctx.Done():
 				return
-			case <-s.stopped:
+			case <-done:
 				return
 			case <-time.After(150 * time.Millisecond):
 			}
