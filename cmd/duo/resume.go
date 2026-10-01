@@ -117,6 +117,37 @@ func runResume(ctx context.Context, cfg config, root, repoID, baseDir string) er
 	if createdAt.IsZero() {
 		createdAt = time.Now().UTC()
 	}
+	// Restore drivers and models from snapshot if not explicitly overridden on CLI/env
+	if len(reconciled.AgentDrivers) > 0 {
+		if cfg.agentDrivers == nil {
+			cfg.agentDrivers = make(map[protocol.AgentID]string)
+		}
+		if cfg.agentCommands == nil {
+			cfg.agentCommands = make(map[protocol.AgentID]string)
+		}
+		for _, ag := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+			if drv := reconciled.AgentDrivers[ag]; drv != "" {
+				if !cfg.agentDriverExplicit[ag] {
+					cfg.agentDrivers[ag] = drv
+					if drv == "agy" && (cfg.agentCommands[ag] == "pi" || cfg.agentCommands[ag] == "") {
+						cfg.agentCommands[ag] = "agy"
+					}
+				}
+			}
+		}
+	}
+	if len(reconciled.AgentModels) > 0 {
+		if cfg.agentModels == nil {
+			cfg.agentModels = make(map[protocol.AgentID]string)
+		}
+		for _, ag := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+			if model := reconciled.AgentModels[ag]; model != "" {
+				cfg.agentModels[ag] = model
+			}
+		}
+	}
+	_ = workspace.EnsureGitIgnore(snap.Repository)
+	_ = workspace.SaveProjectConfig(snap.Repository, cfg.agentDriver(protocol.Austin), cfg.agentDrivers, cfg.agentModels)
 
 	r := &runtime{
 		cfg:        cfg,

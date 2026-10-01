@@ -43,7 +43,7 @@ export function registerPlanTool(pi: any, transport: DuoTransport, mode: DuoMode
   }
 
   // If session escalates to Goal, enable duo_set_plan dynamically.
-  transport.onMessage((msg) => {
+  transport.addHandler((msg) => {
     if (
       msg.type === "escalate" ||
       (msg.type === "duo_notice" && msg.text?.includes("[Duo Mode Escalation]"))

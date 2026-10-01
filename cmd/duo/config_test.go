@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
 
@@ -86,6 +87,10 @@ func TestParseResumeArgs(t *testing.T) {
 		{name: "resume id", args: []string{"--resume", "20260101-000000-abcdef01"}, resume: true, sessionID: "20260101-000000-abcdef01"},
 		{name: "resume equals", args: []string{"--resume=abc"}, resume: true, sessionID: "abc"},
 		{name: "short resume", args: []string{"-r", "abc"}, resume: true, sessionID: "abc"},
+		{name: "resume subcommand latest", args: []string{"resume"}, resume: true},
+		{name: "resume subcommand with id", args: []string{"resume", "20260101-000000-abcdef01"}, resume: true, sessionID: "20260101-000000-abcdef01"},
+		{name: "resume subcommand with repo and id", args: []string{"/tmp/repo", "resume", "abc"}, repo: "/tmp/repo", resume: true, sessionID: "abc"},
+		{name: "resume subcommand followed by repo", args: []string{"resume", "/tmp/repo"}, repo: "/tmp/repo", resume: true},
 	}
 
 	for _, tc := range cases {
@@ -370,3 +375,64 @@ func TestDriverConfigurationResolution(t *testing.T) {
 		t.Fatalf("austin command for agy driver = %q, want agy", cmd)
 	}
 }
+
+func TestDriverAndModelProjectConfigAndDefault(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("DUO_DRIVER", "")
+
+	// 1. Default models when no config exists
+	cfg, err := loadConfig([]string{"--driver", "agy", tempDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.agentModel(protocol.Austin); got != "gemini-3.8-flash-high" {
+		t.Fatalf("austin agy default model = %q, want gemini-3.8-flash-high", got)
+	}
+
+	// 2. Project config with .duo/config.json
+	duoDir := filepath.Join(tempDir, ".duo")
+	if err := os.MkdirAll(duoDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	cfgJSON := `{
+		"driver": "agy",
+		"agents": {
+			"austin": {
+				"model": "google/gemini-3.7-flash-high"
+			},
+			"tony": {
+				"model": "google/gemini-3.8-flash-medium"
+			}
+		}
+	}`
+	if err := os.WriteFile(filepath.Join(duoDir, "config.json"), []byte(cfgJSON), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	loaded, err := loadMergedConfigFile(tempDir)
+	if err != nil {
+		t.Fatalf("loadMergedConfigFile failed: %v", err)
+	}
+	if loaded.Driver != "agy" {
+		t.Fatalf("loaded.Driver = %q, want agy", loaded.Driver)
+	}
+	if loaded.Agents["austin"].Model != "google/gemini-3.7-flash-high" {
+		t.Fatalf("austin model = %q, want google/gemini-3.7-flash-high", loaded.Agents["austin"].Model)
+	}
+
+	// 3. loadConfig picks up the project config and sanitizes agy models (stripping google/ prefix)
+	projCfg, err := loadConfig([]string{tempDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if projCfg.agentDriver(protocol.Austin) != "agy" {
+		t.Fatalf("austin driver = %q, want agy", projCfg.agentDriver(protocol.Austin))
+	}
+	if projCfg.agentModel(protocol.Austin) != "gemini-3.7-flash-high" {
+		t.Fatalf("austin model = %q, want gemini-3.7-flash-high", projCfg.agentModel(protocol.Austin))
+	}
+	if !strings.Contains(projCfg.agentCommand(protocol.Austin), "--model gemini-3.7-flash-high") {
+		t.Fatalf("austin command = %q, want --model gemini-3.7-flash-high", projCfg.agentCommand(protocol.Austin))
+	}
+}
+

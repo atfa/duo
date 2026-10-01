@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -12,8 +13,10 @@ import (
 	"time"
 
 	"github.com/atfa/duo/internal/harness"
+	"github.com/atfa/duo/internal/models"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
+	"github.com/atfa/duo/internal/workspace"
 )
 
 type config struct {
@@ -30,6 +33,10 @@ type config struct {
 	testCommand   string
 	agentCommands map[protocol.AgentID]string
 	agentDrivers  map[protocol.AgentID]string
+	agentModels   map[protocol.AgentID]string
+
+	driverExplicit      bool
+	agentDriverExplicit map[protocol.AgentID]bool
 
 	resume        bool
 	resumeSession string
@@ -55,6 +62,13 @@ func (c config) agentDriver(agent protocol.AgentID) string {
 		return drv
 	}
 	return "pi"
+}
+
+func (c config) agentModel(agent protocol.AgentID) string {
+	if m, ok := c.agentModels[agent]; ok && m != "" {
+		return m
+	}
+	return models.DefaultModelForDriver(c.agentDriver(agent))
 }
 
 // configFile describes ~/.duo/config.json or .duo/config.json.
@@ -103,11 +117,19 @@ func parseArgs(args []string) (cliArgs, error) {
 		arg := strings.TrimSpace(args[i])
 		switch {
 		case arg == "":
-		case arg == "--resume" || arg == "-r":
+		case arg == "--resume" || arg == "-r" || arg == "resume":
 			out.resume = true
 			if i+1 < len(args) && !strings.HasPrefix(strings.TrimSpace(args[i+1]), "-") {
-				out.sessionID = strings.TrimSpace(args[i+1])
-				i++
+				cand := strings.TrimSpace(args[i+1])
+				if strings.ContainsAny(cand, `/\`) || cand == "." || cand == ".." {
+					if out.repository == "" {
+						out.repository = cand
+						i++
+					}
+				} else {
+					out.sessionID = cand
+					i++
+				}
 			}
 		case strings.HasPrefix(arg, "--resume="):
 			out.resume = true
@@ -290,9 +312,22 @@ func loadConfig(args []string) (config, error) {
 
 	agentCommands := make(map[protocol.AgentID]string)
 	agentDrivers := make(map[protocol.AgentID]string)
+	agentModels := make(map[protocol.AgentID]string)
+	agentDriverExplicit := make(map[protocol.AgentID]bool)
+	driverExplicit := parsed.driver != "" || os.Getenv("DUO_DRIVER") != ""
+
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
 		key := strings.ToLower(string(id))
 		agentCfg := fileCfg.Agents[key]
+
+		isExplicit := driverExplicit
+		if id == protocol.Austin && parsed.austinDriver != "" {
+			isExplicit = true
+		}
+		if id == protocol.Tony && parsed.tonyDriver != "" {
+			isExplicit = true
+		}
+		agentDriverExplicit[id] = isExplicit
 
 		driverType := "pi"
 		if fileCfg.Driver != "" {
@@ -314,6 +349,15 @@ func loadConfig(args []string) (config, error) {
 			driverType = parsed.tonyDriver
 		}
 
+		model := agentCfg.Model
+		if driverType == "agy" && strings.Contains(model, "/") {
+			model = model[strings.LastIndex(model, "/")+1:]
+		}
+		if model == "" {
+			model = models.DefaultModelForDriver(driverType)
+		}
+		agentModels[id] = model
+
 		baseCmd := piCommand
 		if driverType == "agy" && baseCmd == "pi" {
 			baseCmd = "agy"
@@ -321,14 +365,21 @@ func loadConfig(args []string) (config, error) {
 		if agentCfg.Command != "" {
 			baseCmd = agentCfg.Command
 		}
+		if strings.HasPrefix(baseCmd, "agy") || strings.Contains(baseCmd, "/agy") {
+			driverType = "agy"
+			if strings.Contains(agentModels[id], "/") {
+				agentModels[id] = agentModels[id][strings.LastIndex(agentModels[id], "/")+1:]
+			}
+		}
 		if agentCfg.Model != "" && !hasFlag(baseCmd, "--model") {
-			baseCmd = baseCmd + " --model " + agentCfg.Model
+			modelArg := agentCfg.Model
+			if driverType == "agy" && strings.Contains(modelArg, "/") {
+				modelArg = modelArg[strings.LastIndex(modelArg, "/")+1:]
+			}
+			baseCmd = baseCmd + " --model " + modelArg
 		}
 		if agentCfg.Thinking != "" && !hasFlag(baseCmd, "--thinking") {
 			baseCmd = baseCmd + " --thinking " + agentCfg.Thinking
-		}
-		if strings.HasPrefix(baseCmd, "agy") || strings.Contains(baseCmd, "/agy") {
-			driverType = "agy"
 		}
 		agentCommands[id] = baseCmd
 		agentDrivers[id] = driverType
@@ -351,24 +402,27 @@ func loadConfig(args []string) (config, error) {
 	}
 
 	return config{
-		listen:         envString("DUO_LISTEN", "127.0.0.1:0"),
-		harnessEnabled: harnessEnabled,
-		harness:        harnessConfig,
-		repository:     launch,
-		launchDir:      launch,
-		worktreeRoot:   strings.TrimSpace(os.Getenv("DUO_WORKTREE_ROOT")),
-		session:        session,
-		baseRef:        envString("DUO_BASE_REF", "HEAD"),
-		piCommand:      piCommand,
-		testCommand:    testCommand,
-		agentCommands:  agentCommands,
-		agentDrivers:   agentDrivers,
-		resume:         parsed.resume,
-		resumeSession:  parsed.sessionID,
-		mode:           mode,
-		modeSource:     modeSource,
-		modeRaw:        parsed.mode,
-		modeExplicit:   parsed.modeExplicit,
+		listen:              envString("DUO_LISTEN", "127.0.0.1:0"),
+		harnessEnabled:      harnessEnabled,
+		harness:             harnessConfig,
+		repository:          launch,
+		launchDir:           launch,
+		worktreeRoot:        strings.TrimSpace(os.Getenv("DUO_WORKTREE_ROOT")),
+		session:             session,
+		baseRef:             envString("DUO_BASE_REF", "HEAD"),
+		piCommand:           piCommand,
+		testCommand:         testCommand,
+		agentCommands:       agentCommands,
+		agentDrivers:        agentDrivers,
+		agentModels:         agentModels,
+		driverExplicit:      driverExplicit,
+		agentDriverExplicit: agentDriverExplicit,
+		resume:              parsed.resume,
+		resumeSession:       parsed.sessionID,
+		mode:                mode,
+		modeSource:          modeSource,
+		modeRaw:             parsed.mode,
+		modeExplicit:        parsed.modeExplicit,
 	}, nil
 }
 
@@ -405,9 +459,15 @@ func loadMergedConfigFile(launchDir string) (configFile, error) {
 		filepath.Join(launchDir, ".duo", "config.json"),
 		filepath.Join(launchDir, ".duo.json"),
 	}
+	if root, err := workspace.FindRoot(context.Background(), launchDir); err == nil && root != "" && root != launchDir {
+		candidates = append(candidates,
+			filepath.Join(root, ".duo", "config.json"),
+			filepath.Join(root, ".duo.json"),
+		)
+	}
 	for _, p := range candidates {
 		projectCfg, err := loadConfigFile(p)
-		if err == nil && (projectCfg.Mode != "" || projectCfg.PiCommand != "" || projectCfg.TestCommand != "" || len(projectCfg.Agents) > 0 || projectCfg.Harness != (harnessFile{})) {
+		if err == nil && (projectCfg.Mode != "" || projectCfg.PiCommand != "" || projectCfg.Driver != "" || projectCfg.TestCommand != "" || len(projectCfg.Agents) > 0 || projectCfg.Harness != (harnessFile{})) {
 			mergeConfig(&merged, projectCfg)
 			break
 		} else if err != nil && !os.IsNotExist(err) {
@@ -421,6 +481,9 @@ func loadMergedConfigFile(launchDir string) (configFile, error) {
 func mergeConfig(dst *configFile, src configFile) {
 	if src.Mode != "" {
 		dst.Mode = src.Mode
+	}
+	if src.Driver != "" {
+		dst.Driver = src.Driver
 	}
 	if src.PiCommand != "" {
 		dst.PiCommand = src.PiCommand
@@ -436,6 +499,9 @@ func mergeConfig(dst *configFile, src configFile) {
 			existing := dst.Agents[k]
 			if v.Command != "" {
 				existing.Command = v.Command
+			}
+			if v.Driver != "" {
+				existing.Driver = v.Driver
 			}
 			if v.Model != "" {
 				existing.Model = v.Model

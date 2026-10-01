@@ -11,9 +11,10 @@ import (
 )
 
 type Client struct {
-	Agent protocol.AgentID
-	conn  net.Conn
-	mu    sync.Mutex
+	Agent      protocol.AgentID
+	ClientType string
+	conn       net.Conn
+	mu         sync.Mutex
 }
 
 func newClient(conn net.Conn) *Client {

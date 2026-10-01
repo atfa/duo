@@ -7,6 +7,7 @@ import (
 
 	"github.com/atfa/duo/internal/models"
 	"github.com/atfa/duo/internal/protocol"
+	"github.com/atfa/duo/internal/workspace"
 )
 
 // modelsResult carries an asynchronous model catalog read back to the event
@@ -30,6 +31,27 @@ func (a *App) driverType(agent protocol.AgentID) string {
 		return a.agents.DriverTypeFor(agent)
 	}
 	return "pi"
+}
+
+func (a *App) modelForAgent(agent protocol.AgentID) string {
+	if m := a.currentModel[agent]; m != "" {
+		if a.driverType(agent) == "agy" && strings.Contains(m, "/") {
+			m = m[strings.LastIndex(m, "/")+1:]
+		}
+		return m
+	}
+	if a.agents != nil {
+		if d, ok := a.agents.Driver(agent); ok {
+			if m := d.Model(); m != "" {
+				if d.DriverType() == "agy" && strings.Contains(m, "/") {
+					m = m[strings.LastIndex(m, "/")+1:]
+				}
+				return m
+			}
+			return models.DefaultModelForDriver(d.DriverType())
+		}
+	}
+	return models.DefaultModelForDriver(a.driverType(agent))
 }
 
 func (a *App) initModelMaps() {
@@ -81,6 +103,14 @@ func (a *App) openModelPicker() {
 	a.modelCursor = 0
 	a.requestFullClear()
 	a.syncModelsForTarget()
+	if current := a.modelForAgent(a.modelTarget); current != "" {
+		for i, m := range a.filteredModels() {
+			if m.Reference() == current {
+				a.modelCursor = i
+				break
+			}
+		}
+	}
 }
 
 func (a *App) closeModelPicker() {
@@ -190,11 +220,38 @@ func modelVisibleRows(h int) int { return maxInt(h-5, 1) }
 func (a *App) applySelectedModel(ctx context.Context, keepOpen bool) {
 	model, ok := a.selectedModel()
 	if !ok {
+		if !keepOpen {
+			a.closeModelPicker()
+		}
 		return
 	}
 	if err := a.coord.SetModel(ctx, a.modelTarget, model.Provider, model.ID); err != nil {
 		a.setStatus(err.Error(), true)
 		return
+	}
+	if a.currentModel == nil {
+		a.currentModel = make(map[protocol.AgentID]string)
+	}
+	a.currentModel[a.modelTarget] = model.Reference()
+	if a.agents != nil {
+		if d, ok := a.agents.Driver(a.modelTarget); ok {
+			d.SetModel(model.ID)
+			if d.DriverType() == "agy" {
+				_ = d.RestartRunning(ctx)
+			}
+		}
+	}
+	if a.ws != nil && a.ws.Set().Repository != "" {
+		repoRoot := a.ws.Set().Repository
+		agentDrivers := map[protocol.AgentID]string{
+			protocol.Austin: a.driverType(protocol.Austin),
+			protocol.Tony:   a.driverType(protocol.Tony),
+		}
+		agentModels := map[protocol.AgentID]string{
+			protocol.Austin: a.modelForAgent(protocol.Austin),
+			protocol.Tony:   a.modelForAgent(protocol.Tony),
+		}
+		_ = workspace.SaveProjectConfig(repoRoot, a.driverType(protocol.Austin), agentDrivers, agentModels)
 	}
 	a.setStatus(fmt.Sprintf("%s model → %s", a.modelTarget, model.Reference()), false)
 	if !keepOpen {
@@ -266,7 +323,7 @@ func (a *App) writeModel(b *strings.Builder, w, h int) {
 	title := fmt.Sprintf(" Duo Models · %s ", a.modelTarget)
 	b.WriteString(paint(ansiBorder, "┌") + paint(ansiTitle, fit(title, contentWidth, "─")) + paint(ansiBorder, "┐\r\n"))
 
-	current := a.currentModel[a.modelTarget]
+	current := a.modelForAgent(a.modelTarget)
 	if current == "" {
 		current = "unknown"
 	}
@@ -286,12 +343,14 @@ func (a *App) writeModel(b *strings.Builder, w, h int) {
 		status = fmt.Sprintf(" Loading models from %s…", drv)
 	case a.modelErr != "":
 		status = " " + a.modelErr
+	case a.status != "":
+		status = " " + a.status
 	case len(list) == 0:
 		status = " No models match the filter."
 	default:
 		status = fmt.Sprintf(" %d of %d models", len(list), len(a.models))
 	}
-	if a.modelErr != "" {
+	if a.modelErr != "" || a.statusError {
 		overlayRow(b, status, contentWidth, ansiError)
 	} else {
 		overlayRow(b, status, contentWidth, ansiHint)
@@ -328,13 +387,14 @@ func (a *App) writeModel(b *strings.Builder, w, h int) {
 // modelRow draws one catalog line. The cursor and the model the target agent is
 // actually on are independent, so they get independent markers.
 func (a *App) modelRow(model models.Model, cursor bool) string {
+	current := a.modelForAgent(a.modelTarget)
 	prefix := "  "
 	switch {
-	case cursor && a.currentModel[a.modelTarget] == model.Reference():
+	case cursor && current == model.Reference():
 		prefix = "▶●"
 	case cursor:
 		prefix = "▶ "
-	case a.currentModel[a.modelTarget] == model.Reference():
+	case current == model.Reference():
 		prefix = " ●"
 	}
 	line := prefix + model.Reference()

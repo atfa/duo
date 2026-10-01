@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atfa/duo/internal/agent"
 	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/protocol"
 )
@@ -67,9 +68,19 @@ func (a *App) driverName(agent protocol.AgentID) string {
 	return "pi"
 }
 
+func (a *App) isConnected(id protocol.AgentID) bool {
+	if a.server != nil && a.server.IsConnected(id) {
+		return true
+	}
+	if a.driverName(id) == "agy" && a.processState(id) == agent.ProcessRunning {
+		return true
+	}
+	return false
+}
+
 func (a *App) previewHeader(agent protocol.AgentID, width int) string {
 	rt := a.tracker.Snapshot(agent)
-	state := agentState(a.server.IsConnected(agent), rt, a.frame, a.processState(agent))
+	state := agentState(a.isConnected(agent), rt, a.frame, a.processState(agent))
 	available := width - displayWidth("[↗] ")
 	drv := a.driverName(agent)
 	full := fmt.Sprintf(" %s preview (%s) · %s ", agent, drv, state)
@@ -172,7 +183,7 @@ func (a *App) previewNow(agent protocol.AgentID, rt harness.AgentRuntime) string
 // after the provider because the provider repeats in both panes. It returns ""
 // until the bridge has reported a model.
 func (a *App) modelLabel(agent protocol.AgentID) string {
-	label := a.currentModel[agent]
+	label := a.modelForAgent(agent)
 	if label == "" {
 		return ""
 	}

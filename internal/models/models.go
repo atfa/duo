@@ -6,8 +6,11 @@ package models
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -22,7 +25,13 @@ type Model struct {
 }
 
 // Reference is the canonical provider/id form, used for display and filtering.
-func (m Model) Reference() string { return m.Provider + "/" + m.ID }
+// For models with empty provider or agy driver, only ID is returned.
+func (m Model) Reference() string {
+	if m.Provider == "" || m.Provider == "agy" {
+		return m.ID
+	}
+	return m.Provider + "/" + m.ID
+}
 
 // List runs `pi --list-models` and returns the catalog. The command is the same
 // one Duo launches its agents with, so flags such as a custom config directory
@@ -89,21 +98,12 @@ func parseAgyModels(output string) []Model {
 		if id == "NAME" || id == "MODEL" || id == "Available" {
 			continue
 		}
-		provider := "agy"
-		switch {
-		case strings.HasPrefix(id, "gemini"):
-			provider = "google"
-		case strings.HasPrefix(id, "claude"):
-			provider = "anthropic"
-		case strings.HasPrefix(id, "gpt"):
-			provider = "openai"
-		}
 		thinking := strings.Contains(line, "Thinking") ||
 			strings.Contains(id, "high") ||
 			strings.Contains(id, "medium") ||
 			strings.Contains(id, "thinking")
 		list = append(list, Model{
-			Provider: provider,
+			Provider: "",
 			ID:       id,
 			Thinking: thinking,
 			Images:   true,
@@ -139,4 +139,41 @@ func parse(output string) []Model {
 		})
 	}
 	return list
+}
+
+// DefaultModelForDriver returns a sensible default model for the given driver.
+// For "agy", it returns "gemini-3.8-flash-high".
+// For "pi" (or unspecified), it inspects ~/.pi/agent/settings.json if present,
+// falling back to "anthropic/claude-sonnet-4-6".
+func DefaultModelForDriver(driverType string) string {
+	switch strings.ToLower(strings.TrimSpace(driverType)) {
+	case "agy":
+		return "gemini-3.8-flash-high"
+	case "pi", "":
+		if home, err := os.UserHomeDir(); err == nil {
+			settingsPath := filepath.Join(home, ".pi", "agent", "settings.json")
+			if data, err := os.ReadFile(settingsPath); err == nil {
+				var s struct {
+					DefaultProvider string `json:"defaultProvider"`
+					DefaultModel    string `json:"defaultModel"`
+				}
+				if err := json.Unmarshal(data, &s); err == nil {
+					provider := strings.TrimSpace(s.DefaultProvider)
+					model := strings.TrimSpace(s.DefaultModel)
+					if provider != "" && model != "" {
+						if strings.HasPrefix(model, provider+"/") {
+							return model
+						}
+						return provider + "/" + model
+					}
+					if model != "" {
+						return model
+					}
+				}
+			}
+		}
+		return "anthropic/claude-sonnet-4-6"
+	default:
+		return "anthropic/claude-sonnet-4-6"
+	}
 }

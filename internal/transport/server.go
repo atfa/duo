@@ -95,7 +95,7 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	defer func() {
 		current := s.unregister(client)
 		_ = client.Close()
-		if s.handler != nil && current {
+		if s.handler != nil && current && client.ClientType != "mcp" {
 			s.handler.OnDisconnect(client)
 		}
 	}()
@@ -128,9 +128,12 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 				return
 			}
 			client.Agent = agent
-			s.register(client)
-			if s.handler != nil {
-				s.handler.OnConnect(ctx, client)
+			client.ClientType = message.ClientType
+			if message.ClientType != "mcp" {
+				s.register(client)
+				if s.handler != nil {
+					s.handler.OnConnect(ctx, client)
+				}
 			}
 			continue
 		}
@@ -140,7 +143,11 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 			continue
 		}
 
-		message.Agent = protocol.CanonicalAgent(string(message.Agent))
+		if message.Agent == "" {
+			message.Agent = client.Agent
+		} else {
+			message.Agent = protocol.CanonicalAgent(string(message.Agent))
+		}
 		if s.handler != nil {
 			s.handler.OnMessage(ctx, client, message)
 		}

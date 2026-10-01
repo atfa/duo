@@ -61,8 +61,8 @@ func (m *GitManager) Prepare(ctx context.Context) (Set, error) {
 
 	if dirty, err := gitOutput(ctx, root, "status", "--porcelain"); err != nil {
 		return Set{}, err
-	} else if strings.TrimSpace(dirty) != "" {
-		return Set{}, fmt.Errorf("base repository is dirty; commit or stash changes before starting Duo worktrees:\n%s", dirty)
+	} else if realDirty := FilterBenignDirty(ctx, root, dirty); realDirty != "" {
+		return Set{}, fmt.Errorf("base repository is dirty; commit or stash changes before starting Duo worktrees:\n%s", realDirty)
 	}
 
 	baseRef := strings.TrimSpace(m.cfg.BaseRef)
@@ -467,3 +467,87 @@ func sanitizeSession(value string) string {
 	value = strings.Trim(value, "-._")
 	return value
 }
+
+// FilterBenignDirty strips status lines caused by Duo's own internal files
+// (.duo/ directory or .gitignore additions containing .duo) from git porcelain output.
+// It returns the remaining dirty lines joined by newlines, or "" if all changes are benign.
+func FilterBenignDirty(ctx context.Context, root, porcelain string) string {
+	var realDirty []string
+	for _, rawLine := range strings.Split(porcelain, "\n") {
+		line := strings.TrimRight(rawLine, "\r\n")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		if !isBenignGitStatus(ctx, root, line) {
+			realDirty = append(realDirty, line)
+		}
+	}
+	return strings.Join(realDirty, "\n")
+}
+
+func isBenignGitStatus(ctx context.Context, root, rawLine string) bool {
+	line := strings.TrimSpace(rawLine)
+	if len(line) < 3 {
+		return false
+	}
+	path := strings.TrimSpace(line[2:])
+	if strings.Contains(path, " -> ") {
+		parts := strings.Split(path, " -> ")
+		path = parts[len(parts)-1]
+	}
+	path = strings.Trim(path, `"`)
+
+	cleanPath := filepath.Clean(path)
+	if cleanPath == ".duo" || strings.HasPrefix(cleanPath, ".duo"+string(filepath.Separator)) {
+		return true
+	}
+
+	if cleanPath == ".gitignore" {
+		if strings.HasPrefix(line, "??") {
+			data, err := os.ReadFile(filepath.Join(root, ".gitignore"))
+			if err == nil {
+				text := strings.TrimSpace(string(data))
+				if text == ".duo" || text == ".duo/" || text == "/.duo" || text == "/.duo/" {
+					return true
+				}
+			}
+		}
+		return isGitIgnoreOnlyDuo(ctx, root)
+	}
+
+	return false
+}
+
+func isGitIgnoreOnlyDuo(ctx context.Context, root string) bool {
+	diff, err := gitOutput(ctx, root, "diff", "HEAD", "--", ".gitignore")
+	if err != nil {
+		diff, err = gitOutput(ctx, root, "diff", "--", ".gitignore")
+		if err != nil {
+			return false
+		}
+	}
+	if strings.TrimSpace(diff) == "" {
+		return true
+	}
+	lines := strings.Split(diff, "\n")
+	hasAdditions := false
+	for _, l := range lines {
+		if strings.HasPrefix(l, "+++") || strings.HasPrefix(l, "---") || strings.HasPrefix(l, "@@") || strings.HasPrefix(l, "diff") || strings.HasPrefix(l, "index") {
+			continue
+		}
+		if strings.HasPrefix(l, "-") {
+			return false
+		}
+		if strings.HasPrefix(l, "+") {
+			added := strings.TrimSpace(strings.TrimPrefix(l, "+"))
+			if added != "" && !strings.Contains(added, ".duo") {
+				return false
+			}
+			if strings.Contains(added, ".duo") {
+				hasAdditions = true
+			}
+		}
+	}
+	return hasAdditions
+}
+

@@ -336,8 +336,10 @@ func (a *App) paintPaneEntry(line paneLine, width int, agent protocol.AgentID, r
 }
 
 func (a *App) processState(id protocol.AgentID) agent.ProcessState {
-	if s, ok := a.agents.Session(id); ok {
-		return s.State()
+	if a.agents != nil {
+		if s, ok := a.agents.Session(id); ok && s != nil {
+			return s.State()
+		}
 	}
 	return agent.ProcessFailed
 }

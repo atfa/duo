@@ -119,18 +119,21 @@ func TestAgyWatcherProcessLine(t *testing.T) {
 		t.Fatalf("expected ActivityToolEnd for run_command, got: %#v", events)
 	}
 
-	// Step 3: PLANNER_RESPONSE with answer (no tools) -> Settled
+	// Step 3: PLANNER_RESPONSE with answer (no tools) -> Assistant message + Stream + Settled
 	events = nil
 	line3 := `{"step_index":3,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-09-30T00:00:03Z","content":"Everything is done."}`
 	w.ProcessLine([]byte(line3))
-	if len(events) != 2 {
-		t.Fatalf("expected 2 events (stream + settled), got %d", len(events))
+	if len(events) != 3 {
+		t.Fatalf("expected 3 events (assistant + stream + settled), got %d", len(events))
 	}
-	if events[0].Activity != protocol.ActivityStream || events[0].Detail != "Everything is done." {
-		t.Errorf("expected ActivityStream, got: %#v", events[0])
+	if events[0].Type != protocol.MsgAssistantMessage || events[0].Text != "Everything is done." {
+		t.Errorf("expected MsgAssistantMessage, got: %#v", events[0])
 	}
-	if events[1].Activity != protocol.ActivityAgentSettled {
-		t.Errorf("expected ActivityAgentSettled, got: %#v", events[1])
+	if events[1].Activity != protocol.ActivityStream || events[1].Detail != "Everything is done." {
+		t.Errorf("expected ActivityStream, got: %#v", events[1])
+	}
+	if events[2].Activity != protocol.ActivityAgentSettled {
+		t.Errorf("expected ActivityAgentSettled, got: %#v", events[2])
 	}
 }
 

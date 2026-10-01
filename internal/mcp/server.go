@@ -176,12 +176,13 @@ func ConnectBridge(ctx context.Context, cfg Config) (*BridgeClient, error) {
 
 	// Send Hello
 	hello := protocol.Message{
-		Version:   protocol.Version,
-		Type:      protocol.MsgHello,
-		Agent:     cfg.Agent,
-		SessionID: cfg.SessionID,
-		Token:     cfg.Token,
-		Timestamp: time.Now().UnixMilli(),
+		Version:    protocol.Version,
+		Type:       protocol.MsgHello,
+		ClientType: "mcp",
+		Agent:      cfg.Agent,
+		SessionID:  cfg.SessionID,
+		Token:      cfg.Token,
+		Timestamp:  time.Now().UnixMilli(),
 	}
 	if err := bc.sendRaw(hello); err != nil {
 		_ = conn.Close()

@@ -219,11 +219,15 @@ func (a *App) spinnerTick() bool {
 func (a *App) route(event events.Event) {
 	// Model and thinking reports carry no free text; they update picker state
 	// rather than adding a pane entry.
-	if event.Kind == events.KindModel && event.Provider != "" && event.Model != "" {
+	if event.Kind == events.KindModel && event.Model != "" {
 		if a.currentModel == nil {
 			a.currentModel = map[protocol.AgentID]string{}
 		}
-		a.currentModel[event.Agent] = event.Provider + "/" + event.Model
+		ref := event.Model
+		if event.Provider != "" && event.Provider != "agy" && !strings.HasPrefix(ref, event.Provider+"/") {
+			ref = event.Provider + "/" + ref
+		}
+		a.currentModel[event.Agent] = ref
 		return
 	}
 	if event.Kind == events.KindThinking && event.Thinking != "" {

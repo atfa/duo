@@ -72,6 +72,8 @@ type Config struct {
 	ActivitySink AgyActivitySink
 	// LogFile is the path to the CLI log file where conversation IDs are logged.
 	LogFile string
+	// Model is the model name/ID to run with.
+	Model string
 	// OnExit observes process termination for durable logging.
 	OnExit func(ExitEvent)
 }
@@ -97,6 +99,8 @@ type Session struct {
 	waitErr  error
 	size     pty.Winsize
 	watcher  *AgyWatcher
+	model    string
+	effort   string
 }
 
 func NewSession(cfg Config) *Session {
@@ -110,7 +114,7 @@ func NewSession(cfg Config) *Session {
 			cfg.Command = "pi"
 		}
 	}
-	return &Session{cfg: cfg, size: pty.Winsize{Cols: 80, Rows: 24}}
+	return &Session{cfg: cfg, size: pty.Winsize{Cols: 80, Rows: 24}, model: strings.TrimSpace(cfg.Model)}
 }
 
 func NewPiSession(cfg Config) *Session {
@@ -154,6 +158,38 @@ func (s *Session) Restart(ctx context.Context) error {
 		return fmt.Errorf("%s is still running; restart refused", s.cfg.Agent)
 	}
 	return s.Start(ctx)
+}
+
+func (s *Session) SetModel(model string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.model = strings.TrimSpace(model)
+}
+
+func (s *Session) Model() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.model
+}
+
+func (s *Session) SetEffort(effort string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.effort = strings.TrimSpace(effort)
+}
+
+func (s *Session) Effort() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.effort
+}
+
+func (s *Session) RestartRunning(ctx context.Context) error {
+	if s.Running() {
+		s.Stop()
+		return s.Start(ctx)
+	}
+	return nil
 }
 
 // AgyConversationID returns the stable Agy conversation identity for this agent.
@@ -204,10 +240,83 @@ func (s *Session) piCommandLine() string {
 	return base + ` --session-id "$DUO_PI_SESSION_ID"`
 }
 
+func setAgyModel(base string, model string) string {
+	if idx := strings.Index(model, "/"); idx != -1 {
+		model = model[idx+1:]
+	}
+	model = strings.TrimSpace(model)
+	tokens := strings.Fields(base)
+	hasModel := false
+	for i := 0; i < len(tokens); i++ {
+		if tokens[i] == "--model" {
+			if i+1 < len(tokens) {
+				if model != "" {
+					tokens[i+1] = fmt.Sprintf("%q", model)
+				} else {
+					val := strings.Trim(tokens[i+1], `"'`)
+					if idx := strings.Index(val, "/"); idx != -1 {
+						val = val[idx+1:]
+					}
+					tokens[i+1] = fmt.Sprintf("%q", val)
+				}
+				hasModel = true
+				break
+			}
+		} else if strings.HasPrefix(tokens[i], "--model=") {
+			if model != "" {
+				tokens[i] = fmt.Sprintf("--model=%q", model)
+			} else {
+				val := strings.TrimPrefix(tokens[i], "--model=")
+				val = strings.Trim(val, `"'`)
+				if idx := strings.Index(val, "/"); idx != -1 {
+					val = val[idx+1:]
+				}
+				tokens[i] = fmt.Sprintf("--model=%q", val)
+			}
+			hasModel = true
+			break
+		}
+	}
+	if !hasModel && model != "" {
+		tokens = append(tokens, fmt.Sprintf("--model %q", model))
+	}
+	return strings.Join(tokens, " ")
+}
+
+func setAgyEffort(base string, effort string) string {
+	effort = strings.TrimSpace(effort)
+	if effort == "" {
+		return base
+	}
+	tokens := strings.Fields(base)
+	hasEffort := false
+	for i := 0; i < len(tokens); i++ {
+		if tokens[i] == "--effort" {
+			if i+1 < len(tokens) {
+				tokens[i+1] = fmt.Sprintf("%q", effort)
+				hasEffort = true
+				break
+			}
+		} else if strings.HasPrefix(tokens[i], "--effort=") {
+			tokens[i] = fmt.Sprintf("--effort=%q", effort)
+			hasEffort = true
+			break
+		}
+	}
+	if !hasEffort {
+		tokens = append(tokens, fmt.Sprintf("--effort %q", effort))
+	}
+	return strings.Join(tokens, " ")
+}
+
 func (s *Session) agyCommandLine() string {
 	base := strings.TrimSpace(s.cfg.Command)
 	if base == "" {
 		base = "agy"
+	}
+	base = setAgyModel(base, s.model)
+	if s.effort != "" {
+		base = setAgyEffort(base, s.effort)
 	}
 	parts := []string{base}
 	if !strings.Contains(base, "--conversation") && !strings.Contains(base, "-c") {
@@ -244,6 +353,9 @@ func (s *Session) Start(ctx context.Context) error {
 	}
 	s.state = ProcessStarting
 	if s.isAgy() {
+		if s.cfg.LogFile != "" {
+			_ = os.Remove(s.cfg.LogFile)
+		}
 		_ = EnsureAgyWorkspaceTrusted(s.cfg.Dir, s.cfg.RepositoryRoot)
 	}
 	// A shell preserves the existing DUO_PI_COMMAND behavior (including arguments)
@@ -506,21 +618,12 @@ func fileExists(path string) bool {
 }
 
 func (s *Session) startAgyWatcher(ctx context.Context) {
-	convID := s.cfg.AgyConversationID
+	convID := s.AgyConversationID()
 	transcript := agyTranscriptPath(convID)
 
-	// If transcript file doesn't exist yet, poll log file for conversation ID
+	// If transcript file doesn't exist yet on disk, poll log file for conversation ID
 	if transcript == "" || !fileExists(transcript) {
-		deadline := time.Now().Add(10 * time.Second)
-		for time.Now().Before(deadline) {
-			select {
-			case <-ctx.Done():
-				return
-			case <-s.stopped:
-				return
-			default:
-			}
-
+		for {
 			if s.cfg.LogFile != "" && fileExists(s.cfg.LogFile) {
 				if f, err := os.Open(s.cfg.LogFile); err == nil {
 					id, _ := ExtractConversationID(f)
@@ -535,7 +638,14 @@ func (s *Session) startAgyWatcher(ctx context.Context) {
 					}
 				}
 			}
-			time.Sleep(150 * time.Millisecond)
+
+			select {
+			case <-ctx.Done():
+				return
+			case <-s.stopped:
+				return
+			case <-time.After(150 * time.Millisecond):
+			}
 		}
 	}
 

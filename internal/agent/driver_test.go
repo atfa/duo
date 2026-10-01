@@ -63,6 +63,11 @@ func TestDriverInterfaceAndPiAgyCommandLines(t *testing.T) {
 	if cmd := agyDriver.EffectiveCommand(); !strings.Contains(cmd, `agy --conversation "$DUO_AGY_CONVERSATION_ID" --dangerously-skip-permissions`) {
 		t.Fatalf("agy commandLine = %q, want --conversation and --dangerously-skip-permissions", cmd)
 	}
+	agySession.SetModel("google/gemini-3.8-flash-low")
+	if cmd := agyDriver.EffectiveCommand(); !strings.Contains(cmd, `--model "gemini-3.8-flash-low"`) {
+		t.Fatalf("agy commandLine = %q, want --model \"gemini-3.8-flash-low\"", cmd)
+	}
+	agySession.SetModel("")
 
 	// 3. Manager holding heterogeneous drivers
 	m := NewManager()
@@ -222,4 +227,115 @@ func TestAgyDriverSessionWithActivitySink(t *testing.T) {
 		t.Fatal("timed out waiting for duo_send activity")
 	}
 }
+
+func TestAgyDriverSessionWithDelayedConversationCreation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	tmpDir := t.TempDir()
+	logFile := filepath.Join(tmpDir, "agy.log")
+	actualConvID := "a1b2c3d4-e5f6-4890-abcd-ef1234567890"
+
+	t.Setenv("ANTIGRAVITY_APP_DATA_DIR", tmpDir)
+
+	activityCh := make(chan protocol.Message, 10)
+	sink := FuncActivitySink(func(_ protocol.AgentID, msg protocol.Message) {
+		activityCh <- msg
+	})
+
+	agySession := NewAgySession(Config{
+		Agent:             protocol.Austin,
+		DriverType:        "agy",
+		Dir:               tmpDir,
+		LogFile:           logFile,
+		AgyConversationID: "initial-dummy-id-not-found",
+		ActivitySink:      sink,
+		Command:           "sh -c 'sleep 3'",
+	})
+
+	if err := agySession.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer agySession.Stop()
+
+	// Wait 250ms to ensure watcher is polling and hasn't crashed or given up
+	time.Sleep(250 * time.Millisecond)
+
+	// Now simulate agy creating a new conversation upon user prompt
+	brainDir := filepath.Join(tmpDir, "brain", actualConvID, ".system_generated", "logs")
+	if err := os.MkdirAll(brainDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	transcriptFile := filepath.Join(brainDir, "transcript.jsonl")
+
+	// 1. Write the log entry indicating conversation creation
+	if err := os.WriteFile(logFile, []byte("I1001 06:33:40.857869 1092 server.go:1248] Created conversation "+actualConvID+"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// 2. Write the transcript steps
+	transcriptContent := "{\"step_index\":0,\"source\":\"USER_EXPLICIT\",\"type\":\"USER_INPUT\",\"status\":\"DONE\",\"created_at\":\"2026-10-01T06:33:40Z\",\"content\":\"create readme\"}\n" +
+		"{\"step_index\":1,\"source\":\"MODEL\",\"type\":\"PLANNER_RESPONSE\",\"status\":\"DONE\",\"created_at\":\"2026-10-01T06:33:41Z\",\"tool_calls\":[{\"name\":\"write_to_file\",\"args\":{\"TargetFile\":\"\\\"README.md\\\"\"}}]}\n" +
+		"{\"step_index\":2,\"source\":\"MODEL\",\"type\":\"PLANNER_RESPONSE\",\"status\":\"DONE\",\"created_at\":\"2026-10-01T06:33:42Z\",\"content\":\"README created successfully.\"}\n"
+	if err := os.WriteFile(transcriptFile, []byte(transcriptContent), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify events are captured in sequence:
+	// Event 1: ActivityAgentStart (from USER_INPUT)
+	select {
+	case msg := <-activityCh:
+		if msg.Activity != protocol.ActivityAgentStart {
+			t.Fatalf("expected ActivityAgentStart, got %#v", msg)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for ActivityAgentStart")
+	}
+
+	// Event 2: ActivityToolStart (from write_to_file)
+	select {
+	case msg := <-activityCh:
+		if msg.Activity != protocol.ActivityToolStart || msg.Tool != "write_to_file" || msg.Detail != "README.md" {
+			t.Fatalf("expected ActivityToolStart write_to_file with 'README.md', got %#v", msg)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for ActivityToolStart")
+	}
+
+	// Event 3: MsgAssistantMessage (from final PLANNER_RESPONSE content)
+	select {
+	case msg := <-activityCh:
+		if msg.Type != protocol.MsgAssistantMessage || msg.Text != "README created successfully." {
+			t.Fatalf("expected MsgAssistantMessage with 'README created successfully.', got %#v", msg)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for MsgAssistantMessage")
+	}
+
+	// Event 4: ActivityStream (from final content)
+	select {
+	case msg := <-activityCh:
+		if msg.Activity != protocol.ActivityStream || msg.Detail != "README created successfully." {
+			t.Fatalf("expected ActivityStream, got %#v", msg)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for ActivityStream")
+	}
+
+	// Event 5: ActivityAgentSettled
+	select {
+	case msg := <-activityCh:
+		if msg.Activity != protocol.ActivityAgentSettled {
+			t.Fatalf("expected ActivityAgentSettled, got %#v", msg)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for ActivityAgentSettled")
+	}
+
+	// Verify conversation ID on session was updated to the actual one
+	if agySession.SessionID() != actualConvID {
+		t.Errorf("agySession.SessionID() = %q, want %q", agySession.SessionID(), actualConvID)
+	}
+}
+
 

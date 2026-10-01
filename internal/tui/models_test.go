@@ -1,12 +1,16 @@
 package tui
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/atfa/duo/internal/agent"
+	"github.com/atfa/duo/internal/coordinator"
 	"github.com/atfa/duo/internal/events"
+	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/models"
+	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 )
 
@@ -181,5 +185,59 @@ func TestWriteModelShowsLoadingDriverName(t *testing.T) {
 	a.writeModel(&b, a.width, a.height)
 	if !strings.Contains(b.String(), "Loading models from agy…") {
 		t.Errorf("expected agy driver loading message, got:\n%s", b.String())
+	}
+}
+
+func TestApplySelectedModelAndCycleThinkingOffline(t *testing.T) {
+	ctx := context.Background()
+	a := pickerFixture()
+	a.width, a.height = 80, 24
+	bus := events.NewBus()
+	state := project.NewStateFor(project.ModeFast)
+	a.coord = coordinator.New(nil, state, harness.NewTracker(), nil, bus)
+	eventsCh, unsub := bus.Subscribe(20)
+	defer unsub()
+	go func() {
+		for e := range eventsCh {
+			a.route(e)
+		}
+	}()
+
+	// Cursor is on index 0: cline/anthropic/claude-opus
+	// 1. Space applies and keeps picker open
+	a.applySelectedModel(ctx, true)
+	if a.view != viewModel {
+		t.Fatalf("picker closed on space, view = %v", a.view)
+	}
+	if a.currentModel[protocol.Austin] != "cline/anthropic/claude-opus" {
+		t.Fatalf("currentModel = %q, want cline/anthropic/claude-opus", a.currentModel[protocol.Austin])
+	}
+
+	// Frame displays status
+	var b strings.Builder
+	a.writeModel(&b, a.width, a.height)
+	if !strings.Contains(b.String(), "Austin model → cline/anthropic/claude-opus") {
+		t.Errorf("picker frame missing status on space:\n%s", b.String())
+	}
+
+	// 2. Shift+Tab cycles thinking
+	a.applyAction(ctx, inputAction{kind: actionCycleThinking})
+	if a.currentThinking[protocol.Austin] != "low" {
+		t.Fatalf("currentThinking = %q, want low", a.currentThinking[protocol.Austin])
+	}
+	b.Reset()
+	a.writeModel(&b, a.width, a.height)
+	if !strings.Contains(b.String(), "thinking low") {
+		t.Errorf("picker frame missing thinking low:\n%s", b.String())
+	}
+
+	// 3. Enter applies and closes
+	a.moveModelCursor(1) // cline/deepseek/flash
+	a.applySelectedModel(ctx, false)
+	if a.view != viewMain {
+		t.Fatalf("picker did not close on enter, view = %v", a.view)
+	}
+	if a.currentModel[protocol.Austin] != "cline/deepseek/flash" {
+		t.Fatalf("currentModel = %q, want cline/deepseek/flash", a.currentModel[protocol.Austin])
 	}
 }

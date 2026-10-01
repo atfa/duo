@@ -151,6 +151,7 @@ type runtime struct {
 	journal *sessionstore.EventLog
 	logger  *sessionstore.Logger
 
+	agents      *agent.Manager
 	piSessions  map[protocol.AgentID]string
 	integration workspace.IntegrationResult
 	delivery    sessionstore.Delivery
@@ -168,19 +169,57 @@ func (r *runtime) composeSnapshot(coord *coordinator.Coordinator) sessionstore.S
 		integration = coord.CurrentIntegration()
 		deliveryState = coord.CurrentDelivery()
 	}
+	piSessions := make(map[protocol.AgentID]string, len(r.piSessions))
+	for k, v := range r.piSessions {
+		piSessions[k] = v
+	}
+	agentDrivers := make(map[protocol.AgentID]string)
+	agentModels := make(map[protocol.AgentID]string)
+	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		if r.cfg.agentDrivers != nil && r.cfg.agentDrivers[id] != "" {
+			agentDrivers[id] = r.cfg.agentDrivers[id]
+		}
+		if r.cfg.agentModels != nil && r.cfg.agentModels[id] != "" {
+			agentModels[id] = r.cfg.agentModels[id]
+		}
+	}
+	if r.agents != nil {
+		for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+			if d, ok := r.agents.Driver(id); ok {
+				if sid := d.SessionID(); sid != "" {
+					piSessions[id] = sid
+				}
+				if dt := d.DriverType(); dt != "" {
+					agentDrivers[id] = dt
+				}
+				if m := d.Model(); m != "" {
+					agentModels[id] = m
+				}
+			}
+		}
+	}
+	if coord != nil {
+		for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+			if m := coord.Model(id); m != "" {
+				agentModels[id] = m
+			}
+		}
+	}
 	return recovery.Compose(recovery.ComposeInput{
-		DuoVersion:  version,
-		SessionID:   r.sessionID,
-		RepoID:      r.repoID,
-		Repository:  r.set.Repository,
-		BaseBranch:  r.set.BaseBranch,
-		BaseCommit:  r.set.BaseCommit,
-		CreatedAt:   r.createdAt,
-		Project:     r.state.Snapshot(),
-		Worktrees:   r.set,
-		PiSessions:  r.piSessions,
-		Integration: integration,
-		Delivery:    deliveryState,
+		DuoVersion:   version,
+		SessionID:    r.sessionID,
+		RepoID:       r.repoID,
+		Repository:   r.set.Repository,
+		BaseBranch:   r.set.BaseBranch,
+		BaseCommit:   r.set.BaseCommit,
+		CreatedAt:    r.createdAt,
+		Project:      r.state.Snapshot(),
+		Worktrees:    r.set,
+		PiSessions:   piSessions,
+		AgentDrivers: agentDrivers,
+		AgentModels:  agentModels,
+		Integration:  integration,
+		Delivery:     deliveryState,
 	})
 }
 
@@ -197,6 +236,8 @@ func runFresh(ctx context.Context, cfg config, root, scope, repoID, baseDir stri
 	if err != nil {
 		return fmt.Errorf("prepare Duo worktrees: %w", err)
 	}
+	_ = workspace.EnsureGitIgnore(root)
+	_ = workspace.SaveProjectConfig(root, cfg.agentDriver(protocol.Austin), cfg.agentDrivers, cfg.agentModels)
 
 	store, err := sessionstore.New(baseDir, repoID, set.Session)
 	if err != nil {
@@ -302,6 +343,7 @@ func (r *runtime) serve(ctx context.Context) error {
 
 	host, port := bridgeAddress(server.Addr())
 	agents := agent.NewManager()
+	r.agents = agents
 	agents.SetObserver(func(event agent.LifecycleEvent) {
 		fields := map[string]any{"agent": string(event.Agent), "state": event.State.String()}
 		if event.Err != nil {
@@ -309,6 +351,10 @@ func (r *runtime) serve(ctx context.Context) error {
 		}
 		r.journal.Record(event.Kind, fields)
 		switch event.Kind {
+		case "agent_start":
+			if d, ok := agents.Driver(event.Agent); ok && d.DriverType() == "agy" {
+				bus.Emit(events.Event{Time: time.Now(), Kind: events.KindSystem, Agent: event.Agent, Text: fmt.Sprintf("%s connected", event.Agent)})
+			}
 		case "agent_start_failed", "agent_restart":
 			if event.Err != nil {
 				r.logger.Printf("%s %s failed: %v", event.Agent, event.Kind, event.Err)
@@ -316,6 +362,7 @@ func (r *runtime) serve(ctx context.Context) error {
 		case "agent_exit":
 			r.logger.Printf("%s exited (state=%s): %v", event.Agent, event.State, event.Err)
 		}
+		bus.Emit(events.Event{Time: time.Now(), Kind: events.KindActivity, Agent: event.Agent})
 	})
 
 	for _, agentID := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
@@ -328,6 +375,7 @@ func (r *runtime) serve(ctx context.Context) error {
 			return fmt.Errorf("session has no worktree for %s", agentID)
 		}
 		driverType := r.cfg.agentDriver(agentID)
+		modelName := r.cfg.agentModel(agentID)
 		var session agent.Driver
 		switch driverType {
 		case "agy":
@@ -344,6 +392,7 @@ func (r *runtime) serve(ctx context.Context) error {
 				Token:             token,
 				Command:           r.cfg.agentCommand(agentID),
 				AgyConversationID: r.piSessions[agentID],
+				Model:             modelName,
 				ActivitySink: agent.FuncActivitySink(func(ag protocol.AgentID, msg protocol.Message) {
 					coord.RecordActivity(ag, msg)
 				}),
@@ -362,6 +411,7 @@ func (r *runtime) serve(ctx context.Context) error {
 				Token:          token,
 				Command:        r.cfg.agentCommand(agentID),
 				PiSessionID:    r.piSessions[agentID],
+				Model:          modelName,
 			})
 		default:
 			pluginPath, ok := agent.LookupPlugin(driverType)
@@ -381,11 +431,17 @@ func (r *runtime) serve(ctx context.Context) error {
 				Token:          token,
 				Command:        pluginPath,
 				PiSessionID:    r.piSessions[agentID],
+				Model:          modelName,
 			}, pluginPath)
 		}
 		agents.Add(session)
-		r.logger.Printf("%s: driver=%s worktree=%s cwd=%s sessionID=%s command=%s", agentID, session.DriverType(), wt.Path, dir, session.SessionID(), session.EffectiveCommand())
+		coord.SetCurrentModel(agentID, modelName)
+		r.logger.Printf("%s: driver=%s model=%s worktree=%s cwd=%s sessionID=%s command=%s", agentID, session.DriverType(), modelName, wt.Path, dir, session.SessionID(), session.EffectiveCommand())
 	}
+	coord.SetAgents(agents)
+
+	_ = workspace.EnsureGitIgnore(r.set.Repository)
+	_ = workspace.SaveProjectConfig(r.set.Repository, r.cfg.agentDriver(protocol.Austin), r.cfg.agentDrivers, r.cfg.agentModels)
 
 	if err := agents.StartAll(ctx); err != nil {
 		return err

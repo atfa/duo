@@ -127,3 +127,42 @@ func TestEnsureAgyWorkspaceTrusted(t *testing.T) {
 		t.Errorf("expected testPath2 in trustedWorkspaces: %#v", trusted2)
 	}
 }
+
+func TestAgyCommandLineModelSanitization(t *testing.T) {
+	// Case 1: Model has provider prefix in Config.Model
+	s1 := NewAgySession(Config{
+		Agent:   protocol.Austin,
+		Command: "agy",
+		Model:   "google/gemini-3.8-flash-low",
+	})
+	cmd1 := s1.commandLine()
+	if strings.Contains(cmd1, "google/") {
+		t.Fatalf("commandLine() should not contain 'google/', got: %s", cmd1)
+	}
+	if !strings.Contains(cmd1, `--model "gemini-3.8-flash-low"`) {
+		t.Fatalf("commandLine() expected --model \"gemini-3.8-flash-low\", got: %s", cmd1)
+	}
+
+	// Case 2: Command already has --model with provider prefix
+	s2 := NewAgySession(Config{
+		Agent:   protocol.Austin,
+		Command: "agy --model google/gemini-3.8-flash-low",
+	})
+	cmd2 := s2.commandLine()
+	if strings.Contains(cmd2, "google/") {
+		t.Fatalf("commandLine() should sanitize provider from command, got: %s", cmd2)
+	}
+	if !strings.Contains(cmd2, `--model "gemini-3.8-flash-low"`) {
+		t.Fatalf("commandLine() expected --model \"gemini-3.8-flash-low\", got: %s", cmd2)
+	}
+
+	// Case 3: SetModel updates command line even if initial command had --model
+	s2.SetModel("claude-sonnet-4-6")
+	cmd3 := s2.commandLine()
+	if strings.Contains(cmd3, "gemini-3.8-flash-low") {
+		t.Fatalf("commandLine() should replace old model, got: %s", cmd3)
+	}
+	if !strings.Contains(cmd3, `--model "claude-sonnet-4-6"`) {
+		t.Fatalf("commandLine() expected updated model, got: %s", cmd3)
+	}
+}

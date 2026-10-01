@@ -23,5 +23,9 @@ type Driver interface {
 	EffectiveCommand() string
 	SessionID() string
 	Command() string
+	Model() string
 	SetOnExit(fn func(ExitEvent))
+	SetModel(model string)
+	SetEffort(effort string)
+	RestartRunning(ctx context.Context) error
 }

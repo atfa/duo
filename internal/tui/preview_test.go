@@ -222,3 +222,42 @@ func TestPreviewHeaderShowsDriver(t *testing.T) {
 		t.Fatalf("tonyHeader = %q, want 'Tony preview (pi)'", tonyHeader)
 	}
 }
+
+type previewMockDriver struct {
+	agent.Driver
+	agentID    protocol.AgentID
+	driverType string
+	state      agent.ProcessState
+}
+
+func (m *previewMockDriver) Agent() protocol.AgentID       { return m.agentID }
+func (m *previewMockDriver) DriverType() string            { return m.driverType }
+func (m *previewMockDriver) State() agent.ProcessState     { return m.state }
+func (m *previewMockDriver) SetOnExit(fn func(agent.ExitEvent)) {}
+
+func TestPreviewHeaderAgyRunningState(t *testing.T) {
+	a := testApp(100, 30)
+	mgr := agent.NewManager()
+	mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "agy", state: agent.ProcessRunning})
+	mgr.Add(&previewMockDriver{agentID: protocol.Tony, driverType: "pi", state: agent.ProcessRunning})
+	a.agents = mgr
+
+	// Austin (agy running, no TCP server connection) should show "idle" instead of "connecting"
+	austinHeader := a.previewHeader(protocol.Austin, 50)
+	if !strings.Contains(austinHeader, "Austin preview (agy) · idle") {
+		t.Fatalf("austinHeader = %q, want 'Austin preview (agy) · idle'", austinHeader)
+	}
+
+	// Tony (pi running, no TCP connection to server) should show "connecting"
+	tonyHeader := a.previewHeader(protocol.Tony, 50)
+	if !strings.Contains(tonyHeader, "Tony preview (pi) · connecting") {
+		t.Fatalf("tonyHeader = %q, want 'Tony preview (pi) · connecting'", tonyHeader)
+	}
+
+	// When agy process fails, it should show "failed [Restart]"
+	mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "agy", state: agent.ProcessFailed})
+	austinFailedHeader := a.previewHeader(protocol.Austin, 50)
+	if !strings.Contains(austinFailedHeader, "Austin preview (agy) · failed [Restart]") {
+		t.Fatalf("austinFailedHeader = %q, want 'failed [Restart]'", austinFailedHeader)
+	}
+}

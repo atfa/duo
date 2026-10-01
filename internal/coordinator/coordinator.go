@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/atfa/duo/internal/agent"
 	"github.com/atfa/duo/internal/delivery"
 	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/harness"
@@ -23,6 +24,7 @@ import (
 
 type Coordinator struct {
 	server    *transport.Server
+	agents    *agent.Manager
 	project   *project.State
 	tracker   *harness.Tracker
 	workspace workspace.Manager
@@ -51,6 +53,10 @@ type Coordinator struct {
 	resumeWakeMu        sync.Mutex
 	resumeWakeEnabled   bool
 	resumeWakeAttempted map[protocol.AgentID]bool
+
+	modelMu         sync.RWMutex
+	currentThinking map[protocol.AgentID]string
+	currentModel    map[protocol.AgentID]string
 }
 
 // Durability wires a session store into the coordinator.
@@ -73,6 +79,48 @@ func New(
 	bus *events.Bus,
 ) *Coordinator {
 	return &Coordinator{server: server, project: state, tracker: tracker, workspace: ws, bus: bus}
+}
+
+// SetAgents connects the agent manager to the coordinator, allowing it to route
+// prompts, nudges, and steers to non-TCP drivers (e.g. agy running in PTY).
+func (c *Coordinator) SetAgents(agents *agent.Manager) {
+	c.agents = agents
+}
+
+// IsAgentConnected reports whether an agent is connected via the bridge server
+// or running under the agent manager.
+func (c *Coordinator) IsAgentConnected(agent protocol.AgentID) bool {
+	if c.server != nil && c.server.IsConnected(agent) {
+		return true
+	}
+	if c.agents != nil {
+		if d, ok := c.agents.Driver(agent); ok && d != nil && d.Running() {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *Coordinator) sendToAgent(ctx context.Context, agent protocol.AgentID, message protocol.Message) error {
+	if c.server != nil && c.server.IsConnected(agent) {
+		return c.server.Send(ctx, agent, message)
+	}
+	if c.agents != nil {
+		if d, ok := c.agents.Driver(agent); ok && d != nil && d.Running() {
+			if message.Text != "" {
+				text := message.Text
+				if strings.Contains(text, "\n") {
+					return d.Write([]byte("\x1b[200~" + text + "\x1b[201~\r"))
+				}
+				return d.Write([]byte(text + "\r"))
+			}
+			return nil
+		}
+	}
+	if c.server != nil {
+		return c.server.Send(ctx, agent, message)
+	}
+	return fmt.Errorf("%s is not connected", agent)
 }
 
 // EnableDurability attaches persistent session state and an event journal. It
@@ -281,16 +329,20 @@ func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 		return err
 	}
 
-	if !c.server.IsConnected(protocol.Austin) {
+	if !c.IsAgentConnected(protocol.Austin) {
 		return fmt.Errorf("Austin is not connected yet")
 	}
 	c.reopenFinishedSession()
 	c.project.MarkStarted()
 	c.tracker.Touch(protocol.Austin)
 	c.emit(events.KindUser, protocol.Duo, protocol.Austin, text)
-	return c.server.Send(ctx, protocol.Austin, protocol.Message{
+	promptText := "[Human task from Duo]\n\n" + text
+	if c.project.Snapshot().EffectiveMode() == project.ModeFast {
+		promptText += "\n\n(Duo guidance: Once your work is committed and your worktree is clean, request verification with duo_set_status ready=true so Tony can independently verify.)"
+	}
+	return c.sendToAgent(ctx, protocol.Austin, protocol.Message{
 		Version: 1, Type: protocol.MsgHumanPrompt, From: protocol.Duo, To: protocol.Austin,
-		Text: "[Human task from Duo]\n\n" + text, Timestamp: time.Now().UnixMilli(),
+		Text: promptText, Timestamp: time.Now().UnixMilli(),
 	})
 }
 
@@ -332,24 +384,22 @@ func (c *Coordinator) EscalateToGoal(ctx context.Context, reason string) error {
 		reasonDesc,
 	)
 
-	if c.server != nil {
-		_ = c.server.Send(ctx, protocol.Austin, protocol.Message{
-			Version:   protocol.Version,
-			Type:      protocol.MsgDuoNotice,
-			From:      protocol.Duo,
-			To:        protocol.Austin,
-			Text:      austinNotice,
-			Timestamp: time.Now().UnixMilli(),
-		})
-		_ = c.server.Send(ctx, protocol.Tony, protocol.Message{
-			Version:   protocol.Version,
-			Type:      protocol.MsgDuoNotice,
-			From:      protocol.Duo,
-			To:        protocol.Tony,
-			Text:      tonyNotice,
-			Timestamp: time.Now().UnixMilli(),
-		})
-	}
+	_ = c.sendToAgent(ctx, protocol.Austin, protocol.Message{
+		Version:   protocol.Version,
+		Type:      protocol.MsgDuoNotice,
+		From:      protocol.Duo,
+		To:        protocol.Austin,
+		Text:      austinNotice,
+		Timestamp: time.Now().UnixMilli(),
+	})
+	_ = c.sendToAgent(ctx, protocol.Tony, protocol.Message{
+		Version:   protocol.Version,
+		Type:      protocol.MsgDuoNotice,
+		From:      protocol.Duo,
+		To:        protocol.Tony,
+		Text:      tonyNotice,
+		Timestamp: time.Now().UnixMilli(),
+	})
 
 	if c.tracker != nil {
 		c.tracker.Touch(protocol.Austin)
@@ -384,7 +434,7 @@ func (c *Coordinator) reopenFinishedSession() {
 	c.recordEvent("round_started", map[string]any{"phase": string(snap.Phase)})
 	c.logf("session reopened after DONE → %s for a new human task", snap.Phase)
 	c.emit(events.KindSystem, protocol.Duo, "", fmt.Sprintf("new task after delivery: session reopened in %s", snap.Phase))
-	if !c.server.IsConnected(protocol.Tony) {
+	if !c.IsAgentConnected(protocol.Tony) {
 		c.emit(events.KindError, protocol.Duo, "",
 			"Tony is not connected; restart it with Ctrl+Y, otherwise the new round cannot be verified")
 	}
@@ -409,7 +459,7 @@ func (c *Coordinator) wakeResumedAgent(ctx context.Context, agent protocol.Agent
 	c.resumeWakeMu.Unlock()
 
 	snap := c.project.Snapshot()
-	if err := c.server.Send(ctx, agent, protocol.Message{
+	if err := c.sendToAgent(ctx, agent, protocol.Message{
 		Version: protocol.Version, Type: protocol.MsgResumePrompt, From: protocol.Duo, To: agent,
 		Text: c.resumePrompt(agent, snap), Timestamp: time.Now().UnixMilli(),
 	}); err != nil {
@@ -481,10 +531,17 @@ func (c *Coordinator) handleActivity(agent protocol.AgentID, message protocol.Me
 	if message.Activity == protocol.ActivityAgentStart {
 		c.project.MarkStarted()
 	}
+	if c.bus != nil {
+		c.bus.Emit(events.Event{Kind: events.KindActivity, Agent: agent})
+	}
 }
 
 // RecordActivity records agent activity observations (used by observation-based drivers like agy).
 func (c *Coordinator) RecordActivity(agent protocol.AgentID, message protocol.Message) {
+	if message.Type == protocol.MsgAssistantMessage {
+		c.handleAssistant(agent, message)
+		return
+	}
 	c.handleActivity(agent, message)
 }
 
@@ -496,29 +553,78 @@ func (c *Coordinator) handleAssistant(agent protocol.AgentID, message protocol.M
 	c.emit(events.KindAssistant, agent, "", message.Text)
 }
 
-// SetModel asks one agent's Pi process to switch its active model. Pi records
-// the change in its session transcript, so a restart or resume keeps it. The
-// picker reads the catalog from `pi --list-models`, which is the same source the
-// running Pi uses, so a listed provider/id always resolves.
+// SetModel asks one agent to switch its active model. If connected via the transport
+// server (e.g. Pi bridge), it forwards the message. If not connected (e.g. Agy driver),
+// it records the state locally and emits the model event to the bus.
 func (c *Coordinator) SetModel(ctx context.Context, agent protocol.AgentID, provider, id string) error {
 	provider, id = strings.TrimSpace(provider), strings.TrimSpace(id)
-	if provider == "" || id == "" {
-		return fmt.Errorf("set model: provider and model id are required")
+	if id == "" {
+		return fmt.Errorf("set model: model id is required")
 	}
-	return c.server.Send(ctx, agent, protocol.Message{
-		Version: protocol.Version, Type: protocol.MsgSetModel, From: protocol.Duo, To: agent,
-		Provider: provider, Model: id, Timestamp: time.Now().UnixMilli(),
+	if c.server != nil && c.server.IsConnected(agent) {
+		if provider == "" {
+			if slash := strings.Index(id, "/"); slash != -1 {
+				provider = id[:slash]
+				id = id[slash+1:]
+			} else {
+				return fmt.Errorf("set model: provider and model id are required")
+			}
+		}
+		return c.server.Send(ctx, agent, protocol.Message{
+			Version: protocol.Version, Type: protocol.MsgSetModel, From: protocol.Duo, To: agent,
+			Provider: provider, Model: id, Timestamp: time.Now().UnixMilli(),
+		})
+	}
+	// For offline or non-TCP agents (e.g. agy driver), record model directly and notify listeners.
+	c.handleModelState(agent, protocol.Message{
+		OK:       true,
+		Provider: provider,
+		Model:    id,
 	})
+	return nil
 }
 
-// CycleThinking advances one agent's Pi thinking level to the next one Pi
-// accepts for its current model. Duo delegates the ordering and capability
-// clamping to Pi and only displays the level Pi reports back.
+func nextThinkingLevel(current string) string {
+	switch strings.ToLower(strings.TrimSpace(current)) {
+	case "off", "none", "":
+		return "low"
+	case "low":
+		return "medium"
+	case "medium":
+		return "high"
+	case "high":
+		return "max"
+	case "max":
+		return "off"
+	default:
+		return "medium"
+	}
+}
+
+// CycleThinking advances one agent's thinking level. When connected to a bridge
+// (e.g. Pi), it delegates to the bridge. Otherwise (e.g. Agy), it cycles through
+// standard levels locally.
 func (c *Coordinator) CycleThinking(ctx context.Context, agent protocol.AgentID) error {
-	return c.server.Send(ctx, agent, protocol.Message{
-		Version: protocol.Version, Type: protocol.MsgCycleThinking, From: protocol.Duo, To: agent,
-		Timestamp: time.Now().UnixMilli(),
+	if c.server != nil && c.server.IsConnected(agent) {
+		return c.server.Send(ctx, agent, protocol.Message{
+			Version: protocol.Version, Type: protocol.MsgCycleThinking, From: protocol.Duo, To: agent,
+			Timestamp: time.Now().UnixMilli(),
+		})
+	}
+
+	c.modelMu.Lock()
+	if c.currentThinking == nil {
+		c.currentThinking = make(map[protocol.AgentID]string)
+	}
+	next := nextThinkingLevel(c.currentThinking[agent])
+	c.currentThinking[agent] = next
+	c.modelMu.Unlock()
+
+	c.handleThinkingState(agent, protocol.Message{
+		OK:       true,
+		Thinking: next,
 	})
+	return nil
 }
 
 // handleModelState records which model an agent is running. A failed switch
@@ -534,13 +640,44 @@ func (c *Coordinator) handleModelState(agent protocol.AgentID, message protocol.
 		c.emit(events.KindError, agent, "", text)
 		return
 	}
-	if provider == "" || model == "" {
+	if model == "" {
 		return
 	}
+	ref := model
+	if provider != "" && provider != "agy" && !strings.HasPrefix(model, provider+"/") {
+		ref = provider + "/" + model
+	}
+	c.modelMu.Lock()
+	if c.currentModel == nil {
+		c.currentModel = make(map[protocol.AgentID]string)
+	}
+	c.currentModel[agent] = ref
+	c.modelMu.Unlock()
+
 	if c.bus != nil {
 		c.bus.Emit(events.Event{Kind: events.KindModel, Agent: agent, Provider: provider, Model: model})
 	}
-	c.logf("%s model: %s/%s", agent, provider, model)
+	c.logf("%s model: %s", agent, ref)
+}
+
+// Model returns the currently active model reference for an agent.
+func (c *Coordinator) Model(agent protocol.AgentID) string {
+	c.modelMu.RLock()
+	defer c.modelMu.RUnlock()
+	if c.currentModel == nil {
+		return ""
+	}
+	return c.currentModel[agent]
+}
+
+// SetCurrentModel sets the model reference for an agent in coordinator.
+func (c *Coordinator) SetCurrentModel(agent protocol.AgentID, model string) {
+	c.modelMu.Lock()
+	defer c.modelMu.Unlock()
+	if c.currentModel == nil {
+		c.currentModel = make(map[protocol.AgentID]string)
+	}
+	c.currentModel[agent] = strings.TrimSpace(model)
 }
 
 func (c *Coordinator) handleThinkingState(agent protocol.AgentID, message protocol.Message) {
@@ -548,10 +685,27 @@ func (c *Coordinator) handleThinkingState(agent protocol.AgentID, message protoc
 	if level == "" {
 		return
 	}
+	c.modelMu.Lock()
+	if c.currentThinking == nil {
+		c.currentThinking = make(map[protocol.AgentID]string)
+	}
+	c.currentThinking[agent] = level
+	c.modelMu.Unlock()
+
 	if c.bus != nil {
 		c.bus.Emit(events.Event{Kind: events.KindThinking, Agent: agent, Thinking: level})
 	}
 	c.logf("%s thinking: %s", agent, level)
+}
+
+// Thinking returns the currently active thinking level for an agent.
+func (c *Coordinator) Thinking(agent protocol.AgentID) string {
+	c.modelMu.RLock()
+	defer c.modelMu.RUnlock()
+	if c.currentThinking == nil {
+		return ""
+	}
+	return c.currentThinking[agent]
 }
 
 func (c *Coordinator) handleAgentError(agent protocol.AgentID, message protocol.Message) {
@@ -579,7 +733,7 @@ func (c *Coordinator) handlePeerMessage(ctx context.Context, client *transport.C
 	c.tracker.Touch(from)
 	c.emit(events.KindPeer, from, to, message.Text)
 
-	err := c.server.Send(ctx, to, protocol.Message{
+	err := c.sendToAgent(ctx, to, protocol.Message{
 		Version:   1,
 		Type:      protocol.MsgSteer,
 		From:      from,
@@ -620,7 +774,7 @@ func (c *Coordinator) handleSetPlan(ctx context.Context, client *transport.Clien
 		"[Duo plan update]\n%s updated the shared plan to v%d.\n\n%s\n\nReview this exact version. Discuss concerns with duo_send. If you approve it, call duo_set_status with ready=true. Updating the plan again invalidates both signatures. Exploratory edits in your own worktree are allowed during PLAN, but they remain provisional until the plan is jointly approved.",
 		client.Agent, snap.PlanVersion, snap.Plan,
 	)
-	_ = c.server.Send(ctx, peer, protocol.Message{
+	_ = c.sendToAgent(ctx, peer, protocol.Message{
 		Version:   1,
 		Type:      protocol.MsgDuoNotice,
 		From:      protocol.Duo,
@@ -759,7 +913,7 @@ func (c *Coordinator) handleSetStatus(ctx context.Context, client *transport.Cli
 			client.Agent, snap.Phase, noteSuffix(message.Note),
 		)
 	}
-	_ = c.server.Send(ctx, peer, protocol.Message{
+	_ = c.sendToAgent(ctx, peer, protocol.Message{
 		Version:   1,
 		Type:      protocol.MsgDuoNotice,
 		From:      protocol.Duo,
@@ -987,7 +1141,7 @@ func (c *Coordinator) handleEscalate(ctx context.Context, client *transport.Clie
 }
 
 func (c *Coordinator) sendFastNotice(ctx context.Context, agent protocol.AgentID, text string) {
-	_ = c.server.Send(ctx, agent, protocol.Message{
+	_ = c.sendToAgent(ctx, agent, protocol.Message{
 		Version:   protocol.Version,
 		Type:      protocol.MsgDuoNotice,
 		From:      protocol.Duo,
@@ -998,7 +1152,7 @@ func (c *Coordinator) sendFastNotice(ctx context.Context, agent protocol.AgentID
 }
 
 func (c *Coordinator) steerToAustin(ctx context.Context, text string) {
-	_ = c.server.Send(ctx, protocol.Austin, protocol.Message{
+	_ = c.sendToAgent(ctx, protocol.Austin, protocol.Message{
 		Version:   protocol.Version,
 		Type:      protocol.MsgSteer,
 		From:      protocol.Tony,

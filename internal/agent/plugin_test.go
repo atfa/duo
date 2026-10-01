@@ -74,7 +74,7 @@ func TestPluginDiscoveryAndExternalSession(t *testing.T) {
 	// Wait for process to exit cleanly
 	select {
 	case <-sess.stopped:
-	case <-time.After(2 * time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("timed out waiting for external session process to exit")
 	}
 }

@@ -86,10 +86,12 @@ type ComposeInput struct {
 	BaseCommit  string
 	CreatedAt   time.Time
 	Project     project.Snapshot
-	Worktrees   workspace.Set
-	PiSessions  map[protocol.AgentID]string
-	Integration workspace.IntegrationResult
-	Delivery    sessionstore.Delivery
+	Worktrees    workspace.Set
+	PiSessions   map[protocol.AgentID]string
+	AgentDrivers map[protocol.AgentID]string
+	AgentModels  map[protocol.AgentID]string
+	Integration  workspace.IntegrationResult
+	Delivery     sessionstore.Delivery
 }
 
 // Compose turns live domain, workspace and Pi state into the snapshot that is
@@ -123,6 +125,23 @@ func Compose(in ComposeInput) sessionstore.Snapshot {
 		},
 		Delivery:  in.Delivery,
 		CreatedAt: in.CreatedAt,
+	}
+
+	if len(in.AgentDrivers) > 0 {
+		snap.AgentDrivers = make(map[protocol.AgentID]string, len(in.AgentDrivers))
+		for k, v := range in.AgentDrivers {
+			if v != "" {
+				snap.AgentDrivers[k] = v
+			}
+		}
+	}
+	if len(in.AgentModels) > 0 {
+		snap.AgentModels = make(map[protocol.AgentID]string, len(in.AgentModels))
+		for k, v := range in.AgentModels {
+			if v != "" {
+				snap.AgentModels[k] = v
+			}
+		}
 	}
 
 	if v := in.Project.Verification; v.Status != project.VerificationNone || v.Head != "" || v.Note != "" {

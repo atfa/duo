@@ -66,12 +66,12 @@ custom-model-fast         Custom Fast Model`
 
 	got := parseAgyModels(output)
 	want := []Model{
-		{Provider: "google", ID: "gemini-3.8-flash-high", Thinking: true, Images: true},
-		{Provider: "google", ID: "gemini-3.8-flash-medium", Thinking: true, Images: true},
-		{Provider: "google", ID: "gemini-3.1-pro-low", Thinking: false, Images: true},
-		{Provider: "anthropic", ID: "claude-sonnet-4-6", Thinking: true, Images: true},
-		{Provider: "openai", ID: "gpt-oss-120b-medium", Thinking: true, Images: true},
-		{Provider: "agy", ID: "custom-model-fast", Thinking: false, Images: true},
+		{Provider: "", ID: "gemini-3.8-flash-high", Thinking: true, Images: true},
+		{Provider: "", ID: "gemini-3.8-flash-medium", Thinking: true, Images: true},
+		{Provider: "", ID: "gemini-3.1-pro-low", Thinking: false, Images: true},
+		{Provider: "", ID: "claude-sonnet-4-6", Thinking: true, Images: true},
+		{Provider: "", ID: "gpt-oss-120b-medium", Thinking: true, Images: true},
+		{Provider: "", ID: "custom-model-fast", Thinking: false, Images: true},
 	}
 	if len(got) != len(want) {
 		t.Fatalf("parsed %d models, want %d: %#v", len(got), len(want), got)
@@ -81,4 +81,19 @@ custom-model-fast         Custom Fast Model`
 			t.Errorf("model %d = %#v, want %#v", i, got[i], want[i])
 		}
 	}
+	if ref := got[0].Reference(); ref != "gemini-3.8-flash-high" {
+		t.Errorf("Reference() = %q, want gemini-3.8-flash-high", ref)
+	}
 }
+
+func TestDefaultModelForDriver(t *testing.T) {
+	if got := DefaultModelForDriver("agy"); got != "gemini-3.8-flash-high" {
+		t.Fatalf("DefaultModelForDriver(agy) = %q, want gemini-3.8-flash-high", got)
+	}
+
+	piModel := DefaultModelForDriver("pi")
+	if piModel == "" {
+		t.Fatalf("DefaultModelForDriver(pi) returned empty string")
+	}
+}
+

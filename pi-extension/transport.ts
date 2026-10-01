@@ -34,6 +34,10 @@ export class DuoTransport {
     this.extraHandlers.push(handler);
   }
 
+  onMessage(handler: (message: DuoMessage) => void) {
+    this.addHandler(handler);
+  }
+
   connect() {
     if (this.shuttingDown || this.socket) return;
 

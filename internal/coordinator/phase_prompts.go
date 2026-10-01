@@ -18,7 +18,7 @@ func (c *Coordinator) broadcastPhaseAdvance(
 	integrationText string,
 ) {
 	for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
-		_ = c.server.Send(ctx, agent, protocol.Message{
+		_ = c.sendToAgent(ctx, agent, protocol.Message{
 			Version:   1,
 			Type:      protocol.MsgDuoNotice,
 			From:      protocol.Duo,
@@ -158,7 +158,7 @@ func (c *Coordinator) notifyDeliveryPending(ctx context.Context, record sessions
 
 func (c *Coordinator) broadcastNotice(ctx context.Context, text string) {
 	for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
-		_ = c.server.Send(ctx, agent, protocol.Message{
+		_ = c.sendToAgent(ctx, agent, protocol.Message{
 			Version:   1,
 			Type:      protocol.MsgDuoNotice,
 			From:      protocol.Duo,

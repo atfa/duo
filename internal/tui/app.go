@@ -237,7 +237,23 @@ func (a *App) applyAction(ctx context.Context, action inputAction) bool {
 		if err := a.coord.CycleThinking(ctx, a.modelTarget); err != nil {
 			a.setStatus(err.Error(), true)
 		} else {
-			a.setStatus(string(a.modelTarget)+" thinking…", false)
+			thinking := a.coord.Thinking(a.modelTarget)
+			if thinking == "" {
+				thinking = "unknown"
+			}
+			if a.currentThinking == nil {
+				a.currentThinking = make(map[protocol.AgentID]string)
+			}
+			a.currentThinking[a.modelTarget] = thinking
+			a.setStatus(fmt.Sprintf("%s thinking: %s", a.modelTarget, thinking), false)
+			if a.agents != nil {
+				if d, ok := a.agents.Driver(a.modelTarget); ok {
+					d.SetEffort(thinking)
+					if d.DriverType() == "agy" {
+						_ = d.RestartRunning(ctx)
+					}
+				}
+			}
 		}
 		a.markDirty()
 	}

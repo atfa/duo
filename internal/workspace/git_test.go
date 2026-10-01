@@ -253,6 +253,50 @@ func TestGitManagerPrepareKeepsCustomBaseRefError(t *testing.T) {
 	}
 }
 
+func TestPrepareAllowsDuoGitIgnoreAddition(t *testing.T) {
+	ctx := context.Background()
+	repo := initRepo(t)
+
+	// Create .duo/ directory and modify .gitignore with .duo/
+	if err := EnsureGitIgnore(repo); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, ".duo"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".duo", "config.json"), []byte("{}"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Prepare should SUCCEED even though .gitignore is modified and .duo exists
+	m := NewGitManager(GitConfig{
+		Repository: repo,
+		Root:       filepath.Join(t.TempDir(), "worktrees"),
+		Session:    "benign-test",
+	})
+	set, err := m.Prepare(ctx)
+	if err != nil {
+		t.Fatalf("Prepare failed with benign .duo/.gitignore additions: %v", err)
+	}
+	if set.Austin.Path == "" || set.Tony.Path == "" {
+		t.Fatalf("expected valid worktrees, got: %+v", set)
+	}
+
+	// But if user modifies another file, it MUST reject
+	if err := os.WriteFile(filepath.Join(repo, "code.go"), []byte("package main"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	m2 := NewGitManager(GitConfig{
+		Repository: repo,
+		Root:       filepath.Join(t.TempDir(), "worktrees"),
+		Session:    "dirty-test-2",
+	})
+	_, err = m2.Prepare(ctx)
+	if err == nil || !strings.Contains(err.Error(), "base repository is dirty") {
+		t.Fatalf("expected dirty repository error for real code modification, got: %v", err)
+	}
+}
+
 func initRepo(t *testing.T) string {
 	t.Helper()
 	repo := t.TempDir()

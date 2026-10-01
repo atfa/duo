@@ -52,14 +52,15 @@ var convIDRegex = regexp.MustCompile(`(?:Created conversation |found conversatio
 
 // ExtractConversationID extracts the Agy conversation UUID from log output.
 func ExtractConversationID(r io.Reader) (string, error) {
+	var lastID string
 	scanner := bufio.NewScanner(r)
 	for scanner.Scan() {
 		line := scanner.Text()
 		if m := convIDRegex.FindStringSubmatch(line); len(m) > 1 {
-			return m[1], nil
+			lastID = m[1]
 		}
 	}
-	return "", scanner.Err()
+	return lastID, scanner.Err()
 }
 
 // SummarizeToolArgs formats tool arguments into a human-readable preview summary.
@@ -95,11 +96,19 @@ func SummarizeToolArgs(tool string, args map[string]any) string {
 		}
 	case "view_file":
 		if p, ok := args["AbsolutePath"].(string); ok {
-			return filepath.Base(p)
+			return filepath.Base(strings.Trim(p, "\""))
 		}
 	case "write_to_file", "replace_file_content":
 		if p, ok := args["TargetFile"].(string); ok {
-			return filepath.Base(p)
+			return filepath.Base(strings.Trim(p, "\""))
+		}
+	case "search_web":
+		if q, ok := args["query"].(string); ok {
+			return truncateStr(strings.Trim(q, "\""), 50)
+		}
+	case "read_url_content":
+		if u, ok := args["Url"].(string); ok {
+			return truncateStr(strings.Trim(u, "\""), 50)
 		}
 	}
 
@@ -277,6 +286,13 @@ func (w *AgyWatcher) ProcessLine(line []byte) {
 			}
 		} else {
 			if step.Content != "" {
+				w.sink.OnActivity(w.agent, protocol.Message{
+					Version:   protocol.Version,
+					Type:      protocol.MsgAssistantMessage,
+					Agent:     w.agent,
+					Text:      step.Content,
+					Timestamp: now,
+				})
 				w.sink.OnActivity(w.agent, protocol.Message{
 					Version:   protocol.Version,
 					Type:      protocol.MsgActivity,

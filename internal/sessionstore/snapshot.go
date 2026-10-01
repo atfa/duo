@@ -97,6 +97,9 @@ type Snapshot struct {
 	Mode   project.Mode `json:"mode,omitempty"`
 	Driver string       `json:"driver,omitempty"`
 
+	AgentDrivers map[protocol.AgentID]string `json:"agentDrivers,omitempty"`
+	AgentModels  map[protocol.AgentID]string `json:"agentModels,omitempty"`
+
 	Ready    map[protocol.AgentID]bool   `json:"ready"`
 	Notes    map[protocol.AgentID]string `json:"notes"`
 	Evidence map[protocol.AgentID]string `json:"evidence"`

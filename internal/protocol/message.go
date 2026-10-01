@@ -8,9 +8,10 @@ type Message struct {
 	SessionID string `json:"sessionId,omitempty"`
 	Token     string `json:"token,omitempty"`
 
-	Agent AgentID `json:"agent,omitempty"`
-	From  AgentID `json:"from,omitempty"`
-	To    AgentID `json:"to,omitempty"`
+	Agent      AgentID `json:"agent,omitempty"`
+	From       AgentID `json:"from,omitempty"`
+	To         AgentID `json:"to,omitempty"`
+	ClientType string  `json:"clientType,omitempty"`
 
 	Text string `json:"text,omitempty"`
 	Plan string `json:"plan,omitempty"`
