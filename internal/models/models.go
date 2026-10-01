@@ -95,25 +95,40 @@ func listCommand(command string) string {
 }
 
 // executable returns the command's first token, which is the program being run.
-// Quoting is left untouched: the result is handed to a shell, so an operator's
-// custom binary path keeps working.
+// Quoting is preserved, because the result is handed to a shell: a custom binary
+// path keeps working, and a path that contains a space is not cut in half.
 func executable(command string) string {
 	trimmed := strings.TrimSpace(command)
-	if idx := strings.IndexAny(trimmed, " \t"); idx >= 0 {
-		return trimmed[:idx]
+	var quote byte
+	for i := 0; i < len(trimmed); i++ {
+		c := trimmed[i]
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			}
+		case c == '\'' || c == '"':
+			quote = c
+		case c == ' ' || c == '\t':
+			return trimmed[:i]
+		}
 	}
 	return trimmed
 }
 
 // driverKind identifies which agent CLI a launch command refers to, so the
-// model catalog is read with that CLI's own listing syntax.
+// model catalog is read with that CLI's own listing syntax. Only the executable
+// is inspected: matching anywhere in the command also matched flag values (a pi
+// `--config /tmp/agy.json` is still pi), while a program name carrying a
+// wrapper prefix was missed. The shipped duo-agy/duo-opencode bridges are the
+// wrappers that matter, and the agent package already recognizes them by name.
 func driverKind(command string) string {
-	trimmed := strings.TrimSpace(command)
+	name := executable(command)
 	switch {
-	case strings.HasPrefix(trimmed, "agy") || strings.Contains(trimmed, "/agy"):
-		return "agy"
-	case strings.HasPrefix(trimmed, "opencode") || strings.Contains(trimmed, "opencode"):
+	case strings.Contains(name, "opencode"):
 		return "opencode"
+	case strings.Contains(name, "agy"):
+		return "agy"
 	default:
 		return "pi"
 	}

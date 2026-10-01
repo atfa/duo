@@ -129,6 +129,17 @@ func TestDriverKind(t *testing.T) {
 		"opencode":                    "opencode",
 		"opencode --auto":             "opencode",
 		"/opt/tools/duo-opencode/bin": "opencode",
+		// The shipped bridges wrap the CLI, so the program is never named exactly
+		// "agy" or "opencode". Matching only a "agy" token or a "/agy" path
+		// segment read duo-agy as pi, and the picker then ran `--list-models`,
+		// which agy answers with its usage instead of a catalog.
+		"duo-agy":                          "agy",
+		"/usr/local/bin/duo-agy --auto":    "agy",
+		"duo-opencode --model gpt-6.1-sol": "opencode",
+		`"/opt/my tools/duo-opencode" -a`:  "opencode",
+		// A flag value is not the program: a pi run pointed at an agy-named
+		// config is still pi.
+		"pi --config /tmp/agy.json": "pi",
 	}
 	for command, want := range cases {
 		if got := driverKind(command); got != want {
@@ -161,5 +172,11 @@ func TestListCommandPlacement(t *testing.T) {
 	// pi takes a flag, so its custom config flags must survive.
 	if got := listCommand("pi --config /tmp/pi.json"); got != "pi --config /tmp/pi.json --list-models" {
 		t.Errorf("listCommand(pi) = %q, want the launch command with --list-models appended", got)
+	}
+
+	// A quoted binary path is one token even when it contains a space, so the
+	// subcommand is appended after the whole path instead of inside it.
+	if got := listCommand(`"/opt/my tools/duo-agy" --model x`); got != `"/opt/my tools/duo-agy" models` {
+		t.Errorf("listCommand(quoted agy path) = %q", got)
 	}
 }
