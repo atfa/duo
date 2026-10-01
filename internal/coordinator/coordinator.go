@@ -57,6 +57,11 @@ type Coordinator struct {
 	modelMu         sync.RWMutex
 	currentThinking map[protocol.AgentID]string
 	currentModel    map[protocol.AgentID]string
+
+	// injectedMu guards injected, the last prompt text Duo pushed into each
+	// agent's session. See handleAssistant for why it is kept.
+	injectedMu sync.Mutex
+	injected   map[protocol.AgentID]string
 }
 
 // Durability wires a session store into the coordinator.
@@ -102,6 +107,15 @@ func (c *Coordinator) IsAgentConnected(agent protocol.AgentID) bool {
 }
 
 func (c *Coordinator) sendToAgent(ctx context.Context, agent protocol.AgentID, message protocol.Message) error {
+	// Anything that arrives in the agent's session as a user turn is recorded, so
+	// handleAssistant can tell an injected prompt apart from something the agent
+	// actually said. Recording here rather than at each call site means a new
+	// prompt type cannot forget to do it.
+	switch message.Type {
+	case protocol.MsgHumanPrompt, protocol.MsgHarnessPrompt, protocol.MsgResumePrompt,
+		protocol.MsgDuoNotice, protocol.MsgSteer:
+		c.noteInjected(agent, message.Text)
+	}
 	if c.server != nil && c.server.IsConnected(agent) {
 		return c.server.Send(ctx, agent, message)
 	}
@@ -567,8 +581,40 @@ func (c *Coordinator) handleAssistant(agent protocol.AgentID, message protocol.M
 	if strings.TrimSpace(message.Text) == "" {
 		return
 	}
+	// An agent reporting back the exact prompt Duo injected is not news; it is
+	// the prompt, and a human reading the timeline cannot tell the difference.
+	// A bridge that mis-attributes an injected message would otherwise fill the
+	// conversation with echoes of the human's own words. This guard is
+	// driver-independent on purpose: the bridge is the thing that got it wrong,
+	// so the core should not depend on any one bridge getting it right.
+	if c.wasInjected(agent, message.Text) {
+		c.logf("%s assistant message discarded: it repeats the prompt Duo injected", agent)
+		return
+	}
 	c.tracker.Touch(agent)
 	c.emit(events.KindAssistant, agent, "", message.Text)
+}
+
+// noteInjected records the prompt text sent to an agent so handleAssistant can
+// recognize it coming back.
+func (c *Coordinator) noteInjected(agent protocol.AgentID, text string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return
+	}
+	c.injectedMu.Lock()
+	defer c.injectedMu.Unlock()
+	if c.injected == nil {
+		c.injected = make(map[protocol.AgentID]string, 2)
+	}
+	c.injected[agent] = text
+}
+
+func (c *Coordinator) wasInjected(agent protocol.AgentID, text string) bool {
+	c.injectedMu.Lock()
+	defer c.injectedMu.Unlock()
+	previous, ok := c.injected[agent]
+	return ok && previous != "" && strings.TrimSpace(text) == previous
 }
 
 // SetModel asks one agent to switch its active model. If connected via the transport
