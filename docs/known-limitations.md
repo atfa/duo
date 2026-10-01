@@ -22,8 +22,11 @@ announced on launch like `pi`, and it is launched with the pi-style command line
 (`--session-id` unless the plugin already carries a session flag such as
 `--session`, `--resume` or `-c`).
 
-Only `pi` applies a model or thinking-level change in place — agy, opencode and
-external plugins take them as startup flags, so Duo restarts that agent.
+Only `pi` applies a model or thinking-level change in place. `agy` and `opencode`
+take them as startup flags, so Duo restarts the agent; an external plugin is
+never given a `--model`/`--thinking` flag at launch and receives the change over
+its bridge instead, but it is still restarted, since Duo cannot assume a plugin
+handles a switch in place.
 
 ## Dynamic mode escalation: Fast to Goal
 
