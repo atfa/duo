@@ -206,20 +206,20 @@ func TestPreviewTrailDropsOldestFirst(t *testing.T) {
 }
 
 func TestPreviewHeaderShowsDriver(t *testing.T) {
-	a := testApp(100, 30)
+	a := testApp(140, 30)
 	mgr := agent.NewManager()
-	mgr.Add(agent.NewAgySession(agent.Config{Agent: protocol.Austin, DriverType: "agy"}))
-	mgr.Add(agent.NewPiSession(agent.Config{Agent: protocol.Tony, DriverType: "pi"}))
+	mgr.Add(agent.NewAgySession(agent.Config{Agent: protocol.Austin, DriverType: "agy", Model: "gemini-3.8-flash-low"}))
+	mgr.Add(agent.NewPiSession(agent.Config{Agent: protocol.Tony, DriverType: "pi", Model: "workbuddy/deepseek-v4.1-flash"}))
 	a.agents = mgr
 
-	austinHeader := a.previewHeader(protocol.Austin, 50)
-	if !strings.Contains(austinHeader, "Austin preview (agy)") {
-		t.Fatalf("austinHeader = %q, want 'Austin preview (agy)'", austinHeader)
+	austinHeader := a.previewHeader(protocol.Austin, 70)
+	if !strings.Contains(austinHeader, "Austin preview (agy · gemini-3.8-flash-low)") {
+		t.Fatalf("austinHeader = %q, want 'Austin preview (agy · gemini-3.8-flash-low)'", austinHeader)
 	}
 
-	tonyHeader := a.previewHeader(protocol.Tony, 50)
-	if !strings.Contains(tonyHeader, "Tony preview (pi)") {
-		t.Fatalf("tonyHeader = %q, want 'Tony preview (pi)'", tonyHeader)
+	tonyHeader := a.previewHeader(protocol.Tony, 70)
+	if !strings.Contains(tonyHeader, "Tony preview (pi · workbuddy/deepseek-v4.1-flash)") {
+		t.Fatalf("tonyHeader = %q, want 'Tony preview (pi · workbuddy/deepseek-v4.1-flash)'", tonyHeader)
 	}
 }
 
@@ -234,6 +234,8 @@ func (m *previewMockDriver) Agent() protocol.AgentID       { return m.agentID }
 func (m *previewMockDriver) DriverType() string            { return m.driverType }
 func (m *previewMockDriver) State() agent.ProcessState     { return m.state }
 func (m *previewMockDriver) SetOnExit(fn func(agent.ExitEvent)) {}
+func (m *previewMockDriver) Model() string                 { return "" }
+func (m *previewMockDriver) SetModel(model string)         {}
 
 func TestPreviewHeaderAgyRunningState(t *testing.T) {
 	a := testApp(100, 30)
@@ -244,20 +246,20 @@ func TestPreviewHeaderAgyRunningState(t *testing.T) {
 
 	// Austin (agy running, no TCP server connection) should show "idle" instead of "connecting"
 	austinHeader := a.previewHeader(protocol.Austin, 50)
-	if !strings.Contains(austinHeader, "Austin preview (agy) · idle") {
-		t.Fatalf("austinHeader = %q, want 'Austin preview (agy) · idle'", austinHeader)
+	if !strings.Contains(austinHeader, "Austin preview (agy") || !strings.Contains(austinHeader, "idle") {
+		t.Fatalf("austinHeader = %q, want agy and idle", austinHeader)
 	}
 
 	// Tony (pi running, no TCP connection to server) should show "connecting"
 	tonyHeader := a.previewHeader(protocol.Tony, 50)
-	if !strings.Contains(tonyHeader, "Tony preview (pi) · connecting") {
-		t.Fatalf("tonyHeader = %q, want 'Tony preview (pi) · connecting'", tonyHeader)
+	if !strings.Contains(tonyHeader, "Tony preview (pi") || !strings.Contains(tonyHeader, "connecting") {
+		t.Fatalf("tonyHeader = %q, want pi and connecting", tonyHeader)
 	}
 
 	// When agy process fails, it should show "failed [Restart]"
 	mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "agy", state: agent.ProcessFailed})
 	austinFailedHeader := a.previewHeader(protocol.Austin, 50)
-	if !strings.Contains(austinFailedHeader, "Austin preview (agy) · failed [Restart]") {
+	if !strings.Contains(austinFailedHeader, "failed [Restart]") {
 		t.Fatalf("austinFailedHeader = %q, want 'failed [Restart]'", austinFailedHeader)
 	}
 }

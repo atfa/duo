@@ -83,15 +83,63 @@ func (a *App) previewHeader(agent protocol.AgentID, width int) string {
 	state := agentState(a.isConnected(agent), rt, a.frame, a.processState(agent))
 	available := width - displayWidth("[↗] ")
 	drv := a.driverName(agent)
-	full := fmt.Sprintf(" %s preview (%s) · %s ", agent, drv, state)
-	if age := elapsedSince(rt.TurnStarted); age != "unknown" {
-		full = fmt.Sprintf(" %s preview (%s) · %s · %s ", agent, drv, state, age)
+	model := a.modelForAgent(agent)
+
+	tag := drv
+	if model != "" {
+		tag = fmt.Sprintf("%s · %s", drv, model)
 	}
-	if displayWidth(full) <= available {
-		return full
+
+	age := elapsedSince(rt.TurnStarted)
+	hasAge := age != "unknown"
+
+	var candidates []string
+	if hasAge {
+		candidates = append(candidates, fmt.Sprintf(" %s preview (%s) · %s · %s ", agent, tag, state, age))
 	}
-	if short := fmt.Sprintf(" %s (%s) · %s ", agent, drv, state); displayWidth(short) <= available {
-		return short
+	candidates = append(candidates, fmt.Sprintf(" %s preview (%s) · %s ", agent, tag, state))
+
+	var shortTag string
+	if idx := strings.LastIndex(model, "/"); idx != -1 && idx+1 < len(model) {
+		shortTag = fmt.Sprintf("%s · %s", drv, model[idx+1:])
+		if hasAge {
+			candidates = append(candidates, fmt.Sprintf(" %s preview (%s) · %s · %s ", agent, shortTag, state, age))
+		}
+		candidates = append(candidates, fmt.Sprintf(" %s preview (%s) · %s ", agent, shortTag, state))
+	}
+
+	if hasAge {
+		candidates = append(candidates, fmt.Sprintf(" %s preview (%s) · %s · %s ", agent, drv, state, age))
+	}
+	candidates = append(candidates, fmt.Sprintf(" %s preview (%s) · %s ", agent, drv, state))
+	candidates = append(candidates, fmt.Sprintf(" %s preview (%s) ", agent, tag))
+	if shortTag != "" {
+		candidates = append(candidates, fmt.Sprintf(" %s preview (%s) ", agent, shortTag))
+	}
+	candidates = append(candidates, fmt.Sprintf(" %s preview (%s) ", agent, drv))
+
+	// Narrow fallbacks without "preview"
+	if hasAge {
+		candidates = append(candidates, fmt.Sprintf(" %s (%s) · %s · %s ", agent, tag, state, age))
+	}
+	candidates = append(candidates, fmt.Sprintf(" %s (%s) · %s ", agent, tag, state))
+	if shortTag != "" {
+		if hasAge {
+			candidates = append(candidates, fmt.Sprintf(" %s (%s) · %s · %s ", agent, shortTag, state, age))
+		}
+		candidates = append(candidates, fmt.Sprintf(" %s (%s) · %s ", agent, shortTag, state))
+	}
+	candidates = append(candidates, fmt.Sprintf(" %s (%s) · %s ", agent, drv, state))
+	candidates = append(candidates, fmt.Sprintf(" %s (%s) ", agent, tag))
+	if shortTag != "" {
+		candidates = append(candidates, fmt.Sprintf(" %s (%s) ", agent, shortTag))
+	}
+	candidates = append(candidates, fmt.Sprintf(" %s (%s) ", agent, drv))
+
+	for _, c := range candidates {
+		if displayWidth(c) <= available {
+			return c
+		}
 	}
 	return fmt.Sprintf(" %s (%s) ", agent, drv)
 }
