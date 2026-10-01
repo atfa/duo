@@ -47,9 +47,30 @@ export default (async ({ client }: any) => {
     tracker.observe(type, properties),
   );
 
-  // Inbound Duo messages become prompts on the live session. promptAsync
-  // returns immediately, so a peer message does not block Duo's coordinator and
-  // can arrive while the agent is mid-turn.
+  // opencode's TUI only creates its session on the first thing the human or the
+  // agent sends, so before that there is no session to deliver to. Queueing keeps
+  // anything that arrives early from being lost.
+  const queued: string[] = [];
+
+  const inject = async (text: string, type: string) => {
+    const target = tracker.sessionID;
+    if (!target) {
+      queued.push(text);
+      return;
+    }
+    try {
+      await client.session.promptAsync({
+        path: { id: target },
+        body: { parts: [{ type: "text", text }] },
+      });
+    } catch (error) {
+      console.error(`[duo] failed to inject ${type}:`, error);
+    }
+  };
+
+  // Inbound Duo messages become prompts on the live session. promptAsync returns
+  // immediately, so a peer message does not block Duo's coordinator and can arrive
+  // while the agent is mid-turn.
   const deliver = async (message: any) => {
     if (
       !["steer", "duo_notice", "harness_prompt", "human_prompt", "resume_prompt"].includes(
@@ -61,39 +82,32 @@ export default (async ({ client }: any) => {
     if (message.to && message.to.toLowerCase() !== AGENT.toLowerCase()) return;
     if (!message.text) return;
 
-    const target = tracker.sessionID;
-    if (!target) {
-      console.error("[duo] no opencode session yet; dropping " + message.type);
-      return;
-    }
-
-    const text =
+    await inject(
       message.type === "steer"
         ? `[Peer message from ${message.from ?? "peer"}]\n\n${message.text}`
-        : message.text;
-
-    try {
-      await client.session.promptAsync({
-        path: { id: target },
-        body: { parts: [{ type: "text", text }] },
-      });
-    } catch (error) {
-      console.error(`[duo] failed to inject ${message.type}:`, error);
-    }
+        : message.text,
+      message.type,
+    );
   };
 
   const hooks: any = {};
   installDuoPrompt(hooks, AGENT, mode);
-  hooks.event = lifecycle;
   hooks.tool = buildDuoTools(transport, AGENT, mode);
   transport.setHandler(deliver);
 
-  // opencode instantiates the plugin before the TUI is interactive, and the
-  // session id only exists once opencode has created or attached one. Connecting
-  // on the first event that carries the id is the earliest safe moment; the
-  // transport reconnects on its own if the first attempt lands too early.
+  // Connect only once the TUI's own session exists, and only then because the
+  // bridge can actually deliver to it.
+  //
+  // opencode mints that session on the agent's first input, and a session the
+  // plugin creates for itself is never rendered in the TUI the human is watching,
+  // so driving one would work while showing the human an empty pane. Connecting
+  // early is worse than useless: Duo routes prompts to a connected bridge, so an
+  // unconnected bridge is what lets the first task reach the TUI through Duo's
+  // PTY fallback and start the session in the first place.
+  //
+  // Once connected, anything that arrived in the meantime is flushed in order.
   let connectTimer: ReturnType<typeof setTimeout> | null = null;
-  const observe = hooks.event;
+  const observe = lifecycle;
   hooks.event = async (input: any) => {
     await observe(input);
     if (tracker.sessionID && !connectTimer) {
@@ -102,6 +116,9 @@ export default (async ({ client }: any) => {
         transport.connect();
       }, 0);
     }
+    if (!tracker.sessionID || queued.length === 0) return;
+    const pending = queued.splice(0, queued.length);
+    for (const text of pending) await inject(text, "queued");
   };
 
   hooks.dispose = async () => {

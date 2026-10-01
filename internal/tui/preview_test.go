@@ -290,3 +290,28 @@ func TestPreviewBodyReportsExitedProcessInsteadOfWaiting(t *testing.T) {
 		}
 	}
 }
+
+// opencode's bridge only attaches once its TUI has a session, so before the
+// first task it has no socket at all. A running process is still a present agent
+// and must not be reported as "connecting".
+func TestPreviewHeaderTreatsRunningOpencodeAsPresent(t *testing.T) {
+	a := testApp(100, 30)
+	mgr := agent.NewManager()
+	mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "opencode", state: agent.ProcessRunning})
+	mgr.Add(&previewMockDriver{agentID: protocol.Tony, driverType: "pi", state: agent.ProcessRunning})
+	a.agents = mgr
+
+	header := a.previewHeader(protocol.Austin, 60)
+	if !strings.Contains(header, "opencode") {
+		t.Fatalf("header = %q, want the opencode driver shown", header)
+	}
+	if strings.Contains(header, "connecting") {
+		t.Fatalf("header = %q, want a running opencode agent to count as present", header)
+	}
+
+	// Once the process is gone it must report that instead.
+	mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "opencode", state: agent.ProcessExited})
+	if header := a.previewHeader(protocol.Austin, 60); !strings.Contains(header, "exited") {
+		t.Fatalf("header = %q, want exited", header)
+	}
+}
