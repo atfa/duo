@@ -438,7 +438,7 @@ duo clean --dry-run          # 仅预览将被清理的内容，不修改磁盘
 
 清理会话会自动安全移除对应的 Git 工作树（`git worktree remove --force`）、执行 `git worktree prune` 修剪、删除临时分支（`duo/<session>/*`），并删除对应的会话快照目录。正在被另一个运行中的 Duo 进程持有的会话会被 `flock` 锁保护，自动予以跳过。
 
-`duo sessions <repository>` 可以列出其他仓库的会话；`-a`、`-f`、`-n` 分别是 `--all`、`--force`、`--dry-run` 的短选项。
+`duo sessions <repository>` 可以列出其他仓库的会话。`duo sessions` 只接受 `-a`（`--all`）；`duo clean` 另外接受 `-f`（`--force`）与 `-n`（`--dry-run`）。
 
 其余命令不涉及会话：`duo plugins` 列出内置 driver 与所有已发现的外部插件，[`duo mcp-server`](#mcp-服务duo-mcp-server) 通过 MCP 提供 Duo 工具，`duo version`（`--version`）与 `duo help`（`-h`、`--help`）分别打印版本号与完整用法。
 

@@ -17,10 +17,13 @@ what is available.
 The protocol, phases, evidence rules and delivery are driver-independent; what
 varies is what Duo can observe. `pi` and `opencode` report through a bridge;
 `agy` has no bridge at all, so Duo observes its transcript and writes into the
-PTY. Only `pi` applies a model or thinking-level change in place — the others
-take them as startup flags, so Duo restarts that agent. An external plugin is
-treated like `agy`: its process is supervised and steered through the PTY, and
-it is responsible for calling the Duo tools itself.
+PTY. An external plugin driver is assumed to have a working bridge, so it is
+announced on launch like `pi`, and it is launched with the pi-style command line
+(`--session-id` unless the plugin already carries a session flag such as
+`--session`, `--resume` or `-c`).
+
+Only `pi` applies a model or thinking-level change in place — agy, opencode and
+external plugins take them as startup flags, so Duo restarts that agent.
 
 ## Dynamic mode escalation: Fast to Goal
 

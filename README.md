@@ -444,7 +444,7 @@ duo clean --dry-run          # preview what would be cleaned without modifying d
 
 Cleaning a session removes its Git worktrees (`git worktree remove --force`), prunes the worktree registry, deletes temporary branches (`duo/<session>/*`), and removes the session snapshot directory. Any session currently locked by an active Duo process is safely skipped.
 
-`duo sessions <repository>` lists another repository's sessions, `-a` and `-f` are short forms of `--all` and `--force`, and `-n` is `--dry-run`.
+`duo sessions <repository>` lists another repository's sessions. `duo sessions` accepts `-a` for `--all`; `duo clean` additionally accepts `-f` for `--force` and `-n` for `--dry-run`.
 
 The remaining commands do not touch sessions: `duo plugins` lists the built-in drivers plus every discovered external plugin, [`duo mcp-server`](#mcp-server-duo-mcp-server) serves the Duo tools over MCP, and `duo version` (`--version`) and `duo help` (`-h`, `--help`) print the version and full usage.
 
