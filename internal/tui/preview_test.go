@@ -315,3 +315,47 @@ func TestPreviewHeaderTreatsRunningOpencodeAsPresent(t *testing.T) {
 		t.Fatalf("header = %q, want exited", header)
 	}
 }
+
+// Both agents are launched before the TUI subscribes to the bus, so a driver
+// that cannot announce itself over the bridge has to be announced from state at
+// timeline start. Otherwise it looks absent until its first task.
+func TestAnnounceRunningAgentsCoversBridgeLessDrivers(t *testing.T) {
+	a := testApp(100, 30)
+	mgr := agent.NewManager()
+	mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "opencode", state: agent.ProcessRunning})
+	mgr.Add(&previewMockDriver{agentID: protocol.Tony, driverType: "pi", state: agent.ProcessRunning})
+	a.agents = mgr
+
+	a.announceRunningAgents()
+
+	joined := timelineText(a)
+	if !strings.Contains(joined, "Austin connected") {
+		t.Fatalf("timeline = %q, want Austin announced", joined)
+	}
+	if strings.Contains(joined, "Tony connected") {
+		t.Fatalf("timeline = %q, pi announces itself over the bridge and must not be repeated", joined)
+	}
+
+	// An agent that is not running must not be announced.
+	a2 := testApp(100, 30)
+	mgr2 := agent.NewManager()
+	mgr2.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "opencode", state: agent.ProcessExited})
+	mgr2.Add(&previewMockDriver{agentID: protocol.Tony, driverType: "pi", state: agent.ProcessRunning})
+	a2.agents = mgr2
+	a2.announceRunningAgents()
+	if joined := timelineText(a2); strings.Contains(joined, "Austin connected") {
+		t.Fatalf("timeline = %q, want no announcement for an exited agent", joined)
+	}
+}
+
+// timelineText flattens every pane's entries so a test can assert on what the
+// human would read, regardless of which pane a message landed in.
+func timelineText(a *App) string {
+	var texts []string
+	for _, list := range [][]entry{a.austin, a.tony, a.duo} {
+		for _, e := range list {
+			texts = append(texts, e.text)
+		}
+	}
+	return strings.Join(texts, "\n")
+}

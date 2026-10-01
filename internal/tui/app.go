@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/atfa/duo/internal/agent"
 	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
@@ -35,6 +36,26 @@ func (a *App) startupMessage() string {
 		return "Duo " + a.version + " ready (FAST mode). Type a task and press Enter; Austin drives while Tony independently verifies before Duo delivers the result." + where
 	}
 	return "Duo " + a.version + " ready (GOAL mode). Type a task and press Enter; Austin will wake Tony when collaboration is needed." + where
+}
+
+// announceRunningAgents reports the agents that are already up when the timeline
+// starts, for drivers that cannot announce themselves over the bridge.
+//
+// This is derived from state rather than from the start event on purpose. Both
+// agents are launched before the TUI subscribes to the bus, so a "connected"
+// notice emitted at process start reaches nobody. agy has no bridge at all and
+// opencode's only attaches once its TUI has a session, so for those drivers this
+// is the only moment the human is told the agent is there.
+func (a *App) announceRunningAgents() {
+	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		if agent.SelfReportsOnLaunch(a.driverName(id)) {
+			continue
+		}
+		if a.processState(id) != agent.ProcessRunning {
+			continue
+		}
+		a.add(id, fmt.Sprintf("%s connected", id))
+	}
 }
 
 func (a *App) Run(ctx context.Context) error {
@@ -67,6 +88,7 @@ func (a *App) Run(ctx context.Context) error {
 	defer tick.Stop()
 
 	a.add(protocol.Duo, a.startupMessage())
+	a.announceRunningAgents()
 	a.requestFullClear()
 
 	for {
