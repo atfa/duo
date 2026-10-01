@@ -267,15 +267,25 @@ func (a *App) applyAction(ctx context.Context, action inputAction) bool {
 				a.currentThinking = make(map[protocol.AgentID]string)
 			}
 			a.currentThinking[a.modelTarget] = thinking
-			a.setStatus(fmt.Sprintf("%s thinking: %s", a.modelTarget, thinking), false)
 			if a.agents != nil {
 				if d, ok := a.agents.Driver(a.modelTarget); ok {
 					d.SetEffort(thinking)
 					if needsRestartForModel(d.DriverType()) {
-						_ = d.RestartRunning(ctx)
+						// The effort only reaches a non-pi agent as a startup flag,
+						// and RestartRunning stops before it starts, so a failure
+						// here leaves the agent dead. Report it rather than
+						// claiming the new level took effect.
+						if err := d.RestartRunning(ctx); err != nil {
+							// Report the failure and skip the success line;
+							// returning true here would quit the TUI.
+							a.setStatus(fmt.Sprintf("%s thinking: %s failed: %v", a.modelTarget, thinking, err), true)
+							a.markDirty()
+							return false
+						}
 					}
 				}
 			}
+			a.setStatus(fmt.Sprintf("%s thinking: %s", a.modelTarget, thinking), false)
 		}
 		a.markDirty()
 	}
