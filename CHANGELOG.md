@@ -2,6 +2,27 @@
 
 All notable project milestones are documented here.
 
+## Unreleased
+
+Eight correctness bugs in the resume and driver paths, plus a data race in the model picker's own tests. The build, the unit suites and the end-to-end suites were all green before and after, so none of these were caught by a failing test: they were found by reading the code and by `go test -race`. Three of them could lose or corrupt session state, or leave an agent dead while the UI claimed otherwise.
+
+### Resume
+
+- **A resume no longer records an integration that never happened.** Recovery decides Tony's work was already merged by asking whether Tony's HEAD is an ancestor of Austin's. That check guarded Austin's side but never Tony's, so an agent sitting on the base commit satisfied it: capturing an artifact only requires a *clean* worktree, not a new commit, and the base commit is an ancestor of every later commit. A session interrupted after Austin reviewed but before Tony committed came back claiming "Tony's work is already merged into Austin", jumped to INTEGRATE, and persisted `MergedTony` pointing at the base commit. Both sides must now have moved off base. The existing test covered only the case where *both* agents were at base, which is the one case the old guard already handled.
+- **A hand-edited or truncated `state.json` no longer panics on resume.** `Reconcile` assigns into the ready/notes/evidence maps, and a session file missing those objects decoded cleanly — `Store.Load` validates only the schema version and session id — then crashed on the first write. All three maps are now built before the rules that use them. Duo's own writes always populate them, so this needed a corrupt or hand-edited file to reach.
+- **The revocation summary names the agent it actually revoked.** The report said "revoked stale signatures: Tony" for a change that revokes Austin's completion request, matching the note written next to it and the live path that performs it.
+
+### Session state
+
+- **Session identity and the launch command are read under the session lock.** `AgyConversationID`, `OpencodeSessionID` and the command builder read the conversation id and the selected model without taking the mutex, while the agy watcher and the model picker wrote them under it. `composeSnapshot` calls `SessionID` on the transport goroutines on every state save, so the reads genuinely raced. A Go string is a pointer and a length, so a racing read can return a mismatched pair and hand a resume a garbage session id. The sibling `OpencodeSessionID` already took the read lock; the agy path had been missed. `Start` holds the write lock for its whole body, so it uses lock-free variants rather than re-acquiring.
+- **The agy watcher watches its own process.** It waited on the session's stopped-channel *field* while `Start` reassigned that field, so after a restart a watcher could latch onto the next run's channel and keep polling a process that was already gone. It now receives the channel for the run it belongs to, the same way the PTY reader already did.
+
+### Model picker and driver
+
+- **A failed model or effort switch is no longer reported as a success.** The model reaches a non-pi driver as a startup flag, and `RestartRunning` stops the process before starting it, so a failed restart left the agent **dead** — not stale — while the status line announced the new model and the picker recorded it as current. The picker header therefore advertised a model and a thinking level the agent never received. Both now report the failure, and both record the new value only once the agent actually has it. Bridge (pi) drivers are unaffected: they take the change live and still record it.
+- **The verification verdict shows up in the activity line.** The agy activity summary read the tool argument `verdict`, but both bridge extensions send `result` — `verdict` is the MCP spelling, which is a different transport — so the verdict never rendered. The test that covered it used the same wrong key and stayed green.
+- **The activity line for an unhandled tool no longer changes between renders.** The fallback summary walked the argument map in Go's randomized iteration order and returned the first string it found, so the same tool call could display a different argument on each frame.
+
 ## v0.8.0 — 2026-10-01
 
 Duo can now drive **opencode** alongside Pi and agy, and four correctness bugs that were hiding in the driver layer are fixed. Two of them could damage a user's repository or execute unintended commands.
