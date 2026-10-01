@@ -353,7 +353,9 @@ func (r *runtime) serve(ctx context.Context) error {
 		r.journal.Record(event.Kind, fields)
 		switch event.Kind {
 		case "agent_start":
-			if d, ok := agents.Driver(event.Agent); ok && d.DriverType() == "agy" {
+			// A driver whose bridge cannot announce itself reports here instead, so
+			// every agent produces the same "connected" signal at the same moment.
+			if d, ok := agents.Driver(event.Agent); ok && !agent.SelfReportsOnLaunch(d.DriverType()) {
 				bus.Emit(events.Event{Time: time.Now(), Kind: events.KindSystem, Agent: event.Agent, Text: fmt.Sprintf("%s connected", event.Agent)})
 			}
 		case "agent_start_failed", "agent_restart":

@@ -12,6 +12,7 @@ import (
 	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
+	"github.com/atfa/duo/internal/transport"
 )
 
 type mockDriver struct {
@@ -23,9 +24,9 @@ type mockDriver struct {
 	written []string
 }
 
-func (m *mockDriver) Agent() protocol.AgentID   { return m.id }
-func (m *mockDriver) DriverType() string        { return m.drvType }
-func (m *mockDriver) Running() bool             { m.mu.Lock(); defer m.mu.Unlock(); return m.running }
+func (m *mockDriver) Agent() protocol.AgentID { return m.id }
+func (m *mockDriver) DriverType() string      { return m.drvType }
+func (m *mockDriver) Running() bool           { m.mu.Lock(); defer m.mu.Unlock(); return m.running }
 func (m *mockDriver) State() agent.ProcessState {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -40,9 +41,9 @@ func (m *mockDriver) Write(p []byte) error {
 	m.written = append(m.written, string(p))
 	return nil
 }
-func (m *mockDriver) Resize(cols, rows int) error     { return nil }
-func (m *mockDriver) Attach(w io.Writer) []byte       { return nil }
-func (m *mockDriver) Detach()                         {}
+func (m *mockDriver) Resize(cols, rows int) error        { return nil }
+func (m *mockDriver) Attach(w io.Writer) []byte          { return nil }
+func (m *mockDriver) Detach()                            {}
 func (m *mockDriver) SetOnExit(fn func(agent.ExitEvent)) {}
 
 func TestSubmitUserTaskRoutesToAgyDriverViaPTY(t *testing.T) {
@@ -85,5 +86,45 @@ func TestSubmitUserTaskRoutesToAgyDriverViaPTY(t *testing.T) {
 	}
 	if !strings.Contains(fullWritten, "[Human task from Duo]") {
 		t.Fatalf("written = %q, want it to contain '[Human task from Duo]'", fullWritten)
+	}
+}
+
+// opencode's bridge attaches only after its TUI has a session, so its connection
+// is announced when the process starts instead. The bridge must not repeat it.
+func TestOpencodeConnectIsNotAnnouncedTwice(t *testing.T) {
+	bus := events.NewBus()
+	ch, unsub := bus.Subscribe(16)
+	defer unsub()
+
+	coord := New(nil, project.NewStateFor(project.ModeFast), harness.NewTracker(), nil, bus)
+	mgr := agent.NewManager()
+	mgr.Add(&mockDriver{id: protocol.Austin, drvType: "opencode", running: true})
+	mgr.Add(&mockDriver{id: protocol.Tony, drvType: "pi", running: true})
+	coord.SetAgents(mgr)
+
+	if agent.SelfReportsOnLaunch("opencode") {
+		t.Fatal("opencode must not be treated as announcing itself over the bridge")
+	}
+	coord.OnConnect(context.Background(), &transport.Client{Agent: protocol.Tony})
+
+	var texts []string
+	for {
+		select {
+		case e := <-ch:
+			if e.Text != "" {
+				texts = append(texts, e.Text)
+			}
+			continue
+		default:
+		}
+		break
+	}
+	for _, text := range texts {
+		if strings.Contains(text, "Austin connected") {
+			t.Fatalf("unexpected announcement for Austin: %q", text)
+		}
+	}
+	if len(texts) != 1 || !strings.Contains(texts[0], "Tony connected") {
+		t.Fatalf("announcements = %v, want only Tony's", texts)
 	}
 }

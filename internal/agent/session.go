@@ -168,6 +168,16 @@ func (s *Session) DriverType() string {
 	}
 	return "pi"
 }
+
+// normalizeDriverType resolves a driver name the same way everywhere, so an
+// unset driver means pi rather than depending on the caller's default.
+func normalizeDriverType(driverType string) string {
+	driverType = strings.ToLower(strings.TrimSpace(driverType))
+	if driverType == "" {
+		return "pi"
+	}
+	return driverType
+}
 func (s *Session) SessionID() string {
 	switch {
 	case s.isAgy():

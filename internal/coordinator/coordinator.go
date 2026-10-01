@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/atfa/duo/internal/agent"
+	agentpkg "github.com/atfa/duo/internal/agent"
 	"github.com/atfa/duo/internal/delivery"
 	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/harness"
@@ -24,7 +24,7 @@ import (
 
 type Coordinator struct {
 	server    *transport.Server
-	agents    *agent.Manager
+	agents    *agentpkg.Manager
 	project   *project.State
 	tracker   *harness.Tracker
 	workspace workspace.Manager
@@ -83,7 +83,7 @@ func New(
 
 // SetAgents connects the agent manager to the coordinator, allowing it to route
 // prompts, nudges, and steers to non-TCP drivers (e.g. agy running in PTY).
-func (c *Coordinator) SetAgents(agents *agent.Manager) {
+func (c *Coordinator) SetAgents(agents *agentpkg.Manager) {
 	c.agents = agents
 }
 
@@ -445,8 +445,26 @@ func (c *Coordinator) StatusText(ctx context.Context) string { return c.statusTe
 func (c *Coordinator) OnConnect(ctx context.Context, client *transport.Client) {
 	c.tracker.Touch(client.Agent)
 	c.recordEvent("bridge_connect", map[string]any{"agent": string(client.Agent)})
-	c.emit(events.KindSystem, client.Agent, "", fmt.Sprintf("%s connected", client.Agent))
+	// Drivers that cannot announce themselves over the bridge already said so when
+	// their process started, so repeating it here would report one agent twice.
+	if !c.announcedOnStart(client.Agent) {
+		c.emit(events.KindSystem, client.Agent, "", fmt.Sprintf("%s connected", client.Agent))
+	}
 	c.wakeResumedAgent(ctx, client.Agent)
+}
+
+// announcedOnStart reports whether this agent's driver reported its own
+// connection when the process started, because its bridge does not attach on
+// launch.
+func (c *Coordinator) announcedOnStart(agent protocol.AgentID) bool {
+	if c.agents == nil {
+		return false
+	}
+	d, ok := c.agents.Driver(agent)
+	if !ok || d == nil {
+		return false
+	}
+	return !agentpkg.SelfReportsOnLaunch(d.DriverType())
 }
 
 func (c *Coordinator) wakeResumedAgent(ctx context.Context, agent protocol.AgentID) {

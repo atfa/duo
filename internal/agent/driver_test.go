@@ -338,4 +338,23 @@ func TestAgyDriverSessionWithDelayedConversationCreation(t *testing.T) {
 	}
 }
 
-
+// A driver whose bridge does not attach on launch has to be announced by the
+// caller when its process starts. Otherwise an opencode agent looks missing for
+// the whole time before its first task, which is exactly when a human is
+// deciding whether it worked.
+func TestSelfReportsOnLaunch(t *testing.T) {
+	cases := map[string]bool{
+		"pi":        true,
+		"":          true,
+		"PI":        true,
+		"agy":       false,
+		"opencode":  false,
+		"unknown":   true,
+		"my-plugin": true,
+	}
+	for driverType, want := range cases {
+		if got := SelfReportsOnLaunch(driverType); got != want {
+			t.Errorf("SelfReportsOnLaunch(%q) = %v, want %v", driverType, got, want)
+		}
+	}
+}
