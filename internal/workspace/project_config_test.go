@@ -133,3 +133,57 @@ func TestSaveProjectConfig(t *testing.T) {
 		t.Fatalf("expected austin model gemini-3.8-flash-high, got %s", parsed2.Agents["austin"].Model)
 	}
 }
+
+// A model id belongs to the CLI it was chosen from. Switching drivers must drop
+// it, otherwise one agent CLI's model id is handed to another and the agent dies
+// at startup with "Model not found".
+func TestSaveProjectConfigDropsModelWhenDriverChanges(t *testing.T) {
+	dir := t.TempDir()
+	// An earlier agy run persisted agy's bare model id.
+	initial := `{"agents":{"austin":{"driver":"agy","model":"gemini-3.8-flash-high"}}}`
+	if err := os.WriteFile(filepath.Join(dir, ".duo", "config.json"), []byte(initial), 0o644); err != nil {
+		os.MkdirAll(filepath.Join(dir, ".duo"), 0o755)
+		if err := os.WriteFile(filepath.Join(dir, ".duo", "config.json"), []byte(initial), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// The same stale id is still what config resolution produced for austin.
+	if err := SaveProjectConfig(dir, "", map[protocol.AgentID]string{protocol.Austin: "opencode"},
+		map[protocol.AgentID]string{protocol.Austin: "gemini-3.8-flash-high"}); err != nil {
+		t.Fatal(err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, ".duo", "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed ProjectConfigFile
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	austin := parsed.Agents["austin"]
+	if austin.Driver != "opencode" {
+		t.Fatalf("driver = %q, want opencode", austin.Driver)
+	}
+	if austin.Model != "" {
+		t.Fatalf("model = %q, want it dropped: it belonged to the previous driver", austin.Model)
+	}
+}
+
+// The same driver keeps its model: the drop must only happen on a real change.
+func TestSaveProjectConfigKeepsModelWhenDriverUnchanged(t *testing.T) {
+	dir := t.TempDir()
+	if err := SaveProjectConfig(dir, "", map[protocol.AgentID]string{protocol.Austin: "opencode"},
+		map[protocol.AgentID]string{protocol.Austin: "opencode/claude-sonnet-4-6"}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, ".duo", "config.json"))
+	var parsed ProjectConfigFile
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if got := parsed.Agents["austin"].Model; got != "opencode/claude-sonnet-4-6" {
+		t.Fatalf("model = %q, want it kept", got)
+	}
+}

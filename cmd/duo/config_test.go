@@ -537,3 +537,33 @@ func TestDriverAndModelProjectConfigAndDefault(t *testing.T) {
 		t.Fatalf("austin command = %q, want --model gemini-3.7-flash-high", projCfg.agentCommand(protocol.Austin))
 	}
 }
+
+// opencode only accepts provider/model. A bare id persisted by another driver
+// must not be injected, or the agent exits at startup and never connects.
+func TestOpencodeIgnoresBareModelFromAnotherDriver(t *testing.T) {
+	temp := t.TempDir()
+	configJSON := `{
+		"driver": "opencode",
+		"agents": { "austin": { "model": "gemini-3.8-flash-high" } }
+	}`
+	if err := os.WriteFile(filepath.Join(temp, ".duo.json"), []byte(configJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DUO_REPO", temp)
+	t.Setenv("DUO_DRIVER", "")
+
+	cfg, err := loadConfig(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := cfg.agentCommand(protocol.Austin)
+	if strings.Contains(cmd, "gemini-3.8-flash-high") {
+		t.Fatalf("bare model leaked into the opencode command: %q", cmd)
+	}
+	if strings.Contains(cmd, "--model") {
+		t.Fatalf("no valid model is configured, so none should be injected: %q", cmd)
+	}
+	if cfg.agentDriver(protocol.Austin) != "opencode" {
+		t.Fatalf("driver = %q, want opencode", cfg.agentDriver(protocol.Austin))
+	}
+}

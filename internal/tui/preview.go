@@ -190,7 +190,7 @@ func (a *App) previewBody(agent protocol.AgentID, width, rows int) []string {
 // running tool and how long it has been running, or the model it is thinking
 // with, or how long it has been quiet. A just-updated line carries no age, so
 // the row stays a statement instead of always ending in "now".
-func (a *App) previewNow(agent protocol.AgentID, rt harness.AgentRuntime) string {
+func (a *App) previewNow(id protocol.AgentID, rt harness.AgentRuntime) string {
 	tool := rt.Tool
 	if tool == "" {
 		tool = "tool"
@@ -212,7 +212,7 @@ func (a *App) previewNow(agent protocol.AgentID, rt harness.AgentRuntime) string
 		}
 		return line
 	case rt.ProviderActive:
-		label := a.modelLabel(agent)
+		label := a.modelLabel(id)
 		if label == "" {
 			label = "thinking"
 		}
@@ -220,6 +220,16 @@ func (a *App) previewNow(agent protocol.AgentID, rt harness.AgentRuntime) string
 	case rt.Busy:
 		return "▶ working" + ageSuffix(rt.LastActivity)
 	default:
+		// A dead process is not "waiting": saying so hides the one fact that
+		// explains why the agent never connected or stopped responding.
+		switch a.processState(id) {
+		case agent.ProcessExited:
+			return "· process exited — check the agent log, then Restart"
+		case agent.ProcessFailed:
+			return "· process failed — check the agent log, then Restart"
+		case agent.ProcessStopping:
+			return "· stopping"
+		}
 		if age := elapsedSince(rt.LastActivity); age != "unknown" && age != "now" {
 			return "· waiting · quiet " + age
 		}

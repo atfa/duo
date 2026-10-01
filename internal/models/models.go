@@ -237,15 +237,28 @@ func DefaultModelForDriver(driverType string) string {
 }
 
 // opencodeConfiguredModel reads the model the user already configured for
-// opencode, so Duo does not override their choice with a guess.
+// opencode, so Duo does not override their choice with a guess. opencode accepts
+// either opencode.json or opencode.jsonc globally, so both are checked.
 func opencodeConfiguredModel() string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
 		return ""
 	}
-	data, err := os.ReadFile(filepath.Join(home, ".config", "opencode", "opencode.json"))
-	if err != nil {
+	configDir := filepath.Join(home, ".config", "opencode")
+	var data []byte
+	var readErr error
+	for _, name := range []string{"opencode.json", "opencode.jsonc"} {
+		data, readErr = os.ReadFile(filepath.Join(configDir, name))
+		if readErr == nil {
+			break
+		}
+	}
+	if readErr != nil {
 		return ""
+	}
+	// The config may be JSONC, so a comment must not fail the parse.
+	if stripped := stripJSONComments(string(data)); stripped != "" {
+		data = []byte(stripped)
 	}
 	var cfg struct {
 		Model string `json:"model"`
@@ -254,4 +267,51 @@ func opencodeConfiguredModel() string {
 		return ""
 	}
 	return strings.TrimSpace(cfg.Model)
+}
+
+// stripJSONComments removes // and /* */ comments and trailing commas so a
+// JSONC config can be parsed with encoding/json. String literals are preserved.
+func stripJSONComments(src string) string {
+	var out strings.Builder
+	inString := false
+	escaped := false
+	for i := 0; i < len(src); i++ {
+		c := src[i]
+		if inString {
+			out.WriteByte(c)
+			switch {
+			case escaped:
+				escaped = false
+			case c == '\\':
+				escaped = true
+			case c == '"':
+				inString = false
+			}
+			continue
+		}
+		if c == '"' {
+			inString = true
+			out.WriteByte(c)
+			continue
+		}
+		if c == '/' && i+1 < len(src) {
+			switch src[i+1] {
+			case '/':
+				for i < len(src) && src[i] != '\n' {
+					i++
+				}
+				out.WriteByte('\n')
+				continue
+			case '*':
+				i += 2
+				for i+1 < len(src) && !(src[i] == '*' && src[i+1] == '/') {
+					i++
+				}
+				i++
+				continue
+			}
+		}
+		out.WriteByte(c)
+	}
+	return strings.TrimSpace(out.String())
 }

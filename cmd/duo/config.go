@@ -372,6 +372,12 @@ func loadConfig(args []string) (config, error) {
 		if driverType == "agy" && strings.Contains(model, "/") {
 			model = model[strings.LastIndex(model, "/")+1:]
 		}
+		// opencode only accepts provider/model, so a bare id left behind by another
+		// driver would abort the agent at startup. Ignore it and let opencode
+		// resolve its own default.
+		if driverType == "opencode" && model != "" && !strings.Contains(model, "/") {
+			model = ""
+		}
 		if model == "" {
 			model = models.DefaultModelForDriver(driverType)
 		}
@@ -382,7 +388,9 @@ func loadConfig(args []string) (config, error) {
 			if driverType == "agy" && strings.Contains(modelArg, "/") {
 				modelArg = modelArg[strings.LastIndex(modelArg, "/")+1:]
 			}
-			baseCmd = baseCmd + " --model " + modelArg
+			if !(driverType == "opencode" && !strings.Contains(modelArg, "/")) {
+				baseCmd = baseCmd + " --model " + modelArg
+			}
 		}
 		if agentCfg.Thinking != "" {
 			// opencode spells reasoning effort --variant.

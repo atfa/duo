@@ -230,12 +230,12 @@ type previewMockDriver struct {
 	state      agent.ProcessState
 }
 
-func (m *previewMockDriver) Agent() protocol.AgentID       { return m.agentID }
-func (m *previewMockDriver) DriverType() string            { return m.driverType }
-func (m *previewMockDriver) State() agent.ProcessState     { return m.state }
+func (m *previewMockDriver) Agent() protocol.AgentID            { return m.agentID }
+func (m *previewMockDriver) DriverType() string                 { return m.driverType }
+func (m *previewMockDriver) State() agent.ProcessState          { return m.state }
 func (m *previewMockDriver) SetOnExit(fn func(agent.ExitEvent)) {}
-func (m *previewMockDriver) Model() string                 { return "" }
-func (m *previewMockDriver) SetModel(model string)         {}
+func (m *previewMockDriver) Model() string                      { return "" }
+func (m *previewMockDriver) SetModel(model string)              {}
 
 func TestPreviewHeaderAgyRunningState(t *testing.T) {
 	a := testApp(100, 30)
@@ -261,5 +261,32 @@ func TestPreviewHeaderAgyRunningState(t *testing.T) {
 	austinFailedHeader := a.previewHeader(protocol.Austin, 50)
 	if !strings.Contains(austinFailedHeader, "failed [Restart]") {
 		t.Fatalf("austinFailedHeader = %q, want 'failed [Restart]'", austinFailedHeader)
+	}
+}
+
+// A dead process must not read as "waiting": that hides the one fact that
+// explains an agent which never connected.
+func TestPreviewBodyReportsExitedProcessInsteadOfWaiting(t *testing.T) {
+	for _, tc := range []struct {
+		state agent.ProcessState
+		want  string
+	}{
+		{agent.ProcessExited, "exited"},
+		{agent.ProcessFailed, "failed"},
+		{agent.ProcessStopping, "stopping"},
+	} {
+		a := testApp(100, 30)
+		mgr := agent.NewManager()
+		mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "opencode", state: tc.state})
+		mgr.Add(&previewMockDriver{agentID: protocol.Tony, driverType: "pi", state: agent.ProcessRunning})
+		a.agents = mgr
+
+		line := a.previewNow(protocol.Austin, a.tracker.Snapshot(protocol.Austin))
+		if strings.Contains(line, "waiting") {
+			t.Errorf("state %v: preview line = %q, must not read as waiting", tc.state, line)
+		}
+		if !strings.Contains(line, tc.want) {
+			t.Errorf("state %v: preview line = %q, want it to mention %q", tc.state, line, tc.want)
+		}
 	}
 }

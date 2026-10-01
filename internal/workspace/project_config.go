@@ -121,10 +121,19 @@ func SaveProjectConfig(repoRoot string, driver string, agentDrivers map[protocol
 		cfg.Agents = make(map[string]ProjectAgentFile)
 	}
 
+	// A model id only means something to the CLI it was chosen from. When an
+	// agent switches drivers, keeping the old model hands one CLI's id to
+	// another, which fails at startup with "Model not found". Drop it and let the
+	// new driver's own default apply.
+	driverChanged := make(map[string]bool, len(agentDrivers))
 	for id, drv := range agentDrivers {
 		key := strings.ToLower(string(id))
 		entry := cfg.Agents[key]
 		if drv != "" {
+			if entry.Driver != "" && entry.Driver != drv {
+				driverChanged[key] = true
+				entry.Model = ""
+			}
 			entry.Driver = drv
 		}
 		cfg.Agents[key] = entry
@@ -146,6 +155,10 @@ func SaveProjectConfig(repoRoot string, driver string, agentDrivers map[protocol
 
 	for id, model := range agentModels {
 		key := strings.ToLower(string(id))
+		if driverChanged[key] {
+			// The incoming model was resolved from the previous driver's id.
+			continue
+		}
 		entry := cfg.Agents[key]
 		if model != "" {
 			drv := entry.Driver
