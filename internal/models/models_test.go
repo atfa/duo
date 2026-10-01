@@ -136,3 +136,30 @@ func TestDriverKind(t *testing.T) {
 		}
 	}
 }
+
+// agy and opencode take a subcommand that accepts no flags. Reusing the launch
+// command broke two ways: a subcommand appended at the end is read as the
+// positional project path ("Failed to change directory to .../models"), and
+// carrying agent flags such as --model makes the subcommand print its usage
+// instead of a catalog.
+func TestListCommandPlacement(t *testing.T) {
+	cases := map[string]string{
+		"opencode":                                   "opencode models",
+		"opencode --model 'opencode/big-pickle'":     "opencode models",
+		"opencode --auto":                            "opencode models",
+		"/opt/bin/duo-opencode --auto":               "/opt/bin/duo-opencode models",
+		"agy --model 'gemini-3.8-flash-high'":        "agy models",
+		"agy --conversation x --log-file /tmp/a.log": "agy models",
+	}
+	for command, want := range cases {
+		got := listCommand(command)
+		if got != want {
+			t.Errorf("listCommand(%q) = %q, want %q", command, got, want)
+		}
+	}
+
+	// pi takes a flag, so its custom config flags must survive.
+	if got := listCommand("pi --config /tmp/pi.json"); got != "pi --config /tmp/pi.json --list-models" {
+		t.Errorf("listCommand(pi) = %q, want the launch command with --list-models appended", got)
+	}
+}

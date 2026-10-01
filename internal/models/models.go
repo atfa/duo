@@ -33,9 +33,19 @@ func (m Model) Reference() string {
 	return m.Provider + "/" + m.ID
 }
 
-// List runs the driver's own model-listing command and returns the catalog. The
-// command is the same one Duo launches its agents with, so flags such as a custom
-// config directory are honored; the listing flag is appended last.
+// List runs the driver's own model-listing command and returns the catalog.
+//
+// How the listing is invoked depends on how the CLI spells it:
+//
+//   - pi takes a flag, so Duo's launch command is reused verbatim and
+//     `--list-models` is appended, which keeps a custom config directory working.
+//   - agy and opencode take a subcommand, and that subcommand accepts no flags of
+//     its own. Two things break if the launch command is reused: a subcommand
+//     appended at the end is read as the positional project path
+//     (`opencode --auto models` tries to open a directory named "models"), and
+//     carrying over agent flags such as `--model` makes the subcommand print its
+//     usage instead of a catalog. So only the executable is reused, which still
+//     honors a custom binary path.
 func List(ctx context.Context, command string) ([]Model, error) {
 	command = strings.TrimSpace(command)
 	if command == "" {
@@ -44,16 +54,8 @@ func List(ctx context.Context, command string) ([]Model, error) {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
 
-	var listCmd string
+	listCmd := listCommand(command)
 	kind := driverKind(command)
-	switch kind {
-	case "agy":
-		listCmd = command + " models"
-	case "opencode":
-		listCmd = command + " models"
-	default:
-		listCmd = command + " --list-models"
-	}
 
 	cmd := exec.CommandContext(ctx, "sh", "-lc", listCmd)
 	var stdout, stderr bytes.Buffer
@@ -80,6 +82,27 @@ func List(ctx context.Context, command string) ([]Model, error) {
 		return nil, fmt.Errorf("no models reported by %q", command)
 	}
 	return list, nil
+}
+
+// listCommand builds the model-listing invocation for a launch command.
+func listCommand(command string) string {
+	switch driverKind(command) {
+	case "agy", "opencode":
+		return executable(command) + " models"
+	default:
+		return command + " --list-models"
+	}
+}
+
+// executable returns the command's first token, which is the program being run.
+// Quoting is left untouched: the result is handed to a shell, so an operator's
+// custom binary path keeps working.
+func executable(command string) string {
+	trimmed := strings.TrimSpace(command)
+	if idx := strings.IndexAny(trimmed, " \t"); idx >= 0 {
+		return trimmed[:idx]
+	}
+	return trimmed
 }
 
 // driverKind identifies which agent CLI a launch command refers to, so the
