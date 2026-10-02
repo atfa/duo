@@ -137,12 +137,45 @@ func (a *App) previewHeader(agent protocol.AgentID, width int) string {
 	}
 	candidates = append(candidates, fmt.Sprintf(" %s (%s) ", agent, drv))
 
+	usage := previewUsage(rt)
+	if usage != "" {
+		for _, c := range candidates {
+			withUsage := strings.TrimRight(c, " ") + " · " + usage + " "
+			if displayWidth(withUsage) <= available {
+				return withUsage
+			}
+		}
+	}
 	for _, c := range candidates {
 		if displayWidth(c) <= available {
 			return c
 		}
 	}
 	return fmt.Sprintf(" %s (%s) ", agent, drv)
+}
+
+func previewUsage(rt harness.AgentRuntime) string {
+	var parts []string
+	if rt.ContextWindow > 0 {
+		parts = append(parts, fmt.Sprintf("ctx %s/%s", compactTokenCount(rt.ContextTokens), compactTokenCount(rt.ContextWindow)))
+	}
+	if rt.ProviderActive && rt.TokensPerSecond > 0 && !rt.TokenSpeedAt.IsZero() && time.Since(rt.TokenSpeedAt) < 2*time.Second {
+		parts = append(parts, fmt.Sprintf("%.0f tok/s", rt.TokensPerSecond))
+	}
+	return strings.Join(parts, " · ")
+}
+
+func compactTokenCount(tokens int) string {
+	switch {
+	case tokens >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(tokens)/1_000_000)
+	case tokens >= 10_000:
+		return fmt.Sprintf("%.0fk", float64(tokens)/1_000)
+	case tokens >= 1_000:
+		return fmt.Sprintf("%.1fk", float64(tokens)/1_000)
+	default:
+		return fmt.Sprintf("%d", tokens)
+	}
 }
 
 // previewBody renders the work detail of one agent: what it is doing now, the

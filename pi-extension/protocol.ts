@@ -48,6 +48,11 @@ export type DuoMessage = {
   tool?: string;
   detail?: string;
 
+  /** Optional Pi context estimate and approximate streamed output rate. */
+  contextTokens?: number;
+  contextWindow?: number;
+  tokensPerSecond?: number;
+
   activity?: string;
   timestamp?: number;
 

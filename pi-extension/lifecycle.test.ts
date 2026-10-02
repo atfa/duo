@@ -84,6 +84,32 @@ test("installDuoPrompt publishes the mode selected for this session", async () =
 
 // The Duo work preview reads what an agent is doing from these activity
 // details, so the payload shape is part of the bridge contract.
+test("stream activity carries Pi context usage and estimated token speed", async () => {
+  const handlers = new Map<string, (event: any, ctx?: any) => Promise<void>>();
+  const sent: any[] = [];
+  installLifecycle(
+    { on: (name: string, handler: (event: any, ctx?: any) => Promise<void>) => handlers.set(name, handler) },
+    { setHandler() {}, sendActivity: (activity: string, extra: any = {}) => sent.push({ activity, ...extra }), send() {} } as any,
+    "Austin",
+  );
+
+  const originalNow = Date.now;
+  let now = 1000;
+  Date.now = () => now;
+  try {
+    const update = handlers.get("message_update")!;
+    const context = { getContextUsage: () => ({ tokens: 1234, contextWindow: 100000 }) };
+    await update({ assistantMessageEvent: { type: "text_delta", delta: "a".repeat(40) }, message: { role: "assistant", content: [{ type: "text", text: "draft" }] } }, context);
+    expect(sent[0]).toMatchObject({ activity: "stream", contextTokens: 1234, contextWindow: 100000 });
+
+    now = 2500;
+    await update({ assistantMessageEvent: { type: "text_delta", delta: "b".repeat(40) }, message: { role: "assistant", content: [{ type: "text", text: "draft continues" }] } }, context);
+    expect(sent[1].tokensPerSecond).toBeCloseTo(13.3, 0);
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
 test("tool and stream activity carry the preview detail", async () => {
   const handlers = new Map<string, (event: any) => Promise<void>>();
   const sent: any[] = [];

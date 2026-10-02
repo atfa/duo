@@ -560,6 +560,7 @@ func (c *Coordinator) OnMessage(ctx context.Context, client *transport.Client, m
 func (c *Coordinator) handleActivity(agent protocol.AgentID, message protocol.Message) {
 	c.tracker.Handle(agent, message.Activity)
 	c.tracker.Note(agent, message.Activity, message.Tool, message.Detail)
+	c.tracker.UpdateUsage(agent, message.ContextTokens, message.ContextWindow, message.TokensPerSecond)
 	if message.Activity == protocol.ActivityAgentStart {
 		c.project.MarkStarted()
 	}

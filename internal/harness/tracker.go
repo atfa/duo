@@ -25,6 +25,13 @@ type AgentRuntime struct {
 	StreamTail string
 	LastError  string
 
+	// Context usage and approximate output rate for the native preview. Drivers
+	// without a bridge may leave these unset.
+	ContextTokens   int
+	ContextWindow   int
+	TokensPerSecond float64
+	TokenSpeedAt    time.Time
+
 	// TurnStarted, ToolStarted, Tools and Recent describe the current turn's
 	// shape: when it began, how long the running tool has been going, how many
 	// tools it has used, and how the last few ended.
@@ -95,11 +102,17 @@ func (t *Tracker) Handle(agent protocol.AgentID, activity protocol.ActivityType)
 		rt.Busy = false
 		rt.ProviderActive = false
 		rt.ToolDepth = 0
+		rt.TokensPerSecond = 0
+		rt.TokenSpeedAt = time.Time{}
 	case protocol.ActivityProviderStart:
 		rt.Busy = true
 		rt.ProviderActive = true
+		rt.TokensPerSecond = 0
+		rt.TokenSpeedAt = time.Time{}
 	case protocol.ActivityProviderEnd:
 		rt.ProviderActive = false
+		rt.TokensPerSecond = 0
+		rt.TokenSpeedAt = time.Time{}
 	case protocol.ActivityToolStart:
 		rt.Busy = true
 		rt.ToolDepth++
@@ -174,6 +187,20 @@ func (rt *AgentRuntime) recordToolLocked(tool, detail string, ok bool) {
 	rt.Recent = append(rt.Recent, ToolNote{Name: tool, Detail: detail, OK: ok, Duration: duration})
 	if len(rt.Recent) > recentTools {
 		rt.Recent = rt.Recent[len(rt.Recent)-recentTools:]
+	}
+}
+
+// UpdateUsage records optional token metrics reported by a driver's bridge.
+func (t *Tracker) UpdateUsage(agent protocol.AgentID, tokens, window int, tokensPerSecond float64) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	rt := t.ensureLocked(agent)
+	if window > 0 && tokens >= 0 {
+		rt.ContextTokens, rt.ContextWindow = tokens, window
+	}
+	if tokensPerSecond > 0 {
+		rt.TokensPerSecond = tokensPerSecond
+		rt.TokenSpeedAt = time.Now()
 	}
 }
 

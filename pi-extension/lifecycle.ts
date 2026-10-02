@@ -48,9 +48,36 @@ function tailText(text: string | null, max: number): string {
   return flat.length > max ? flat.slice(flat.length - max) : flat;
 }
 
+function contextUsage(ctx: any): { contextTokens?: number; contextWindow?: number } {
+  try {
+    if (typeof ctx?.getContextUsage !== "function") return {};
+    const usage = ctx.getContextUsage();
+    if (!Number.isFinite(usage?.tokens) || !Number.isFinite(usage?.contextWindow) || usage.contextWindow <= 0) return {};
+    return { contextTokens: Math.max(0, Math.round(usage.tokens)), contextWindow: Math.round(usage.contextWindow) };
+  } catch {
+    return {};
+  }
+}
+
+function outputDeltaChars(event: any): number {
+  const update = event?.assistantMessageEvent;
+  if (!update || !["text_delta", "thinking_delta", "toolcall_delta"].includes(update.type)) return 0;
+  return typeof update.delta === "string" ? update.delta.length : 0;
+}
+
 export function installLifecycle(pi: any, transport: DuoTransport, agent: AgentName) {
   let lastAssistantText: string | null = null;
   let lastStreamActivityAt = 0;
+  let speedSamples: Array<{ at: number; chars: number }> = [];
+
+  const tokensPerSecond = (now: number): number => {
+    speedSamples = speedSamples.filter((sample) => now - sample.at <= 3000);
+    if (speedSamples.length < 2) return 0;
+    const elapsed = (now - speedSamples[0].at) / 1000;
+    if (elapsed < 0.5) return 0;
+    const chars = speedSamples.reduce((total, sample) => total + sample.chars, 0);
+    return chars / 4 / elapsed;
+  };
 
   transport.setHandler((message: DuoMessage) => {
     if (!["steer", "duo_notice", "harness_prompt", "human_prompt", "resume_prompt"].includes(message.type)) return;
@@ -76,11 +103,13 @@ export function installLifecycle(pi: any, transport: DuoTransport, agent: AgentN
   });
 
   pi.on("before_provider_request", async () => {
+    speedSamples = [];
     transport.sendActivity("provider_start");
   });
 
-  pi.on("after_provider_response", async () => {
-    transport.sendActivity("provider_end");
+  pi.on("after_provider_response", async (_event: any, ctx: any) => {
+    speedSamples = [];
+    transport.sendActivity("provider_end", contextUsage(ctx));
   });
 
   pi.on("after_provider_response", async (event: any) => {
@@ -107,13 +136,20 @@ export function installLifecycle(pi: any, transport: DuoTransport, agent: AgentN
     });
   });
 
-  pi.on("message_update", async (event: any) => {
+  pi.on("message_update", async (event: any, ctx: any) => {
     const now = Date.now();
+    const chars = outputDeltaChars(event);
+    if (chars > 0) speedSamples.push({ at: now, chars });
     if (now - lastStreamActivityAt >= 1000) {
       lastStreamActivityAt = now;
-      // The preview band has a few rows to fill, so keep more than one line:
-      // this is display-only traffic over a loopback socket, not model context.
-      transport.sendActivity("stream", { detail: tailText(extractAssistantText(event?.message), 1200) });
+      // Pi provides an estimated context count; output rate is estimated from
+      // recent streamed characters (~4 chars/token) because no live rate API exists.
+      const rate = tokensPerSecond(now);
+      transport.sendActivity("stream", {
+        detail: tailText(extractAssistantText(event?.message), 1200),
+        ...contextUsage(ctx),
+        ...(rate > 0 ? { tokensPerSecond: rate } : {}),
+      });
     }
   });
 
@@ -148,6 +184,7 @@ export function installLifecycle(pi: any, transport: DuoTransport, agent: AgentN
       });
       lastAssistantText = null;
     }
+    speedSamples = [];
     transport.sendActivity("agent_settled");
   });
 

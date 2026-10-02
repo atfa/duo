@@ -53,6 +53,30 @@ func TestTrackerNoteTracksWorkDetailForThePreview(t *testing.T) {
 	}
 }
 
+func TestTrackerUsageTracksContextAndClearsInactiveSpeed(t *testing.T) {
+	tr := NewTracker()
+	agent := protocol.Austin
+	tr.Handle(agent, protocol.ActivityProviderStart)
+	tr.UpdateUsage(agent, 45000, 200000, 32.5)
+
+	rt := tr.Snapshot(agent)
+	if rt.ContextTokens != 45000 || rt.ContextWindow != 200000 {
+		t.Fatalf("context usage = %d/%d, want 45000/200000", rt.ContextTokens, rt.ContextWindow)
+	}
+	if rt.TokensPerSecond != 32.5 || rt.TokenSpeedAt.IsZero() {
+		t.Fatalf("token speed = %v at %v, want fresh 32.5", rt.TokensPerSecond, rt.TokenSpeedAt)
+	}
+
+	tr.Handle(agent, protocol.ActivityProviderEnd)
+	rt = tr.Snapshot(agent)
+	if rt.TokensPerSecond != 0 || !rt.TokenSpeedAt.IsZero() {
+		t.Fatalf("provider_end must clear token speed: %+v", rt)
+	}
+	if rt.ContextTokens != 45000 || rt.ContextWindow != 200000 {
+		t.Fatalf("provider_end must retain latest context usage: %d/%d", rt.ContextTokens, rt.ContextWindow)
+	}
+}
+
 func TestTrackerToolErrorStillBalancesToolDepth(t *testing.T) {
 	tr := NewTracker()
 	tr.Handle(protocol.Tony, protocol.ActivityToolStart)

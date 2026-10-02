@@ -33,6 +33,12 @@ type Message struct {
 	Tool   string `json:"tool,omitempty"`
 	Detail string `json:"detail,omitempty"`
 
+	// ContextTokens/ContextWindow are Pi's estimated context usage; TokensPerSecond
+	// is an approximate rate computed from streamed output deltas.
+	ContextTokens   int     `json:"contextTokens,omitempty"`
+	ContextWindow   int     `json:"contextWindow,omitempty"`
+	TokensPerSecond float64 `json:"tokensPerSecond,omitempty"`
+
 	Ready *bool `json:"ready,omitempty"`
 
 	// Verification carries a structured Fast-mode verdict: "passed" or

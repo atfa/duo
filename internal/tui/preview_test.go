@@ -205,6 +205,26 @@ func TestPreviewTrailDropsOldestFirst(t *testing.T) {
 	}
 }
 
+func TestPreviewHeaderShowsContextAndLiveTokenRate(t *testing.T) {
+	a := testApp(140, 30)
+	mgr := agent.NewManager()
+	mgr.Add(agent.NewPiSession(agent.Config{Agent: protocol.Austin, DriverType: "pi"}))
+	a.agents = mgr
+
+	a.tracker.Handle(protocol.Austin, protocol.ActivityProviderStart)
+	a.tracker.UpdateUsage(protocol.Austin, 45000, 200000, 32.5)
+	header := a.previewHeader(protocol.Austin, 120)
+	if !strings.Contains(header, "ctx 45k/200k") || !strings.Contains(header, "32 tok/s") {
+		t.Fatalf("header = %q, want context usage and live token rate", header)
+	}
+
+	a.tracker.Handle(protocol.Austin, protocol.ActivityProviderEnd)
+	header = a.previewHeader(protocol.Austin, 120)
+	if !strings.Contains(header, "ctx 45k/200k") || strings.Contains(header, "tok/s") {
+		t.Fatalf("idle header = %q, want retained context without inactive token rate", header)
+	}
+}
+
 func TestPreviewHeaderShowsDriver(t *testing.T) {
 	a := testApp(140, 30)
 	mgr := agent.NewManager()
