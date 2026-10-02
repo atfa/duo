@@ -15,6 +15,7 @@ import (
 type sessionsArgs struct {
 	all        bool
 	repository string
+	help       bool
 }
 
 func parseSessionsArgs(args []string) (sessionsArgs, error) {
@@ -23,10 +24,13 @@ func parseSessionsArgs(args []string) (sessionsArgs, error) {
 		arg := strings.TrimSpace(args[i])
 		switch {
 		case arg == "":
+		case helpRequested(arg):
+			out.help = true
+			return out, nil
 		case arg == "--all" || arg == "-a":
 			out.all = true
 		case strings.HasPrefix(arg, "-"):
-			return out, fmt.Errorf("unknown flag %q (usage: duo sessions [--all] [repository])", arg)
+			return out, fmt.Errorf("unknown flag %q (usage: %s)", arg, commandUsage("sessions"))
 		default:
 			if out.repository != "" {
 				return out, fmt.Errorf("unexpected extra argument %q", arg)
@@ -41,6 +45,10 @@ func runSessions(ctx context.Context, args []string) error {
 	parsed, err := parseSessionsArgs(args)
 	if err != nil {
 		return err
+	}
+	if parsed.help {
+		printUsage()
+		return nil
 	}
 
 	baseDir, err := sessionstore.DefaultBaseDir()

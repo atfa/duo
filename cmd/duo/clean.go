@@ -20,6 +20,7 @@ type cleanArgs struct {
 	force     bool
 	dryRun    bool
 	sessionID string
+	help      bool
 }
 
 func parseCleanArgs(args []string) (cleanArgs, error) {
@@ -28,6 +29,9 @@ func parseCleanArgs(args []string) (cleanArgs, error) {
 		arg := strings.TrimSpace(args[i])
 		switch {
 		case arg == "":
+		case helpRequested(arg):
+			out.help = true
+			return out, nil
 		case arg == "--all" || arg == "-a":
 			out.all = true
 		case arg == "--all-repos":
@@ -37,7 +41,7 @@ func parseCleanArgs(args []string) (cleanArgs, error) {
 		case arg == "--dry-run" || arg == "-n":
 			out.dryRun = true
 		case strings.HasPrefix(arg, "-"):
-			return out, fmt.Errorf("unknown flag %q (usage: duo clean [session-id] [--all] [--all-repos] [--force] [--dry-run])", arg)
+			return out, fmt.Errorf("unknown flag %q (usage: %s)", arg, commandUsage("clean"))
 		default:
 			if out.sessionID != "" {
 				return out, fmt.Errorf("unexpected extra argument %q", arg)
@@ -52,6 +56,10 @@ func runClean(ctx context.Context, args []string) error {
 	parsed, err := parseCleanArgs(args)
 	if err != nil {
 		return err
+	}
+	if parsed.help {
+		printUsage()
+		return nil
 	}
 
 	baseDir, err := sessionstore.DefaultBaseDir()

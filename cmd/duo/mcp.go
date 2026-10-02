@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/atfa/duo/internal/clidoc"
 	"github.com/atfa/duo/internal/mcp"
 	"github.com/atfa/duo/internal/protocol"
 )
@@ -77,7 +78,11 @@ func parseMCPServerArgs(args []string) (mcpServerArgs, error) {
 }
 
 func printMCPHelp() {
-	fmt.Println("Usage: duo mcp-server [flags]")
+	if command, ok := clidoc.Lookup("mcp-server"); ok {
+		fmt.Println("Usage: " + command.Signature)
+	} else {
+		fmt.Println("Usage: duo mcp-server [flags]")
+	}
 	fmt.Println()
 	fmt.Println("Runs the Model Context Protocol (MCP) server over stdio for Duo state machine tools.")
 	fmt.Println("Connection parameters default to DUO_AGENT, DUO_SESSION, DUO_TOKEN, DUO_HOST, DUO_PORT environment variables.")
@@ -89,6 +94,7 @@ func printMCPHelp() {
 	fmt.Println("  --host <host>           Duo bridge host (default: $DUO_HOST or 127.0.0.1)")
 	fmt.Println("  --port <port>           Duo bridge port (default: $DUO_PORT)")
 	fmt.Println("  --export-config         Print MCP client configuration JSON instead of starting server")
+	fmt.Println("                         (aliases: --export, --config)")
 }
 
 func runMCPServer(ctx context.Context, args []string) error {
