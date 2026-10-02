@@ -214,6 +214,10 @@ type Manager interface {
 	Head(context.Context, protocol.AgentID) (string, error)
 	CaptureArtifact(context.Context, protocol.AgentID) (Artifact, error)
 	IntegrateTonyIntoAustin(context.Context) (IntegrationResult, error)
+	// DuplicateCommits reports changes carried by both agent branches, which a
+	// cherry-pick leaves behind. The session reports them to the agents at the
+	// EXECUTE to REVIEW transition, before either branch is signed.
+	DuplicateCommits(context.Context) ([]DuplicatePatch, error)
 	Cleanup(context.Context) error
 }
 

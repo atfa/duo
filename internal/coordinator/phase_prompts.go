@@ -9,6 +9,7 @@ import (
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/sessionstore"
+	"github.com/atfa/duo/internal/workspace"
 )
 
 func (c *Coordinator) broadcastPhaseAdvance(
@@ -45,7 +46,7 @@ func (c *Coordinator) phasePrompt(
 	switch next {
 	case project.PhaseExecute:
 		return fmt.Sprintf(
-			"[Duo phase transition: %s → EXECUTE]\nBoth agents approved shared plan v%d.\n\n%s\n\nYour private worktree is %s on branch %s. Your peer works independently at %s on %s. Any exploratory edits you already made during PLAN may remain if they fit the approved plan; revise them if peer feedback changed the design. Execute your assigned part, coordinate with duo_send, commit your finished work, and call duo_set_status ready=true only when your worktree is clean.",
+			"[Duo phase transition: %s → EXECUTE]\nBoth agents approved shared plan v%d.\n\n%s\n\nYour private worktree is %s on branch %s. Your peer works independently at %s on %s. Any exploratory edits you already made during PLAN may remain if they fit the approved plan; revise them if peer feedback changed the design. Execute your assigned part, coordinate with duo_send, commit your finished work, and call duo_set_status ready=true only when your worktree is clean.\n\nDuo merges your branch into your peer's at INTEGRATE, so commit only work that is yours. Do not cherry-pick your peer's commits onto your branch: the merge already carries them across, and a cherry-picked copy leaves two commits with the same change in the delivered history, which makes `git revert` ambiguous and `git bisect` unreliable. If you need your peer's code to build or test, read it with git show from your own worktree.",
 			previous, snap.PlanVersion, snap.Plan,
 			own.Path, own.Branch, peer.Path, peer.Branch,
 		)
@@ -60,8 +61,9 @@ func (c *Coordinator) phasePrompt(
 			}
 		}
 		return fmt.Sprintf(
-			"[Duo phase transition: %s → REVIEW]\nBoth agents reported execution complete. Cross-review %s's branch %s, current HEAD %s. You may inspect it with git show/diff from your own worktree; do not edit the peer worktree. If you find an issue, use duo_send so the owner can fix and commit it. Your review signature is bound to the exact peer HEAD you reviewed; if that HEAD changes, Duo revokes stale approval automatically. Sign ready=true only with no unresolved objections.",
+			"[Duo phase transition: %s → REVIEW]\nBoth agents reported execution complete. Cross-review %s's branch %s, current HEAD %s. You may inspect it with git show/diff from your own worktree; do not edit the peer worktree. If you find an issue, use duo_send so the owner can fix and commit it. Your review signature is bound to the exact peer HEAD you reviewed; if that HEAD changes, Duo revokes stale approval automatically. Sign ready=true only with no unresolved objections.%s",
 			previous, peerAgent, peer.Branch, shortSHA(peerEvidence),
+			c.duplicateCommitNotice(),
 		)
 
 	case project.PhaseIntegrate:
@@ -167,4 +169,18 @@ func (c *Coordinator) broadcastNotice(ctx context.Context, text string) {
 			Timestamp: time.Now().UnixMilli(),
 		})
 	}
+}
+
+// duplicateCommitNotice reports commits that both agent branches carry, which is
+// what a cherry-pick leaves behind. It runs at the EXECUTE → REVIEW transition
+// because that is the last point where no signature is bound to either branch, so
+// an agent can still drop the copy from its own history without revoking
+// anything. Detection is best effort: a failure to inspect the repository must
+// not stop the session from advancing.
+func (c *Coordinator) duplicateCommitNotice() string {
+	dupes, err := c.workspace.DuplicateCommits(context.Background())
+	if err != nil || len(dupes) == 0 {
+		return ""
+	}
+	return workspace.DuplicateCommitNotice(dupes)
 }
