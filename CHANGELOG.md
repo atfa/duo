@@ -8,6 +8,10 @@ All notable project milestones are documented here.
 
 - **The v0.7.0 changelog no longer names two environment variables that were never read.** `DUO_AUSTIN_DRIVER` and `DUO_TONY_DRIVER` were documented as a way to pick a per-agent driver, and no code has ever consulted them. The entry now lists the flags and `.duo/config.json` that do work, and says which variable sets both agents.
 
+### Diagnosing a driver that will not start
+
+- **A failed agent now says why.** A CLI driver launched into a PTY merges its stderr into that stream, so a driver that refuses to run says so exactly once, there: `Error: Unknown option: --auto`, `Error: unknown model`. Nothing carried it. The session log recorded only `Tony exited (state=failed): exit status 1`, and the interface said `Tony native Pi session is not running`, which named a symptom rather than the cause. A switch to an unsupported driver took twenty minutes to diagnose with no other evidence available. The tail of what a failed process wrote is now recorded in `duo.log` and shown in the timeline, escape sequences and blank lines removed, truncated to the last few lines and marked when it is truncated so a short tail is not read as the whole story.
+
 ### Driver selection
 
 - **A model persisted for one driver is no longer handed to another.** `.duo/config.json` records which driver each agent's model was chosen for. Changing a driver on the command line (`--tony-driver pi`) or in config left the old model in place, and only the agy and opencode cases were handled, so switching an agent *to* pi kept a model id pi has never heard of. pi rejects an unknown model and exits before it connects, so the agent never appeared at all.
