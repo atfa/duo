@@ -140,18 +140,39 @@ func SummaryLines() []string {
 func Tokens() []string {
 	var out []string
 	seen := map[string]bool{}
-	for _, line := range SignatureLines() {
-		for _, field := range strings.FieldsFunc(line, func(r rune) bool { return r == ' ' || r == '[' || r == ']' || r == '|' || r == '(' || r == ')' }) {
-			if field == "--" || field == "-" || !strings.HasPrefix(field, "-") {
-				continue
-			}
-			token := strings.TrimSuffix(strings.TrimSuffix(field, ","), "=")
+	for _, command := range commands {
+		for _, token := range TokensFor(command.Name) {
 			if seen[token] {
 				continue
 			}
 			seen[token] = true
 			out = append(out, token)
 		}
+	}
+	return out
+}
+
+// TokensFor returns the flag-shaped tokens of one command's own signature, in
+// the order they appear. A test that compares a parser against the command it
+// belongs to needs that attribution: a flag another command also accepts says
+// nothing about this one. It returns nothing for a name clidoc does not know.
+func TokensFor(name string) []string {
+	command, ok := Lookup(name)
+	if !ok {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, field := range strings.FieldsFunc(command.Signature, func(r rune) bool { return r == ' ' || r == '[' || r == ']' || r == '|' || r == '(' || r == ')' }) {
+		if field == "--" || field == "-" || !strings.HasPrefix(field, "-") {
+			continue
+		}
+		token := strings.TrimSuffix(strings.TrimSuffix(field, ","), "=")
+		if seen[token] {
+			continue
+		}
+		seen[token] = true
+		out = append(out, token)
 	}
 	return out
 }

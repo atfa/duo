@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -15,18 +16,25 @@ import (
 	"github.com/atfa/duo/internal/clidoc"
 )
 
-// parserFuncs are the functions that decide which command line tokens Duo
-// accepts. The scan is restricted to them on purpose: a whole-file scan would
+// parserCommands maps each argument parser to the clidoc command that owns its
+// flags. parseArgs owns the top-level usage line, which clidoc records under the
+// "duo" command; every other parser owns its subcommand. The mapping is written
+// out rather than derived, because a parser's name does not say which command it
+// serves, and guessing is how a flag ends up checked against the wrong
+// signature.
+//
+// The scan is restricted to these functions on purpose: a whole-file scan would
 // also collect the flags Duo composes into an agent's own command line
 // (--model, --thinking, --variant, --session-id, --conversation), which belong
 // to the agent CLIs and must never be documented as duo flags.
-var parserFuncs = map[string]bool{
-	"parseArgs":          true,
-	"parseApplyArgs":     true,
-	"parseCleanArgs":     true,
-	"parseLogsArgs":      true,
-	"parseMCPServerArgs": true,
-	"parseSessionsArgs":  true,
+var parserCommands = map[string]string{
+	"parseArgs":          "duo",
+	"parseApplyArgs":     "apply",
+	"parseCleanArgs":     "clean",
+	"parseLogsArgs":      "logs",
+	"parseMCPServerArgs": "mcp-server",
+	"parseSessionsArgs":  "sessions",
+	"runPlugins":         "plugins",
 }
 
 // flagToken matches a flag spelling and nothing else. After the "=" split it
@@ -34,10 +42,30 @@ var parserFuncs = map[string]bool{
 // bare "-" of strings.HasPrefix.
 var flagToken = regexp.MustCompile(`^(-[a-zA-Z]|--[a-zA-Z][a-zA-Z0-9-]*)$`)
 
+// helpFlags are the help spellings every command accepts, and the usage footer
+// documents them once instead of repeating them in every signature. They are
+// the only flags a signature may carry without its own parser naming them.
+var helpFlags = []string{"-h", "--help"}
+
 // parsedFlagTokens is every flag spelling the duo parsers accept.
 func parsedFlagTokens(t *testing.T) []string {
 	t.Helper()
-	seen := map[string]bool{}
+	var out []string
+	for _, flags := range parsedFlagsByCommand(t) {
+		for flag := range flags {
+			out = append(out, flag)
+		}
+	}
+	return out
+}
+
+// parsedFlagsByCommand attributes each parsed flag to the command whose parser
+// accepts it. Keeping the attribution is the point: a flat set cannot tell
+// `duo sessions --all` from `duo clean --all`, so a flag dropped from one
+// signature stayed green as long as another signature still spelled it.
+func parsedFlagsByCommand(t *testing.T) map[string]map[string]bool {
+	t.Helper()
+	seen := map[string]map[string]bool{}
 	fset := token.NewFileSet()
 	pkgs, err := parser.ParseDir(fset, ".", nil, 0)
 	if err != nil {
@@ -50,8 +78,17 @@ func parsedFlagTokens(t *testing.T) []string {
 			}
 			ast.Inspect(file, func(n ast.Node) bool {
 				decl, ok := n.(*ast.FuncDecl)
-				if !ok || decl.Body == nil || !parserFuncs[decl.Name.Name] {
+				if !ok || decl.Body == nil {
 					return true
+				}
+				command, scanned := parserCommands[decl.Name.Name]
+				if !scanned {
+					return true
+				}
+				flags := seen[command]
+				if flags == nil {
+					flags = map[string]bool{}
+					seen[command] = flags
 				}
 				ast.Inspect(decl.Body, func(m ast.Node) bool {
 					lit, ok := m.(*ast.BasicLit)
@@ -64,7 +101,7 @@ func parsedFlagTokens(t *testing.T) []string {
 					}
 					token, _, _ := strings.Cut(value, "=")
 					if flagToken.MatchString(token) {
-						seen[token] = true
+						flags[token] = true
 					}
 					return true
 				})
@@ -72,11 +109,7 @@ func parsedFlagTokens(t *testing.T) []string {
 			})
 		}
 	}
-	var out []string
-	for name := range seen {
-		out = append(out, name)
-	}
-	return out
+	return seen
 }
 
 // TestUsageCoversEveryFlagAndCommand is the two-way check that keeps the printed
@@ -107,6 +140,116 @@ func TestUsageCoversEveryFlagAndCommand(t *testing.T) {
 			t.Errorf("a clidoc signature advertises %s but --help never prints it", token)
 		}
 	}
+}
+
+// TestSignaturesMatchTheFlagsEachCommandParses checks each command's signature
+// against the parser that owns that command, in both directions.
+//
+// Before, the flags of every parser were flattened into one set and checked
+// against every signature, so a flag had to appear somewhere and nothing more:
+// dropping `sessions [--all|-a]` kept the test green because `duo clean`
+// still spelled `--all|-a`, while `duo sessions --all` kept working undeclared.
+//
+// Scope, stated rather than implied: this only reaches the flags parsed by the
+// functions listed in parserCommands. A parser missing from that map is
+// unchecked here — TestEveryFlagParserIsMapped is what keeps the map honest.
+// It compares flags, not positional arguments.
+func TestSignaturesMatchTheFlagsEachCommandParses(t *testing.T) {
+	parsed := parsedFlagsByCommand(t)
+	if len(parsed) == 0 {
+		t.Fatal("the parser scan found no flags; parserCommands is stale")
+	}
+	for command, flags := range parsed {
+		signature, ok := clidoc.Lookup(command)
+		if !ok {
+			t.Errorf("internal/clidoc has no entry for the %q command", command)
+			continue
+		}
+		documented := map[string]bool{}
+		for _, token := range clidoc.TokensFor(command) {
+			documented[token] = true
+		}
+
+		// Forward: what this parser accepts has to be written down here, not
+		// only in some other command's signature.
+		for flag := range flags {
+			if documented[flag] || isHelpFlag(flag) {
+				continue
+			}
+			t.Errorf("%s parses %s but its signature %q does not carry it", command, flag, signature.Signature)
+		}
+
+		// Reverse: the signature must not promise a flag this command rejects.
+		for _, token := range clidoc.TokensFor(command) {
+			if flags[token] || isHelpFlag(token) || acceptsFlag(t, command, token) == nil {
+				continue
+			}
+			t.Errorf("%s advertises %s in %q but its parser rejects it", command, token, signature.Signature)
+		}
+	}
+}
+
+// TestEveryFlagParserIsMapped bounds TestSignaturesMatchTheFlagsEachCommandParses:
+// a new parser that nobody added to parserCommands would be checked by no
+// per-command test at all, which is exactly the gap this guard exists to close.
+func TestEveryFlagParserIsMapped(t *testing.T) {
+	parsers := argumentParserNames(t)
+	if len(parsers) == 0 {
+		t.Fatal("found no argument parsers in cmd/duo; the scan is stale")
+	}
+	for _, name := range parsers {
+		command, ok := parserCommands[name]
+		if !ok {
+			t.Errorf("%s parses the command line but is absent from parserCommands, so its flags are documented by no per-command check", name)
+			continue
+		}
+		if _, ok := clidoc.Lookup(command); !ok {
+			t.Errorf("parserCommands maps %s to %q, which internal/clidoc does not document", name, command)
+		}
+	}
+	for name := range parserCommands {
+		if !slices.Contains(parsers, name) {
+			t.Errorf("parserCommands lists %s, which no longer exists in cmd/duo", name)
+		}
+	}
+}
+
+func isHelpFlag(flag string) bool {
+	for _, help := range helpFlags {
+		if flag == help {
+			return true
+		}
+	}
+	return false
+}
+
+// argumentParserNames returns every function in cmd/duo that takes a command
+// line apart: the parse*Args family plus runPlugins.
+func argumentParserNames(t *testing.T) []string {
+	t.Helper()
+	var out []string
+	fset := token.NewFileSet()
+	pkgs, err := parser.ParseDir(fset, ".", nil, 0)
+	if err != nil {
+		t.Fatalf("parse cmd/duo: %v", err)
+	}
+	for _, pkg := range pkgs {
+		for _, file := range pkg.Files {
+			if strings.HasSuffix(file.Name.Name, "_test.go") {
+				continue
+			}
+			for _, decl := range file.Decls {
+				fn, ok := decl.(*ast.FuncDecl)
+				if !ok {
+					continue
+				}
+				if fn.Name.Name == "runPlugins" || (strings.HasPrefix(fn.Name.Name, "parse") && strings.HasSuffix(fn.Name.Name, "Args")) {
+					out = append(out, fn.Name.Name)
+				}
+			}
+		}
+	}
+	return out
 }
 
 // TestUsageNamesEverySubcommand checks that every command the binary dispatches
