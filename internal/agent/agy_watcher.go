@@ -313,8 +313,42 @@ func agyDBPathFromTranscript(transcriptPath string) string {
 	return filepath.Join(appDataDir, "conversations", convID+".db")
 }
 
+// LookPath is exec.LookPath, overridable in tests.
+var LookPath = exec.LookPath
+
+// HasSqlite3 reports whether the sqlite3 CLI tool is installed on PATH.
+func HasSqlite3() bool {
+	_, err := LookPath("sqlite3")
+	return err == nil
+}
+
+// AgySqlite3MissingNotice is the diagnostic notice shown when sqlite3 is missing.
+const AgySqlite3MissingNotice = "sqlite3 is required to inspect agy token usage; context metrics will be unavailable. Install sqlite3 via your package manager (e.g. brew install sqlite3 or apt install sqlite3)."
+
+var sqlite3WarnOnce sync.Once
+
+// ResetSqlite3Warning resets the once guard for testing.
+func ResetSqlite3Warning() {
+	sqlite3WarnOnce = sync.Once{}
+}
+
+// EmitSqlite3Warning calls fn with the diagnostic notice if sqlite3 is missing and fn hasn't been called yet.
+func EmitSqlite3Warning(fn func(string)) {
+	if HasSqlite3() {
+		return
+	}
+	sqlite3WarnOnce.Do(func() {
+		if fn != nil {
+			fn(AgySqlite3MissingNotice)
+		}
+	})
+}
+
 // QueryLatestAgyUsage queries the latest generation metadata from the agy conversation database.
 func QueryLatestAgyUsage(dbPath string) (AgyUsage, bool) {
+	if !HasSqlite3() {
+		return AgyUsage{}, false
+	}
 	if dbPath == "" {
 		return AgyUsage{}, false
 	}
@@ -360,6 +394,20 @@ type AgyWatcher struct {
 	lastSpeed         float64
 }
 
+func (w *AgyWatcher) checkSqlite3() {
+	EmitSqlite3Warning(func(notice string) {
+		if w.sink != nil {
+			w.sink.OnActivity(w.agent, protocol.Message{
+				Version:   protocol.Version,
+				Type:      protocol.MsgDuoNotice,
+				Agent:     protocol.Duo,
+				Text:      notice,
+				Timestamp: time.Now().UnixMilli(),
+			})
+		}
+	})
+}
+
 // NewAgyWatcher creates a new transcript watcher for an agent.
 func NewAgyWatcher(agent protocol.AgentID, transcriptPath string, sink AgyActivitySink) *AgyWatcher {
 	dbPath := agyDBPathFromTranscript(transcriptPath)
@@ -372,6 +420,7 @@ func NewAgyWatcher(agent protocol.AgentID, transcriptPath string, sink AgyActivi
 		dbPath:            dbPath,
 		lastStepTime:      time.Now(),
 	}
+	w.checkSqlite3()
 	if usage, ok := QueryLatestAgyUsage(dbPath); ok {
 		w.lastContextTokens = usage.TotalInputTokens
 		if usage.ContextWindow > 0 {
@@ -393,6 +442,7 @@ func (w *AgyWatcher) SetUsage(tokens, window int) {
 
 // SetDBPath explicitly sets the database path (useful for testing).
 func (w *AgyWatcher) SetDBPath(dbPath string) {
+	w.checkSqlite3()
 	usage, ok := QueryLatestAgyUsage(dbPath)
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -521,6 +571,7 @@ func (w *AgyWatcher) ProcessLine(line []byte) {
 		dbPath := w.dbPath
 		w.mu.Unlock()
 
+		w.checkSqlite3()
 		usage, hasUsage := QueryLatestAgyUsage(dbPath)
 
 		w.mu.Lock()

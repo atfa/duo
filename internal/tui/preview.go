@@ -137,7 +137,7 @@ func (a *App) previewHeader(agent protocol.AgentID, width int) string {
 	}
 	candidates = append(candidates, fmt.Sprintf(" %s (%s) ", agent, drv))
 
-	usage := previewUsage(rt)
+	usage := a.previewUsage(agent, rt)
 	if usage != "" {
 		for _, c := range candidates {
 			withUsage := strings.TrimRight(c, " ") + " · " + usage + " "
@@ -152,6 +152,13 @@ func (a *App) previewHeader(agent protocol.AgentID, width int) string {
 		}
 	}
 	return fmt.Sprintf(" %s (%s) ", agent, drv)
+}
+
+func (a *App) previewUsage(id protocol.AgentID, rt harness.AgentRuntime) string {
+	if a.driverName(id) == "agy" && rt.ContextWindow == 0 && !agent.HasSqlite3() {
+		return "no sqlite3"
+	}
+	return previewUsage(rt)
 }
 
 func previewUsage(rt harness.AgentRuntime) string {

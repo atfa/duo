@@ -56,6 +56,13 @@ func (a *App) announceRunningAgents() {
 		}
 		a.add(id, fmt.Sprintf("%s connected", id))
 	}
+	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		if a.driverName(id) == "agy" && a.processState(id) == agent.ProcessRunning {
+			agent.EmitSqlite3Warning(func(text string) {
+				a.add(protocol.Duo, text)
+			})
+		}
+	}
 }
 
 func (a *App) Run(ctx context.Context) error {

@@ -3,7 +3,10 @@ package agent
 import (
 	"context"
 	"encoding/binary"
+	"encoding/hex"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -386,3 +389,240 @@ func TestAgyWatcherSpeedResetAcrossTurns(t *testing.T) {
 		}
 	}
 }
+
+func makeTestProtoPayload(prompt, candidates, cached int, model string) []byte {
+	var f2 []byte
+	f2 = binary.AppendUvarint(f2, (2<<3)|0)
+	f2 = binary.AppendUvarint(f2, uint64(prompt))
+	f2 = binary.AppendUvarint(f2, (3<<3)|0)
+	f2 = binary.AppendUvarint(f2, uint64(candidates))
+	f2 = binary.AppendUvarint(f2, (5<<3)|0)
+	f2 = binary.AppendUvarint(f2, uint64(cached))
+
+	var f17 []byte
+	f17 = binary.AppendUvarint(f17, (2<<3)|2)
+	f17 = binary.AppendUvarint(f17, uint64(len(f2)))
+	f17 = append(f17, f2...)
+
+	var f1 []byte
+	f1 = binary.AppendUvarint(f1, (17<<3)|2)
+	f1 = binary.AppendUvarint(f1, uint64(len(f17)))
+	f1 = append(f1, f17...)
+	f1 = binary.AppendUvarint(f1, (19<<3)|2)
+	f1 = binary.AppendUvarint(f1, uint64(len(model)))
+	f1 = append(f1, []byte(model)...)
+
+	var top []byte
+	top = binary.AppendUvarint(top, (1<<3)|2)
+	top = binary.AppendUvarint(top, uint64(len(f1)))
+	top = append(top, f1...)
+	return top
+}
+
+func createTestSqliteDB(t *testing.T, dir string, populateMode string) string {
+	t.Helper()
+	dbPath := filepath.Join(dir, "test.db")
+	switch populateMode {
+	case "with_data":
+		proto := makeTestProtoPayload(5000, 250, 45000, "gemini-3.8-flash")
+		hexStr := hex.EncodeToString(proto)
+		sql := fmt.Sprintf("CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data BLOB); INSERT INTO gen_metadata (idx, data) VALUES (1, X'%s');", hexStr)
+		cmd := exec.Command("sqlite3", dbPath, sql)
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("failed to create sqlite3 test db: %v", err)
+		}
+	case "no_rows":
+		sql := "CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data BLOB);"
+		cmd := exec.Command("sqlite3", dbPath, sql)
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("failed to create sqlite3 test db: %v", err)
+		}
+	case "empty_db":
+		f, err := os.Create(dbPath)
+		if err != nil {
+			t.Fatalf("failed to create empty db file: %v", err)
+		}
+		f.Close()
+	}
+	return dbPath
+}
+
+func TestQueryLatestAgyUsageScenarios(t *testing.T) {
+	origLookPath := LookPath
+	defer func() { LookPath = origLookPath }()
+
+	tests := []struct {
+		name          string
+		sqlite3Exists bool
+		dbMode        string
+		wantOK        bool
+		wantTokens    int
+		wantWindow    int
+	}{
+		{
+			name:          "sqlite3 exists and has gen_metadata rows",
+			sqlite3Exists: true,
+			dbMode:        "with_data",
+			wantOK:        true,
+			wantTokens:    50000,
+			wantWindow:    1048576,
+		},
+		{
+			name:          "sqlite3 does not exist",
+			sqlite3Exists: false,
+			dbMode:        "with_data",
+			wantOK:        false,
+		},
+		{
+			name:          "sqlite3 exists but database is empty",
+			sqlite3Exists: true,
+			dbMode:        "empty_db",
+			wantOK:        false,
+		},
+		{
+			name:          "sqlite3 exists but no gen_metadata rows",
+			sqlite3Exists: true,
+			dbMode:        "no_rows",
+			wantOK:        false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			dbPath := createTestSqliteDB(t, tmpDir, tc.dbMode)
+
+			if tc.sqlite3Exists {
+				LookPath = exec.LookPath
+			} else {
+				LookPath = func(string) (string, error) {
+					return "", exec.ErrNotFound
+				}
+			}
+
+			usage, ok := QueryLatestAgyUsage(dbPath)
+			if ok != tc.wantOK {
+				t.Fatalf("QueryLatestAgyUsage() ok = %v, want %v", ok, tc.wantOK)
+			}
+			if tc.wantOK {
+				if usage.TotalInputTokens != tc.wantTokens {
+					t.Errorf("TotalInputTokens = %d, want %d", usage.TotalInputTokens, tc.wantTokens)
+				}
+				if usage.ContextWindow != tc.wantWindow {
+					t.Errorf("ContextWindow = %d, want %d", usage.ContextWindow, tc.wantWindow)
+				}
+			}
+		})
+	}
+}
+
+func TestAgyWatcherSqlite3MissingNoticeOnce(t *testing.T) {
+	origLookPath := LookPath
+	defer func() { LookPath = origLookPath }()
+
+	LookPath = func(string) (string, error) {
+		return "", exec.ErrNotFound
+	}
+	ResetSqlite3Warning()
+
+	var noticeCount int
+	var lastNotice string
+	sink := FuncActivitySink(func(_ protocol.AgentID, msg protocol.Message) {
+		if msg.Type == protocol.MsgDuoNotice {
+			noticeCount++
+			lastNotice = msg.Text
+		}
+	})
+
+	w := NewAgyWatcher(protocol.Austin, "/tmp/nonexistent/transcript.jsonl", sink)
+
+	// First prompt/response turn
+	w.ProcessLine([]byte(`{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-09-30T00:00:00Z","content":"hello"}`))
+	w.ProcessLine([]byte(`{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-09-30T00:00:01Z","thinking":"answering...","content":"hi"}`))
+
+	// Second turn
+	w.ProcessLine([]byte(`{"step_index":2,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-09-30T00:00:02Z","content":"hello again"}`))
+	w.ProcessLine([]byte(`{"step_index":3,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-09-30T00:00:03Z","thinking":"answering again...","content":"hi again"}`))
+
+	if noticeCount != 1 {
+		t.Fatalf("expected sqlite3 missing notice to be sent exactly once, got %d times", noticeCount)
+	}
+	if lastNotice != AgySqlite3MissingNotice {
+		t.Fatalf("notice = %q, want %q", lastNotice, AgySqlite3MissingNotice)
+	}
+}
+
+func TestAgyWatcherRegressionWhenSqlite3Missing(t *testing.T) {
+	// Requirement 5: Do not let missing sqlite3 affect other agy features.
+	// agy's session identity (from log regex, doesn't depend on sqlite3) must work as usual.
+	origLookPath := LookPath
+	defer func() { LookPath = origLookPath }()
+
+	LookPath = func(string) (string, error) {
+		return "", exec.ErrNotFound
+	}
+	ResetSqlite3Warning()
+
+	// 1. Session identity extraction from logs still works
+	logSample := "I1002 08:00:00.000000 1 server.go:100] Created conversation 11223344-5566-7788-99aa-bbccddeeff00\n"
+	convID, err := ExtractConversationID(strings.NewReader(logSample))
+	if err != nil {
+		t.Fatalf("ExtractConversationID failed: %v", err)
+	}
+	if convID != "11223344-5566-7788-99aa-bbccddeeff00" {
+		t.Fatalf("convID = %q, want 11223344-5566-7788-99aa-bbccddeeff00", convID)
+	}
+
+	// 2. Transcript observation and activity dispatch work normally
+	var received []protocol.Message
+	sink := FuncActivitySink(func(_ protocol.AgentID, msg protocol.Message) {
+		received = append(received, msg)
+	})
+
+	w := NewAgyWatcher(protocol.Austin, "/tmp/nonexistent/transcript.jsonl", sink)
+
+	// Step 0: USER_INPUT
+	w.ProcessLine([]byte(`{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-10-02T00:00:00Z","content":"implement feature"}`))
+
+	// Step 1: PLANNER_RESPONSE with thinking and tool call
+	w.ProcessLine([]byte(`{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-10-02T00:00:01Z","thinking":"planning changes","tool_calls":[{"name":"run_command","args":{"CommandLine":"go build ."}}]}`))
+
+	// Step 2: GENERIC tool end
+	w.ProcessLine([]byte(`{"step_index":2,"source":"SYSTEM","type":"GENERIC","status":"DONE","created_at":"2026-10-02T00:00:02Z","content":"build succeeded"}`))
+
+	// Step 3: PLANNER_RESPONSE with assistant message content
+	w.ProcessLine([]byte(`{"step_index":3,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-10-02T00:00:03Z","content":"I have built the feature successfully."}`))
+
+	var activities []protocol.ActivityType
+	var assistantText string
+	for _, m := range received {
+		if m.Type == protocol.MsgAssistantMessage {
+			assistantText = m.Text
+		}
+		if m.Activity != "" {
+			activities = append(activities, m.Activity)
+		}
+	}
+
+	expectedActivities := []protocol.ActivityType{
+		protocol.ActivityAgentStart,
+		protocol.ActivityStream,
+		protocol.ActivityToolStart,
+		protocol.ActivityToolEnd,
+		protocol.ActivityStream,
+		protocol.ActivityAgentSettled,
+	}
+
+	if len(activities) != len(expectedActivities) {
+		t.Fatalf("activities count = %d, want %d (%v)", len(activities), len(expectedActivities), activities)
+	}
+	for i, want := range expectedActivities {
+		if activities[i] != want {
+			t.Errorf("activity[%d] = %v, want %v", i, activities[i], want)
+		}
+	}
+	if assistantText != "I have built the feature successfully." {
+		t.Errorf("assistantText = %q, want 'I have built the feature successfully.'", assistantText)
+	}
+}
+

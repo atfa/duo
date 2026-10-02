@@ -37,6 +37,7 @@ duo --mode goal  # 完整协商式工作流
 - Git
 - macOS 或 Linux —— Duo 直接持有两个 Agent 的 PTY，不需要 `script` 包装
 - `PATH` 上至少装有一种受支持的 Agent CLI：[Pi](#agent-drivers)、[agy](#agent-drivers) 或 [opencode](#agent-drivers)
+- 可选：`PATH` 上的 `sqlite3`，用于在工作预览中显示 `agy` 的 token 用量
 
 ## 安装
 
@@ -250,7 +251,7 @@ Duo 可以驱动你安装的任意一种 Agent CLI。三者使用同一套 Duo �
 | Driver | 选择方式 | Duo 的通信方式 |
 |---|---|---|
 | `pi`（默认） | `--agent pi` | Pi bridge 扩展通过本地 socket 回连。完整流式能力：工具活动、peer 消息与模型切换都是实时的。 |
-| `agy` | `--agent agy` | Google Antigravity CLI。没有 bridge，因此 Duo 观测对话 transcript，并把消息写进 PTY。 |
+| `agy` | `--agent agy` | Google Antigravity CLI。没有 bridge，因此 Duo 观测对话 transcript，并把消息写进 PTY。Token 用量显示需要 `PATH` 上的 `sqlite3`。 |
 | `opencode` | `--agent opencode` | opencode 插件通过本地 socket 回连，与 Pi bridge 同一机制。 |
 
 `--driver` 是 `--agent` 的别名，`--austin-agent` / `--tony-agent` 则是

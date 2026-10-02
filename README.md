@@ -37,6 +37,7 @@ Requirements:
 - Git
 - macOS or Linux — Duo owns both agent PTYs directly, so no `script` wrapper is needed
 - At least one supported agent CLI on `PATH`: [Pi](#agent-drivers), [agy](#agent-drivers), or [opencode](#agent-drivers)
+- Optional: `sqlite3` on `PATH` for `agy` token metrics in the work preview
 
 ## Install
 
@@ -249,7 +250,7 @@ identical — only how Duo launches the agent and observes it differs.
 | Driver | Select with | How Duo talks to it |
 |---|---|---|
 | `pi` (default) | `--agent pi` | A Pi bridge extension connects back over a local socket. Full streaming: tool activity, peer messages and model switching are live. |
-| `agy` | `--agent agy` | Google Antigravity CLI. No bridge, so Duo watches the conversation transcript and writes messages into the PTY. |
+| `agy` | `--agent agy` | Google Antigravity CLI. No bridge, so Duo watches the conversation transcript and writes messages into the PTY. Token usage requires sqlite3 on PATH. |
 | `opencode` | `--agent opencode` | An opencode plugin connects back over a local socket, the same way the Pi bridge does. |
 
 `--driver` is an alias for `--agent`, and `--austin-agent` / `--tony-agent` are

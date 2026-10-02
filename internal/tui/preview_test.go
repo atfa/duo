@@ -2,8 +2,14 @@ package tui
 
 import (
 	"context"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -413,3 +419,163 @@ func timelineText(a *App) string {
 	}
 	return strings.Join(texts, "\n")
 }
+
+func makePreviewProtoPayload(prompt, candidates, cached int, model string) []byte {
+	var f2 []byte
+	f2 = binary.AppendUvarint(f2, (2<<3)|0)
+	f2 = binary.AppendUvarint(f2, uint64(prompt))
+	f2 = binary.AppendUvarint(f2, (3<<3)|0)
+	f2 = binary.AppendUvarint(f2, uint64(candidates))
+	f2 = binary.AppendUvarint(f2, (5<<3)|0)
+	f2 = binary.AppendUvarint(f2, uint64(cached))
+
+	var f17 []byte
+	f17 = binary.AppendUvarint(f17, (2<<3)|2)
+	f17 = binary.AppendUvarint(f17, uint64(len(f2)))
+	f17 = append(f17, f2...)
+
+	var f1 []byte
+	f1 = binary.AppendUvarint(f1, (17<<3)|2)
+	f1 = binary.AppendUvarint(f1, uint64(len(f17)))
+	f1 = append(f1, f17...)
+	f1 = binary.AppendUvarint(f1, (19<<3)|2)
+	f1 = binary.AppendUvarint(f1, uint64(len(model)))
+	f1 = append(f1, []byte(model)...)
+
+	var top []byte
+	top = binary.AppendUvarint(top, (1<<3)|2)
+	top = binary.AppendUvarint(top, uint64(len(f1)))
+	top = append(top, f1...)
+	return top
+}
+
+func createTestDBForPreview(t *testing.T, dir string, populateMode string) string {
+	t.Helper()
+	dbPath := filepath.Join(dir, "preview_test.db")
+	switch populateMode {
+	case "with_data":
+		proto := makePreviewProtoPayload(5000, 250, 45000, "gemini-3.8-flash")
+		hexStr := hex.EncodeToString(proto)
+		sql := fmt.Sprintf("CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data BLOB); INSERT INTO gen_metadata (idx, data) VALUES (1, X'%s');", hexStr)
+		cmd := exec.Command("sqlite3", dbPath, sql)
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("failed to create sqlite3 test db: %v", err)
+		}
+	case "no_rows":
+		sql := "CREATE TABLE gen_metadata (idx INTEGER PRIMARY KEY, data BLOB);"
+		cmd := exec.Command("sqlite3", dbPath, sql)
+		if err := cmd.Run(); err != nil {
+			t.Fatalf("failed to create sqlite3 test db: %v", err)
+		}
+	case "empty_db":
+		f, err := os.Create(dbPath)
+		if err != nil {
+			t.Fatalf("failed to create empty db file: %v", err)
+		}
+		f.Close()
+	}
+	return dbPath
+}
+
+func TestPreviewAgySqlite3DiagnosticsTableDriven(t *testing.T) {
+	origLookPath := agent.LookPath
+	defer func() {
+		agent.LookPath = origLookPath
+		agent.ResetSqlite3Warning()
+	}()
+
+	tests := []struct {
+		name              string
+		sqlite3Exists     bool
+		dbMode            string
+		wantHeaderContain string
+		wantHeaderReject  string
+		wantTimeline      bool
+	}{
+		{
+			name:              "sqlite3 exists and has gen_metadata rows",
+			sqlite3Exists:     true,
+			dbMode:            "with_data",
+			wantHeaderContain: "ctx 50k/1.0M",
+			wantHeaderReject:  "no sqlite3",
+			wantTimeline:      false,
+		},
+		{
+			name:              "sqlite3 does not exist",
+			sqlite3Exists:     false,
+			dbMode:            "with_data",
+			wantHeaderContain: "no sqlite3",
+			wantHeaderReject:  "ctx ",
+			wantTimeline:      true,
+		},
+		{
+			name:              "sqlite3 exists but database is empty",
+			sqlite3Exists:     true,
+			dbMode:            "empty_db",
+			wantHeaderContain: "",
+			wantHeaderReject:  "no sqlite3",
+			wantTimeline:      false,
+		},
+		{
+			name:              "sqlite3 exists but no gen_metadata rows",
+			sqlite3Exists:     true,
+			dbMode:            "no_rows",
+			wantHeaderContain: "",
+			wantHeaderReject:  "no sqlite3",
+			wantTimeline:      false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			agent.ResetSqlite3Warning()
+			if tc.sqlite3Exists {
+				agent.LookPath = exec.LookPath
+			} else {
+				agent.LookPath = func(string) (string, error) {
+					return "", exec.ErrNotFound
+				}
+			}
+
+			tmpDir := t.TempDir()
+			dbPath := createTestDBForPreview(t, tmpDir, tc.dbMode)
+
+			a := testApp(140, 30)
+			mgr := agent.NewManager()
+			mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "agy", state: agent.ProcessRunning})
+			a.agents = mgr
+
+			// Simulate token usage query as done by watcher
+			if usage, ok := agent.QueryLatestAgyUsage(dbPath); ok {
+				a.tracker.UpdateUsage(protocol.Austin, usage.TotalInputTokens, usage.ContextWindow, 0)
+			}
+
+			a.announceRunningAgents()
+
+			header := a.previewHeader(protocol.Austin, 120)
+			if tc.wantHeaderContain != "" && !strings.Contains(header, tc.wantHeaderContain) {
+				t.Errorf("previewHeader = %q, want it to contain %q", header, tc.wantHeaderContain)
+			}
+			if tc.wantHeaderReject != "" && strings.Contains(header, tc.wantHeaderReject) {
+				t.Errorf("previewHeader = %q, want it NOT to contain %q", header, tc.wantHeaderReject)
+			}
+			if tc.dbMode == "empty_db" || tc.dbMode == "no_rows" {
+				if strings.Contains(header, "ctx ") {
+					t.Errorf("previewHeader = %q, want no context tokens displayed when database has no data", header)
+				}
+			}
+
+			tl := timelineText(a)
+			if tc.wantTimeline {
+				if !strings.Contains(tl, agent.AgySqlite3MissingNotice) {
+					t.Errorf("timeline = %q, want diagnostic notice %q", tl, agent.AgySqlite3MissingNotice)
+				}
+			} else {
+				if strings.Contains(tl, "sqlite3 is required") {
+					t.Errorf("timeline = %q, want no sqlite3 missing notice", tl)
+				}
+			}
+		})
+	}
+}
+
