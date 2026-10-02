@@ -267,7 +267,7 @@ func (a *App) writeSlashMenu(b *strings.Builder, w, h int) {
 	innerW := boxW - 2
 	title := fmt.Sprintf(" Commands (%d/%d · ↑/↓ navigate · Enter/Tab apply · Esc) ", a.slashCursor+1, total)
 	topLine := "┌" + fit(title, innerW, "─") + "┐"
-	b.WriteString(paint(ansiBorder, "│ ") + paint(ansiTitle, topLine) + paint(ansiBorder, " │\r\n"))
+	b.WriteString(paint(a.frameColor(), "│ ") + paint(ansiTitle, topLine) + paint(a.frameColor(), " │\r\n"))
 
 	for i := start; i < end; i++ {
 		cmd := matches[i]
@@ -290,9 +290,9 @@ func (a *App) writeSlashMenu(b *strings.Builder, w, h int) {
 		} else {
 			row = marker + paint(ansiAustinDim, sigPart) + " " + paint(ansiHint, descPart)
 		}
-		b.WriteString(paint(ansiBorder, "│ ") + paint(ansiBorder, "│") + row + paint(ansiBorder, "│") + paint(ansiBorder, " │\r\n"))
+		b.WriteString(paint(a.frameColor(), "│ ") + paint(a.frameColor(), "│") + row + paint(a.frameColor(), "│") + paint(a.frameColor(), " │\r\n"))
 	}
 
 	bottomLine := "└" + strings.Repeat("─", innerW) + "┘"
-	b.WriteString(paint(ansiBorder, "│ ") + paint(ansiBorder, bottomLine) + paint(ansiBorder, " │\r\n"))
+	b.WriteString(paint(a.frameColor(), "│ ") + paint(a.frameColor(), bottomLine) + paint(a.frameColor(), " │\r\n"))
 }

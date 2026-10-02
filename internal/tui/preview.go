@@ -47,12 +47,12 @@ func (a *App) previewRowsFor(h, composerRows int) int {
 func (a *App) writePreview(b *strings.Builder, l layout) {
 	left := a.previewHeader(protocol.Austin, l.leftW)
 	right := a.previewHeader(protocol.Tony, l.rightW)
-	b.WriteString(paint(ansiBorder, "│") + paint(ansiTitle, header(left, l.leftW)) + paint(ansiBorder, "│") + paint(ansiTitle, header(right, l.rightW)) + paint(ansiBorder, "│\r\n"))
+	b.WriteString(paint(a.frameColor(), "│") + paint(ansiTitle, header(left, l.leftW)) + paint(a.frameColor(), "│") + paint(ansiTitle, header(right, l.rightW)) + paint(a.frameColor(), "│\r\n"))
 
 	lbody := a.previewBody(protocol.Austin, l.leftW, l.preview-1)
 	rbody := a.previewBody(protocol.Tony, l.rightW, l.preview-1)
 	for i := 0; i < l.preview-1; i++ {
-		b.WriteString(paint(ansiBorder, "│") + paint(ansiHint, fit(lbody[i], l.leftW)) + paint(ansiBorder, "│") + paint(ansiHint, fit(rbody[i], l.rightW)) + paint(ansiBorder, "│\r\n"))
+		b.WriteString(paint(a.frameColor(), "│") + paint(ansiHint, fit(lbody[i], l.leftW)) + paint(a.frameColor(), "│") + paint(ansiHint, fit(rbody[i], l.rightW)) + paint(a.frameColor(), "│\r\n"))
 	}
 }
 

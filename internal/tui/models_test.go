@@ -16,6 +16,9 @@ import (
 
 func pickerFixture() *App {
 	return &App{
+		// The picker frame is tinted by the session mode, so the fixture needs
+		// the state machine the real App always carries.
+		state:       project.NewStateFor(project.ModeFast),
 		view:        viewModel,
 		modelTarget: protocol.Austin,
 		models: []models.Model{

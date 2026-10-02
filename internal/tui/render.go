@@ -14,8 +14,10 @@ import (
 )
 
 const (
-	ansiReset  = "\x1b[0m"
-	ansiBorder = "\x1b[36m"
+	ansiReset = "\x1b[0m"
+	// ansiTitle is Fast's bold cyan under its content-oriented name: inner
+	// overlay titles and Markdown headings are content, not frame, so they keep
+	// one stable colour whatever the session mode is.
 	ansiTitle  = "\x1b[1;36m"
 	ansiStatus = "\x1b[33m"
 	ansiHint   = "\x1b[2;37m"
@@ -38,6 +40,19 @@ const (
 	ansiTonyDim    = "\x1b[2;35m"
 	ansiDuoDim     = "\x1b[2;33m"
 	ansiHumanDim   = "\x1b[2;32m"
+)
+
+// The frame is tinted by workflow mode, so a glance — or a screenshot — says
+// whether the operator is looking at a Fast run or a Goal run: Fast keeps the
+// cyan frame it has always had, Goal switches to magenta, and the top-left badge
+// names the mode in that same hue, bold. Goal avoids green because the timeline
+// already spends 32 on the human speaker, so a green frame would read as speech
+// rather than as a workflow.
+const (
+	ansiBorderFast = "\x1b[36m"
+	ansiBorderGoal = "\x1b[35m"
+	ansiTitleFast  = ansiTitle
+	ansiTitleGoal  = "\x1b[1;35m"
 )
 
 const (
@@ -123,21 +138,21 @@ func (a *App) writeLayout(b *strings.Builder, w, h int) {
 	l := a.layoutFor(w, h)
 	a.clampPaneOffsets()
 
-	b.WriteString(paint(ansiBorder, "┌") + paint(ansiTitle, a.repoTitle(w-2, l.leftW)) + paint(ansiBorder, "┐\r\n"))
+	b.WriteString(paint(a.frameColor(), "┌") + paint(a.frameTitle(), a.repoTitle(w-2, l.leftW)) + paint(a.frameColor(), "┐\r\n"))
 
 	left := a.styledPane(protocol.Austin, l.leftW, l.content, a.austinOffset)
 	right := a.styledPane(protocol.Tony, l.rightW, l.content, a.tonyOffset)
 	for i := 0; i < l.content; i++ {
-		b.WriteString(paint(ansiBorder, "│") + a.paintPaneEntry(left[i], l.leftW, protocol.Austin, i) + paint(ansiBorder, "│") + a.paintPaneEntry(right[i], l.rightW, protocol.Tony, i) + paint(ansiBorder, "│\r\n"))
+		b.WriteString(paint(a.frameColor(), "│") + a.paintPaneEntry(left[i], l.leftW, protocol.Austin, i) + paint(a.frameColor(), "│") + a.paintPaneEntry(right[i], l.rightW, protocol.Tony, i) + paint(a.frameColor(), "│\r\n"))
 	}
-	b.WriteString(paint(ansiBorder, "├"+strings.Repeat("─", l.leftW)+"┴"+strings.Repeat("─", l.rightW)+"┤\r\n"))
+	b.WriteString(paint(a.frameColor(), "├"+strings.Repeat("─", l.leftW)+"┴"+strings.Repeat("─", l.rightW)+"┤\r\n"))
 	if l.preview > 0 {
 		a.writePreview(b, l)
-		b.WriteString(paint(ansiBorder, "├"+strings.Repeat("─", l.leftW)+"┴"+strings.Repeat("─", l.rightW)+"┤\r\n"))
+		b.WriteString(paint(a.frameColor(), "├"+strings.Repeat("─", l.leftW)+"┴"+strings.Repeat("─", l.rightW)+"┤\r\n"))
 	}
 
 	for _, line := range a.styledPane(protocol.Duo, l.logW, duoLogRows, a.duoOffset) {
-		b.WriteString(paint(ansiBorder, "│ ") + paintEntry(line, l.logW) + paint(ansiBorder, " │\r\n"))
+		b.WriteString(paint(a.frameColor(), "│ ") + paintEntry(line, l.logW) + paint(a.frameColor(), " │\r\n"))
 	}
 
 	a.writeFrameTail(b, w, composer)
@@ -151,16 +166,16 @@ func (a *App) writeTimelineLayout(b *strings.Builder, w, h int) {
 	l := a.layoutFor(w, h)
 	a.clampPaneOffsets()
 
-	b.WriteString(paint(ansiBorder, "┌") + paint(ansiTitle, a.repoTitle(w-2, 0)) + paint(ansiBorder, "┐\r\n"))
+	b.WriteString(paint(a.frameColor(), "┌") + paint(a.frameTitle(), a.repoTitle(w-2, 0)) + paint(a.frameColor(), "┐\r\n"))
 
 	lines := a.styledPane(protocol.Duo, l.timelineW, l.content, a.duoOffset)
 	for i := 0; i < l.content; i++ {
-		b.WriteString(paint(ansiBorder, "│") + a.paintPaneEntry(lines[i], l.timelineW, protocol.Duo, i) + paint(ansiBorder, "│\r\n"))
+		b.WriteString(paint(a.frameColor(), "│") + a.paintPaneEntry(lines[i], l.timelineW, protocol.Duo, i) + paint(a.frameColor(), "│\r\n"))
 	}
-	b.WriteString(paint(ansiBorder, "├"+strings.Repeat("─", w-2)+"┤\r\n"))
+	b.WriteString(paint(a.frameColor(), "├"+strings.Repeat("─", w-2)+"┤\r\n"))
 	if l.preview > 0 {
 		a.writePreview(b, l)
-		b.WriteString(paint(ansiBorder, "├"+strings.Repeat("─", l.leftW)+"┴"+strings.Repeat("─", l.rightW)+"┤\r\n"))
+		b.WriteString(paint(a.frameColor(), "├"+strings.Repeat("─", l.leftW)+"┴"+strings.Repeat("─", l.rightW)+"┤\r\n"))
 	}
 
 	a.writeFrameTail(b, w, composer)
@@ -198,29 +213,31 @@ func (a *App) writeFrameTail(b *strings.Builder, w int, composer composerLayout)
 		// can be arbitrarily long.
 		second = " " + a.deliverySummary() + " · Plan: " + plan
 	}
-	b.WriteString(paint(ansiBorder, "│") + paint(ansiStatus, fit(status, w-2)) + paint(ansiBorder, "│\r\n"))
-	b.WriteString(paint(ansiBorder, "│") + paint(ansiHint, fit(second, w-2)) + paint(ansiBorder, "│\r\n"))
+	b.WriteString(paint(a.frameColor(), "│") + paint(ansiStatus, fit(status, w-2)) + paint(a.frameColor(), "│\r\n"))
+	b.WriteString(paint(a.frameColor(), "│") + paint(ansiHint, fit(second, w-2)) + paint(a.frameColor(), "│\r\n"))
 
 	statusLine := " Status: " + a.status
 	statusColor := ansiStatus
 	if a.statusError {
 		statusColor = ansiError
 	}
-	b.WriteString(paint(ansiBorder, "│") + paint(statusColor, fit(statusLine, w-2)) + paint(ansiBorder, "│\r\n"))
+	b.WriteString(paint(a.frameColor(), "│") + paint(statusColor, fit(statusLine, w-2)) + paint(a.frameColor(), "│\r\n"))
 	if a.hasSlashMenu() {
 		a.writeSlashMenu(b, w, a.height)
 	}
 	for _, line := range composer.lines {
-		b.WriteString(paint(ansiBorder, "│") + paint(ansiStatus, line.prefix) + fit(line.text, line.width) + paint(ansiBorder, "│\r\n"))
+		b.WriteString(paint(a.frameColor(), "│") + paint(ansiStatus, line.prefix) + fit(line.text, line.width) + paint(a.frameColor(), "│\r\n"))
 	}
-	b.WriteString(paint(ansiBorder, "└") + paint(ansiHint, fit(mainFooter(), w-2, "─")) + paint(ansiBorder, "┘"))
+	b.WriteString(paint(a.frameColor(), "└") + paint(ansiHint, fit(mainFooter(), w-2, "─")) + paint(a.frameColor(), "┘"))
 }
 
-// repoTitle is the frame's top row: the Git repository Duo resolved, not the
-// directory the binary was launched from, with the rest of the row filled by the
-// border's dash. The split layout keeps its pane ┬ at divider so the row still
-// lines up with the │ below it, and a scrolled timeline reports how far back it
-// is and whether unseen output arrived below.
+// repoTitle is the frame's top row: the workflow mode badge, then the Git
+// repository Duo resolved — never the directory the binary was launched from —
+// then the border dash filling the rest of the row. The badge is leftmost because
+// fit clips from the right, so any repository name and any terminal width keep
+// the mode visible. The scroll mark follows the badge. This row stays plain
+// text: fit measures it in runes, so an ANSI escape here would shift every
+// column and break the ┬ divider below.
 func (a *App) repoTitle(width, divider int) string {
 	title := " Duo "
 	if a.ws != nil {
@@ -235,10 +252,30 @@ func (a *App) repoTitle(width, divider int) string {
 		}
 		title = " " + mark + title
 	}
+	title = " [" + a.state.Mode().Display() + "]" + title
 	if divider > 0 && divider < width {
 		return fit(title, divider, "─") + "┬" + strings.Repeat("─", width-divider-1)
 	}
 	return fit(title, width, "─")
+}
+
+// frameColor is the border hue for the session's workflow mode. Fast keeps the
+// cyan frame it has always had and Goal is magenta, so the mode is obvious from
+// the colours alone, without reading the status row.
+func (a *App) frameColor() string {
+	if a.state.Mode() == project.ModeFast {
+		return ansiBorderFast
+	}
+	return ansiBorderGoal
+}
+
+// frameTitle is the bold top-row hue: the mode badge is painted with it, so the
+// mode is the first bold thing the operator reads.
+func (a *App) frameTitle() string {
+	if a.state.Mode() == project.ModeFast {
+		return ansiTitleFast
+	}
+	return ansiTitleGoal
 }
 
 // deliverySummary reports the durable hand-off state so it stays visible in the
@@ -397,7 +434,7 @@ func (a *App) writeHelp(b *strings.Builder, w, _ int) {
 	a.clampHelpOffset()
 	visible := a.helpVisibleRows()
 	title := " Duo Help · " + a.version + " "
-	b.WriteString(paint(ansiBorder, "┌") + paint(ansiTitle, fit(title, contentWidth, "─")) + paint(ansiBorder, "┐\r\n"))
+	b.WriteString(paint(a.frameColor(), "┌") + paint(ansiTitle, fit(title, contentWidth, "─")) + paint(a.frameColor(), "┐\r\n"))
 	for i := 0; i < visible; i++ {
 		line := ""
 		if at := a.helpOffset + i; at < len(lines) {
@@ -407,15 +444,15 @@ func (a *App) writeHelp(b *strings.Builder, w, _ int) {
 		if line != "" && !strings.HasPrefix(line, " ") {
 			color = ansiTitle
 		}
-		b.WriteString(paint(ansiBorder, "│") + paint(color, fit(line, contentWidth)) + paint(ansiBorder, "│\r\n"))
+		b.WriteString(paint(a.frameColor(), "│") + paint(color, fit(line, contentWidth)) + paint(a.frameColor(), "│\r\n"))
 	}
-	b.WriteString(paint(ansiBorder, "├") + paint(ansiBorder, strings.Repeat("─", contentWidth)) + paint(ansiBorder, "┤\r\n"))
+	b.WriteString(paint(a.frameColor(), "├") + paint(a.frameColor(), strings.Repeat("─", contentWidth)) + paint(a.frameColor(), "┤\r\n"))
 	first, last := a.helpOffset+1, minInt(a.helpOffset+visible, len(lines))
 	if len(lines) == 0 {
 		first, last = 0, 0
 	}
 	foot := fmt.Sprintf(" Lines %d–%d / %d · ↑↓/jk scroll · PgUp/PgDn · Esc close · Ctrl+Q quit ", first, last, len(lines))
-	b.WriteString(paint(ansiBorder, "└") + paint(ansiHint, fit(foot, contentWidth, "─")) + paint(ansiBorder, "┘"))
+	b.WriteString(paint(a.frameColor(), "└") + paint(ansiHint, fit(foot, contentWidth, "─")) + paint(a.frameColor(), "┘"))
 }
 
 func styledPaneLinesAt(entries []entry, width, rows, offset int) []paneLine {

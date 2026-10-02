@@ -331,16 +331,17 @@ func otherAgent(agent protocol.AgentID) protocol.AgentID {
 	return protocol.Tony
 }
 
-// overlayRow writes one bordered content row of an overlay frame.
-func overlayRow(b *strings.Builder, line string, width int, color string) {
-	b.WriteString(paint(ansiBorder, "│") + paint(color, fit(line, width)) + paint(ansiBorder, "│\r\n"))
+// overlayRow writes one bordered content row of an overlay frame, in the same
+// mode tint as the main frame behind it.
+func (a *App) overlayRow(b *strings.Builder, line string, width int, color string) {
+	b.WriteString(paint(a.frameColor(), "│") + paint(color, fit(line, width)) + paint(a.frameColor(), "│\r\n"))
 }
 
 func (a *App) writeModel(b *strings.Builder, w, h int) {
 	contentWidth := w - 2
 	visible := modelVisibleRows(h)
 	title := fmt.Sprintf(" Duo Models · %s ", a.modelTarget)
-	b.WriteString(paint(ansiBorder, "┌") + paint(ansiTitle, fit(title, contentWidth, "─")) + paint(ansiBorder, "┐\r\n"))
+	b.WriteString(paint(a.frameColor(), "┌") + paint(ansiTitle, fit(title, contentWidth, "─")) + paint(a.frameColor(), "┐\r\n"))
 
 	current := a.modelForAgent(a.modelTarget)
 	if current == "" {
@@ -350,8 +351,8 @@ func (a *App) writeModel(b *strings.Builder, w, h int) {
 	if thinking == "" {
 		thinking = "unknown"
 	}
-	overlayRow(b, fmt.Sprintf(" Target: %s · model %s · thinking %s", a.modelTarget, current, thinking), contentWidth, ansiTitle)
-	overlayRow(b, " Filter: "+string(a.modelFilter)+"█", contentWidth, ansiTitle)
+	a.overlayRow(b, fmt.Sprintf(" Target: %s · model %s · thinking %s", a.modelTarget, current, thinking), contentWidth, ansiTitle)
+	a.overlayRow(b, " Filter: "+string(a.modelFilter)+"█", contentWidth, ansiTitle)
 
 	list := a.filteredModels()
 	a.clampModelCursor()
@@ -370,9 +371,9 @@ func (a *App) writeModel(b *strings.Builder, w, h int) {
 		status = fmt.Sprintf(" %d of %d models", len(list), len(a.models))
 	}
 	if a.modelErr != "" || a.statusError {
-		overlayRow(b, status, contentWidth, ansiError)
+		a.overlayRow(b, status, contentWidth, ansiError)
 	} else {
-		overlayRow(b, status, contentWidth, ansiHint)
+		a.overlayRow(b, status, contentWidth, ansiHint)
 	}
 
 	// The count/status line consumes one row; the rest scroll a window that
@@ -388,19 +389,19 @@ func (a *App) writeModel(b *strings.Builder, w, h int) {
 	for i := 0; i < rowCapacity; i++ {
 		at := start + i
 		if at >= len(list) {
-			overlayRow(b, "", contentWidth, ansiHint)
+			a.overlayRow(b, "", contentWidth, ansiHint)
 			continue
 		}
 		color := ansiHint
 		if at == a.modelCursor {
 			color = ansiTitle
 		}
-		overlayRow(b, " "+a.modelRow(list[at], at == a.modelCursor), contentWidth, color)
+		a.overlayRow(b, " "+a.modelRow(list[at], at == a.modelCursor), contentWidth, color)
 	}
 
-	b.WriteString(paint(ansiBorder, "├") + paint(ansiBorder, strings.Repeat("─", contentWidth)) + paint(ansiBorder, "┤\r\n"))
+	b.WriteString(paint(a.frameColor(), "├") + paint(a.frameColor(), strings.Repeat("─", contentWidth)) + paint(a.frameColor(), "┤\r\n"))
 	foot := " ↑↓ · Space apply·stay · Enter apply·close · Tab agent · Shift+Tab think · Esc "
-	b.WriteString(paint(ansiBorder, "└") + paint(ansiHint, fit(foot, contentWidth, "─")) + paint(ansiBorder, "┘"))
+	b.WriteString(paint(a.frameColor(), "└") + paint(ansiHint, fit(foot, contentWidth, "─")) + paint(a.frameColor(), "┘"))
 }
 
 // modelRow draws one catalog line. The cursor and the model the target agent is

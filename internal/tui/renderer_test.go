@@ -389,7 +389,7 @@ func TestRepoTitleReplacesPaneHeaders(t *testing.T) {
 
 	lines := visibleLines(a.buildFrame(renderNormal))
 	top := lines[0]
-	if !strings.HasPrefix(top, "┌ /tmp/duo-repo ") || !strings.HasSuffix(top, "┐") {
+	if !strings.HasPrefix(top, "┌ [GOAL] /tmp/duo-repo ") || !strings.HasSuffix(top, "┐") {
 		t.Fatalf("top row = %q, want the repository title", top)
 	}
 	if !strings.Contains(top, "────────") {
@@ -411,5 +411,56 @@ func TestRepoTitleReplacesPaneHeaders(t *testing.T) {
 	}
 	if got := a.hitNativeButton(a.width-2, previewRow); got != protocol.Tony {
 		t.Fatalf("preview header click = %q, want Tony", got)
+	}
+}
+
+// The workflow mode has to be readable before any timeline line is: a bold
+// [FAST]/[GOAL] badge leads the top row, and the frame lines are tinted to match
+// it — cyan for Fast, magenta for Goal — so the colours alone say which mode is
+// running.
+func TestTopRowBadgesModeAndTintsFrameByMode(t *testing.T) {
+	for _, timeline := range []bool{false, true} {
+		a := testApp(100, 30)
+		a.timeline = timeline
+		a.ws = stubWorkspace{set: workspace.Set{Repository: "/tmp/duo-repo"}}
+
+		goal := a.buildFrame(renderNormal)
+		if !strings.Contains(goal, ansiTitleGoal+" [GOAL]") {
+			t.Fatalf("timeline=%v Goal frame has no bold [GOAL] badge", timeline)
+		}
+		if !strings.Contains(goal, paint(ansiBorderGoal, "│")) {
+			t.Fatalf("timeline=%v Goal frame is not tinted magenta", timeline)
+		}
+		if strings.Contains(goal, paint(ansiBorderFast, "│")) {
+			t.Fatalf("timeline=%v Goal frame still uses the cyan border", timeline)
+		}
+
+		a.state = project.NewStateFor(project.ModeFast)
+		fast := a.buildFrame(renderNormal)
+		if !strings.Contains(fast, ansiTitleFast+" [FAST]") {
+			t.Fatalf("timeline=%v Fast frame has no bold [FAST] badge", timeline)
+		}
+		if !strings.Contains(fast, paint(ansiBorderFast, "│")) {
+			t.Fatalf("timeline=%v Fast frame is not tinted cyan", timeline)
+		}
+		if strings.Contains(fast, ansiBorderGoal) {
+			t.Fatalf("timeline=%v Fast frame is tinted magenta", timeline)
+		}
+	}
+}
+
+// The badge leads the row, so a narrow terminal clips the repository path rather
+// than the mode, and the row still measures exactly the frame width.
+func TestTopRowClipsRepositoryBeforeBadge(t *testing.T) {
+	a := testApp(70, 24)
+	a.timeline = true
+	a.ws = stubWorkspace{set: workspace.Set{Repository: "/a/very/long/repository/path/that/will/not/fit"}}
+
+	row := visibleLines(a.buildFrame(renderNormal))[0]
+	if !strings.Contains(row, "[GOAL]") {
+		t.Fatalf("top row = %q, want the badge to survive clipping", row)
+	}
+	if got := displayWidth(row); got != 70 {
+		t.Fatalf("top row width = %d, want the frame width 70: %q", got, row)
 	}
 }

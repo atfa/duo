@@ -180,7 +180,7 @@ func (a *App) helpLines(width int) []string {
 			"Scope is a default working directory, not a filesystem sandbox.",
 		}},
 		{"Agent Status", []string{
-			"The main view is one conversation timeline: Austin's messages on the left, Tony's on the right, under a top row naming the Git repository Duo resolved. Every message header names a direction — for example `Austin → Human`, `Austin → Tony` or `Duo → Tony` — in the speaker's own colour, with messages addressed to the human highlighted in bold. Each agent's connection, process and working state, with the animated spinner and the native-Pi attach button, live in that agent's work preview header; Duo phase, plan, and transient feedback stay below the timeline.",
+			"The main view is one conversation timeline: Austin's messages on the left, Tony's on the right, under a top row that leads with the workflow mode — `[FAST]` or `[GOAL]` in bold — and then names the Git repository Duo resolved. The frame lines are tinted by mode, cyan for Fast and magenta for Goal. Every message header names a direction — for example `Austin → Human`, `Austin → Tony` or `Duo → Tony` — in the speaker's own colour, with messages addressed to the human highlighted in bold. Each agent's connection, process and working state, with the animated spinner and the native-Pi attach button, live in that agent's work preview header; Duo phase, plan, and transient feedback stay below the timeline.",
 		}},
 	}
 	var out []string
@@ -416,7 +416,7 @@ func (a *App) writeDetail(b *strings.Builder, w, h int) {
 	a.clampDetailOffset()
 	visible := maxInt(h-4, 1)
 	title := " Duo Session · " + a.version + " "
-	b.WriteString(paint(ansiBorder, "┌") + paint(ansiTitle, fit(title, contentWidth, "─")) + paint(ansiBorder, "┐\r\n"))
+	b.WriteString(paint(a.frameColor(), "┌") + paint(ansiTitle, fit(title, contentWidth, "─")) + paint(a.frameColor(), "┐\r\n"))
 	for i := 0; i < visible; i++ {
 		line := ""
 		if at := a.detailOffset + i; at < len(lines) {
@@ -426,15 +426,15 @@ func (a *App) writeDetail(b *strings.Builder, w, h int) {
 		if line != "" && !strings.HasPrefix(line, " ") {
 			color = ansiTitle
 		}
-		b.WriteString(paint(ansiBorder, "│") + paint(color, fit(line, contentWidth)) + paint(ansiBorder, "│\r\n"))
+		b.WriteString(paint(a.frameColor(), "│") + paint(color, fit(line, contentWidth)) + paint(a.frameColor(), "│\r\n"))
 	}
-	b.WriteString(paint(ansiBorder, "├") + paint(ansiBorder, strings.Repeat("─", contentWidth)) + paint(ansiBorder, "┤\r\n"))
+	b.WriteString(paint(a.frameColor(), "├") + paint(a.frameColor(), strings.Repeat("─", contentWidth)) + paint(a.frameColor(), "┤\r\n"))
 	first, last := a.detailOffset+1, minInt(a.detailOffset+visible, len(lines))
 	if len(lines) == 0 {
 		first, last = 0, 0
 	}
 	foot := fmt.Sprintf(" Lines %d–%d / %d · ↑↓/jk scroll · PgUp/PgDn · Esc/Ctrl+O close · Ctrl+Q quit ", first, last, len(lines))
-	b.WriteString(paint(ansiBorder, "└") + paint(ansiHint, fit(foot, contentWidth, "─")) + paint(ansiBorder, "┘"))
+	b.WriteString(paint(a.frameColor(), "└") + paint(ansiHint, fit(foot, contentWidth, "─")) + paint(a.frameColor(), "┘"))
 }
 
 func (a *App) maxHelpOffset() int {
