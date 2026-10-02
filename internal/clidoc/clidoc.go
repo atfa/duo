@@ -134,18 +134,23 @@ func SummaryLines() []string {
 }
 
 // Tokens returns every flag-shaped token mentioned in the signatures, with any
-// `--flag=` suffix normalised away, so tests can check the signatures against
-// what the parsers accept.
+// `--flag=` suffix normalised away and repeats removed, so tests can check the
+// signatures against what the parsers accept. A flag two commands share appears
+// once.
 func Tokens() []string {
 	var out []string
+	seen := map[string]bool{}
 	for _, line := range SignatureLines() {
 		for _, field := range strings.FieldsFunc(line, func(r rune) bool { return r == ' ' || r == '[' || r == ']' || r == '|' || r == '(' || r == ')' }) {
-			if field == "--" || field == "-" {
+			if field == "--" || field == "-" || !strings.HasPrefix(field, "-") {
 				continue
 			}
-			if strings.HasPrefix(field, "-") {
-				out = append(out, strings.TrimSuffix(strings.TrimSuffix(field, ","), "="))
+			token := strings.TrimSuffix(strings.TrimSuffix(field, ","), "=")
+			if seen[token] {
+				continue
 			}
+			seen[token] = true
+			out = append(out, token)
 		}
 	}
 	return out

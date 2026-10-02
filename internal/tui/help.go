@@ -217,8 +217,7 @@ func helpCommandLineLines() []string {
 	lines := append([]string{}, clidoc.SignatureLines()...)
 	return append(lines,
 		"",
-		"Aliases: --driver = --agent; --austin-agent / --tony-agent = --austin-driver / --tony-driver;",
-		"bare 'resume' and -r = --resume.",
+		"The bare word 'resume' is an alias of --resume.",
 		"Run duo --help for every flag, its default, and the DUO_* environment variables.",
 	)
 }
