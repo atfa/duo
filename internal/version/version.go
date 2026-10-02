@@ -7,4 +7,4 @@ package version
 
 // Version is the current Duo release. It carries the "v" prefix because that is
 // the form users see in `duo --version` and the form release tags use.
-const Version = "v0.8.1"
+const Version = "v0.9.0"

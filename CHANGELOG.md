@@ -2,17 +2,29 @@
 
 All notable project milestones are documented here.
 
-## Unreleased
+## v0.9.0 — 2026-10-02
 
-- **A configuration test no longer depends on the environment it runs in.** Duo exports `DUO_DRIVER`, `DUO_MODE` and the rest of its variables into every agent's environment, and `loadConfig` reads them, so the same test resolved a different configuration depending on whether it ran from a shell or from inside a session. One test asserted that an agent's model was non-empty, which held only because a driver happened to have a default in that environment; an unconfigured opencode deliberately resolves to no model, so the assertion was claiming something about driver defaults rather than about the rule it meant to check. It now asserts on the exact model persisted for the driver still in use, and clears `DUO_*` for its duration. Both directions of the rule are now covered: a model recorded for the driver being switched away from is dropped, and one recorded for the driver still in use is carried through.
+A minor release because the surface changed rather than only the behaviour: Duo now writes a readable transcript of every session into the repository, the work preview reports token usage, and `duo logs` lists what it wrote. Alongside those, nine correctness fixes, including two that could lose an agent's conversation identity and one that could make `git revert` in the delivered history unsafe.
+
+### Work preview
+
+- **The work preview reports token usage for every driver.** Each agent's header can show `ctx 45.0k/200.0k` and a live `42 tok/s`. Context usage comes from the driver where it is available — pi's `ctx.getContextUsage()`, and opencode's real `info.tokens` counts on the assistant message. The opencode context *limit* is read from the provider catalog rather than guessed. Generation speed is estimated from streamed output deltas and is shown only while the provider is active, so a stale rate cannot linger. The rate is carried on the existing activity message, so no driver contract changed, and a driver that reports nothing leaves the header as it was.
+- **`agy` token usage is read from agy's own conversation database.** agy exposes no usage API, so Duo reads the `gen_metadata` record with the `sqlite3` CLI and decodes the token counts from it. Verified against 23 real agy databases. The `sqlite3` binary is an optional dependency; without it the preview shows a `no sqlite3` marker and Duo says so once, rather than silently showing nothing, while the rest of agy — including its session identity, which does not use sqlite3 — keeps working.
+- **opencode's provider span no longer closes on the first text part.** The rate is only rendered while the provider is active, so closing the span as soon as text arrived discarded the very number the span exists to show. It now stays open across streamed text and closes on `step-finish`, or on an idle with no step so a silent agent still stops looking busy.
 
 ### Corrected
+- **A configuration test no longer depends on the environment it runs in.** Duo exports `DUO_DRIVER`, `DUO_MODE` and the rest of its variables into every agent's environment, and `loadConfig` reads them, so the same test resolved a different configuration depending on whether it ran from a shell or from inside a session. One test asserted that an agent's model was non-empty, which held only because a driver happened to have a default in that environment; an unconfigured opencode deliberately resolves to no model, so the assertion was claiming something about driver defaults rather than about the rule it meant to check. It now asserts on the exact model persisted for the driver still in use, and clears `DUO_*` for its duration. Both directions of the rule are now covered: a model recorded for the driver being switched away from is dropped, and one recorded for the driver still in use is carried through.
+
 
 - **The v0.7.0 changelog no longer names two environment variables that were never read.** `DUO_AUSTIN_DRIVER` and `DUO_TONY_DRIVER` were documented as a way to pick a per-agent driver, and no code has ever consulted them. The entry now lists the flags and `.duo/config.json` that do work, and says which variable sets both agents.
 
 ### Diagnosing a driver that will not start
 
 - **A failed agent now says why.** A CLI driver launched into a PTY merges its stderr into that stream, so a driver that refuses to run says so exactly once, there: `Error: Unknown option: --auto`, `Error: unknown model`. Nothing carried it. The session log recorded only `Tony exited (state=failed): exit status 1`, and the interface said `Tony native Pi session is not running`, which named a symptom rather than the cause. A switch to an unsupported driver took twenty minutes to diagnose with no other evidence available. The tail of what a failed process wrote is now recorded in `duo.log` and shown in the timeline, escape sequences and blank lines removed, truncated to the last few lines and marked when it is truncated so a short tail is not read as the whole story.
+
+### Session identity
+
+- **`agy` conversations are resumed instead of restarted.** agy assigns conversation ids itself and refuses one it has not seen, answering `Conversation <id> not found, ignoring --conversation flag` and opening a different conversation. Duo was sending an id it had invented: the same per-agent UUID map that pi needs, because pi adopts an id it has never seen, was also passed to agy. agy rejected it on every launch, the watcher found no real id in the log to replace it, and the rejected value was what Duo persisted and replayed. An agy agent therefore never resumed its conversation, on any restart. The flag now carries only an id agy reported; the first launch passes none, the watcher learns the conversation agy created, and later launches replay it. Verified against a real agy pair: the first launch raises no warning, the learned id is what gets persisted, and the resumed run does not reject it or open a new conversation.
 
 ### Driver selection
 
@@ -25,6 +37,15 @@ Goal mode delivers a merge of the two agent branches, so a commit that exists on
 
 - **The EXECUTE notice says so before an agent can get it wrong.** Each agent already has its own branch and worktree and Duo merges them at INTEGRATE, so the phase notice now states that a commit belongs to the agent's own work and that cherry-picking the peer's is unnecessary, with the reason.
 - **Duo reports a change carried by both branches when the session reaches REVIEW.** Changes are matched by patch id, so a cherry-pick that landed elsewhere in the branch, or whose message was rewritten, is still recognised, and two agents that independently wrote the same change are not reported against each other. Git does not record which of two identical patches came first, so the report names both copies and leaves the owner to the agent that knows whether it ran the cherry-pick. It runs at the EXECUTE to REVIEW transition because that is the last point where no signature is bound to either branch, so a copy can still be dropped without revoking anything. Duo reports rather than rewrites: the branch belongs to the agent, and silently rebasing an agent's history would contradict the evidence binding that makes the rest of the session auditable.
+
+### Interface
+
+- **The window header names the mode and tints the frame by it.** `FAST` and `GOAL` are now visible without reading the transcript, and the border colour follows, so the two modes are distinguishable at a glance. The badge is placed at the left edge and the box alignment is unchanged, and the Help panel documents it.
+
+### Command line and help
+
+- **`internal/clidoc` is the single source for the `duo` command line.** `duo --help`, `duo <subcommand> --help` and the in-app Help panel all render from one table, so the three cannot drift apart. Every parsed flag must appear in a signature, every subcommand must have one, and an unknown flag must be rejected rather than silently accepted.
+- **The reference is complete and guarded.** Every command, flag and environment variable is documented in both READMEs and in `--help`, the in-app Help panel covers every routed key and slash command, and tests fail if the implementation gains a flag, command or key binding that the help does not mention. Flag spellings are matched as whole tokens, so a value that begins with `-` is not mistaken for a flag.
 
 ### Packaging
 
