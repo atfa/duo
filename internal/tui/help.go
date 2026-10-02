@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atfa/duo/internal/clidoc"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/workspace"
@@ -22,37 +23,58 @@ const (
 )
 
 type keyBinding struct {
+	// Dispatch lists the normalised key names this row documents, so the Help
+	// table stays checkable against the real key router.
+	Dispatch    []string
 	Keys        string
 	ShortLabel  string
 	Description string
 }
 
 var keyBindings = []keyBinding{
-	{"Enter", "Enter Send", "Send task/message to Austin"},
-	{"Ctrl/Shift+Enter", "Ctrl/Shift+Enter Newline", "Insert a newline in the composer"},
-	{"Ctrl+A", "Ctrl+A/T Native", "Open Austin native Pi"},
-	{"Ctrl+T", "", "Open Tony native Pi"},
-	{"Ctrl+]", "", "Return from native Pi to Duo"},
-	{"Ctrl+\\", "", "Return from native Pi to Duo"},
-	{"Ctrl+】", "", "Return from native Pi to Duo"},
-	{"Ctrl+R", "", "Restart Austin if exited/failed"},
-	{"Ctrl+Y", "", "Restart Tony if exited/failed"},
-	{"Ctrl+/", "Ctrl+/ Help", "Toggle Help"},
-	{"Ctrl+O", "", "Show session overview (worktrees, plan, delivery, changes diffstat)"},
-	{"Ctrl+M / Alt+M", "", "Choose the Pi model and thinking level for Austin or Tony; in the picker Tab switches agent, Space applies the model and keeps it open, Enter applies and closes, Shift+Tab cycles thinking"},
-	{"Ctrl+P", "", "Toggle the Austin/Tony work preview: current tool and arguments, last error, and the text being streamed"},
-	{"Ctrl+G", "", "Toggle message timestamps"},
-	{"Ctrl+Q", "Ctrl+Q Quit", "Quit Duo and preserve session"},
-	{"← / →", "", "Move the composer cursor"},
-	{"Alt+←/→", "", "Move the composer cursor by word"},
-	{"↑ / ↓", "", "Move between composer lines; recall task history at the first/last line"},
-	{"PgUp / PgDn", "", "Scroll the conversation timeline earlier or later"},
-	{"Home / End", "", "Move to the start or end of the composer line"},
-	{"Ctrl+U / Ctrl+K", "", "Delete to the start or end of the composer line"},
-	{"Ctrl+W", "", "Delete the previous word"},
-	{"Backspace / Delete", "", "Delete the previous or next composer character"},
-	{"Mouse wheel", "", "Scroll the conversation timeline"},
-	{"Mouse drag", "", "Select timeline text; copies to clipboard on release"},
+	{[]string{"enter"}, "Enter", "Enter Send", "Send task/message to Austin; selects the highlighted command when the palette is open"},
+	{[]string{"ctrl-enter"}, "Ctrl/Shift+Enter", "Ctrl/Shift+Enter Newline", "Insert a newline in the composer"},
+	{[]string{"ctrl-a"}, "Ctrl+A", "Ctrl+A/T Native", "Open Austin native Pi"},
+	{[]string{"ctrl-t"}, "Ctrl+T", "", "Open Tony native Pi"},
+	{nil, "Ctrl+]", "", "Return from native Pi to Duo (only while a native Pi is attached)"},
+	{nil, "Ctrl+\\", "", "Return from native Pi to Duo (only while a native Pi is attached)"},
+	{nil, "Ctrl+】", "", "Return from native Pi to Duo (only while a native Pi is attached)"},
+	{[]string{"ctrl-r"}, "Ctrl+R", "", "Restart Austin if exited/failed"},
+	{[]string{"ctrl-y"}, "Ctrl+Y", "", "Restart Tony if exited/failed"},
+	{[]string{"ctrl-slash"}, "Ctrl+/", "Ctrl+/ Help", "Toggle Help"},
+	{[]string{"ctrl-o"}, "Ctrl+O", "", "Show session overview (worktrees, plan, delivery, changes diffstat)"},
+	{[]string{"ctrl-m", "alt-m"}, "Ctrl+M / Alt+M", "", "Open the model and thinking level picker for the target agent"},
+	{[]string{"shift-tab"}, "Shift+Tab", "", "Cycle the thinking level of the target agent"},
+	{[]string{"ctrl-p"}, "Ctrl+P", "", "Toggle the Austin/Tony work preview: current tool and arguments, last error, and the text being streamed"},
+	{[]string{"ctrl-g"}, "Ctrl+G", "", "Toggle message timestamps"},
+	{[]string{"ctrl-q"}, "Ctrl+Q", "Ctrl+Q Quit", "Quit Duo and preserve session"},
+	{[]string{"tab"}, "Tab", "", "Autocomplete the highlighted slash command; switch agent inside the model picker"},
+	{[]string{"esc"}, "Esc", "", "Dismiss the slash menu, close the model picker, or leave Help and the session overview"},
+	{[]string{"left", "right"}, "← / →", "", "Move the composer cursor"},
+	{[]string{"alt-left", "alt-right"}, "Alt+←/→", "", "Move the composer cursor by word"},
+	{[]string{"up", "down"}, "↑ / ↓", "", "Move between composer lines; recall task history at the first/last line"},
+	{[]string{"page-up", "page-down"}, "PgUp / PgDn", "", "Scroll the conversation timeline earlier or later"},
+	{[]string{"home", "end"}, "Home / End", "", "Move to the start or end of the composer line"},
+	{[]string{"ctrl-u", "ctrl-k"}, "Ctrl+U / Ctrl+K", "", "Delete to the start or end of the composer line"},
+	{[]string{"ctrl-w"}, "Ctrl+W", "", "Delete the previous word"},
+	{[]string{"backspace", "delete"}, "Backspace / Delete", "", "Delete the previous or next composer character"},
+	{nil, "Mouse wheel", "", "Scroll the conversation timeline"},
+	{nil, "Mouse drag", "", "Select timeline text; copies to clipboard on release"},
+	{nil, "Mouse click [↗]", "", "Attach that agent's native Pi from its work preview header"},
+}
+
+// modelPickerKeys documents the modal opened by Ctrl+M / Alt+M, which replaces
+// the composer while it is open.
+var modelPickerKeys = []keyBinding{
+	{[]string{"tab"}, "Tab", "", "Switch the target agent between Austin and Tony"},
+	{[]string{"shift-tab"}, "Shift+Tab", "", "Cycle the target agent's thinking level"},
+	{nil, "type / Backspace / Delete", "", "Filter the catalog the target's own driver reports"},
+	{[]string{"up", "down"}, "↑ / ↓", "", "Move the cursor one row"},
+	{[]string{"page-up", "page-down"}, "PgUp / PgDn", "", "Move the cursor one page"},
+	{[]string{"home", "end"}, "Home / End", "", "Jump to the first / last model"},
+	{[]string{" "}, "Space", "", "Apply the model and keep the picker open"},
+	{[]string{"enter"}, "Enter", "", "Apply the model and close the picker"},
+	{[]string{"esc", "ctrl-m", "alt-m"}, "Esc / Ctrl+M / Alt+M", "", "Close the picker without applying"},
 }
 
 func composerPrefix() string { return " Duo → Austin > " }
@@ -116,19 +138,24 @@ func (a *App) helpLines(width int) []string {
 			"--resume always uses the persisted mode.",
 		}},
 		{"Keyboard", helpKeyboardLines()},
+		{"Model Picker (Ctrl+M)", helpModelPickerLines()},
 		{"Slash Commands", []string{
 			"Type / in the composer to open the interactive command palette.",
 			"Navigate with ↑/↓, Tab to autocomplete, Enter to select/execute, Esc to dismiss.",
-			"/escalate [reason]  Dynamically upgrade Fast session to Goal mode.",
-			"/mode [fast|goal]   Switch session mode (/mode goal escalates to Goal).",
-			"/model              Open the model and thinking level picker (Ctrl+M).",
-			"/overview           Toggle the session overview and git diffstat (Ctrl+O).",
-			"/preview            Toggle the agent work preview band (Ctrl+P).",
-			"/timestamps         Toggle message timestamps (Ctrl+G).",
-			"/help               Open Duo Help screen (Ctrl+/).",
-			"/status             Print authoritative session and worktree status.",
-			"/clear              Clear input composer and reset status notice.",
-			"/quit or /exit      Exit Duo and preserve session state.",
+			"/escalate [reason]  Dynamically upgrade a Fast session to Goal mode.",
+			"/mode                Print the current session mode.",
+			"/mode goal           Upgrade the session to Goal mode; /mode fast is rejected, a session never returns to Fast.",
+			"/model               Open the model and thinking level picker (Ctrl+M).",
+			"/overview            Toggle the session overview and git diffstat (Ctrl+O).",
+			"/preview             Toggle the agent work preview band (Ctrl+P).",
+			"/timestamps          Toggle message timestamps (Ctrl+G).",
+			"/help                Open Duo Help screen (Ctrl+/).",
+			"/status              Print authoritative session and worktree status.",
+			"/clear               The composer only holds this command, so it is already empty; Duo forces a full redraw and says so.",
+			"/quit or /exit       Exit Duo and preserve session state.",
+			"An unknown command is reported as an error. //text and an absolute path (e.g. /usr/bin/python) are sent to Austin as a task.",
+			"Composer history is persisted to ~/.duo/history (override with DUO_HISTORY_FILE) and is recalled with ↑/↓ at the first/last line.",
+			"Ctrl+Shift+Enter and Ctrl+M need a terminal that reports them distinctly (CSI-u or modifyOtherKeys); use Ctrl+Enter and Alt+M elsewhere.",
 		}},
 		{"Collaboration Lifecycle", lifecycle},
 		{"Native Pi", []string{
@@ -136,8 +163,10 @@ func (a *App) helpLines(width int) []string {
 			"In native Pi, /model, /settings, /tree, Pi extensions, and Pi shortcuts are handled by Pi.",
 			"Return to Duo with Ctrl+], Ctrl+\\ or Ctrl+】.",
 		}},
+		{"Command Line", helpCommandLineLines()},
 		{"Resume & Recovery", []string{
-			"duo --resume", "duo --resume <session-id>",
+			"duo --resume (or -r, or the bare word resume) picks this repository's unfinished session;",
+			"duo --resume <id> picks one specific session.",
 			"Resume restores Duo state, worktrees, Pi conversation identity, working scope, pane history, and collaboration wake-up.",
 		}},
 		{"Delivery", []string{
@@ -171,6 +200,27 @@ func helpKeyboardLines() []string {
 		lines = append(lines, "  "+binding.Keys+strings.Repeat(" ", maxInt(12-displayWidth(binding.Keys), 1))+binding.Description)
 	}
 	return append(lines, "", "Help navigation:", "  ↑ / k        Scroll up", "  ↓ / j        Scroll down", "  PgUp         Previous page", "  PgDn         Next page", "  Home / g     Top", "  End / G      Bottom", "  Esc          Close Help", "  Ctrl+/       Close Help", "  Ctrl+Q       Quit Duo")
+}
+
+func helpModelPickerLines() []string {
+	lines := make([]string, 0, len(modelPickerKeys))
+	for _, binding := range modelPickerKeys {
+		lines = append(lines, "  "+binding.Keys+strings.Repeat(" ", maxInt(24-displayWidth(binding.Keys), 1))+binding.Description)
+	}
+	return lines
+}
+
+// helpCommandLineLines is the in-app mirror of the duo CLI surface. Every
+// signature line comes from internal/clidoc, the same table `duo --help`
+// renders, so the two cannot drift.
+func helpCommandLineLines() []string {
+	lines := append([]string{}, clidoc.SignatureLines()...)
+	return append(lines,
+		"",
+		"Aliases: --driver = --agent; --austin-agent / --tony-agent = --austin-driver / --tony-driver;",
+		"bare 'resume' and -r = --resume.",
+		"Run duo --help for every flag, its default, and the DUO_* environment variables.",
+	)
 }
 
 func (a *App) helpVisibleRows() int { return maxInt(a.height-4, 1) }

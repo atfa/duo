@@ -17,7 +17,7 @@ type slashCmd struct {
 
 var slashCommandList = []slashCmd{
 	{Name: "/escalate", Args: "[reason]", Description: "平滑升级至 Goal 模式 · Escalate to Goal mode", NeedsArgs: true},
-	{Name: "/mode", Args: "goal", Description: "切换或升级会话模式 · Switch session mode", NeedsArgs: true},
+	{Name: "/mode", Args: "[fast|goal]", Description: "报告或升级会话模式 · Report or escalate session mode", NeedsArgs: true},
 	{Name: "/model", Args: "", Description: "选择模型与思考级别 · Model & thinking picker (Ctrl+M)", NeedsArgs: false},
 	{Name: "/overview", Args: "", Description: "查看会话概览与变更统计 · Session overview & diffstat (Ctrl+O)", NeedsArgs: false},
 	{Name: "/preview", Args: "", Description: "切换工作轨迹预览栏 · Toggle work preview (Ctrl+P)", NeedsArgs: false},
