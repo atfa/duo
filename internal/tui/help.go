@@ -34,11 +34,11 @@ type keyBinding struct {
 var keyBindings = []keyBinding{
 	{[]string{"enter"}, "Enter", "Enter Send", "Send task/message to Austin; selects the highlighted command when the palette is open"},
 	{[]string{"ctrl-enter"}, "Ctrl/Shift+Enter", "Ctrl/Shift+Enter Newline", "Insert a newline in the composer"},
-	{[]string{"ctrl-a"}, "Ctrl+A", "Ctrl+A/T Native", "Open Austin native Pi"},
-	{[]string{"ctrl-t"}, "Ctrl+T", "", "Open Tony native Pi"},
-	{nil, "Ctrl+]", "", "Return from native Pi to Duo (only while a native Pi is attached)"},
-	{nil, "Ctrl+\\", "", "Return from native Pi to Duo (only while a native Pi is attached)"},
-	{nil, "Ctrl+】", "", "Return from native Pi to Duo (only while a native Pi is attached)"},
+	{[]string{"ctrl-a"}, "Ctrl+A", "Ctrl+A/T Native", "Attach to Austin's own agent session directly"},
+	{[]string{"ctrl-t"}, "Ctrl+T", "", "Attach to Tony's own agent session directly"},
+	{nil, "Ctrl+]", "", "Return from the agent's own session to Duo (only while attached)"},
+	{nil, "Ctrl+\\", "", "Return from the agent's own session to Duo (only while attached)"},
+	{nil, "Ctrl+】", "", "Return from the agent's own session to Duo (only while attached)"},
 	{[]string{"ctrl-r"}, "Ctrl+R", "", "Restart Austin if exited/failed"},
 	{[]string{"ctrl-y"}, "Ctrl+Y", "", "Restart Tony if exited/failed"},
 	{[]string{"ctrl-slash"}, "Ctrl+/", "Ctrl+/ Help", "Toggle Help"},
@@ -60,7 +60,7 @@ var keyBindings = []keyBinding{
 	{[]string{"backspace", "delete"}, "Backspace / Delete", "", "Delete the previous or next composer character"},
 	{nil, "Mouse wheel", "", "Scroll the conversation timeline"},
 	{nil, "Mouse drag", "", "Select timeline text; copies to clipboard on release"},
-	{nil, "Mouse click [↗]", "", "Attach that agent's native Pi from its work preview header"},
+	{nil, "Mouse click [↗]", "", "Attach that agent's own session from its work preview header"},
 }
 
 // modelPickerKeys documents the modal opened by Ctrl+M / Alt+M, which replaces
@@ -158,9 +158,9 @@ func (a *App) helpLines(width int) []string {
 			"Ctrl+Shift+Enter and Ctrl+M need a terminal that reports them distinctly (CSI-u or modifyOtherKeys); use Ctrl+Enter and Alt+M elsewhere.",
 		}},
 		{"Collaboration Lifecycle", lifecycle},
-		{"Native Pi", []string{
-			"Ctrl+A → Austin native Pi; Ctrl+T → Tony native Pi.",
-			"In native Pi, /model, /settings, /tree, Pi extensions, and Pi shortcuts are handled by Pi.",
+		{"Native session", []string{
+			"Ctrl+A → Austin; Ctrl+T → Tony. This bypasses Duo: the phase machine and the task are untouched, so nothing is requested, verified or delivered.",
+			"While attached, the agent's own commands and key bindings are handled by the agent, not by Duo — whatever CLI it runs (pi, agy or opencode).",
 			"Return to Duo with Ctrl+], Ctrl+\\ or Ctrl+】.",
 		}},
 		{"Command Line", helpCommandLineLines()},

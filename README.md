@@ -122,7 +122,7 @@ PLAN → EXECUTE → REVIEW → INTEGRATE → DONE
 
 In both modes a phase is a **checkpoint, not a behavioral cage**: Duo does not stop an agent from reading code or reviewing a diff early; the phase only decides what evidence is required to advance.
 
-`DONE` is terminal for the round, not for the session. Submitting another task through the Duo composer reopens it for a new round — Fast returns to `RUNNING`, Goal to `PLAN` — and clears the finished round's delivery checkpoint so the follow-up can be verified and delivered on its own. Talking to an agent directly through native Pi (`Ctrl+A` / `Ctrl+T`) does not route a task through Duo, but it stays recoverable in Fast mode: when Austin commits new work there and requests verification, Duo opens a fresh round on the new HEAD instead of rejecting the request, so the follow-up can still be verified and delivered. A repeated request that still names the already-delivered HEAD is rejected, so a stray resend never reopens a delivered session.
+`DONE` is terminal for the round, not for the session. Submitting another task through the Duo composer reopens it for a new round — Fast returns to `RUNNING`, Goal to `PLAN` — and clears the finished round's delivery checkpoint so the follow-up can be verified and delivered on its own. Attaching to an agent's own session (`Ctrl+A` / `Ctrl+T`) does not route a task through Duo, but it stays recoverable in Fast mode: when Austin commits new work there and requests verification, Duo opens a fresh round on the new HEAD instead of rejecting the request, so the follow-up can still be verified and delivered. A repeated request that still names the already-delivered HEAD is rejected, so a stray resend never reopens a delivered session.
 
 A Goal plan update creates a new version and **invalidates both signatures**, so wording churn has a visible cost. In Goal, a sign-off is bound to an exact commit: if the peer pushes a new commit, the previous review is stale and must be repeated.
 
@@ -151,9 +151,9 @@ A build can take a long time, and the timeline only changes when an agent finish
 |---|---|
 | `Enter` | Send composer text to Austin |
 | `Ctrl+Enter` / `Shift+Enter`\* | Insert a newline in the composer |
-| `Ctrl+A` | Attach Austin's native Pi |
-| `Ctrl+T` | Attach Tony's native Pi |
-| `Ctrl+]` / `Ctrl+\` / `Ctrl+】` | Return from native Pi to Duo |
+| `Ctrl+A` | Attach to Austin's own agent session directly |
+| `Ctrl+T` | Attach to Tony's own agent session directly |
+| `Ctrl+]` / `Ctrl+\` / `Ctrl+】` | Return from the agent's own session to Duo |
 | `Ctrl+R` / `Ctrl+Y` | Restart Austin / Tony if the process exited or failed |
 | `Ctrl+/` | Open or close Duo Help |
 | `Ctrl+P` | Show or hide the Austin/Tony work preview band |
@@ -172,7 +172,7 @@ A build can take a long time, and the timeline only changes when an agent finish
 | `PgUp` / `PgDn` | Scroll the conversation timeline earlier or later |
 | Mouse wheel over the timeline | Scroll earlier messages |
 | Mouse drag over the timeline | Select text and copy it to the clipboard |
-| Mouse click on `[↗]` in a preview header | Attach that agent's native Pi, the same as `Ctrl+A` / `Ctrl+T` |
+| Mouse click on `[↗]` in a preview header | Attach that agent's own session, the same as `Ctrl+A` / `Ctrl+T` |
 
 Each timeline message header carries its `HH:MM:SS` time by default (`Austin → Tony · 14:30:05`), so one exchange is readable end to end; `Ctrl+G` hides or restores those stamps.
 

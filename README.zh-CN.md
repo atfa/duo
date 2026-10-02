@@ -122,7 +122,7 @@ PLAN → EXECUTE → REVIEW → INTEGRATE → DONE
 
 两种模式里，阶段都是**checkpoint，不是行为牢笼**：Duo 不会阻止 Agent 提前读代码或提前 Review；阶段只决定"推进需要哪些证据"。
 
-`DONE` 是**这一轮的终点，不是整个会话的终点**。在 Duo composer 里再提交一个任务会为新一轮重新打开会话——Fast 回到 `RUNNING`，Goal 回到 `PLAN`——并清掉上一轮已完成的交付 checkpoint，让后续任务可以重新验证、独立交付。而通过 native Pi（`Ctrl+A` / `Ctrl+T`）直接和某个 Agent 对话则**故意不这么做**：那条路径绕过 Duo，阶段保持不变。
+`DONE` 是**这一轮的终点，不是整个会话的终点**。在 Duo composer 里再提交一个任务会为新一轮重新打开会话——Fast 回到 `RUNNING`，Goal 回到 `PLAN`——并清掉上一轮已完成的交付 checkpoint，让后续任务可以重新验证、独立交付。而通过 `Ctrl+A` / `Ctrl+T` 直接进入某个 Agent 自己的会话则**故意不这么做**：那条路径绕过 Duo，阶段保持不变。
 
 Goal 里 Plan 一旦更新就产生新版本，并**使双方签字同时失效**，所以反复改措辞是有可见代价的。Goal 的签字绑定到一个确切的 commit：对方推了新 commit，你之前的 Review 就过期，必须重做。
 
@@ -153,9 +153,9 @@ Duo 的主界面是一条会话 **时间线**：单一时间顺序的消息流�
 |---|---|
 | `Enter` | 把 composer 内容发送给 Austin |
 | `Ctrl+Enter` / `Shift+Enter`\* | 在 composer 中插入换行 |
-| `Ctrl+A` | 进入 Austin 的原生 Pi |
-| `Ctrl+T` | 进入 Tony 的原生 Pi |
-| `Ctrl+]` / `Ctrl+\` / `Ctrl+】` | 从原生 Pi 返回 Duo |
+| `Ctrl+A` | 直接进入 Austin 自己的 Agent 会话 |
+| `Ctrl+T` | 直接进入 Tony 自己的 Agent 会话 |
+| `Ctrl+]` / `Ctrl+\` / `Ctrl+】` | 从该 Agent 自己的会话返回 Duo |
 | `Ctrl+R` / `Ctrl+Y` | 若 Austin / Tony 进程已退出或失败，重启它 |
 | `Ctrl+/` | 打开或关闭 Duo Help |
 | `Ctrl+P` | 显示或隐藏 Austin/Tony 的工作预览带 |
@@ -174,7 +174,7 @@ Duo 的主界面是一条会话 **时间线**：单一时间顺序的消息流�
 | `PgUp` / `PgDn` | 向上/向下滚动会话时间线 |
 | 鼠标滚轮悬停在时间线上 | 滚动更早的消息 |
 | 鼠标在时间线上拖拽选择 | 选中文本并复制到剪贴板 |
-| 鼠标点击预览标题行的 `[↗]` | 进入该 Agent 的原生 Pi，等同于 `Ctrl+A` / `Ctrl+T` |
+| 鼠标点击预览标题行的 `[↗]` | 进入该 Agent 自己的会话，等同于 `Ctrl+A` / `Ctrl+T` |
 
 时间线上的每条消息标题默认带上 `HH:MM:SS` 时间（`Austin → Tony · 14:30:05`），一次往来可以完整阅读；`Ctrl+G` 可隐藏或恢复这些时间。
 
@@ -208,7 +208,7 @@ Agent 输出按轻量 markdown 渲染：标题、引用、链接以及粗体/斜
 
 鼠标划选复制支持终端标准 OSC 52 转义序列（在远程 SSH、tmux 以及 Ghostty/WezTerm/Alacritty/Kitty 等现代终端中原生直通）并自动回退至宿主系统剪贴板工具（macOS 下 `pbcopy`、Wayland 下 `wl-copy`、X11 下 `xclip`/`xsel`）。
 
-Help 是一个完整的大屏视图，用 `↑`/`k`、`↓`/`j`、`PgUp`、`PgDn`、`Home`/`g`、`End`/`G` 滚动，用 `Esc` 或 `Ctrl+/` 关闭。在原生 Pi 中 `Ctrl+/` 仍直接交给 Pi，不会打开 Duo Help。Help 里除了上面的快捷键、斜杠命令与模型选择器，还有一个 **命令行（Command Line）** 小节，列出全部 `duo` 子命令与参数；完整用法、全部环境变量以及每个命令的详细说明见 `duo --help`。
+Help 是一个完整的大屏视图，用 `↑`/`k`、`↓`/`j`、`PgUp`、`PgDn`、`Home`/`g`、`End`/`G` 滚动，用 `Esc` 或 `Ctrl+/` 关闭。进入 Agent 自己的会话后，`Ctrl+/` 仍直接交给该 Agent，不会打开 Duo Help。Help 里除了上面的快捷键、斜杠命令与模型选择器，还有一个 **命令行（Command Line）** 小节，列出全部 `duo` 子命令与参数；完整用法、全部环境变量以及每个命令的详细说明见 `duo --help`。
 
 \* 只有当终端能明确区分上报该组合键时才会插入换行（`\x1b[13;2u` CSI-u 或 Duo 启用 modifyOtherKeys 后的 `\x1b[27;2;13~`）。若你的终端把 `Shift+Enter` 发成裸 `\r`，它会**提交**而不是换行——这种情况请改用 `Ctrl+Enter`（到达时是 `\n`）。`Ctrl+M` 有同样的限制：只有支持上述模式的终端才会把它上报成带 Ctrl 的 `m` 键（`\x1b[27;5;109~` 或 `\x1b[109;5u`），其余终端上与 `Enter` 无法区分——这种情况请用 `Alt+M`。
 

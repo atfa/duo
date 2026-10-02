@@ -205,7 +205,7 @@ func decodeEscape(seq string) string {
 }
 
 // decodeModifiedKey handles the CSI-u and modifyOtherKeys encodings enabled
-// by Duo so existing Ctrl shortcuts remain usable outside native Pi.
+// by Duo so existing Ctrl shortcuts remain usable outside a native attach.
 func decodeModifiedKey(seq string) string {
 	var code, modifier string
 	switch {
@@ -705,7 +705,7 @@ func (a *App) hitNativeButton(x, y int) protocol.AgentID {
 	}
 	l := a.layout()
 	// The attach button lives in the preview band header; the top row is the
-	// repository title, so a click there must not open native Pi.
+	// repository title, so a click there must not open a native attach.
 	if l.preview == 0 || y != l.content+3 {
 		return ""
 	}

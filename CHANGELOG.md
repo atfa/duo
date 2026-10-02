@@ -2,6 +2,12 @@
 
 All notable project milestones are documented here.
 
+## Unreleased
+
+### Interface
+
+- **The Help panel and the keybinding reference stop saying "native Pi".** Attaching to an agent with `Ctrl+A` / `Ctrl+T` has worked for every driver since agy and opencode were added, but the wording still named Pi, so it read as though only a pi agent could be attached. The rows now describe attaching to the agent's own session, and the Help section says explicitly that this bypasses Duo — the phase machine and the task are untouched, so nothing is requested, verified or delivered — and that the agent's own commands and key bindings apply, whichever CLI it runs. Both READMEs were corrected the same way.
+
 ## v0.9.0 — 2026-10-02
 
 A minor release because the surface changed rather than only the behaviour: Duo now writes a readable transcript of every session into the repository, the work preview reports token usage, and `duo logs` lists what it wrote. Alongside those, nine correctness fixes, including two that could lose an agent's conversation identity and one that could make `git revert` in the delivered history unsafe.

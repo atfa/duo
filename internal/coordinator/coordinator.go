@@ -424,7 +424,7 @@ func (c *Coordinator) EscalateToGoal(ctx context.Context, reason string) error {
 }
 
 // reopenFinishedSession turns a DONE session back into an active round when the
-// human submits a new task through the Duo composer. Native Pi attachment
+// human submits a new task through the Duo composer. A native attach
 // (Ctrl+A/Ctrl+T) writes straight to the agent PTY and never reaches this path,
 // so Austin reopening a finished round from there is handled separately by
 // reopenFastRoundForNewWork when it requests verification of a new HEAD.
@@ -1071,7 +1071,7 @@ func (c *Coordinator) handleFastSetStatus(ctx context.Context, client *transport
 
 // reopenFastRoundForNewWork detects a Fast round that was driven outside the Duo
 // composer. The composer reopens a DONE session through SubmitUserTask, but the
-// human can also talk to Austin in native Pi (Ctrl+A) and let it commit; that
+// human can also talk to Austin through a native attach (Ctrl+A) and let it commit; that
 // path never reaches Duo, so Austin's next completion request is the only signal
 // of the new round. A request that names a different Austin HEAD than the
 // delivered round is genuine new work: reopen the finished round and let the

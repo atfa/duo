@@ -161,7 +161,7 @@ func (a *App) Run(ctx context.Context) error {
 	}
 }
 
-// applyAction is the one place TUI-mode actions are applied. Native Pi input
+// applyAction is the one place TUI-mode actions are applied. While an agent's
 // bypasses it entirely in Run so Pi keeps ownership of its Ctrl+/ handling.
 func (a *App) applyAction(ctx context.Context, action inputAction) bool {
 	switch action.kind {
@@ -392,7 +392,7 @@ func readBytes(r io.Reader, out chan<- byte) {
 func (a *App) enterNative(agent protocol.AgentID) error {
 	s, ok := a.agents.Session(agent)
 	if !ok || !s.Running() {
-		return fmt.Errorf("%s native Pi session is not running", agent)
+		return fmt.Errorf("%s agent session is not running", agent)
 	}
 	a.syncSize()
 	a.native = agent
