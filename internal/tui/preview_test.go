@@ -648,3 +648,59 @@ func TestPreviewAgySqlite3WatcherAndTUIInteraction(t *testing.T) {
 		t.Fatalf("expected notice once, got %d times in timeline: %q", count, timelineText(a))
 	}
 }
+
+// The sqlite3 probe is a PATH lookup, and it used to run once per event (route)
+// plus twice per frame (previewHeader). It is decided once per App instead, so
+// changing PATH afterwards must not change what the session shows.
+func TestSqlite3ProbeIsDecidedOncePerApp(t *testing.T) {
+	origLookPath := agent.LookPath
+	defer func() { agent.LookPath = origLookPath }()
+
+	tests := []struct {
+		name          string
+		presentAtOpen bool
+		presentLater  bool
+		wantBadge     string
+	}{
+		{name: "sqlite3 installed after startup", presentAtOpen: false, presentLater: true, wantBadge: "no sqlite3"},
+		{name: "sqlite3 removed after startup", presentAtOpen: true, presentLater: false, wantBadge: ""},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			probes := 0
+			present := tc.presentAtOpen
+			agent.LookPath = func(string) (string, error) {
+				probes++
+				if present {
+					return "/usr/bin/sqlite3", nil
+				}
+				return "", exec.ErrNotFound
+			}
+
+			a := testApp(140, 30)
+			mgr := agent.NewManager()
+			mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "agy", state: agent.ProcessRunning})
+			a.agents = mgr
+			if probes != 1 {
+				t.Fatalf("probes after startup = %d, want 1", probes)
+			}
+
+			present = tc.presentLater
+			for i := 0; i < 5; i++ {
+				a.route(events.Event{Agent: protocol.Austin, Kind: events.KindActivity})
+			}
+			a.previewHeader(protocol.Austin, 120)
+			if probes != 1 {
+				t.Fatalf("probes after 5 events and a frame = %d, want 1", probes)
+			}
+			badge := a.previewUsage(protocol.Austin, harness.AgentRuntime{})
+			if tc.wantBadge == "" {
+				if strings.Contains(badge, "no sqlite3") {
+					t.Fatalf("previewUsage = %q, want no 'no sqlite3' badge", badge)
+				}
+			} else if !strings.Contains(badge, tc.wantBadge) {
+				t.Fatalf("previewUsage = %q, want %q from the cached probe", badge, tc.wantBadge)
+			}
+		})
+	}
+}

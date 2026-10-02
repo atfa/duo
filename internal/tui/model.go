@@ -123,6 +123,11 @@ type App struct {
 	hidePreview bool
 
 	warnedSqlite3 bool
+	// hasSqlite3 is decided once, when the App is built, and every reader uses
+	// the cached answer. Whether the sqlite3 CLI is on PATH cannot change while
+	// a session runs, so re-running exec.LookPath per event and per frame was
+	// pure overhead on the render hot path.
+	hasSqlite3 bool
 
 	austin []entry
 	tony   []entry
@@ -174,7 +179,8 @@ func New(
 		modelErrByAgent:     map[protocol.AgentID]string{},
 		timeline:            true,
 		showTimestamps:      true,
-		currentModel:        map[protocol.AgentID]string{}, currentThinking: map[protocol.AgentID]string{}}
+		currentModel:        map[protocol.AgentID]string{}, currentThinking: map[protocol.AgentID]string{},
+		hasSqlite3: agent.HasSqlite3()}
 	for _, item := range history {
 		a.restoreEntry(item)
 	}

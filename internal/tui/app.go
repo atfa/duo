@@ -60,7 +60,7 @@ func (a *App) announceRunningAgents() {
 }
 
 func (a *App) warnSqlite3Once() {
-	if a.warnedSqlite3 || agent.HasSqlite3() {
+	if a.warnedSqlite3 || a.hasSqlite3 {
 		return
 	}
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
