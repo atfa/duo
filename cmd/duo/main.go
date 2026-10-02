@@ -351,6 +351,22 @@ func (r *runtime) serve(ctx context.Context) error {
 			}
 		case "agent_exit":
 			r.logger.Printf("%s exited (state=%s): %v", event.Agent, event.State, event.Err)
+			// A driver that refuses to run says why once, on its own output, and
+			// "exit status 1" alone leaves the operator guessing. Write the reason
+			// to the session log and repeat it in the interface, so the cause is
+			// where the failure is reported.
+			if reason := strings.TrimSpace(event.Output); reason != "" {
+				r.logger.Printf("%s output before exit:\n%s", event.Agent, indentBlock(reason))
+				// Addressed to Duo's own pane, which is the timeline: the failed
+				// agent's pane already shows the raw stream, and repeating it
+				// there would bury the reason under a second "ERROR:".
+				bus.Emit(events.Event{
+					Time:  time.Now(),
+					Kind:  events.KindError,
+					Agent: protocol.Duo,
+					Text:  fmt.Sprintf("%s exited (%s):\n%s", event.Agent, exitReason(event), reason),
+				})
+			}
 		}
 		bus.Emit(events.Event{Time: time.Now(), Kind: events.KindActivity, Agent: event.Agent})
 	})
@@ -491,6 +507,21 @@ func (r *runtime) serve(ctx context.Context) error {
 	}
 	fmt.Printf("\nDuo stopped. Session %s was preserved; resume it with `duo --resume %s`.\nWorktrees preserved in %s\n", what, r.sessionID, r.set.Root)
 	return nil
+}
+
+// exitReason describes a failed process in one clause, for a headline above the
+// driver's own output.
+func exitReason(event agent.LifecycleEvent) string {
+	if event.Err != nil {
+		return event.Err.Error()
+	}
+	return event.State.String()
+}
+
+// indentBlock keeps a multi-line driver message readable in the session log
+// without letting its later lines look like unrelated entries.
+func indentBlock(text string) string {
+	return "  " + strings.ReplaceAll(strings.TrimRight(text, "\n"), "\n", "\n  ")
 }
 
 func sessionToken() (string, error) {

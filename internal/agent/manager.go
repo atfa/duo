@@ -22,6 +22,10 @@ type LifecycleEvent struct {
 	Agent protocol.AgentID
 	State ProcessState
 	Err   error
+	// Output carries what a failed process printed before it ended, so the
+	// session log and the interface can show the driver's own reason rather than
+	// only the exit status. Empty unless the process failed.
+	Output string
 }
 
 type Observer func(LifecycleEvent)
@@ -46,7 +50,7 @@ func (m *Manager) observe(event LifecycleEvent) {
 
 func (m *Manager) Add(driver Driver) {
 	driver.SetOnExit(func(event ExitEvent) {
-		m.observe(LifecycleEvent{Kind: "agent_exit", Agent: event.Agent, State: event.State, Err: event.Err})
+		m.observe(LifecycleEvent{Kind: "agent_exit", Agent: event.Agent, State: event.State, Err: event.Err, Output: event.Output})
 	})
 	m.mu.Lock()
 	defer m.mu.Unlock()

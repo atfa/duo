@@ -91,6 +91,12 @@ type ExitEvent struct {
 	Agent protocol.AgentID
 	State ProcessState
 	Err   error
+	// Output is the tail of what the process wrote before it ended, present only
+	// when it failed. A CLI driver launched into a PTY merges its stderr into
+	// that stream, so this is where the driver's own diagnosis lands: a rejected
+	// flag or an unknown model is printed there and nowhere else. Without it the
+	// operator sees only "exit status 1" and has to guess.
+	Output string
 }
 
 type Session struct {
@@ -564,7 +570,11 @@ func (s *Session) Start(ctx context.Context) error {
 		onExit := s.cfg.OnExit
 		s.mu.Unlock()
 		if onExit != nil {
-			onExit(ExitEvent{Agent: s.cfg.Agent, State: final, Err: err})
+			event := ExitEvent{Agent: s.cfg.Agent, State: final, Err: err}
+			if final == ProcessFailed {
+				event.Output = s.failureOutput()
+			}
+			onExit(event)
 		}
 	}()
 	if s.isAgy() && s.cfg.ActivitySink != nil {
@@ -645,6 +655,16 @@ func (s *Session) Write(data []byte) error {
 	_, err := s.ptmx.Write(data)
 	return err
 }
+
+// failureOutput returns the tail of what the process wrote before it failed, or
+// an empty string when there was nothing to report. It is read under the lock
+// because the PTY reader appends to the same buffer.
+func (s *Session) failureOutput() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return failureTail(s.recent)
+}
+
 func (s *Session) Attach(w io.Writer) []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
