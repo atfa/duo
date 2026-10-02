@@ -34,15 +34,18 @@ func (c Command) Is(token string) bool {
 }
 
 // commands lists every duo command in the order `duo --help` presents them.
+// A Signature carries every spelling the parser accepts — long flag, short flag
+// and alias — so the usage test can require each of them to appear in both
+// documentation surfaces.
 var commands = []Command{
 	{
 		Name:      "duo",
-		Signature: "duo [repository] [--mode fast|goal] [--test-cmd <cmd>] [--agent pi|agy|opencode] [--resume [id]]",
+		Signature: "duo [repository] [--mode fast|goal|-m] [--test-cmd <cmd>] [--agent|--driver pi|agy|opencode] [--resume [id]|-r] [--austin-driver <driver>] [--tony-driver <driver>] (aliases: --austin-agent, --tony-agent)",
 		Summary:   "start a new session (Fast by default: Austin drives, Tony verifies)",
 	},
 	{
 		Name:      "apply",
-		Signature: "duo apply [session-id] | --session <id> | -s <id>",
+		Signature: "duo apply [session-id]   (also --session <id> | -s <id>)",
 		Summary:   "deliver a pending final result to this repository",
 	},
 	{
@@ -69,7 +72,7 @@ var commands = []Command{
 	{
 		Name:      "mcp-server",
 		Aliases:   []string{"mcp"},
-		Signature: "duo mcp-server (alias: duo mcp) [--agent austin|tony] [--session <id>] [--token <token>] [--host <host>] [--port <port>] [--export-config]",
+		Signature: "duo mcp-server (alias: duo mcp) [--agent austin|tony] [--session <id>] [--token <token>] [--host <host>] [--port <port>] [--export-config|--export|--config]",
 		Summary:   "serve Model Context Protocol (MCP) state machine tools over stdio",
 	},
 	{
