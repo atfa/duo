@@ -4,6 +4,8 @@ All notable project milestones are documented here.
 
 ## Unreleased
 
+- **A configuration test no longer depends on the environment it runs in.** Duo exports `DUO_DRIVER`, `DUO_MODE` and the rest of its variables into every agent's environment, and `loadConfig` reads them, so the same test resolved a different configuration depending on whether it ran from a shell or from inside a session. One test asserted that an agent's model was non-empty, which held only because a driver happened to have a default in that environment; an unconfigured opencode deliberately resolves to no model, so the assertion was claiming something about driver defaults rather than about the rule it meant to check. It now asserts on the exact model persisted for the driver still in use, and clears `DUO_*` for its duration. Both directions of the rule are now covered: a model recorded for the driver being switched away from is dropped, and one recorded for the driver still in use is carried through.
+
 ### Corrected
 
 - **The v0.7.0 changelog no longer names two environment variables that were never read.** `DUO_AUSTIN_DRIVER` and `DUO_TONY_DRIVER` were documented as a way to pick a per-agent driver, and no code has ever consulted them. The entry now lists the flags and `.duo/config.json` that do work, and says which variable sets both agents.

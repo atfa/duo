@@ -613,12 +613,39 @@ func TestOpencodeIgnoresBareModelFromAnotherDriver(t *testing.T) {
 //
 // The agent file records which driver the model was chosen for, which is what
 // makes the model safe to carry over or not.
+// clearDuoEnv removes every DUO_* variable for the duration of a test.
+//
+// Duo exports these into each agent's environment, so the same test resolves a
+// different configuration depending on whether it runs from a shell or from
+// inside a Duo session. DUO_DRIVER in particular overrides an agent's configured
+// driver, which is how this test came to fail for one of two agents reviewing
+// the same commit and pass for the other. Nothing here uses LookupEnv, so an
+// empty value is indistinguishable from an absent one.
+func clearDuoEnv(t *testing.T) {
+	t.Helper()
+	for _, kv := range os.Environ() {
+		if name, _, ok := strings.Cut(kv, "="); ok && strings.HasPrefix(name, "DUO_") {
+			t.Setenv(name, "")
+		}
+	}
+}
+
+// TestModelPersistedForAnotherDriverIsDropped covers the rule that a model
+// recorded for one driver is meaningless to another. Switching Tony to pi left
+// him dead at startup because his opencode model id rode along and pi rejects it.
+//
+// Both directions are exercised with the same mechanism, so the test does not
+// depend on what any driver happens to default to: Austin's model is recorded for
+// the driver that is still selected and must survive, Tony's is recorded for the
+// driver being switched away from and must go.
 func TestModelPersistedForAnotherDriverIsDropped(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, ".duo"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	body := `{"agents":{"tony":{"driver":"opencode","model":"opencode/space-bunny-free"}}}`
+	body := `{"agents":{` +
+		`"austin":{"driver":"pi","model":"keep-this-model"},` +
+		`"tony":{"driver":"opencode","model":"opencode/space-bunny-free"}}}`
 	if err := os.WriteFile(filepath.Join(root, ".duo", "config.json"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -631,11 +658,13 @@ func TestModelPersistedForAnotherDriverIsDropped(t *testing.T) {
 	if err := os.Chdir(root); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("DUO_REPO", "")
+	clearDuoEnv(t)
+
 	cfg, err := loadConfig([]string{"--tony-driver", "pi"})
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if got := cfg.agentDriver(protocol.Tony); got != "pi" {
 		t.Fatalf("Tony driver = %q, want pi", got)
 	}
@@ -646,9 +675,17 @@ func TestModelPersistedForAnotherDriverIsDropped(t *testing.T) {
 	if cmd := cfg.agentCommand(protocol.Tony); strings.Contains(cmd, "opencode/") {
 		t.Errorf("pi command still carries the opencode model: %s", cmd)
 	}
-	// Austin is untouched: same driver, so his model must survive.
-	if got := cfg.agentModel(protocol.Austin); got == "" {
-		t.Error("Austin's model was dropped even though his driver did not change")
+
+	// Austin is not collateral damage: his model was recorded for the driver
+	// still in use, so it must be carried through untouched. Asserting on his
+	// exact model rather than on it being non-empty is deliberate — an
+	// unconfigured opencode is supposed to resolve to no model at all, so
+	// "non-empty" would be a claim about driver defaults, not about this rule.
+	if got := cfg.agentModel(protocol.Austin); got != "keep-this-model" {
+		t.Errorf("Austin model = %q, want the one persisted for his own driver", got)
+	}
+	if cmd := cfg.agentCommand(protocol.Austin); !strings.Contains(cmd, "keep-this-model") {
+		t.Errorf("Austin's pi command lost his model: %s", cmd)
 	}
 }
 
