@@ -4,6 +4,31 @@ import type { AgentName } from "./protocol";
 type Role = "user" | "assistant";
 
 /**
+ * opencode reports real token counts on every assistant message
+ * (`tokens {input, output, reasoning, cache{read, write}}`) and on the
+ * `step-finish` part. Only the model catalog knows the window, so the caller
+ * supplies a resolver keyed by provider/model id.
+ */
+export type ContextWindowResolver = (
+  providerID: string,
+  modelID: string,
+) => Promise<number | undefined>;
+
+/**
+ * Context tokens carried by a request: everything the model must re-read on the
+ * next turn. `output` is excluded because it is not yet part of the context.
+ */
+function contextTokens(tokens: any): number | undefined {
+  if (!tokens || typeof tokens !== "object") return undefined;
+  const input = Number(tokens.input ?? 0);
+  const reasoning = Number(tokens.reasoning ?? 0);
+  const cacheRead = Number(tokens.cache?.read ?? 0);
+  if (![input, reasoning, cacheRead].every(Number.isFinite)) return undefined;
+  const total = input + reasoning + cacheRead;
+  return total > 0 ? total : undefined;
+}
+
+/**
  * Maps opencode's event bus onto Duo's activity vocabulary.
  *
  * Duo's harness keeps a busy/idle clock per agent and only nudges when it
@@ -16,6 +41,7 @@ export function installLifecycle(
   transport: DuoTransport,
   agent: AgentName,
   isOurSession: (eventType: string, properties: any) => boolean,
+  resolveContextWindow?: ContextWindowResolver,
 ) {
   // opencode's parts carry a messageID but no role, so the only way to tell
   // assistant output from an injected prompt is to learn the role from
@@ -35,15 +61,29 @@ export function installLifecycle(
   let blockOrder: string[] = [];
 
   // The provider call is the span between opencode creating an assistant message
-  // and that message's first part. Without it the harness never learns an agent
+  // and that message's `step-finish`. Without it the harness never learns an agent
   // is thinking, and it nudges a model that is merely slow.
+  //
+  // The span deliberately covers streamed output rather than ending at the first
+  // part: Duo only renders the output rate while the provider is active, so
+  // closing it on the first token discarded the speed it was supposed to show.
   let providerOpen = false;
+
+  // Latest real usage, kept so the numbers survive activity messages that
+  // carry no usage of their own (tool_start, stream throttles).
+  let usage: { contextTokens?: number; contextWindow?: number } = {};
+  let speedSamples: Array<{ at: number; chars: number }> = [];
+  const windowCache = new Map<string, number>();
+  // The model is named on the message, not on its parts, so the ids seen at
+  // provider start are reused for the window lookup at step-finish.
+  let model: { providerID?: string; modelID?: string } = {};
 
   const reset = () => {
     turnStarted = false;
     blocks.clear();
     blockOrder = [];
     lastStreamAt = 0;
+    speedSamples = [];
     closeProvider();
   };
 
@@ -59,7 +99,42 @@ export function installLifecycle(
   const closeProvider = () => {
     if (!providerOpen) return;
     providerOpen = false;
-    transport.sendActivity("provider_end");
+    speedSamples = [];
+    transport.sendActivity("provider_end", { ...usage });
+  };
+
+  /**
+   * Approximate output rate from recently streamed characters (~4 chars/token).
+   * opencode reports exact output tokens, but only once per step, so a rate
+   * computed from them would lag the text the user is watching by a whole step.
+   */
+  const tokensPerSecond = (now: number): number => {
+    speedSamples = speedSamples.filter((sample) => now - sample.at <= 3000);
+    if (speedSamples.length < 2) return 0;
+    const elapsed = (now - speedSamples[0].at) / 1000;
+    if (elapsed < 0.5) return 0;
+    const chars = speedSamples.reduce((total, sample) => total + sample.chars, 0);
+    return chars / 4 / elapsed;
+  };
+
+  /**
+   * Resolve and remember the model's context window. Cached per model because
+   * the catalog lookup is an async round trip on a path that runs per step.
+   */
+  const windowFor = async (providerID?: string, modelID?: string) => {
+    if (!resolveContextWindow || !providerID || !modelID) return;
+    if (usage.contextWindow) return;
+    const key = `${providerID}/${modelID}`;
+    const cached = windowCache.get(key);
+    if (cached) {
+      usage.contextWindow = cached;
+      return;
+    }
+    const resolved = await resolveContextWindow(providerID, modelID);
+    if (resolved && resolved > 0) {
+      windowCache.set(key, resolved);
+      usage.contextWindow = Math.round(resolved);
+    }
   };
 
   const assistantText = (): string =>
@@ -106,7 +181,18 @@ export function installLifecycle(
         if (info.role === "assistant" && !providerOpen) {
           beginTurn();
           providerOpen = true;
+          speedSamples = [];
+          model = { providerID: info.providerID, modelID: info.modelID };
           transport.sendActivity("provider_start");
+        }
+        // opencode reports the running totals on the message itself, so the
+        // context figure stays fresh across a multi-step turn.
+        if (info.role === "assistant" && info.tokens) {
+          const tokens = contextTokens(info.tokens);
+          if (tokens !== undefined) usage.contextTokens = tokens;
+          // Fire and forget: a pending window lookup must not delay the event
+          // pump, and the next usage update carries whatever it resolved.
+          void windowFor(info.providerID, info.modelID);
         }
         break;
       }
@@ -119,6 +205,16 @@ export function installLifecycle(
       case "message.part.updated": {
         const part = properties.part;
         if (!part) break;
+
+        // The end of one model call. usage here is cumulative for the message, so
+        // it is the most accurate reading available.
+        if (part.type === "step-finish") {
+          const tokens = contextTokens(part.tokens);
+          if (tokens !== undefined) usage.contextTokens = tokens;
+          void windowFor(model.providerID, model.modelID);
+          closeProvider();
+          break;
+        }
 
         if (part.type === "tool") {
           // Tool calls are the assistant acting, so they need no role lookup, but
@@ -145,18 +241,28 @@ export function installLifecycle(
           // A prompt or harness nudge arrives as a user message and is never
           // reported back to the human as if the agent had said it.
           if (!part.messageID || roles.get(part.messageID) !== "assistant") break;
-          if (providerOpen) closeProvider();
           beginTurn();
           const blockID = part.id ?? `${part.messageID}#${blockOrder.length}`;
+          const previous = blocks.get(blockID) ?? "";
           if (!blocks.has(blockID)) blockOrder.push(blockID);
           blocks.set(blockID, part.text);
+
+          // A re-reported part carries its own cumulative text, so the delta is
+          // what actually arrived since the last update.
+          const chars = Math.max(0, part.text.length - previous.length);
 
           // Throttle: a streamed token fires per delta, and Duo only needs
           // enough to show that the agent is alive.
           const now = Date.now();
+          if (chars > 0) speedSamples.push({ at: now, chars });
           if (now - lastStreamAt >= 1000) {
             lastStreamAt = now;
-            transport.sendActivity("stream", { detail: tail(assistantText(), 1200) });
+            const rate = tokensPerSecond(now);
+            transport.sendActivity("stream", {
+              detail: tail(assistantText(), 1200),
+              ...usage,
+              ...(rate > 0 ? { tokensPerSecond: rate } : {}),
+            });
           }
         }
         break;

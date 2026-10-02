@@ -43,8 +43,25 @@ export default (async ({ client }: any) => {
   const mode = parseDuoMode(process.env.DUO_MODE);
   const tracker = new SessionTracker(process.env.DUO_OPENCODE_SESSION_FILE ?? "");
 
-  const lifecycle = installLifecycle(transport, AGENT, (type, properties) =>
-    tracker.observe(type, properties),
+  // The context window is not carried by any event: it lives in the provider
+  // catalog, so it costs one request the first time a model is seen.
+  const lifecycle = installLifecycle(
+    transport,
+    AGENT,
+    (type, properties) => tracker.observe(type, properties),
+    async (providerID, modelID) => {
+      try {
+        const { data } = await client.config.providers();
+        for (const provider of data?.providers ?? []) {
+          if (provider.id !== providerID) continue;
+          const limit = provider.models?.[modelID]?.limit?.context;
+          if (typeof limit === "number" && limit > 0) return limit;
+        }
+      } catch (error) {
+        console.error("[duo] failed to resolve context window:", error);
+      }
+      return undefined;
+    },
   );
 
   // opencode's TUI only creates its session on the first thing the human or the
