@@ -141,6 +141,9 @@ type runtime struct {
 
 	agents      *agent.Manager
 	piSessions  map[protocol.AgentID]string
+	// generatedIDs marks the ids this run invented rather than reused, so a
+	// driver that owns its own identity is not handed one of ours.
+	generatedIDs map[protocol.AgentID]bool
 	integration workspace.IntegrationResult
 	delivery    sessionstore.Delivery
 	tuiHistory  []sessionstore.TUIEntry
@@ -246,7 +249,7 @@ func runFresh(ctx context.Context, cfg config, root, scope, repoID, baseDir stri
 	}
 	defer lock.Release()
 
-	piSessions, err := piSessionIDs(nil)
+	piSessions, generatedIDs, err := piSessionIDs(nil)
 	if err != nil {
 		return err
 	}
@@ -260,10 +263,11 @@ func runFresh(ctx context.Context, cfg config, root, scope, repoID, baseDir stri
 		ws:         ws,
 		set:        set,
 		store:      store,
-		journal:    store.OpenEvents(),
-		logger:     store.OpenLog(),
-		piSessions: piSessions,
-		mode:       cfg.mode,
+		journal:      store.OpenEvents(),
+		logger:       store.OpenLog(),
+		piSessions:   piSessions,
+		generatedIDs: generatedIDs,
+		mode:         cfg.mode,
 	}
 	r.logger.Printf("starting Duo %s session %s mode=%s (source=%s) repository=%s scope=%s", version.Version, r.sessionID, r.mode, r.cfg.modeSource, root, set.ScopePath)
 	r.journal.Record("session_start", map[string]any{
@@ -397,7 +401,7 @@ func (r *runtime) serve(ctx context.Context) error {
 				Session:           r.sessionID,
 				Token:             token,
 				Command:           r.cfg.agentCommand(agentID),
-				AgyConversationID: r.piSessions[agentID],
+				AgyConversationID: r.driverOwnedID(agentID),
 				Model:             modelName,
 				ActivitySink: agent.FuncActivitySink(func(ag protocol.AgentID, msg protocol.Message) {
 					coord.RecordActivity(ag, msg)
@@ -507,6 +511,19 @@ func (r *runtime) serve(ctx context.Context) error {
 	}
 	fmt.Printf("\nDuo stopped. Session %s was preserved; resume it with `duo --resume %s`.\nWorktrees preserved in %s\n", what, r.sessionID, r.set.Root)
 	return nil
+}
+
+// driverOwnedID returns an agent's identity only if the driver reported it on an
+// earlier run. agy assigns conversation ids itself and refuses one it has not
+// seen, and opencode assigns session ids server-side, so for both the value must
+// be learned and replayed rather than invented. Returning empty leaves agy to
+// open a conversation, which its watcher then learns, instead of being sent an id
+// it will reject while Duo persists that same rejected id for next time.
+func (r *runtime) driverOwnedID(id protocol.AgentID) string {
+	if r.generatedIDs[id] {
+		return ""
+	}
+	return r.piSessions[id]
 }
 
 // exitReason describes a failed process in one clause, for a headline above the

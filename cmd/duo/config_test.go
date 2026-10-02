@@ -132,7 +132,7 @@ func TestResumeAddsHarnessGrace(t *testing.T) {
 }
 
 func TestPiSessionIDsAreStableAndDistinct(t *testing.T) {
-	first, err := piSessionIDs(nil)
+	first, _, err := piSessionIDs(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestPiSessionIDsAreStableAndDistinct(t *testing.T) {
 		t.Fatalf("Austin and Tony must never share a Pi session id: %q", austin)
 	}
 
-	reused, err := piSessionIDs(first)
+	reused, _, err := piSessionIDs(first)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,7 +153,7 @@ func TestPiSessionIDsAreStableAndDistinct(t *testing.T) {
 	}
 
 	// A duplicated pair must be repaired rather than silently shared.
-	repaired, err := piSessionIDs(map[protocol.AgentID]string{
+	repaired, _, err := piSessionIDs(map[protocol.AgentID]string{
 		protocol.Austin: "same",
 		protocol.Tony:   "same",
 	})
@@ -165,7 +165,7 @@ func TestPiSessionIDsAreStableAndDistinct(t *testing.T) {
 	}
 
 	// A missing side is generated without disturbing the other.
-	partial, err := piSessionIDs(map[protocol.AgentID]string{protocol.Austin: "keep-me"})
+	partial, _, err := piSessionIDs(map[protocol.AgentID]string{protocol.Austin: "keep-me"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -649,5 +649,62 @@ func TestModelPersistedForAnotherDriverIsDropped(t *testing.T) {
 	// Austin is untouched: same driver, so his model must survive.
 	if got := cfg.agentModel(protocol.Austin); got == "" {
 		t.Error("Austin's model was dropped even though his driver did not change")
+	}
+}
+
+// TestGeneratedIDsAreMarkedSoDriverOwnedIdentityIsNotFabricated pins the split
+// that the agy launch failure came from. pi adopts an id it has never seen, so a
+// generated id is what pi needs; agy rejects one ("conversation not found,
+// ignoring --conversation flag") and opencode assigns its own server-side.
+//
+// The generated set is what tells the two apart, and getting it wrong is silent:
+// the fabricated id is accepted into the launch command, then persisted, then
+// replayed on the next run, so the agent never resumes and nothing ever reports
+// a problem.
+func TestGeneratedIDsAreMarkedSoDriverOwnedIdentityIsNotFabricated(t *testing.T) {
+	_, generated, err := piSessionIDs(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !generated[protocol.Austin] || !generated[protocol.Tony] {
+		t.Errorf("a fresh session must mark both ids as invented, got %v", generated)
+	}
+
+	// Reusing a persisted id is not inventing one, even when the other agent's
+	// id has to be replaced.
+	persisted := map[protocol.AgentID]string{protocol.Austin: "learned-austin"}
+	reused, generated2, err := piSessionIDs(persisted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if generated2[protocol.Austin] {
+		t.Error("a persisted id was reported as invented; a driver-owned identity would be discarded")
+	}
+	if !generated2[protocol.Tony] {
+		t.Error("Tony's missing id should be reported as invented")
+	}
+	if reused[protocol.Austin] != "learned-austin" {
+		t.Errorf("Austin's persisted id was replaced: %q", reused[protocol.Austin])
+	}
+}
+
+// TestDriverOwnedIDSuppressesInventedValues covers the runtime helper that keeps a
+// fabricated id away from a driver that would reject it.
+func TestDriverOwnedIDSuppressesInventedValues(t *testing.T) {
+	r := &runtime{
+		piSessions: map[protocol.AgentID]string{
+			protocol.Austin: "inv-a",
+			protocol.Tony:   "inv-t",
+		},
+		generatedIDs: map[protocol.AgentID]bool{protocol.Austin: true, protocol.Tony: true},
+	}
+	if got := r.driverOwnedID(protocol.Tony); got != "" {
+		t.Errorf("an invented id reached a driver that owns its identity: %q", got)
+	}
+
+	// Once a driver has reported an id on an earlier run it must be replayed.
+	r.generatedIDs = map[protocol.AgentID]bool{}
+	if got := r.driverOwnedID(protocol.Tony); got != "inv-t" {
+		t.Errorf("a learned id was not replayed: %q", got)
 	}
 }

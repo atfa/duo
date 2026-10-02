@@ -276,3 +276,54 @@ func TestDriverIsClassifiedByExecutableNotByAFlagValue(t *testing.T) {
 		}
 	}
 }
+
+// TestAgyConversationFlagCarriesOnlyAReportedID pins the agy half of a session
+// identity failure. agy assigns conversation ids itself and refuses one it has
+// not seen, answering:
+//
+//	projectresolve.go] Conversation <id> not found, ignoring --conversation flag
+//
+// and then opening a different conversation. So the flag must carry only an id
+// agy actually reported. Passing this session's placeholder identity instead
+// produced that warning on every launch, and because the rejected value was also
+// what Duo persisted, every restart opened a fresh conversation and the agent
+// never resumed one.
+func TestAgyConversationFlagCarriesOnlyAReportedID(t *testing.T) {
+	const placeholder = "20261002-092701-b93cf526"
+
+	// Nothing reported yet: agy must be left to choose.
+	fresh := NewAgySession(Config{
+		Agent: protocol.Tony, Session: placeholder, Command: "agy",
+	})
+	if got := fresh.commandLine(); strings.Contains(got, "--conversation") {
+		t.Errorf("a conversation id agy has never seen was passed: %s", got)
+	}
+	// The placeholder is still this agent's identity for reporting, so it must
+	// remain distinguishable from "no identity at all".
+	if got := fresh.SessionID(); !strings.Contains(got, placeholder) {
+		t.Errorf("placeholder identity lost: %q", got)
+	}
+
+	// An id agy reported on an earlier run must be replayed, or the conversation
+	// is never resumed.
+	learned := NewAgySession(Config{
+		Agent: protocol.Tony, Session: placeholder, Command: "agy",
+		AgyConversationID: "f4bcdbfc-1e58-4ac8-8e86-275d73c848b1",
+	})
+	got := learned.commandLine()
+	if !strings.Contains(got, "--conversation") {
+		t.Errorf("a reported conversation id was not replayed: %s", got)
+	}
+	if got := learned.SessionID(); got != "f4bcdbfc-1e58-4ac8-8e86-275d73c848b1" {
+		t.Errorf("SessionID() = %q, want the id agy reported", got)
+	}
+
+	// An id supplied on the command line is the operator's, and is left alone.
+	explicit := NewAgySession(Config{
+		Agent: protocol.Tony, Session: placeholder,
+		Command: "agy --conversation mine",
+	})
+	if got := explicit.commandLine(); !strings.Contains(got, "--conversation mine") || strings.Count(got, "--conversation") != 1 {
+		t.Errorf("an explicit --conversation was disturbed: %s", got)
+	}
+}

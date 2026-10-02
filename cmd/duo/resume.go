@@ -109,7 +109,7 @@ func runResume(ctx context.Context, cfg config, root, repoID, baseDir string) er
 		return nil
 	}
 
-	piSessions, err := piSessionIDs(reconciled.PiSessions)
+	piSessions, generatedIDs, err := piSessionIDs(reconciled.PiSessions)
 	if err != nil {
 		return err
 	}
@@ -164,9 +164,10 @@ func runResume(ctx context.Context, cfg config, root, repoID, baseDir string) er
 		ws:         ws,
 		set:        set,
 		store:      store,
-		journal:    journal,
-		logger:     logger,
-		piSessions: piSessions,
+		journal:      journal,
+		logger:       logger,
+		piSessions:   piSessions,
+		generatedIDs: generatedIDs,
 		integration: workspace.IntegrationResult{
 			AustinBranch: set.Austin.Branch,
 			AustinPath:   set.Austin.Path,
@@ -295,27 +296,39 @@ func effectiveScope(scope string) string {
 // piSessionIDs returns the stable Pi session identity for each agent, reusing
 // persisted ids and generating any that are missing. Austin and Tony always get
 // different ids: they are separate conversations, never a shared one.
-func piSessionIDs(existing map[protocol.AgentID]string) (map[protocol.AgentID]string, error) {
+//
+// It also reports which ids it invented, because the drivers disagree about who
+// owns the identity. pi adopts an id it has never seen, so a generated id is
+// exactly what pi wants. agy and opencode reject one: agy answers "conversation
+// not found, ignoring --conversation flag" and opens a different conversation,
+// and opencode assigns ids server-side. A generated id handed to either is worse
+// than none at all, because the rejected value is also what gets persisted and
+// replayed on the next launch, so the agent silently starts a new conversation
+// every time instead of resuming one.
+func piSessionIDs(existing map[protocol.AgentID]string) (map[protocol.AgentID]string, map[protocol.AgentID]bool, error) {
 	austin := strings.TrimSpace(existing[protocol.Austin])
 	tony := strings.TrimSpace(existing[protocol.Tony])
+	generated := map[protocol.AgentID]bool{}
 
 	if austin == "" {
 		id, err := sessionstore.NewUUID()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		austin = id
+		generated[protocol.Austin] = true
 	}
 	if tony == "" || tony == austin {
 		id, err := sessionstore.NewUUID()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		tony = id
+		generated[protocol.Tony] = true
 	}
 
 	return map[protocol.AgentID]string{
 		protocol.Austin: austin,
 		protocol.Tony:   tony,
-	}, nil
+	}, generated, nil
 }

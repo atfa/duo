@@ -436,7 +436,13 @@ func (s *Session) agyCommandLineLocked() string {
 	// which would silently drop the conversation ID and lose this agent's
 	// identity across restarts.
 	if !hasAnyFlag(base, agySessionFlags) {
-		if strings.TrimSpace(s.agyConversationIDLocked()) != "" {
+		// Only a conversation agy has actually reported is passed. agy answers an
+		// id it has not seen with "not found, ignoring --conversation flag" and
+		// opens a different conversation, so sending the placeholder identity this
+		// session computed for the agent buys nothing and produces a misleading
+		// warning on every launch. The watcher learns the real id from agy's log
+		// and the next launch replays it.
+		if strings.TrimSpace(s.cfg.AgyConversationID) != "" {
 			parts = append(parts, `--conversation "$DUO_AGY_CONVERSATION_ID"`)
 		}
 	}
