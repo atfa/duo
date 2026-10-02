@@ -555,6 +555,8 @@ func printUsage() {
 	fmt.Println("  DUO_HARNESS_RESUME_GRACE_SECONDS")
 	fmt.Println("                         extra grace after --resume (default: 45)")
 	fmt.Println("  DUO_HISTORY_FILE       composer task history file (default: ~/.duo/history)")
+	fmt.Println("  DUO_AGENT, DUO_SESSION, DUO_TOKEN, DUO_HOST, DUO_PORT")
+	fmt.Println("                         bridge connection for `duo mcp-server` (see duo mcp-server --help)")
 	fmt.Println()
 	fmt.Println("Mode is fixed for a session's lifetime. DUO_MODE sets the default for new sessions;")
 	fmt.Println("an explicit --mode wins, and --resume always uses the session's persisted mode.")
