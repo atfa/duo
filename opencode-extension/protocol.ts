@@ -51,6 +51,13 @@ export type DuoMessage = {
   tool?: string;
   detail?: string;
 
+  /** Context usage and approximate streamed output rate. opencode reports real
+   * input/output/reasoning/cache token counts per message; only the rate is an
+   * estimate, derived from streamed characters. */
+  contextTokens?: number;
+  contextWindow?: number;
+  tokensPerSecond?: number;
+
   activity?: string;
   timestamp?: number;
 

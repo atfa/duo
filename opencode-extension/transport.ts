@@ -93,7 +93,13 @@ export class DuoTransport {
     return true;
   }
 
-  sendActivity(activity: string, extra: { tool?: string; detail?: string } = {}) {
+  sendActivity(activity: string, extra: {
+    tool?: string;
+    detail?: string;
+    contextTokens?: number;
+    contextWindow?: number;
+    tokensPerSecond?: number;
+  } = {}) {
     this.send({
       version: 1,
       type: "activity",
