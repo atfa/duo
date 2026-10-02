@@ -2,6 +2,19 @@
 
 All notable project milestones are documented here.
 
+## Unreleased
+
+### Corrected
+
+- **The v0.7.0 changelog no longer names two environment variables that were never read.** `DUO_AUSTIN_DRIVER` and `DUO_TONY_DRIVER` were documented as a way to pick a per-agent driver, and no code has ever consulted them. The entry now lists the flags and `.duo/config.json` that do work, and says which variable sets both agents.
+
+### Redundant commits
+
+Goal mode delivers a merge of the two agent branches, so a commit that exists only because an agent cherry-picked its peer's work is redundant once merged. The copy is not harmless: reverting either commit removes the change while the other still claims to add it, and `git bisect` is handed commits that change nothing.
+
+- **The EXECUTE notice says so before an agent can get it wrong.** Each agent already has its own branch and worktree and Duo merges them at INTEGRATE, so the phase notice now states that a commit belongs to the agent's own work and that cherry-picking the peer's is unnecessary, with the reason.
+- **Duo reports a change carried by both branches when the session reaches REVIEW.** Changes are matched by patch id, so a cherry-pick that landed elsewhere in the branch, or whose message was rewritten, is still recognised, and two agents that independently wrote the same change are not reported against each other. Git does not record which of two identical patches came first, so the report names both copies and leaves the owner to the agent that knows whether it ran the cherry-pick. It runs at the EXECUTE to REVIEW transition because that is the last point where no signature is bound to either branch, so a copy can still be dropped without revoking anything. Duo reports rather than rewrites: the branch belongs to the agent, and silently rebasing an agent's history would contradict the evidence binding that makes the rest of the session auditable.
+
 ## v0.8.1 — 2026-10-02
 
 A patch release, because every fix in it is a correctness fix and nothing here changes how a session is driven. It carries eight correctness bugs in the resume and driver paths, a data race in the model picker's own tests, and one new feature: a readable Markdown transcript of every session, written into the repository. The build, the unit suites and the end-to-end suites were all green before and after, so none of these were caught by a failing test: they were found by reading the code and by `go test -race`. Three of them could lose or corrupt session state, or leave an agent dead while the UI claimed otherwise.
@@ -88,7 +101,7 @@ No prompt echo, no spurious harness nudge and no stall appeared in any of these 
   - Added support for external driver plugins following the `duo-driver-<name>` and `duo-<name>` naming conventions in `~/.duo/plugins/` and `$PATH`.
   - Added standalone `duo-pi` and `duo-agy` binaries.
   - New `duo plugins` command lists built-in drivers (`pi`, `agy`) and discovered external plugins with executable paths and readiness status.
-  - Per-agent driver selection via CLI (`--austin-driver`, `--tony-driver`, `--driver`), environment variables (`DUO_AUSTIN_DRIVER`, `DUO_TONY_DRIVER`), and config files.
+  - Per-agent driver selection via CLI (`--austin-driver`, `--tony-driver`, `--driver`) and `agents.austin.driver` / `agents.tony.driver` in `.duo/config.json`. Corrected in v0.8.2: this entry previously also named `DUO_AUSTIN_DRIVER` and `DUO_TONY_DRIVER`, which were documented but never read. `DUO_DRIVER` sets both agents.
 - Multi-driver TUI Experience:
   - Work preview headers for Austin and Tony now prominently indicate the active driver, e.g. `Austin preview (agy) · working · 5s` or `Tony preview (pi) · idle`.
   - The model picker (`Ctrl+M`) displays dynamic, driver-accurate loading status (" Loading models from <driver>…") matching the target agent's driver.
