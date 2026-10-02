@@ -171,6 +171,7 @@ A build can take a long time, and the timeline only changes when an agent finish
 | `PgUp` / `PgDn` | Scroll the conversation timeline earlier or later |
 | Mouse wheel over the timeline | Scroll earlier messages |
 | Mouse drag over the timeline | Select text and copy it to the clipboard |
+| Mouse click on `[↗]` in a preview header | Attach that agent's native Pi, the same as `Ctrl+A` / `Ctrl+T` |
 
 Each timeline message header carries its `HH:MM:SS` time by default (`Austin → Tony · 14:30:05`), so one exchange is readable end to end; `Ctrl+G` hides or restores those stamps.
 
@@ -183,15 +184,20 @@ Typing `/` in the composer opens an interactive command palette showing availabl
 | Command | Description |
 |---|---|
 | `/escalate [reason]` | Dynamically upgrade the current Fast mode session to Goal mode |
-| `/mode [fast\|goal]` | Switch session mode (`/mode goal` to escalate) |
+| `/mode` | Print the current session mode |
+| `/mode goal` | Upgrade the session to Goal mode; `/mode fast` is rejected, a session never returns to Fast |
 | `/model` | Open the model and thinking level picker (`Ctrl+M`) |
 | `/overview` | Toggle the session overview and git diffstat (`Ctrl+O`) |
 | `/preview` | Toggle the agent work preview band (`Ctrl+P`) |
 | `/timestamps` | Toggle timeline message timestamps (`Ctrl+G`) |
 | `/help` | Open the full Duo interactive help screen (`Ctrl+/`) |
 | `/status` | Show authoritative session mode, phase, and worktree info |
-| `/clear` | Clear composer and reset status notice |
+| `/clear` | The composer only holds this command, so it is already empty; Duo forces a full redraw and says so |
 | `/quit` or `/exit` | Exit Duo and preserve session state |
+
+An unknown command is reported as an error. `//text` and an absolute path (e.g. `/usr/bin/python`) are sent to Austin as a task.
+
+Submitted tasks are appended to `~/.duo/history` (override with `DUO_HISTORY_FILE`), so `↑`/`↓` recall survives restarting or resuming Duo.
 
 The model picker (`Ctrl+M`) lists the catalog the *target's own driver* reports for the very installation Duo launched (`pi --list-models`, `agy models`, `opencode models`), so Austin and Tony can sit on different catalogs in the same session. Type to filter, move with `↑`/`↓` (or `PgUp`/`PgDn`, `Home`/`End`), switch the target between Austin and Tony with `Tab`, cycle that agent's thinking level with `Shift+Tab`, and apply the model with `Enter` (apply and close) or `Space` (apply and keep the picker open, so a model and a thinking level can be set in one visit). On `pi` the switch is live: Pi keeps the conversation and records both the model and the thinking level in the session transcript, so a restart or resume (`Ctrl+R`/`Ctrl+Y`) keeps the choice. `agy` and `opencode` take model and effort as startup flags, so Duo restarts that agent instead — the conversation survives, because the session id is persisted, but in-flight work is interrupted. `▶` marks the picker cursor and `●` the target's current model.
 
@@ -201,7 +207,7 @@ Mouse selection copies through terminal OSC 52 escape sequences (works seamlessl
 
 \* A newline is inserted only when the terminal reports the combination distinctly (`\x1b[13;2u` CSI-u or `\x1b[27;2;13~` modifyOtherKeys, which Duo enables). Terminals that send a bare `\r` for `Shift+Enter` will **submit** instead — use `Ctrl+Enter`, which arrives as `\n`, if `Shift+Enter` submits in your terminal. The same limit applies to `Ctrl+M`: it is reported as the `m` key with Ctrl (`\x1b[27;5;109~` or `\x1b[109;5u`) only on terminals that honor those modes, and on the others it is indistinguishable from `Enter` — use `Alt+M` there.
 
-Help is a full alternate-screen view; scroll it with `↑`/`k`, `↓`/`j`, `PgUp`, `PgDn`, `Home`/`g`, `End`/`G`, and close it with `Esc` or `Ctrl+/`.
+Help is a full alternate-screen view; scroll it with `↑`/`k`, `↓`/`j`, `PgUp`, `PgDn`, `Home`/`g`, `End`/`G`, and close it with `Esc` or `Ctrl+/`. It covers the keybindings, the slash commands and the model picker above, plus a **Command Line** section listing every `duo` subcommand and flag; run `duo --help` for the full usage, every environment variable and each command's own detail.
 
 ## Configuration
 
@@ -247,7 +253,10 @@ identical — only how Duo launches the agent and observes it differs.
 | `opencode` | `--agent opencode` | An opencode plugin connects back over a local socket, the same way the Pi bridge does. |
 
 `--driver` is an alias for `--agent`, and `--austin-agent` / `--tony-agent` are
-aliases for `--austin-driver` / `--tony-driver`.
+aliases for `--austin-driver` / `--tony-driver`. There is no environment variable
+for a per-agent driver: `DUO_DRIVER` sets both, and to split them use
+`--austin-driver` / `--tony-driver` or `agents.austin.driver` / `agents.tony.driver`
+in `.duo/config.json`.
 
 Pick one per agent to mix them, for example `duo --austin-driver opencode --tony-driver pi`.
 
@@ -385,6 +394,7 @@ Scope is a **default working directory, not a filesystem sandbox**. Agents can s
 ```bash
 duo --resume             # resume this repository's unfinished session
 duo -r                   # same
+duo resume               # same (the bare word is accepted too)
 duo --resume <id>        # resume one specific session
 duo --resume=<id>        # same
 ```
@@ -437,14 +447,18 @@ duo sessions                 # list sessions for this repository
 duo sessions --all           # list sessions across all repositories
 duo clean                    # clean completed (DONE) sessions for this repository
 duo clean <session-id>       # clean one specific session
-duo clean --all-repos        # clean completed sessions across all repositories
-duo clean --force            # also clean unfinished sessions (skips active running sessions)
-duo clean --dry-run          # preview what would be cleaned without modifying disk
+duo clean --all             # clean every completed (DONE) session of this repository
+duo clean --all-repos       # clean completed sessions across all repositories
+duo clean --force           # also clean unfinished sessions (skips active running sessions)
+duo clean --dry-run         # preview what would be cleaned without modifying disk
+duo logs                    # list the Markdown transcripts written to .duo/logs
+duo logs <repository>       # list another repository's transcripts
 ```
+
+`duo sessions` also accepts `-a` for `--all`, `duo clean` additionally accepts `-f` for `--force` and `-n` for `--dry-run`, and `duo apply` accepts `--session <id>` / `-s <id>`. `duo plugin` and `duo mcp` are aliases of `duo plugins` and `duo mcp-server`. Every command prints its own usage with `--help` (`duo clean --help`), and `duo <repository> --help` prints the root usage from inside a repository.
 
 Cleaning a session removes its Git worktrees (`git worktree remove --force`), prunes the worktree registry, deletes temporary branches (`duo/<session>/*`), and removes the session snapshot directory. Any session currently locked by an active Duo process is safely skipped.
 
-`duo sessions <repository>` lists another repository's sessions. `duo sessions` accepts `-a` for `--all`; `duo clean` additionally accepts `-f` for `--force` and `-n` for `--dry-run`.
 
 The remaining commands do not touch sessions: `duo plugins` lists the built-in drivers plus every discovered external plugin, [`duo mcp-server`](#mcp-server-duo-mcp-server) serves the Duo tools over MCP, and `duo version` (`--version`) and `duo help` (`-h`, `--help`) print the version and full usage.
 
