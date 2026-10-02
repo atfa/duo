@@ -447,7 +447,7 @@ duo sessions                 # list sessions for this repository
 duo sessions --all           # list sessions across all repositories
 duo clean                    # clean completed (DONE) sessions for this repository
 duo clean <session-id>       # clean one specific session
-duo clean --all             # clean every completed (DONE) session of this repository
+duo clean --all             # accepted, but plain duo clean already covers every completed session
 duo clean --all-repos       # clean completed sessions across all repositories
 duo clean --force           # also clean unfinished sessions (skips active running sessions)
 duo clean --dry-run         # preview what would be cleaned without modifying disk
@@ -455,7 +455,7 @@ duo logs                    # list the Markdown transcripts written to .duo/logs
 duo logs <repository>       # list another repository's transcripts
 ```
 
-`duo sessions` also accepts `-a` for `--all`, `duo clean` additionally accepts `-f` for `--force` and `-n` for `--dry-run`, and `duo apply` accepts `--session <id>` / `-s <id>`. `duo plugin` and `duo mcp` are aliases of `duo plugins` and `duo mcp-server`. Every command prints its own usage with `--help` (`duo clean --help`), and `duo <repository> --help` prints the root usage from inside a repository.
+`duo clean` cleans every completed (DONE) session of the repository by default, so `--all` currently changes nothing; `--force` is what adds unfinished sessions. `duo sessions` accepts `-a` for `--all`, `duo clean` additionally accepts `-f` for `--force` and `-n` for `--dry-run`, and `duo apply` accepts `--session <id>` / `-s <id>`. `duo plugin` and `duo mcp` are aliases of `duo plugins` and `duo mcp-server`. Every command prints its own usage with `--help` (`duo clean --help`), and `duo <repository> --help` prints the root usage from inside a repository.
 
 Cleaning a session removes its Git worktrees (`git worktree remove --force`), prunes the worktree registry, deletes temporary branches (`duo/<session>/*`), and removes the session snapshot directory. Any session currently locked by an active Duo process is safely skipped.
 

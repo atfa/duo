@@ -441,7 +441,7 @@ duo sessions                 # 查看当前仓库的所有会话
 duo sessions --all           # 查看所有仓库的会话
 duo clean                    # 清理当前仓库已完成（DONE）的会话
 duo clean <session-id>       # 清理指定的某个会话
-duo clean --all             # 清理当前仓库的全部已完成（DONE）会话
+duo clean --all             # 可接受，但裸 duo clean 本来就会清理全部已完成会话
 duo clean --all-repos       # 清理所有仓库中已完成的会话
 duo clean --force           # 连同未完成会话一起清理（自动跳过当前运行中的活跃会话）
 duo clean --dry-run         # 仅预览将被清理的内容，不修改磁盘
@@ -451,7 +451,7 @@ duo logs <repository>       # 列出另一个仓库的会话记录
 
 清理会话会自动安全移除对应的 Git 工作树（`git worktree remove --force`）、执行 `git worktree prune` 修剪、删除临时分支（`duo/<session>/*`），并删除对应的会话快照目录。正在被另一个运行中的 Duo 进程持有的会话会被 `flock` 锁保护，自动予以跳过。
 
-`duo sessions` 接受 `-a`（`--all`）；`duo clean` 另外接受 `-f`（`--force`）与 `-n`（`--dry-run`）；`duo apply` 还接受 `--session <id>` / `-s <id>`。`duo plugin` 与 `duo mcp` 分别是 `duo plugins` 与 `duo mcp-server` 的别名。每个命令都支持自己的 `--help`（例如 `duo clean --help`）；在仓库目录里执行 `duo <repository> --help` 同样会打印完整用法。
+`duo clean` 默认就会清理本仓库全部已完成（DONE）的会话，因此 `--all` 目前不改变任何行为；真正把未完成会话也纳入的是 `--force`。`duo sessions` 接受 `-a`（`--all`）；`duo clean` 另外接受 `-f`（`--force`）与 `-n`（`--dry-run`）；`duo apply` 还接受 `--session <id>` / `-s <id>`。`duo plugin` 与 `duo mcp` 分别是 `duo plugins` 与 `duo mcp-server` 的别名。每个命令都支持自己的 `--help`（例如 `duo clean --help`）；在仓库目录里执行 `duo <repository> --help` 同样会打印完整用法。
 
 其余命令不涉及会话：`duo plugins` 列出内置 driver 与所有已发现的外部插件，[`duo mcp-server`](#mcp-服务duo-mcp-server) 通过 MCP 提供 Duo 工具，`duo version`（`--version`）与 `duo help`（`-h`、`--help`）分别打印版本号与完整用法。
 
