@@ -8,6 +8,11 @@ All notable project milestones are documented here.
 
 - **The v0.7.0 changelog no longer names two environment variables that were never read.** `DUO_AUSTIN_DRIVER` and `DUO_TONY_DRIVER` were documented as a way to pick a per-agent driver, and no code has ever consulted them. The entry now lists the flags and `.duo/config.json` that do work, and says which variable sets both agents.
 
+### Driver selection
+
+- **A model persisted for one driver is no longer handed to another.** `.duo/config.json` records which driver each agent's model was chosen for. Changing a driver on the command line (`--tony-driver pi`) or in config left the old model in place, and only the agy and opencode cases were handled, so switching an agent *to* pi kept a model id pi has never heard of. pi rejects an unknown model and exits before it connects, so the agent never appeared at all.
+- **The launch command no longer takes the driver from a flag value.** The agent session decided the driver with `strings.Contains` over the whole command line, so `pi --model opencode/space-bunny-free` was built as an *opencode* command and picked up opencode's `--auto`, which pi rejects with `Error: Unknown option: --auto`. The v0.8.0 fix made the model catalog classify a command by its executable, but the agent session kept the substring check; both now use the one implementation. The model that reaches the command line is the validated one rather than the raw persisted value, so a model that was corrected above cannot reappear in the flag.
+
 ### Redundant commits
 
 Goal mode delivers a merge of the two agent branches, so a commit that exists only because an agent cherry-picked its peer's work is redundant once merged. The copy is not harmless: reverting either commit removes the change while the other still claims to add it, and `git bisect` is handed commits that change nothing.
