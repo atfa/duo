@@ -14,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/atfa/duo/internal/models"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/creack/pty"
 )
@@ -344,14 +345,22 @@ func setFlagInCommand(command, flag, value string) string {
 	return command + " " + flag + " " + shellQuote(value)
 }
 
+// The command is classified by its executable alone, through models.DriverKind,
+// which is the single implementation of that rule and also recognises the
+// duo-agy and duo-opencode wrappers by name.
+//
+// Matching anywhere in the string let a flag *value* decide the driver:
+// `pi --model opencode/space-bunny-free` was built as an opencode command and
+// picked up opencode's --auto, which pi rejects, so the agent died at startup
+// with nothing but "exit status 1" in the session log.
 func (s *Session) isAgy() bool {
 	drv := s.DriverType()
-	return drv == "agy" || strings.Contains(drv, "agy") || strings.HasPrefix(s.cfg.Command, "agy") || strings.Contains(s.cfg.Command, "duo-agy")
+	return drv == "agy" || strings.Contains(drv, "agy") || models.DriverKind(s.cfg.Command) == "agy"
 }
 
 func (s *Session) isOpencode() bool {
 	drv := s.DriverType()
-	return drv == "opencode" || strings.Contains(drv, "opencode") || strings.Contains(s.cfg.Command, "opencode")
+	return drv == "opencode" || strings.Contains(drv, "opencode") || models.DriverKind(s.cfg.Command) == "opencode"
 }
 
 // commandLine renders the launch command. The model and the agy conversation id

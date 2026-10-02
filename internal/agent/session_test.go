@@ -220,3 +220,59 @@ func TestSessionIdentityAndCommandAreSafeUnderConcurrentWrites(t *testing.T) {
 		})
 	}
 }
+
+// TestDriverIsClassifiedByExecutableNotByAFlagValue pins the failure that made a
+// pi agent refuse to start. A model id persisted for opencode was appended to
+// pi's command line, and the old substring check read the word "opencode" out
+// of that flag value, so Duo built an *opencode* command for a pi process and
+// added --auto, which pi rejects:
+//
+//	Error: Unknown option: --auto
+//
+// The agent then died before connecting and the only trace was "exit status 1".
+func TestDriverIsClassifiedByExecutableNotByAFlagValue(t *testing.T) {
+	// The command as config.go built it: pi, carrying a model id persisted for
+	// opencode. --auto is not in the input; the old check classified this as
+	// opencode and appended it, which is what the session log recorded.
+	s := NewSession(Config{
+		Agent:   protocol.Tony,
+		Command: `pi --model opencode/space-bunny-free`,
+		Model:   "opencode/space-bunny-free",
+	})
+	if s.isOpencode() {
+		t.Error("a pi command carrying an opencode model id was classified as opencode")
+	}
+	if s.isAgy() {
+		t.Error("a pi command was classified as agy")
+	}
+	if got := s.commandLine(); strings.Contains(got, "--auto") {
+		t.Errorf("pi command line gained opencode's --auto: %s", got)
+	}
+
+	// The wrappers Duo ships must still be recognised, by executable name.
+	for command, want := range map[string]string{
+		"opencode":                 "opencode",
+		"opencode --auto":          "opencode",
+		"duo-opencode --session x": "opencode",
+		"agy":                      "agy",
+		"duo-agy":                  "agy",
+		"pi":                       "",
+		"pi --model opencode/x":    "",
+	} {
+		got := NewSession(Config{Agent: protocol.Tony, Command: command})
+		switch want {
+		case "opencode":
+			if !got.isOpencode() {
+				t.Errorf("%q should be opencode", command)
+			}
+		case "agy":
+			if !got.isAgy() {
+				t.Errorf("%q should be agy", command)
+			}
+		default:
+			if got.isOpencode() || got.isAgy() {
+				t.Errorf("%q should be pi, got opencode=%v agy=%v", command, got.isOpencode(), got.isAgy())
+			}
+		}
+	}
+}

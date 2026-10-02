@@ -391,7 +391,19 @@ func loadConfig(args []string) (config, error) {
 			driverType = kind
 		}
 
-		model := agentCfg.Model
+		// requested is the model the user asked for, and is emptied when it
+		// cannot be valid for the driver now selected. A model persisted for one
+		// driver is meaningless to another: pi has never heard of an opencode
+		// model id and aborts on one. The agent file records which driver the
+		// model was chosen for, so a driver changed on the command line or in
+		// config invalidates it and the new driver resolves its own default.
+		// Without this, --tony-driver pi handed a persisted opencode model to pi
+		// and the agent died at startup.
+		requested := agentCfg.Model
+		if recorded := strings.TrimSpace(agentCfg.Driver); recorded != "" && recorded != driverType {
+			requested = ""
+		}
+		model := requested
 		if driverType == "agy" && strings.Contains(model, "/") {
 			model = model[strings.LastIndex(model, "/")+1:]
 		}
@@ -406,8 +418,11 @@ func loadConfig(args []string) (config, error) {
 		}
 		agentModels[id] = model
 
-		if agentCfg.Model != "" && !hasFlag(baseCmd, "--model") {
-			modelArg := agentCfg.Model
+		// Only a request that survived validation may reach the command line.
+		// Appending the raw persisted value instead is how an opencode model id
+		// was handed to pi even after the resolved model had been corrected.
+		if requested != "" && !hasFlag(baseCmd, "--model") {
+			modelArg := requested
 			if driverType == "agy" && strings.Contains(modelArg, "/") {
 				modelArg = modelArg[strings.LastIndex(modelArg, "/")+1:]
 			}

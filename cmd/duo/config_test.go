@@ -605,3 +605,49 @@ func TestOpencodeIgnoresBareModelFromAnotherDriver(t *testing.T) {
 		t.Fatalf("driver = %q, want opencode", cfg.agentDriver(protocol.Austin))
 	}
 }
+
+// TestModelPersistedForAnotherDriverIsDropped covers the launch that failed for a
+// user who switched Tony to pi: .duo/config.json still held the opencode model
+// Tony had been using, --tony-driver pi changed the driver, and the model rode
+// along. pi rejects an unknown model and exits before connecting.
+//
+// The agent file records which driver the model was chosen for, which is what
+// makes the model safe to carry over or not.
+func TestModelPersistedForAnotherDriverIsDropped(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".duo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"agents":{"tony":{"driver":"opencode","model":"opencode/space-bunny-free"}}}`
+	if err := os.WriteFile(filepath.Join(root, ".duo", "config.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(root); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DUO_REPO", "")
+	cfg, err := loadConfig([]string{"--tony-driver", "pi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.agentDriver(protocol.Tony); got != "pi" {
+		t.Fatalf("Tony driver = %q, want pi", got)
+	}
+	if got := cfg.agentModel(protocol.Tony); got == "opencode/space-bunny-free" {
+		t.Errorf("Tony kept the model persisted for opencode: %q", got)
+	}
+	// The model that reaches the command line is what pi would actually receive.
+	if cmd := cfg.agentCommand(protocol.Tony); strings.Contains(cmd, "opencode/") {
+		t.Errorf("pi command still carries the opencode model: %s", cmd)
+	}
+	// Austin is untouched: same driver, so his model must survive.
+	if got := cfg.agentModel(protocol.Austin); got == "" {
+		t.Error("Austin's model was dropped even though his driver did not change")
+	}
+}
