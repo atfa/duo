@@ -575,10 +575,6 @@ func (c *Coordinator) RecordActivity(agent protocol.AgentID, message protocol.Me
 		c.handleAssistant(agent, message)
 		return
 	}
-	if message.Type == protocol.MsgDuoNotice {
-		c.emit(events.KindSystem, protocol.Duo, "", message.Text)
-		return
-	}
 	c.handleActivity(agent, message)
 }
 

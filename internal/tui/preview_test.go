@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/atfa/duo/internal/agent"
+	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/protocol"
 )
@@ -481,7 +482,6 @@ func TestPreviewAgySqlite3DiagnosticsTableDriven(t *testing.T) {
 	origLookPath := agent.LookPath
 	defer func() {
 		agent.LookPath = origLookPath
-		agent.ResetSqlite3Warning()
 	}()
 
 	tests := []struct {
@@ -528,7 +528,6 @@ func TestPreviewAgySqlite3DiagnosticsTableDriven(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			agent.ResetSqlite3Warning()
 			if tc.sqlite3Exists {
 				agent.LookPath = exec.LookPath
 			} else {
@@ -579,3 +578,73 @@ func TestPreviewAgySqlite3DiagnosticsTableDriven(t *testing.T) {
 	}
 }
 
+func TestPreviewAgySqlite3PreservesLiveTokenSpeed(t *testing.T) {
+	origLookPath := agent.LookPath
+	defer func() { agent.LookPath = origLookPath }()
+
+	agent.LookPath = func(string) (string, error) {
+		return "", exec.ErrNotFound
+	}
+
+	a := testApp(140, 30)
+	mgr := agent.NewManager()
+	mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "agy", state: agent.ProcessRunning})
+	a.agents = mgr
+
+	a.tracker.Handle(protocol.Austin, protocol.ActivityAgentStart)
+	a.tracker.Handle(protocol.Austin, protocol.ActivityStream)
+	a.tracker.UpdateUsage(protocol.Austin, 0, 0, 42.0)
+
+	header := a.previewHeader(protocol.Austin, 120)
+	if !strings.Contains(header, "42 tok/s · no sqlite3") {
+		t.Fatalf("previewHeader = %q, want '42 tok/s · no sqlite3'", header)
+	}
+
+	// Tool execution clears the active token speed; "no sqlite3" badge persists
+	a.tracker.Handle(protocol.Austin, protocol.ActivityToolStart)
+	header = a.previewHeader(protocol.Austin, 120)
+	if !strings.Contains(header, "no sqlite3") || strings.Contains(header, "tok/s") {
+		t.Fatalf("tool execution header = %q, want 'no sqlite3' without token rate", header)
+	}
+
+	// Idle state retains "no sqlite3" without token rate
+	a.tracker.Handle(protocol.Austin, protocol.ActivityAgentSettled)
+	header = a.previewHeader(protocol.Austin, 120)
+	if !strings.Contains(header, "no sqlite3") || strings.Contains(header, "tok/s") {
+		t.Fatalf("idle header = %q, want 'no sqlite3' without token rate", header)
+	}
+}
+
+func TestPreviewAgySqlite3WatcherAndTUIInteraction(t *testing.T) {
+	origLookPath := agent.LookPath
+	defer func() { agent.LookPath = origLookPath }()
+
+	agent.LookPath = func(string) (string, error) {
+		return "", exec.ErrNotFound
+	}
+
+	// 1. Construct watcher first (simulating watcher start before TUI subscribes to bus)
+	w := agent.NewAgyWatcher(protocol.Austin, "/tmp/nonexistent/transcript.jsonl", nil)
+	w.ProcessLine([]byte(`{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-10-02T00:00:00Z","content":"start"}`))
+
+	a := testApp(140, 30)
+	mgr := agent.NewManager()
+	mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "agy", state: agent.ProcessRunning})
+	a.agents = mgr
+
+	// 2. TUI startup announces running agents
+	a.announceRunningAgents()
+
+	tl := timelineText(a)
+	if !strings.Contains(tl, agent.AgySqlite3MissingNotice) {
+		t.Fatalf("timeline = %q, want diagnostic notice even when watcher was constructed first", tl)
+	}
+
+	// 3. Repeated announcements or incoming events must not duplicate the notice
+	a.announceRunningAgents()
+	a.route(events.Event{Agent: protocol.Austin, Kind: events.KindActivity})
+	count := strings.Count(timelineText(a), agent.AgySqlite3MissingNotice)
+	if count != 1 {
+		t.Fatalf("expected notice once, got %d times in timeline: %q", count, timelineText(a))
+	}
+}

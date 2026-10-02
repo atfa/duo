@@ -155,10 +155,14 @@ func (a *App) previewHeader(agent protocol.AgentID, width int) string {
 }
 
 func (a *App) previewUsage(id protocol.AgentID, rt harness.AgentRuntime) string {
+	usage := previewUsage(rt)
 	if a.driverName(id) == "agy" && rt.ContextWindow == 0 && !agent.HasSqlite3() {
+		if usage != "" {
+			return usage + " · no sqlite3"
+		}
 		return "no sqlite3"
 	}
-	return previewUsage(rt)
+	return usage
 }
 
 func previewUsage(rt harness.AgentRuntime) string {

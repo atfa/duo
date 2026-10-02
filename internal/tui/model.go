@@ -122,6 +122,8 @@ type App struct {
 	// shown whenever the terminal is tall enough to keep usable panes.
 	hidePreview bool
 
+	warnedSqlite3 bool
+
 	austin []entry
 	tony   []entry
 	duo    []entry
@@ -222,6 +224,9 @@ func (a *App) spinnerTick() bool {
 }
 
 func (a *App) route(event events.Event) {
+	if !a.warnedSqlite3 && a.driverName(event.Agent) == "agy" {
+		a.warnSqlite3Once()
+	}
 	// Model and thinking reports carry no free text; they update picker state
 	// rather than adding a pane entry.
 	if event.Kind == events.KindModel && event.Model != "" {

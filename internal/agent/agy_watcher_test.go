@@ -515,53 +515,16 @@ func TestQueryLatestAgyUsageScenarios(t *testing.T) {
 		})
 	}
 }
-
-func TestAgyWatcherSqlite3MissingNoticeOnce(t *testing.T) {
-	origLookPath := LookPath
-	defer func() { LookPath = origLookPath }()
-
-	LookPath = func(string) (string, error) {
-		return "", exec.ErrNotFound
-	}
-	ResetSqlite3Warning()
-
-	var noticeCount int
-	var lastNotice string
-	sink := FuncActivitySink(func(_ protocol.AgentID, msg protocol.Message) {
-		if msg.Type == protocol.MsgDuoNotice {
-			noticeCount++
-			lastNotice = msg.Text
-		}
-	})
-
-	w := NewAgyWatcher(protocol.Austin, "/tmp/nonexistent/transcript.jsonl", sink)
-
-	// First prompt/response turn
-	w.ProcessLine([]byte(`{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-09-30T00:00:00Z","content":"hello"}`))
-	w.ProcessLine([]byte(`{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-09-30T00:00:01Z","thinking":"answering...","content":"hi"}`))
-
-	// Second turn
-	w.ProcessLine([]byte(`{"step_index":2,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-09-30T00:00:02Z","content":"hello again"}`))
-	w.ProcessLine([]byte(`{"step_index":3,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-09-30T00:00:03Z","thinking":"answering again...","content":"hi again"}`))
-
-	if noticeCount != 1 {
-		t.Fatalf("expected sqlite3 missing notice to be sent exactly once, got %d times", noticeCount)
-	}
-	if lastNotice != AgySqlite3MissingNotice {
-		t.Fatalf("notice = %q, want %q", lastNotice, AgySqlite3MissingNotice)
-	}
-}
-
 func TestAgyWatcherRegressionWhenSqlite3Missing(t *testing.T) {
 	// Requirement 5: Do not let missing sqlite3 affect other agy features.
-	// agy's session identity (from log regex, doesn't depend on sqlite3) must work as usual.
+	// agy's session identity (from log regex, doesn't depend on sqlite3) must work as usual,
+	// and token rate estimation from character counts must still function.
 	origLookPath := LookPath
 	defer func() { LookPath = origLookPath }()
 
 	LookPath = func(string) (string, error) {
 		return "", exec.ErrNotFound
 	}
-	ResetSqlite3Warning()
 
 	// 1. Session identity extraction from logs still works
 	logSample := "I1002 08:00:00.000000 1 server.go:100] Created conversation 11223344-5566-7788-99aa-bbccddeeff00\n"
@@ -583,6 +546,8 @@ func TestAgyWatcherRegressionWhenSqlite3Missing(t *testing.T) {
 
 	// Step 0: USER_INPUT
 	w.ProcessLine([]byte(`{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-10-02T00:00:00Z","content":"implement feature"}`))
+
+	time.Sleep(250 * time.Millisecond)
 
 	// Step 1: PLANNER_RESPONSE with thinking and tool call
 	w.ProcessLine([]byte(`{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-10-02T00:00:01Z","thinking":"planning changes","tool_calls":[{"name":"run_command","args":{"CommandLine":"go build ."}}]}`))
@@ -624,5 +589,7 @@ func TestAgyWatcherRegressionWhenSqlite3Missing(t *testing.T) {
 	if assistantText != "I have built the feature successfully." {
 		t.Errorf("assistantText = %q, want 'I have built the feature successfully.'", assistantText)
 	}
+	if received[1].TokensPerSecond <= 0 {
+		t.Errorf("expected positive TokensPerSecond even without sqlite3, got %v", received[1].TokensPerSecond)
+	}
 }
-

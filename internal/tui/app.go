@@ -56,11 +56,18 @@ func (a *App) announceRunningAgents() {
 		}
 		a.add(id, fmt.Sprintf("%s connected", id))
 	}
+	a.warnSqlite3Once()
+}
+
+func (a *App) warnSqlite3Once() {
+	if a.warnedSqlite3 || agent.HasSqlite3() {
+		return
+	}
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
 		if a.driverName(id) == "agy" && a.processState(id) == agent.ProcessRunning {
-			agent.EmitSqlite3Warning(func(text string) {
-				a.add(protocol.Duo, text)
-			})
+			a.warnedSqlite3 = true
+			a.add(protocol.Duo, agent.AgySqlite3MissingNotice)
+			return
 		}
 	}
 }
