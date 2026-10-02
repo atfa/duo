@@ -206,22 +206,56 @@ func TestPreviewTrailDropsOldestFirst(t *testing.T) {
 }
 
 func TestPreviewHeaderShowsContextAndLiveTokenRate(t *testing.T) {
-	a := testApp(140, 30)
-	mgr := agent.NewManager()
-	mgr.Add(agent.NewPiSession(agent.Config{Agent: protocol.Austin, DriverType: "pi"}))
-	a.agents = mgr
+	for _, tc := range []struct {
+		driver  string
+		agent   protocol.AgentID
+		tokens  int
+		window  int
+		speed   float64
+		wantCtx string
+		wantSpd string
+	}{
+		{driver: "pi", agent: protocol.Austin, tokens: 45000, window: 200000, speed: 32.5, wantCtx: "ctx 45k/200k", wantSpd: "32 tok/s"},
+		{driver: "agy", agent: protocol.Austin, tokens: 50000, window: 1048576, speed: 65.2, wantCtx: "ctx 50k/1.0M", wantSpd: "65 tok/s"},
+		{driver: "opencode", agent: protocol.Tony, tokens: 12000, window: 128000, speed: 24.8, wantCtx: "ctx 12k/128k", wantSpd: "25 tok/s"},
+	} {
+		t.Run(tc.driver, func(t *testing.T) {
+			a := testApp(140, 30)
+			mgr := agent.NewManager()
+			mgr.Add(&previewMockDriver{agentID: tc.agent, driverType: tc.driver, state: agent.ProcessRunning})
+			a.agents = mgr
 
-	a.tracker.Handle(protocol.Austin, protocol.ActivityProviderStart)
-	a.tracker.UpdateUsage(protocol.Austin, 45000, 200000, 32.5)
-	header := a.previewHeader(protocol.Austin, 120)
-	if !strings.Contains(header, "ctx 45k/200k") || !strings.Contains(header, "32 tok/s") {
-		t.Fatalf("header = %q, want context usage and live token rate", header)
-	}
+			// Live streaming state shows both context usage and active token rate
+			if tc.driver == "agy" {
+				a.tracker.Handle(tc.agent, protocol.ActivityAgentStart)
+			} else {
+				a.tracker.Handle(tc.agent, protocol.ActivityProviderStart)
+			}
+			a.tracker.Handle(tc.agent, protocol.ActivityStream)
+			a.tracker.UpdateUsage(tc.agent, tc.tokens, tc.window, tc.speed)
+			header := a.previewHeader(tc.agent, 120)
+			if !strings.Contains(header, tc.wantCtx) || !strings.Contains(header, tc.wantSpd) {
+				t.Fatalf("%s header = %q, want %q and %q", tc.driver, header, tc.wantCtx, tc.wantSpd)
+			}
 
-	a.tracker.Handle(protocol.Austin, protocol.ActivityProviderEnd)
-	header = a.previewHeader(protocol.Austin, 120)
-	if !strings.Contains(header, "ctx 45k/200k") || strings.Contains(header, "tok/s") {
-		t.Fatalf("idle header = %q, want retained context without inactive token rate", header)
+			// Tool execution clears the active token speed but retains context usage
+			a.tracker.Handle(tc.agent, protocol.ActivityToolStart)
+			header = a.previewHeader(tc.agent, 120)
+			if !strings.Contains(header, tc.wantCtx) || strings.Contains(header, "tok/s") {
+				t.Fatalf("%s tool execution header = %q, want retained %q without active token rate", tc.driver, header, tc.wantCtx)
+			}
+
+			// Idle state retains context without token rate
+			if tc.driver == "agy" {
+				a.tracker.Handle(tc.agent, protocol.ActivityAgentSettled)
+			} else {
+				a.tracker.Handle(tc.agent, protocol.ActivityProviderEnd)
+			}
+			header = a.previewHeader(tc.agent, 120)
+			if !strings.Contains(header, tc.wantCtx) || strings.Contains(header, "tok/s") {
+				t.Fatalf("%s idle header = %q, want retained %q without inactive token rate", tc.driver, header, tc.wantCtx)
+			}
+		})
 	}
 }
 

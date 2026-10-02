@@ -2,11 +2,15 @@ package agent
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -139,6 +143,204 @@ func truncateStr(s string, maxLen int) string {
 	return s
 }
 
+// AgyUsage holds token metrics extracted from agy conversation metadata.
+type AgyUsage struct {
+	PromptTokens     int
+	CandidatesTokens int
+	CachedTokens     int
+	TotalInputTokens int
+	Model            string
+	ContextWindow    int
+}
+
+// ParseAgyGenMetadata parses the binary protobuf from gen_metadata to extract
+// promptTokens, candidatesTokens, cachedTokens, and model name.
+func ParseAgyGenMetadata(data []byte) (AgyUsage, bool) {
+	var usage AgyUsage
+	// Top level: find field 1 (length-delimited)
+	cur := data
+	var f1 []byte
+	for len(cur) > 0 {
+		fn, wt, val, rest, ok := parseProtoField(cur)
+		if !ok {
+			break
+		}
+		if fn == 1 && wt == 2 {
+			f1 = val
+			break
+		}
+		cur = rest
+	}
+	if len(f1) == 0 {
+		return usage, false
+	}
+
+	// Inside f1: find field 17 (usage) and field 19 (model name)
+	cur = f1
+	var f17 []byte
+	for len(cur) > 0 {
+		fn, wt, val, rest, ok := parseProtoField(cur)
+		if !ok {
+			break
+		}
+		if fn == 17 && wt == 2 {
+			f17 = val
+		} else if fn == 19 && wt == 2 {
+			usage.Model = string(val)
+		}
+		cur = rest
+	}
+
+	if len(f17) > 0 {
+		// Inside f17: find field 2
+		cur = f17
+		var f2 []byte
+		for len(cur) > 0 {
+			fn, wt, val, rest, ok := parseProtoField(cur)
+			if !ok {
+				break
+			}
+			if fn == 2 && wt == 2 {
+				f2 = val
+				break
+			}
+			cur = rest
+		}
+
+		if len(f2) > 0 {
+			// Inside f2: field 2 (prompt), field 3 (candidates), field 5 (cached)
+			cur = f2
+			for len(cur) > 0 {
+				fn, wt, val, rest, ok := parseProtoField(cur)
+				if !ok {
+					break
+				}
+				if wt == 0 {
+					v, _ := binary.Uvarint(val)
+					switch fn {
+					case 2:
+						usage.PromptTokens = int(v)
+					case 3:
+						usage.CandidatesTokens = int(v)
+					case 5:
+						usage.CachedTokens = int(v)
+					}
+				}
+				cur = rest
+			}
+		}
+	}
+
+	usage.TotalInputTokens = usage.PromptTokens + usage.CachedTokens
+	usage.ContextWindow = resolveAgyContextWindow(usage.Model)
+	return usage, usage.TotalInputTokens > 0 || usage.CandidatesTokens > 0
+}
+
+func parseProtoField(data []byte) (fieldNum int, wireType int, val []byte, rest []byte, ok bool) {
+	if len(data) == 0 {
+		return 0, 0, nil, nil, false
+	}
+	key, n := binary.Uvarint(data)
+	if n <= 0 {
+		return 0, 0, nil, nil, false
+	}
+	data = data[n:]
+	fieldNum = int(key >> 3)
+	wireType = int(key & 7)
+
+	switch wireType {
+	case 0: // varint
+		_, vn := binary.Uvarint(data)
+		if vn <= 0 {
+			return 0, 0, nil, nil, false
+		}
+		val = data[:vn]
+		rest = data[vn:]
+		return fieldNum, wireType, val, rest, true
+	case 1: // 64-bit
+		if len(data) < 8 {
+			return 0, 0, nil, nil, false
+		}
+		val = data[:8]
+		rest = data[8:]
+		return fieldNum, wireType, val, rest, true
+	case 2: // length-delimited
+		length, ln := binary.Uvarint(data)
+		if ln <= 0 || int(length) < 0 || len(data[ln:]) < int(length) {
+			return 0, 0, nil, nil, false
+		}
+		val = data[ln : ln+int(length)]
+		rest = data[ln+int(length):]
+		return fieldNum, wireType, val, rest, true
+	case 5: // 32-bit
+		if len(data) < 4 {
+			return 0, 0, nil, nil, false
+		}
+		val = data[:4]
+		rest = data[4:]
+		return fieldNum, wireType, val, rest, true
+	default:
+		return 0, 0, nil, nil, false
+	}
+}
+
+func resolveAgyContextWindow(model string) int {
+	lower := strings.ToLower(model)
+	switch {
+	case strings.Contains(lower, "gemini-1.5-pro"), strings.Contains(lower, "gemini-2.5-pro"), strings.Contains(lower, "gemini-pro"):
+		return 2_097_152
+	case strings.Contains(lower, "gemini"):
+		return 1_048_576
+	case strings.Contains(lower, "claude"):
+		return 200_000
+	case strings.Contains(lower, "gpt"), strings.Contains(lower, "o1"), strings.Contains(lower, "o3"), strings.Contains(lower, "o4"), strings.Contains(lower, "deepseek"):
+		return 128_000
+	default:
+		return 0
+	}
+}
+
+func agyDBPathFromTranscript(transcriptPath string) string {
+	if transcriptPath == "" {
+		return ""
+	}
+	logsDir := filepath.Dir(transcriptPath)
+	sysGenDir := filepath.Dir(logsDir)
+	convDir := filepath.Dir(sysGenDir)
+	convID := filepath.Base(convDir)
+	brainDir := filepath.Dir(convDir)
+	appDataDir := filepath.Dir(brainDir)
+	return filepath.Join(appDataDir, "conversations", convID+".db")
+}
+
+// QueryLatestAgyUsage queries the latest generation metadata from the agy conversation database.
+func QueryLatestAgyUsage(dbPath string) (AgyUsage, bool) {
+	if dbPath == "" {
+		return AgyUsage{}, false
+	}
+	if _, err := os.Stat(dbPath); err != nil {
+		return AgyUsage{}, false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "sqlite3", "-readonly", dbPath, "SELECT hex(data) FROM gen_metadata ORDER BY idx DESC LIMIT 1;")
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		return AgyUsage{}, false
+	}
+	hexStr := strings.TrimSpace(stdout.String())
+	if hexStr == "" {
+		return AgyUsage{}, false
+	}
+	raw, err := hex.DecodeString(hexStr)
+	if err != nil {
+		return AgyUsage{}, false
+	}
+	return ParseAgyGenMetadata(raw)
+}
+
 // AgyWatcher observes agy's transcript.jsonl and generates normalized Duo activity messages.
 type AgyWatcher struct {
 	agent          protocol.AgentID
@@ -150,16 +352,56 @@ type AgyWatcher struct {
 	stopCh   chan struct{}
 	lastTool string
 	lastStep int
+
+	dbPath            string
+	lastContextTokens int
+	lastContextWindow int
+	lastStepTime      time.Time
+	lastSpeed         float64
 }
 
 // NewAgyWatcher creates a new transcript watcher for an agent.
 func NewAgyWatcher(agent protocol.AgentID, transcriptPath string, sink AgyActivitySink) *AgyWatcher {
-	return &AgyWatcher{
-		agent:          agent,
-		transcriptPath: transcriptPath,
-		sink:           sink,
-		stopCh:         make(chan struct{}),
-		lastStep:       -1,
+	dbPath := agyDBPathFromTranscript(transcriptPath)
+	w := &AgyWatcher{
+		agent:             agent,
+		transcriptPath:    transcriptPath,
+		sink:              sink,
+		stopCh:            make(chan struct{}),
+		lastStep:          -1,
+		dbPath:            dbPath,
+		lastStepTime:      time.Now(),
+	}
+	if usage, ok := QueryLatestAgyUsage(dbPath); ok {
+		w.lastContextTokens = usage.TotalInputTokens
+		if usage.ContextWindow > 0 {
+			w.lastContextWindow = usage.ContextWindow
+		}
+	}
+	return w
+}
+
+// SetUsage explicitly sets context usage (useful for testing).
+func (w *AgyWatcher) SetUsage(tokens, window int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.lastContextTokens = tokens
+	if window > 0 {
+		w.lastContextWindow = window
+	}
+}
+
+// SetDBPath explicitly sets the database path (useful for testing).
+func (w *AgyWatcher) SetDBPath(dbPath string) {
+	usage, ok := QueryLatestAgyUsage(dbPath)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.dbPath = dbPath
+	if ok {
+		w.lastContextTokens = usage.TotalInputTokens
+		if usage.ContextWindow > 0 {
+			w.lastContextWindow = usage.ContextWindow
+		}
 	}
 }
 
@@ -252,27 +494,78 @@ func (w *AgyWatcher) ProcessLine(line []byte) {
 		return
 	}
 
-	now := time.Now().UnixMilli()
+	now := time.Now()
+	nowMilli := now.UnixMilli()
 
 	switch step.Type {
 	case "USER_INPUT":
+		w.mu.Lock()
+		w.lastStepTime = now
+		w.lastSpeed = 0
+		ctxToks := w.lastContextTokens
+		ctxWin := w.lastContextWindow
+		w.mu.Unlock()
+
 		w.sink.OnActivity(w.agent, protocol.Message{
-			Version:   protocol.Version,
-			Type:      protocol.MsgActivity,
-			Agent:     w.agent,
-			Activity:  protocol.ActivityAgentStart,
-			Timestamp: now,
+			Version:       protocol.Version,
+			Type:          protocol.MsgActivity,
+			Agent:         w.agent,
+			Activity:      protocol.ActivityAgentStart,
+			ContextTokens: ctxToks,
+			ContextWindow: ctxWin,
+			Timestamp:     nowMilli,
 		})
 
 	case "PLANNER_RESPONSE":
+		w.mu.Lock()
+		dbPath := w.dbPath
+		w.mu.Unlock()
+
+		usage, hasUsage := QueryLatestAgyUsage(dbPath)
+
+		w.mu.Lock()
+		elapsed := now.Sub(w.lastStepTime)
+		w.lastStepTime = now
+
+		candidates := 0
+		if hasUsage {
+			w.lastContextTokens = usage.TotalInputTokens
+			if usage.ContextWindow > 0 {
+				w.lastContextWindow = usage.ContextWindow
+			}
+			candidates = usage.CandidatesTokens
+		}
+		if candidates == 0 {
+			charCount := len(step.Thinking) + len(step.Content)
+			for _, tc := range step.ToolCalls {
+				charCount += len(tc.Name)
+				for k, v := range tc.Args {
+					charCount += len(k) + len(fmt.Sprint(v))
+				}
+			}
+			candidates = charCount / 4
+		}
+		if elapsed >= 200*time.Millisecond && candidates > 0 {
+			w.lastSpeed = float64(candidates) / elapsed.Seconds()
+		} else {
+			w.lastSpeed = 0
+		}
+		ctxToks := w.lastContextTokens
+		ctxWin := w.lastContextWindow
+		speed := w.lastSpeed
+		w.mu.Unlock()
+
 		if step.Thinking != "" {
 			w.sink.OnActivity(w.agent, protocol.Message{
-				Version:   protocol.Version,
-				Type:      protocol.MsgActivity,
-				Agent:     w.agent,
-				Activity:  protocol.ActivityStream,
-				Detail:    truncateStr(step.Thinking, 60),
-				Timestamp: now,
+				Version:         protocol.Version,
+				Type:            protocol.MsgActivity,
+				Agent:           w.agent,
+				Activity:        protocol.ActivityStream,
+				Detail:          truncateStr(step.Thinking, 60),
+				ContextTokens:   ctxToks,
+				ContextWindow:   ctxWin,
+				TokensPerSecond: speed,
+				Timestamp:       nowMilli,
 			})
 		}
 
@@ -284,13 +577,15 @@ func (w *AgyWatcher) ProcessLine(line []byte) {
 				w.mu.Unlock()
 
 				w.sink.OnActivity(w.agent, protocol.Message{
-					Version:   protocol.Version,
-					Type:      protocol.MsgActivity,
-					Agent:     w.agent,
-					Activity:  protocol.ActivityToolStart,
-					Tool:      tc.Name,
-					Detail:    detail,
-					Timestamp: now,
+					Version:       protocol.Version,
+					Type:          protocol.MsgActivity,
+					Agent:         w.agent,
+					Activity:      protocol.ActivityToolStart,
+					Tool:          tc.Name,
+					Detail:        detail,
+					ContextTokens: ctxToks,
+					ContextWindow: ctxWin,
+					Timestamp:     nowMilli,
 				})
 			}
 		} else {
@@ -300,49 +595,65 @@ func (w *AgyWatcher) ProcessLine(line []byte) {
 					Type:      protocol.MsgAssistantMessage,
 					Agent:     w.agent,
 					Text:      step.Content,
-					Timestamp: now,
+					Timestamp: nowMilli,
 				})
 				w.sink.OnActivity(w.agent, protocol.Message{
-					Version:   protocol.Version,
-					Type:      protocol.MsgActivity,
-					Agent:     w.agent,
-					Activity:  protocol.ActivityStream,
-					Detail:    truncateStr(step.Content, 60),
-					Timestamp: now,
+					Version:         protocol.Version,
+					Type:            protocol.MsgActivity,
+					Agent:           w.agent,
+					Activity:        protocol.ActivityStream,
+					Detail:          truncateStr(step.Content, 60),
+					ContextTokens:   ctxToks,
+					ContextWindow:   ctxWin,
+					TokensPerSecond: speed,
+					Timestamp:       nowMilli,
 				})
 			}
+			w.mu.Lock()
+			w.lastSpeed = 0
+			w.mu.Unlock()
 			w.sink.OnActivity(w.agent, protocol.Message{
-				Version:   protocol.Version,
-				Type:      protocol.MsgActivity,
-				Agent:     w.agent,
-				Activity:  protocol.ActivityAgentSettled,
-				Timestamp: now,
+				Version:       protocol.Version,
+				Type:          protocol.MsgActivity,
+				Agent:         w.agent,
+				Activity:      protocol.ActivityAgentSettled,
+				ContextTokens: ctxToks,
+				ContextWindow: ctxWin,
+				Timestamp:     nowMilli,
 			})
 		}
 
 	case "GENERIC":
 		w.mu.Lock()
 		tool := w.lastTool
+		w.lastStepTime = now
+		w.lastSpeed = 0
+		ctxToks := w.lastContextTokens
+		ctxWin := w.lastContextWindow
 		w.mu.Unlock()
 
 		if step.Status == "ERROR" {
 			w.sink.OnActivity(w.agent, protocol.Message{
-				Version:   protocol.Version,
-				Type:      protocol.MsgActivity,
-				Agent:     w.agent,
-				Activity:  protocol.ActivityToolError,
-				Tool:      tool,
-				Detail:    truncateStr(step.Content, 80),
-				Timestamp: now,
+				Version:       protocol.Version,
+				Type:          protocol.MsgActivity,
+				Agent:         w.agent,
+				Activity:      protocol.ActivityToolError,
+				Tool:          tool,
+				Detail:        truncateStr(step.Content, 80),
+				ContextTokens: ctxToks,
+				ContextWindow: ctxWin,
+				Timestamp:     nowMilli,
 			})
 		} else {
 			w.sink.OnActivity(w.agent, protocol.Message{
-				Version:   protocol.Version,
-				Type:      protocol.MsgActivity,
-				Agent:     w.agent,
-				Activity:  protocol.ActivityToolEnd,
-				Tool:      tool,
-				Timestamp: now,
+				Version:       protocol.Version,
+				Type:          protocol.MsgActivity,
+				Agent:         w.agent,
+				Activity:      protocol.ActivityToolEnd,
+				Tool:          tool,
+				ContextTokens: ctxToks,
+				ContextWindow: ctxWin,
+				Timestamp:     nowMilli,
 			})
 		}
 	}

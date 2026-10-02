@@ -159,7 +159,7 @@ func previewUsage(rt harness.AgentRuntime) string {
 	if rt.ContextWindow > 0 {
 		parts = append(parts, fmt.Sprintf("ctx %s/%s", compactTokenCount(rt.ContextTokens), compactTokenCount(rt.ContextWindow)))
 	}
-	if rt.ProviderActive && rt.TokensPerSecond > 0 && !rt.TokenSpeedAt.IsZero() && time.Since(rt.TokenSpeedAt) < 2*time.Second {
+	if (rt.ProviderActive || rt.Busy) && rt.ToolDepth == 0 && rt.TokensPerSecond > 0 && !rt.TokenSpeedAt.IsZero() && time.Since(rt.TokenSpeedAt) < 2*time.Second {
 		parts = append(parts, fmt.Sprintf("%.0f tok/s", rt.TokensPerSecond))
 	}
 	return strings.Join(parts, " · ")

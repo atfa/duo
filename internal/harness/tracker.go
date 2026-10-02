@@ -115,6 +115,9 @@ func (t *Tracker) Handle(agent protocol.AgentID, activity protocol.ActivityType)
 		rt.TokenSpeedAt = time.Time{}
 	case protocol.ActivityToolStart:
 		rt.Busy = true
+		rt.ProviderActive = false
+		rt.TokensPerSecond = 0
+		rt.TokenSpeedAt = time.Time{}
 		rt.ToolDepth++
 	case protocol.ActivityToolEnd, protocol.ActivityToolError:
 		if rt.ToolDepth > 0 {

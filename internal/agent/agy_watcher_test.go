@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"strings"
@@ -208,6 +209,180 @@ func TestSummarizeToolArgsFallbackIsDeterministic(t *testing.T) {
 	for i := 0; i < 200; i++ {
 		if got := SummarizeToolArgs(tool, args); got != first {
 			t.Fatalf("summary changed between renders: %q then %q", first, got)
+		}
+	}
+}
+
+func TestParseAgyGenMetadata(t *testing.T) {
+	// Build nested protobuf manually:
+	// f2: field 2 (varint 5000), field 3 (varint 250), field 5 (varint 45000)
+	var f2 []byte
+	f2 = binary.AppendUvarint(f2, (2<<3)|0)
+	f2 = binary.AppendUvarint(f2, 5000)
+	f2 = binary.AppendUvarint(f2, (3<<3)|0)
+	f2 = binary.AppendUvarint(f2, 250)
+	f2 = binary.AppendUvarint(f2, (5<<3)|0)
+	f2 = binary.AppendUvarint(f2, 45000)
+
+	// f17: field 2 (length-delimited f2)
+	var f17 []byte
+	f17 = binary.AppendUvarint(f17, (2<<3)|2)
+	f17 = binary.AppendUvarint(f17, uint64(len(f2)))
+	f17 = append(f17, f2...)
+
+	// f1: field 17 (length-delimited f17), field 19 (length-delimited "gemini-3.8-flash")
+	modelName := "gemini-3.8-flash"
+	var f1 []byte
+	f1 = binary.AppendUvarint(f1, (17<<3)|2)
+	f1 = binary.AppendUvarint(f1, uint64(len(f17)))
+	f1 = append(f1, f17...)
+	f1 = binary.AppendUvarint(f1, (19<<3)|2)
+	f1 = binary.AppendUvarint(f1, uint64(len(modelName)))
+	f1 = append(f1, []byte(modelName)...)
+
+	// top: field 1 (length-delimited f1)
+	var top []byte
+	top = binary.AppendUvarint(top, (1<<3)|2)
+	top = binary.AppendUvarint(top, uint64(len(f1)))
+	top = append(top, f1...)
+
+	usage, ok := ParseAgyGenMetadata(top)
+	if !ok {
+		t.Fatal("ParseAgyGenMetadata returned ok=false")
+	}
+	if usage.PromptTokens != 5000 {
+		t.Errorf("PromptTokens = %d, want 5000", usage.PromptTokens)
+	}
+	if usage.CandidatesTokens != 250 {
+		t.Errorf("CandidatesTokens = %d, want 250", usage.CandidatesTokens)
+	}
+	if usage.CachedTokens != 45000 {
+		t.Errorf("CachedTokens = %d, want 45000", usage.CachedTokens)
+	}
+	if usage.TotalInputTokens != 50000 {
+		t.Errorf("TotalInputTokens = %d, want 50000", usage.TotalInputTokens)
+	}
+	if usage.Model != modelName {
+		t.Errorf("Model = %q, want %q", usage.Model, modelName)
+	}
+	if usage.ContextWindow != 1_048_576 {
+		t.Errorf("ContextWindow = %d, want 1048576", usage.ContextWindow)
+	}
+}
+
+func TestAgyWatcherTokenUsageAndSpeed(t *testing.T) {
+	var events []protocol.Message
+	sink := FuncActivitySink(func(_ protocol.AgentID, msg protocol.Message) {
+		events = append(events, msg)
+	})
+
+	w := NewAgyWatcher(protocol.Austin, "/tmp/test/brain/conv123/.system_generated/logs/transcript.jsonl", sink)
+	w.SetUsage(45000, 1000000)
+
+	// Step 0: USER_INPUT triggers agent_start
+	w.ProcessLine([]byte(`{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-09-30T00:00:00Z","content":"hello"}`))
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].Activity != protocol.ActivityAgentStart {
+		t.Errorf("expected ActivityAgentStart, got %v", events[0].Activity)
+	}
+	if events[0].ContextTokens != 45000 || events[0].ContextWindow != 1000000 {
+		t.Errorf("expected context usage 45000/1000000, got %d/%d", events[0].ContextTokens, events[0].ContextWindow)
+	}
+
+	// Step 1: PLANNER_RESPONSE with thinking triggers stream then tool_start
+	events = nil
+	// simulate a short delay to verify speed calculation
+	time.Sleep(250 * time.Millisecond)
+	w.ProcessLine([]byte(`{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-09-30T00:00:01Z","thinking":"analyzing code carefully now...","tool_calls":[{"name":"run_command","args":{"toolSummary":"ls"}}]}`))
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %d: %+v", len(events), events)
+	}
+	streamMsg := events[0]
+	if streamMsg.Activity != protocol.ActivityStream {
+		t.Fatalf("expected ActivityStream, got %v", streamMsg.Activity)
+	}
+	if streamMsg.ContextTokens != 45000 || streamMsg.ContextWindow != 1000000 {
+		t.Errorf("expected stream context tokens 45000/1000000, got %d/%d", streamMsg.ContextTokens, streamMsg.ContextWindow)
+	}
+	if streamMsg.TokensPerSecond <= 0 {
+		t.Errorf("expected positive TokensPerSecond, got %v", streamMsg.TokensPerSecond)
+	}
+
+	toolMsg := events[1]
+	if toolMsg.Activity != protocol.ActivityToolStart {
+		t.Fatalf("expected ActivityToolStart, got %v", toolMsg.Activity)
+	}
+	if toolMsg.ContextTokens != 45000 || toolMsg.ContextWindow != 1000000 {
+		t.Errorf("expected tool context tokens 45000/1000000, got %d/%d", toolMsg.ContextTokens, toolMsg.ContextWindow)
+	}
+}
+
+func TestResolveAgyContextWindow(t *testing.T) {
+	cases := []struct {
+		model string
+		want  int
+	}{
+		{"gemini-2.5-pro", 2_097_152},
+		{"gemini-3.8-flash", 1_048_576},
+		{"claude-3-7-sonnet", 200_000},
+		{"gpt-4o", 128_000},
+		{"deepseek-r1", 128_000},
+		{"unknown-model", 0},
+		{"", 0},
+	}
+	for _, tc := range cases {
+		got := resolveAgyContextWindow(tc.model)
+		if got != tc.want {
+			t.Errorf("resolveAgyContextWindow(%q) = %d, want %d", tc.model, got, tc.want)
+		}
+	}
+}
+
+func TestAgyWatcherDefaultContextWindowZeroWhenNoDB(t *testing.T) {
+	w := NewAgyWatcher(protocol.Austin, "/nonexistent/transcript.jsonl", nil)
+	if w.lastContextWindow != 0 {
+		t.Errorf("expected lastContextWindow == 0 when DB is unreadable, got %d", w.lastContextWindow)
+	}
+}
+
+func TestAgyWatcherSpeedResetAcrossTurns(t *testing.T) {
+	var events []protocol.Message
+	sink := FuncActivitySink(func(_ protocol.AgentID, msg protocol.Message) {
+		events = append(events, msg)
+	})
+
+	w := NewAgyWatcher(protocol.Austin, "/nonexistent/transcript.jsonl", sink)
+	w.SetUsage(1000, 100000)
+
+	// Turn 1: USER_INPUT -> wait 250ms -> PLANNER_RESPONSE (speed > 0) -> settles
+	w.ProcessLine([]byte(`{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-09-30T00:00:00Z","content":"hello"}`))
+	time.Sleep(250 * time.Millisecond)
+	events = nil
+	w.ProcessLine([]byte(`{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-09-30T00:00:01Z","thinking":"answering...","content":"hi there"}`))
+
+	// Expect stream (speed > 0) + assistant message + stream + settled
+	var turn1Speed float64
+	for _, ev := range events {
+		if ev.Activity == protocol.ActivityStream && ev.TokensPerSecond > 0 {
+			turn1Speed = ev.TokensPerSecond
+		}
+	}
+	if turn1Speed <= 0 {
+		t.Fatalf("expected turn 1 to compute speed > 0, got %v", turn1Speed)
+	}
+
+	// Turn 2: New USER_INPUT immediately followed by PLANNER_RESPONSE (< 200ms)
+	events = nil
+	w.ProcessLine([]byte(`{"step_index":2,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-09-30T00:00:02Z","content":"next"}`))
+	w.ProcessLine([]byte(`{"step_index":3,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-09-30T00:00:02Z","thinking":"instant...","content":"ok"}`))
+
+	for _, ev := range events {
+		if ev.Activity == protocol.ActivityStream {
+			if ev.TokensPerSecond != 0 {
+				t.Errorf("expected turn 2 stream TokensPerSecond to be 0 (not carried over), got %v", ev.TokensPerSecond)
+			}
 		}
 	}
 }
