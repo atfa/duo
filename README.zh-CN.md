@@ -173,6 +173,7 @@ Duo 的主界面是一条会话 **时间线**：单一时间顺序的消息流�
 | `PgUp` / `PgDn` | 向上/向下滚动会话时间线 |
 | 鼠标滚轮悬停在时间线上 | 滚动更早的消息 |
 | 鼠标在时间线上拖拽选择 | 选中文本并复制到剪贴板 |
+| 鼠标点击预览标题行的 `[↗]` | 进入该 Agent 的原生 Pi，等同于 `Ctrl+A` / `Ctrl+T` |
 
 时间线上的每条消息标题默认带上 `HH:MM:SS` 时间（`Austin → Tony · 14:30:05`），一次往来可以完整阅读；`Ctrl+G` 可隐藏或恢复这些时间。
 
@@ -185,15 +186,20 @@ composer 支持多行，一次最多显示四行。原生接管是全屏接管�
 | 命令 | 说明 |
 |---|---|
 | `/escalate [reason]` | 动态将当前 Fast 模式会话无缝升级为 Goal 模式 |
-| `/mode [fast\|goal]` | 切换会话运行模式（如 `/mode goal` 触发升级） |
+| `/mode` | 打印当前会话模式 |
+| `/mode goal` | 把会话升级为 Goal 模式；`/mode fast` 会被拒绝，会话不会退回 Fast |
 | `/model` | 打开 Austin/Tony 模型与思考强度选择器（等同于 `Ctrl+M`） |
 | `/overview` | 切换会话总览与 Git 变更统计详情（等同于 `Ctrl+O`） |
 | `/preview` | 展开或折叠 Agent 工作预览带（等同于 `Ctrl+P`） |
 | `/timestamps` | 切换时间线消息时间戳显示（等同于 `Ctrl+G`） |
 | `/help` | 打开 Duo 交互式帮助大屏（等同于 `Ctrl+/`） |
 | `/status` | 打印当前权威的模式、阶段与 worktree 状态 |
-| `/clear` | 清空当前输入框并重置状态提示 |
+| `/clear` | composer 里只有这条命令本身，因此已经是空的；Duo 会强制整屏重绘并给出提示 |
 | `/quit` 或 `/exit` | 退出 Duo 并保留当前会话状态 |
+
+未知命令会作为错误提示。`//text` 与绝对路径（例如 `/usr/bin/python`）会当作任务原样发送给 Austin。
+
+提交过的任务会追加到 `~/.duo/history`（可用 `DUO_HISTORY_FILE` 覆盖），因此 `↑`/`↓` 的历史回溯在重启或 resume 之后依然有效。
 
 模型选择器（`Ctrl+M`）列出**目标 Agent 自己那个 driver** 所上报的模型目录——即 Duo 启动该 Agent 所用的同一套安装（`pi --list-models`、`agy models`、`opencode models`），因此同一会话里 Austin 与 Tony 可以各自使用不同目录。输入即可过滤，用 `↑`/`↓`（或 `PgUp`/`PgDn`、`Home`/`End`）移动，用 `Tab` 在 Austin 与 Tony 之间切换目标，用 `Shift+Tab` 循环该 Agent 的思考强度，用 `Enter` 应用模型并关闭，或用 `Space` 应用模型但不关闭——这样一次打开就能同时设好模型和思考强度。在 `pi` 上切换是实时的：Pi 保留对话，并把模型与思考强度记入 session 记录，因此重启或 resume（`Ctrl+R`/`Ctrl+Y`）后仍然有效。`agy` 与 `opencode` 把模型和思考强度当作启动参数，因此 Duo 会重启该 Agent——对话仍会保留（session id 已持久化），但正在进行的工作会被打断。`▶` 标记选择器光标，`●` 标记目标 Agent 当前使用的模型。
 
@@ -201,7 +207,7 @@ Agent 输出按轻量 markdown 渲染：标题、引用、链接以及粗体/斜
 
 鼠标划选复制支持终端标准 OSC 52 转义序列（在远程 SSH、tmux 以及 Ghostty/WezTerm/Alacritty/Kitty 等现代终端中原生直通）并自动回退至宿主系统剪贴板工具（macOS 下 `pbcopy`、Wayland 下 `wl-copy`、X11 下 `xclip`/`xsel`）。
 
-Help 是一个完整的大屏视图，用 `↑`/`k`、`↓`/`j`、`PgUp`、`PgDn`、`Home`/`g`、`End`/`G` 滚动，用 `Esc` 或 `Ctrl+/` 关闭。在原生 Pi 中 `Ctrl+/` 仍直接交给 Pi，不会打开 Duo Help。
+Help 是一个完整的大屏视图，用 `↑`/`k`、`↓`/`j`、`PgUp`、`PgDn`、`Home`/`g`、`End`/`G` 滚动，用 `Esc` 或 `Ctrl+/` 关闭。在原生 Pi 中 `Ctrl+/` 仍直接交给 Pi，不会打开 Duo Help。Help 里除了上面的快捷键、斜杠命令与模型选择器，还有一个 **命令行（Command Line）** 小节，列出全部 `duo` 子命令与参数；完整用法、全部环境变量以及每个命令的详细说明见 `duo --help`。
 
 \* 只有当终端能明确区分上报该组合键时才会插入换行（`\x1b[13;2u` CSI-u 或 Duo 启用 modifyOtherKeys 后的 `\x1b[27;2;13~`）。若你的终端把 `Shift+Enter` 发成裸 `\r`，它会**提交**而不是换行——这种情况请改用 `Ctrl+Enter`（到达时是 `\n`）。`Ctrl+M` 有同样的限制：只有支持上述模式的终端才会把它上报成带 Ctrl 的 `m` 键（`\x1b[27;5;109~` 或 `\x1b[109;5u`），其余终端上与 `Enter` 无法区分——这种情况请用 `Alt+M`。
 
@@ -248,7 +254,10 @@ Duo 可以驱动你安装的任意一种 Agent CLI。三者使用同一套 Duo �
 | `opencode` | `--agent opencode` | opencode 插件通过本地 socket 回连，与 Pi bridge 同一机制。 |
 
 `--driver` 是 `--agent` 的别名，`--austin-agent` / `--tony-agent` 则是
-`--austin-driver` / `--tony-driver` 的别名。
+`--austin-driver` / `--tony-driver` 的别名。单 Agent 的 driver 没有对应环境变量：
+`DUO_DRIVER` 同时作用于两个 Agent；要分别指定，请用 `--austin-driver` /
+`--tony-driver`，或在 `.duo/config.json` 里写 `agents.austin.driver` /
+`agents.tony.driver`。
 
 可以为每个 Agent 单独指定，从而混用，例如
 `duo --austin-driver opencode --tony-driver pi`：
@@ -379,6 +388,7 @@ Scope 是**默认工作目录，不是文件系统沙箱**。任务确实需要�
 ```bash
 duo --resume              # 恢复本仓库未完成的那个会话
 duo -r                    # 同上
+duo resume                # 同上（也接受这个裸词）
 duo --resume <id>         # 恢复指定会话
 duo --resume=<id>         # 同上
 ```
@@ -431,14 +441,17 @@ duo sessions                 # 查看当前仓库的所有会话
 duo sessions --all           # 查看所有仓库的会话
 duo clean                    # 清理当前仓库已完成（DONE）的会话
 duo clean <session-id>       # 清理指定的某个会话
-duo clean --all-repos        # 清理所有仓库中已完成的会话
-duo clean --force            # 连同未完成会话一起清理（自动跳过当前运行中的活跃会话）
-duo clean --dry-run          # 仅预览将被清理的内容，不修改磁盘
+duo clean --all             # 可接受，但裸 duo clean 本来就会清理全部已完成会话
+duo clean --all-repos       # 清理所有仓库中已完成的会话
+duo clean --force           # 连同未完成会话一起清理（自动跳过当前运行中的活跃会话）
+duo clean --dry-run         # 仅预览将被清理的内容，不修改磁盘
+duo logs                    # 列出写入 .duo/logs 的 Markdown 会话记录
+duo logs <repository>       # 列出另一个仓库的会话记录
 ```
 
 清理会话会自动安全移除对应的 Git 工作树（`git worktree remove --force`）、执行 `git worktree prune` 修剪、删除临时分支（`duo/<session>/*`），并删除对应的会话快照目录。正在被另一个运行中的 Duo 进程持有的会话会被 `flock` 锁保护，自动予以跳过。
 
-`duo sessions <repository>` 可以列出其他仓库的会话。`duo sessions` 只接受 `-a`（`--all`）；`duo clean` 另外接受 `-f`（`--force`）与 `-n`（`--dry-run`）。
+`duo clean` 默认就会清理本仓库全部已完成（DONE）的会话，因此 `--all` 目前不改变任何行为；真正把未完成会话也纳入的是 `--force`。`duo sessions` 接受 `-a`（`--all`）；`duo clean` 另外接受 `-f`（`--force`）与 `-n`（`--dry-run`）；`duo apply` 还接受 `--session <id>` / `-s <id>`。`duo plugin` 与 `duo mcp` 分别是 `duo plugins` 与 `duo mcp-server` 的别名。每个命令都支持自己的 `--help`（例如 `duo clean --help`）；在仓库目录里执行 `duo <repository> --help` 同样会打印完整用法。
 
 其余命令不涉及会话：`duo plugins` 列出内置 driver 与所有已发现的外部插件，[`duo mcp-server`](#mcp-服务duo-mcp-server) 通过 MCP 提供 Duo 工具，`duo version`（`--version`）与 `duo help`（`-h`、`--help`）分别打印版本号与完整用法。
 

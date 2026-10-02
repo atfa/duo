@@ -16,6 +16,10 @@ import (
 // user's repository was deliberately left untouched.
 var errDeliveryPending = errors.New("delivery is pending; the original repository was not modified")
 
+// errUsageRequested is returned by a parser that was asked for -h/--help/help.
+// It is not a failure: the command prints the usage and exits 0.
+var errUsageRequested = errors.New("usage requested")
+
 // runApply implements `duo apply [session-id]`. It is dispatched from main
 // before interactive configuration, and never starts Austin or Tony.
 //
@@ -24,6 +28,10 @@ var errDeliveryPending = errors.New("delivery is pending; the original repositor
 // never forced.
 func runApply(ctx context.Context, args []string) error {
 	sessionID, err := parseApplyArgs(args)
+	if errors.Is(err, errUsageRequested) {
+		printUsage()
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -85,6 +93,8 @@ func parseApplyArgs(args []string) (string, error) {
 		arg := strings.TrimSpace(args[i])
 		switch {
 		case arg == "":
+		case helpRequested(arg):
+			return "", errUsageRequested
 		case arg == "--session" || arg == "-s":
 			if i+1 >= len(args) {
 				return "", fmt.Errorf("--session requires a session id")
@@ -94,7 +104,7 @@ func parseApplyArgs(args []string) (string, error) {
 		case strings.HasPrefix(arg, "--session="):
 			sessionID = strings.TrimSpace(strings.TrimPrefix(arg, "--session="))
 		case strings.HasPrefix(arg, "-"):
-			return "", fmt.Errorf("unknown flag %q (usage: duo apply [session-id])", arg)
+			return "", fmt.Errorf("unknown flag %q (usage: %s)", arg, commandUsage("apply"))
 		default:
 			if sessionID != "" {
 				return "", fmt.Errorf("unexpected extra argument %q", arg)

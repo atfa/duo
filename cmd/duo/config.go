@@ -48,6 +48,21 @@ type config struct {
 	modeSource   string
 	modeRaw      string
 	modeExplicit bool
+
+	// help is set by -h/--help/help, which prints the usage and exits without
+	// starting or touching a session.
+	help bool
+}
+
+// helpRequested reports whether arg asks for usage instead of an action. Every
+// parser accepts the three spellings, so `duo <repo> --help` and
+// `duo clean --help` print usage instead of failing with an unknown flag.
+func helpRequested(arg string) bool {
+	switch strings.TrimSpace(arg) {
+	case "-h", "--help", "help":
+		return true
+	}
+	return false
 }
 
 func (c config) agentCommand(agent protocol.AgentID) string {
@@ -106,6 +121,7 @@ type cliArgs struct {
 	driver       string
 	austinDriver string
 	tonyDriver   string
+	help         bool
 }
 
 // parseArgs understands `duo [repository] [--mode fast|goal] [--resume [id]]`.
@@ -117,6 +133,9 @@ func parseArgs(args []string) (cliArgs, error) {
 		arg := strings.TrimSpace(args[i])
 		switch {
 		case arg == "":
+		case helpRequested(arg):
+			// `duo <repo> --help` prints usage without launching a session.
+			out.help = true
 		case arg == "--resume" || arg == "-r" || arg == "resume":
 			out.resume = true
 			if i+1 < len(args) && !strings.HasPrefix(strings.TrimSpace(args[i+1]), "-") {
@@ -177,7 +196,7 @@ func parseArgs(args []string) (cliArgs, error) {
 		case strings.HasPrefix(arg, "--tony-driver=") || strings.HasPrefix(arg, "--tony-agent="):
 			out.tonyDriver = strings.TrimSpace(strings.SplitN(arg, "=", 2)[1])
 		case strings.HasPrefix(arg, "-"):
-			return out, fmt.Errorf("unknown Duo flag %q (usage: duo [git-repository] [--mode fast|goal] [--test-cmd <command>] [--agent pi|agy] [--resume [session-id]])", arg)
+			return out, fmt.Errorf("unknown Duo flag %q (usage: %s)", arg, commandUsage("duo"))
 		default:
 			if out.repository != "" {
 				return out, fmt.Errorf("unexpected extra argument %q", arg)
@@ -249,6 +268,9 @@ func loadConfig(args []string) (config, error) {
 	parsed, err := parseArgs(args)
 	if err != nil {
 		return config{}, err
+	}
+	if parsed.help {
+		return config{help: true}, nil
 	}
 
 	cwd, _ := os.Getwd()

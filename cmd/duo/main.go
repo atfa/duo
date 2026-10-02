@@ -10,10 +10,12 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/atfa/duo/internal/agent"
+	"github.com/atfa/duo/internal/clidoc"
 	"github.com/atfa/duo/internal/coordinator"
 	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/harness"
@@ -34,34 +36,7 @@ func main() {
 			fmt.Println("Duo " + version.Version)
 			return
 		case "-h", "--help", "help":
-			fmt.Println("Duo " + version.Version)
-			fmt.Println("Usage: duo [git-repository] [--mode fast|goal] [--test-cmd <cmd>] [--resume [session-id]]")
-			fmt.Println("       duo apply [session-id]")
-			fmt.Println("       duo sessions [--all] [repository]")
-			fmt.Println("       duo logs [repository]")
-			fmt.Println("       duo clean [session-id] [--all] [--all-repos] [--force] [--dry-run]")
-			fmt.Println("       duo plugins")
-			fmt.Println("       duo mcp-server [--agent austin|tony] [--export-config]")
-			fmt.Println()
-			fmt.Println("  duo                    start a new Fast session (Austin drives, Tony verifies)")
-			fmt.Println("  duo --mode goal        start a new Goal session (shared plan + dual sign-off)")
-			fmt.Println("  duo --test-cmd <cmd>   run automated test command before accepting verification")
-			fmt.Println("  duo --agent pi|agy|opencode")
-			fmt.Println("                       select agent driver (or --austin-driver / --tony-driver)")
-			fmt.Println("  duo --resume           resume this repository's unfinished session")
-			fmt.Println("  duo --resume <id>      resume one specific session (required if several are unfinished)")
-			fmt.Println("  duo apply              deliver a pending final result to this repository")
-			fmt.Println("  duo apply <id>         apply one specific session's final result")
-			fmt.Println("  duo sessions           list sessions for this repository (--all for all repositories)")
-			fmt.Println("  duo logs               list the Markdown transcripts written to .duo/logs")
-			fmt.Println("  duo clean              clean completed sessions and worktrees (--force for unfinished)")
-			fmt.Println("  duo plugins            list built-in and discovered external agent driver plugins")
-			fmt.Println("  duo mcp-server         serve Model Context Protocol (MCP) state machine tools")
-			fmt.Println()
-			fmt.Println("Mode is fixed for a session's lifetime. DUO_MODE sets the default for new sessions;")
-			fmt.Println("an explicit --mode wins, and --resume always uses the session's persisted mode.")
-			fmt.Println()
-			fmt.Println("Run with no path from inside a Git repository: cd project && duo")
+			printUsage()
 			return
 		}
 	}
@@ -103,7 +78,9 @@ func main() {
 			}
 			return
 		case "plugins", "plugin":
-			runPlugins()
+			if err := runPlugins(os.Args[2:]); err != nil && ctx.Err() == nil {
+				log.Fatal(err)
+			}
 			return
 		}
 	}
@@ -111,6 +88,10 @@ func main() {
 	cfg, err := loadConfig(os.Args[1:])
 	if err != nil {
 		log.Fatal(err)
+	}
+	if cfg.help {
+		printUsage()
+		return
 	}
 	if err := cfg.validate(); err != nil {
 		log.Fatal(err)
@@ -531,7 +512,87 @@ func bridgeAddress(listen string) (string, string) {
 	return host, port
 }
 
-func runPlugins() {
+// printUsage is `duo --help`. The command lines come from internal/clidoc, the
+// same table the in-app Help panel renders, so the two cannot disagree.
+func printUsage() {
+	fmt.Println("Duo " + version.Version)
+	fmt.Println()
+	fmt.Println("Usage:")
+	for _, line := range clidoc.SummaryLines() {
+		fmt.Println(line)
+	}
+	fmt.Println()
+	fmt.Println("Starting a session:")
+	fmt.Println("  duo                    start a new Fast session (Austin drives, Tony verifies)")
+	fmt.Println("  duo --mode goal        start a new Goal session (shared plan + dual sign-off)")
+	fmt.Println("  duo --test-cmd <cmd>   run automated test command before accepting verification")
+	fmt.Println("  duo --agent pi|agy|opencode")
+	fmt.Println("                       select the driver for both agents")
+	fmt.Println("  duo --austin-driver <driver>")
+	fmt.Println("  duo --tony-driver <driver>")
+	fmt.Println("                       select one agent's driver, overriding --agent")
+	fmt.Println("  duo resume             resume this repository's unfinished session (same as -r / --resume)")
+	fmt.Println("  duo --resume           resume this repository's unfinished session")
+	fmt.Println("  duo --resume <id>      resume one specific session (required if several are unfinished)")
+	fmt.Println()
+	fmt.Println("Aliases:")
+	fmt.Println("  --driver = --agent; --austin-agent / --tony-agent = --austin-driver / --tony-driver;")
+	fmt.Println("  the bare word resume = --resume; duo plugin = duo plugins; duo mcp = duo mcp-server.")
+	fmt.Println()
+	fmt.Println("Environment:")
+	fmt.Println("  DUO_MODE               default mode for new sessions: fast or goal (an explicit --mode wins)")
+	fmt.Println("  DUO_TEST_COMMAND       automated test command run before accepting verification")
+	fmt.Println("  DUO_REPO               repository or subdirectory to launch against (a path argument wins)")
+	fmt.Println("  DUO_SESSION            session id to use (default: timestamp + random hex)")
+	fmt.Println("  DUO_WORKTREE_ROOT      where the Austin/Tony worktrees are created")
+	fmt.Println("  DUO_BASE_REF           ref the worktrees are branched from (default: HEAD)")
+	fmt.Println("  DUO_PI_COMMAND         command used to launch a Pi agent (default: pi)")
+	fmt.Println("  DUO_DRIVER             default driver for both agents: pi, agy or opencode")
+	fmt.Println("  DUO_LISTEN             bridge listen address (default: 127.0.0.1:0)")
+	fmt.Println("  DUO_HARNESS            enable the idle/stall watchdog (default: true)")
+	fmt.Println("  DUO_HARNESS_IDLE_SECONDS / _STALL_SECONDS / _COOLDOWN_SECONDS")
+	fmt.Println("                         watchdog thresholds")
+	fmt.Println("  DUO_HARNESS_RESUME_GRACE_SECONDS")
+	fmt.Println("                         extra grace after --resume (default: 45)")
+	fmt.Println("  DUO_HISTORY_FILE       composer task history file (default: ~/.duo/history)")
+	fmt.Println("  DUO_AGENT, DUO_SESSION, DUO_TOKEN, DUO_HOST, DUO_PORT")
+	fmt.Println("                         bridge connection for `duo mcp-server` (see duo mcp-server --help)")
+	fmt.Println()
+	fmt.Println("Mode is fixed for a session's lifetime. DUO_MODE sets the default for new sessions;")
+	fmt.Println("an explicit --mode wins, and --resume always uses the session's persisted mode.")
+	fmt.Println()
+	fmt.Println("Every command prints its own usage with --help, for example: duo apply --help")
+	fmt.Println("Run with no path from inside a Git repository: cd project && duo")
+}
+
+// commandUsage is the signature clidoc records for one command, for the
+// "unknown flag" messages of the individual parsers.
+func commandUsage(name string) string {
+	if command, ok := clidoc.Lookup(name); ok {
+		return command.Signature
+	}
+	return "duo " + name
+}
+
+func runPlugins(args []string) error {
+	for _, arg := range args {
+		switch strings.TrimSpace(arg) {
+		case "":
+		case "-h", "--help", "help":
+			printUsage()
+			return nil
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return fmt.Errorf("unknown flag %q (usage: %s)", arg, commandUsage("plugins"))
+			}
+			return fmt.Errorf("unexpected extra argument %q (usage: %s)", arg, commandUsage("plugins"))
+		}
+	}
+	printPlugins()
+	return nil
+}
+
+func printPlugins() {
 	fmt.Println("Available Agent Drivers:")
 	fmt.Println("  pi       [built-in]   Pi CLI coding agent driver (socket streaming)")
 	fmt.Println("  agy      [built-in]   Google Antigravity CLI driver (transcript observation)")

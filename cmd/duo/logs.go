@@ -15,6 +15,7 @@ import (
 
 type logsArgs struct {
 	repository string
+	help       bool
 }
 
 func parseLogsArgs(args []string) (logsArgs, error) {
@@ -24,8 +25,12 @@ func parseLogsArgs(args []string) (logsArgs, error) {
 		if arg == "" {
 			continue
 		}
+		if helpRequested(arg) {
+			out.help = true
+			return out, nil
+		}
 		if strings.HasPrefix(arg, "-") {
-			return out, fmt.Errorf("unknown flag %q (usage: duo logs [repository])", arg)
+			return out, fmt.Errorf("unknown flag %q (usage: %s)", arg, commandUsage("logs"))
 		}
 		if out.repository != "" {
 			return out, fmt.Errorf("unexpected extra argument %q", arg)
@@ -43,6 +48,10 @@ func runLogs(ctx context.Context, args []string) error {
 	parsed, err := parseLogsArgs(args)
 	if err != nil {
 		return err
+	}
+	if parsed.help {
+		printUsage()
+		return nil
 	}
 
 	repoPath := parsed.repository
