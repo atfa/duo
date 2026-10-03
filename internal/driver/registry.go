@@ -145,6 +145,18 @@ func discoverExecutables() []Entry {
 	return out
 }
 
+// IsLegacyShim reports whether an executable is one of the pre-plugin launch
+// wrappers — `duo-<name>` or `duo-driver-<name>` — rather than a Driver Plugin.
+//
+// They are kept for one release so an existing `DUO_PI_COMMAND=duo-pi` keeps
+// working, and they are exec shims: they launch an agent and speak no protocol at
+// all. Telling that apart matters, because a shim that fails the contract has not
+// been written badly, it simply is not a plugin yet.
+func IsLegacyShim(path string) bool {
+	name := filepath.Base(path)
+	return driverNameFromExecutable(name) != "" && !strings.HasPrefix(name, "duo-plugin-")
+}
+
 // reservedExecutables are Duo's own commands, which must never be mistaken for a
 // driver plugin just because they live in the same directory on PATH.
 var reservedExecutables = map[string]bool{
