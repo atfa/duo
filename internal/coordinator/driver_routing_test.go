@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/atfa/duo/internal/agent"
+	"github.com/atfa/duo/internal/driver"
 	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/project"
@@ -15,18 +16,61 @@ import (
 	"github.com/atfa/duo/internal/transport"
 )
 
+// mockDriver declares capabilities rather than a name. That is the point: a test
+// that hard-coded "agy" would be testing the driver-name conditionals this
+// refactor removes, and would keep passing if the behaviour were wrong.
 type mockDriver struct {
 	agent.Driver
-	mu      sync.Mutex
-	id      protocol.AgentID
-	drvType string
+	mu   sync.Mutex
+	id   protocol.AgentID
+	caps driver.Capabilities
+	man  *driver.Manifest
+
 	running bool
 	written []string
 }
 
+// newMockDriver builds a driver that declares the given capabilities. A name is only
+// kept for log readability.
+func newMockDriver(id protocol.AgentID, name string, caps driver.Capabilities) *mockDriver {
+	man := &driver.Manifest{
+		Protocol:       driver.ProtocolVersion,
+		Name:           name,
+		ModelReference: driver.ModelQualified,
+		Capabilities:   caps,
+	}
+	return &mockDriver{id: id, caps: caps, man: man}
+}
+
+// steeringOnly is a driver whose bridge lives inside the agent, so prompts can be
+// delivered over it.
+func steeringOnly() driver.Capabilities {
+	return driver.Capabilities{
+		Resume: driver.ResumeClient, Bridge: driver.BridgeAgent,
+		LiveSteering: true, PTYFallback: true, SelfReports: true,
+	}
+}
+
+// observedFromOutside is a driver whose bridge endpoint is the plugin itself: it
+// watches the agent and reports upstream, but nothing can write to the terminal
+// Duo Core owns.
+func observedFromOutside() driver.Capabilities {
+	return driver.Capabilities{
+		Resume: driver.ResumeServer, Bridge: driver.BridgePlugin,
+		Activity: true, PTYFallback: true, SelfReports: false,
+	}
+}
+
 func (m *mockDriver) Agent() protocol.AgentID { return m.id }
-func (m *mockDriver) DriverType() string      { return m.drvType }
-func (m *mockDriver) Running() bool           { m.mu.Lock(); defer m.mu.Unlock(); return m.running }
+func (m *mockDriver) DriverType() string {
+	if m.man != nil {
+		return m.man.Name
+	}
+	return ""
+}
+func (m *mockDriver) Manifest() *driver.Manifest        { return m.man }
+func (m *mockDriver) Capabilities() driver.Capabilities { return m.caps }
+func (m *mockDriver) Running() bool                     { m.mu.Lock(); defer m.mu.Unlock(); return m.running }
 func (m *mockDriver) State() agent.ProcessState {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -52,11 +96,11 @@ func TestSubmitUserTaskRoutesToAgyDriverViaPTY(t *testing.T) {
 	state := project.NewStateFor(project.ModeFast)
 	coord := New(nil, state, harness.NewTracker(), nil, bus)
 
-	austin := &mockDriver{
-		id:      protocol.Austin,
-		drvType: "agy",
-		running: true,
-	}
+	// A driver whose bridge endpoint belongs to the plugin: it reports what the
+	// agent is doing, but it cannot receive an injected prompt, so the task must go
+	// to the terminal.
+	austin := newMockDriver(protocol.Austin, "observed", observedFromOutside())
+	austin.running = true
 	mgr := agent.NewManager()
 	mgr.Add(austin)
 	coord.SetAgents(mgr)
@@ -89,21 +133,35 @@ func TestSubmitUserTaskRoutesToAgyDriverViaPTY(t *testing.T) {
 	}
 }
 
-// opencode's bridge attaches only after its TUI has a session, so its connection
-// is announced when the process starts instead. The bridge must not repeat it.
-func TestOpencodeConnectIsNotAnnouncedTwice(t *testing.T) {
+// A driver whose bridge can only attach once its agent has a session is announced
+// when the process starts instead. When its bridge does attach later, the
+// connection must not be announced a second time.
+func TestLateBridgeIsNotAnnouncedTwice(t *testing.T) {
 	bus := events.NewBus()
 	ch, unsub := bus.Subscribe(16)
 	defer unsub()
 
 	coord := New(nil, project.NewStateFor(project.ModeFast), harness.NewTracker(), nil, bus)
 	mgr := agent.NewManager()
-	mgr.Add(&mockDriver{id: protocol.Austin, drvType: "opencode", running: true})
-	mgr.Add(&mockDriver{id: protocol.Tony, drvType: "pi", running: true})
+	// A driver that cannot attach its bridge until its agent has something to say
+	// must be announced when the process starts; one that attaches immediately must
+	// announce itself, or the human is told about it twice.
+	late := newMockDriver(protocol.Austin, "late", driver.Capabilities{
+		Resume: driver.ResumeServer, Bridge: driver.BridgeAgent,
+		LiveSteering: true, PTYFallback: true, SelfReports: false,
+	})
+	late.running = true
+	eager := newMockDriver(protocol.Tony, "eager", steeringOnly())
+	eager.running = true
+	mgr.Add(late)
+	mgr.Add(eager)
 	coord.SetAgents(mgr)
 
-	if agent.SelfReportsOnLaunch("opencode") {
-		t.Fatal("opencode must not be treated as announcing itself over the bridge")
+	if late.Capabilities().SelfReports {
+		t.Fatal("a driver that cannot attach on launch must not claim it does")
+	}
+	if !eager.Capabilities().SelfReports {
+		t.Fatal("a driver whose bridge attaches on launch must claim it does")
 	}
 	coord.OnConnect(context.Background(), &transport.Client{Agent: protocol.Tony})
 

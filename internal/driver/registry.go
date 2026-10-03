@@ -54,7 +54,8 @@ func Lookup(name string) (string, bool) {
 type Entry struct {
 	// Name is the driver name, i.e. what `duo --agent <name>` selects.
 	Name string
-	// Path is the executable that implements it.
+	// Path is the executable that implements it, or BuiltInSource for a driver Duo
+	// runs in its own process.
 	Path string
 	// Shipped reports whether Duo ships this driver, which only affects how
 	// `duo plugins` labels it.
@@ -63,18 +64,29 @@ type Entry struct {
 	Source string
 }
 
-// Discover returns every driver plugin executable visible to this Duo, shipped
-// or external. Discovery is by executable name alone: nothing is executed and
-// nothing is asked, so listing plugins can never hang on a broken plugin.
+// BuiltInSource is the Path reported for a driver Duo runs in its own process.
+const BuiltInSource = "(built-in)"
+
+// Discover returns every driver available to this Duo, shipped or external.
+//
+// A shipped driver is reported from its registration rather than from a file on
+// disk: that is the implementation that will actually run, and a same-named
+// executable left over from an earlier install must not shadow it. External
+// discovery is by executable name alone — nothing is executed and nothing is asked
+// — so listing plugins can never hang on a broken plugin.
 func Discover() []Entry {
 	seen := make(map[string]bool)
 	var out []Entry
+	for _, name := range BuiltinNames() {
+		seen[name] = true
+		out = append(out, Entry{Name: name, Path: BuiltInSource, Shipped: true, Source: "duo"})
+	}
 	add := func(name, path, source string) {
 		if name == "" || seen[name] || !isExecutable(path) {
 			return
 		}
 		seen[name] = true
-		out = append(out, Entry{Name: name, Path: path, Shipped: IsBuiltin(name), Source: source})
+		out = append(out, Entry{Name: name, Path: path, Source: source})
 	}
 
 	if dir := PluginDir(); dir != "" {

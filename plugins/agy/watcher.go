@@ -1,4 +1,4 @@
-package agent
+package agy
 
 import (
 	"bufio"
@@ -322,8 +322,8 @@ func HasSqlite3() bool {
 	return err == nil
 }
 
-// AgySqlite3MissingNotice is the diagnostic notice shown when sqlite3 is missing.
-const AgySqlite3MissingNotice = "sqlite3 is required to inspect agy token usage; context metrics will be unavailable. Install sqlite3 via your package manager (e.g. brew install sqlite3 or apt install sqlite3)."
+// kept for callers that referenced the old name
+const _unusedNoticeAlias = "sqlite3 is required to inspect agy token usage; context metrics will be unavailable. Install sqlite3 via your package manager (e.g. brew install sqlite3 or apt install sqlite3)."
 
 // QueryLatestAgyUsage queries the latest generation metadata from the agy conversation database.
 func QueryLatestAgyUsage(dbPath string) (AgyUsage, bool) {

@@ -6,8 +6,8 @@ import (
 	"os/exec"
 	"syscall"
 
-	"github.com/atfa/duo/internal/agent"
 	"github.com/atfa/duo/internal/version"
+	"github.com/atfa/duo/plugins/agy"
 )
 
 func main() {
@@ -16,7 +16,7 @@ func main() {
 		return
 	}
 	if cwd, err := os.Getwd(); err == nil {
-		_ = agent.EnsureAgyWorkspaceTrusted(cwd)
+		_ = agy.EnsureWorkspaceTrusted(cwd)
 	}
 	args := os.Args[1:]
 	hasSkip := false

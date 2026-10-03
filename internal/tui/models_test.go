@@ -7,6 +7,7 @@ import (
 
 	"github.com/atfa/duo/internal/agent"
 	"github.com/atfa/duo/internal/coordinator"
+	"github.com/atfa/duo/internal/driver"
 	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/models"
@@ -152,8 +153,17 @@ type modelRecordingDriver struct {
 	restarts   int
 }
 
-func (d *modelRecordingDriver) Agent() protocol.AgentID            { return d.agentID }
-func (d *modelRecordingDriver) DriverType() string                 { return d.driverType }
+func (d *modelRecordingDriver) Agent() protocol.AgentID { return d.agentID }
+func (d *modelRecordingDriver) DriverType() string      { return d.driverType }
+func (d *modelRecordingDriver) Manifest() *driver.Manifest {
+	return &driver.Manifest{
+		Protocol:       driver.ProtocolVersion,
+		Name:           d.driverType,
+		ModelReference: driver.ModelQualified,
+		Capabilities:   driver.Capabilities{Resume: driver.ResumeServer, Bridge: driver.BridgeAgent, PTYFallback: true},
+	}
+}
+func (d *modelRecordingDriver) Capabilities() driver.Capabilities  { return d.Manifest().Capabilities }
 func (d *modelRecordingDriver) State() agent.ProcessState          { return agent.ProcessExited }
 func (d *modelRecordingDriver) Running() bool                      { return false }
 func (d *modelRecordingDriver) SetModel(model string)              { d.model = model }
@@ -240,7 +250,7 @@ func TestWriteModelShowsLoadingDriverName(t *testing.T) {
 	}
 
 	mgr := agent.NewManager()
-	mgr.Add(agent.NewAgySession(agent.Config{Agent: protocol.Austin, DriverType: "agy"}))
+	mgr.Add(newPreviewSession(t, "agy", protocol.Austin, ""))
 	a.agents = mgr
 	b.Reset()
 	a.writeModel(&b, a.width, a.height)

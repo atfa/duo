@@ -25,8 +25,8 @@ func waitFor(t *testing.T, condition func() bool) {
 func TestPTYInputResizeAndRestart(t *testing.T) {
 	ctx := context.Background()
 	m := NewManager()
-	a := NewSession(Config{Agent: protocol.Austin, Dir: t.TempDir(), Session: "same", Command: `sh -c 'read line; printf "got:%s:%s\\n" "$line" "$DUO_AGENT"'`})
-	b := NewSession(Config{Agent: protocol.Tony, Dir: t.TempDir(), Command: "sleep 30"})
+	a := mustSession(t, "stub", Config{Agent: protocol.Austin, Dir: t.TempDir(), Session: "same", BaseCommand: `sh -c 'read line; printf "got:%s:%s\\n" "$line" "$DUO_AGENT"'`})
+	b := mustSession(t, "stub", Config{Agent: protocol.Tony, Dir: t.TempDir(), BaseCommand: "sleep 30"})
 	m.Add(a)
 	m.Add(b)
 	if err := m.ResizeAll(101, 35); err != nil {

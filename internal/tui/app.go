@@ -43,12 +43,12 @@ func (a *App) startupMessage() string {
 //
 // This is derived from state rather than from the start event on purpose. Both
 // agents are launched before the TUI subscribes to the bus, so a "connected"
-// notice emitted at process start reaches nobody. agy has no bridge at all and
-// opencode's only attaches once its TUI has a session, so for those drivers this
-// is the only moment the human is told the agent is there.
+// notice emitted at process start reaches nobody. A driver whose bridge can only
+// attach once its agent has something to say needs this, and it is the only moment
+// the human is told the agent is there.
 func (a *App) announceRunningAgents() {
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
-		if agent.SelfReportsOnLaunch(a.driverName(id)) {
+		if a.selfReports(id) {
 			continue
 		}
 		if a.processState(id) != agent.ProcessRunning {
@@ -56,20 +56,38 @@ func (a *App) announceRunningAgents() {
 		}
 		a.add(id, fmt.Sprintf("%s connected", id))
 	}
-	a.warnSqlite3Once()
 }
 
-func (a *App) warnSqlite3Once() {
-	if a.warnedSqlite3 || a.hasSqlite3 {
-		return
+// selfReports reads a driver's declared capability rather than its name. A missing
+// manifest means Duo knows nothing about the driver, and treating that as "speaks
+// for itself" would leave the agent silent rather than mislabelled.
+func (a *App) selfReports(id protocol.AgentID) bool {
+	if a.agents == nil {
+		return true
 	}
-	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
-		if a.driverName(id) == "agy" && a.processState(id) == agent.ProcessRunning {
-			a.warnedSqlite3 = true
-			a.add(protocol.Duo, agent.AgySqlite3MissingNotice)
-			return
+	man := a.agents.ManifestFor(id)
+	if man == nil {
+		return true
+	}
+	return man.Capabilities.SelfReports
+}
+
+// Notices shows diagnostics a driver reported while preparing a launch. They arrive
+// from the plugin, so a missing helper tool or a degraded metric is reported by
+// whoever knows about it, once, without Duo naming the agent that has the problem.
+func (a *App) Notices(notices []string) {
+	for _, notice := range notices {
+		notice = strings.TrimSpace(notice)
+		if notice == "" || a.warnedNotices[notice] {
+			continue
 		}
+		if a.warnedNotices == nil {
+			a.warnedNotices = make(map[string]bool)
+		}
+		a.warnedNotices[notice] = true
+		a.add(protocol.Duo, notice)
 	}
+	a.markDirty()
 }
 
 func (a *App) Run(ctx context.Context) error {

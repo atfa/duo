@@ -109,9 +109,15 @@ func runResume(ctx context.Context, cfg config, root, repoID, baseDir string) er
 		return nil
 	}
 
-	piSessions, generatedIDs, err := piSessionIDs(reconciled.PiSessions)
-	if err != nil {
-		return err
+	// Each agent's driver state is opaque to Duo Core: whatever the plugin stored
+	// last time is handed back untouched, and the plugin decides what it means. A
+	// session with none starts a fresh conversation, which is the plugin's cue to
+	// mint an identity or to leave the agent to.
+	driverState := make(map[protocol.AgentID]string, len(reconciled.PiSessions))
+	for agent, blob := range reconciled.PiSessions {
+		if strings.TrimSpace(blob) != "" {
+			driverState[agent] = blob
+		}
 	}
 
 	createdAt := reconciled.CreatedAt
@@ -156,18 +162,17 @@ func runResume(ctx context.Context, cfg config, root, repoID, baseDir string) er
 	_ = workspace.SaveProjectConfig(snap.Repository, cfg.agentDriver(protocol.Austin), cfg.agentDrivers, cfg.agentModels)
 
 	r := &runtime{
-		cfg:        cfg,
-		repoID:     repoID,
-		sessionID:  reconciled.SessionID,
-		createdAt:  createdAt,
-		state:      state,
-		ws:         ws,
-		set:        set,
-		store:      store,
-		journal:      journal,
-		logger:       logger,
-		piSessions:   piSessions,
-		generatedIDs: generatedIDs,
+		cfg:         cfg,
+		repoID:      repoID,
+		sessionID:   reconciled.SessionID,
+		createdAt:   createdAt,
+		state:       state,
+		ws:          ws,
+		set:         set,
+		store:       store,
+		journal:     journal,
+		logger:      logger,
+		driverState: driverState,
 		integration: workspace.IntegrationResult{
 			AustinBranch: set.Austin.Branch,
 			AustinPath:   set.Austin.Path,
@@ -291,44 +296,4 @@ func effectiveScope(scope string) string {
 		return "."
 	}
 	return scope
-}
-
-// piSessionIDs returns the stable Pi session identity for each agent, reusing
-// persisted ids and generating any that are missing. Austin and Tony always get
-// different ids: they are separate conversations, never a shared one.
-//
-// It also reports which ids it invented, because the drivers disagree about who
-// owns the identity. pi adopts an id it has never seen, so a generated id is
-// exactly what pi wants. agy and opencode reject one: agy answers "conversation
-// not found, ignoring --conversation flag" and opens a different conversation,
-// and opencode assigns ids server-side. A generated id handed to either is worse
-// than none at all, because the rejected value is also what gets persisted and
-// replayed on the next launch, so the agent silently starts a new conversation
-// every time instead of resuming one.
-func piSessionIDs(existing map[protocol.AgentID]string) (map[protocol.AgentID]string, map[protocol.AgentID]bool, error) {
-	austin := strings.TrimSpace(existing[protocol.Austin])
-	tony := strings.TrimSpace(existing[protocol.Tony])
-	generated := map[protocol.AgentID]bool{}
-
-	if austin == "" {
-		id, err := sessionstore.NewUUID()
-		if err != nil {
-			return nil, nil, err
-		}
-		austin = id
-		generated[protocol.Austin] = true
-	}
-	if tony == "" || tony == austin {
-		id, err := sessionstore.NewUUID()
-		if err != nil {
-			return nil, nil, err
-		}
-		tony = id
-		generated[protocol.Tony] = true
-	}
-
-	return map[protocol.AgentID]string{
-		protocol.Austin: austin,
-		protocol.Tony:   tony,
-	}, generated, nil
 }

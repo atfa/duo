@@ -3,95 +3,19 @@ package agent
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/atfa/duo/internal/agent/agenttest"
+	"github.com/atfa/duo/internal/driver"
 	"github.com/atfa/duo/internal/protocol"
 )
 
-func TestDriverInterfaceAndPiAgyCommandLines(t *testing.T) {
-	// 1. Pi driver session
-	piCfg := Config{
-		Agent:       protocol.Austin,
-		DriverType:  "pi",
-		Dir:         t.TempDir(),
-		Command:     "pi",
-		Session:     "sess-123",
-		PiSessionID: "pi-austin-1",
-	}
-	piSession := NewPiSession(piCfg)
-
-	// Verify Driver interface implementation
-	var driver Driver = piSession
-	if driver.Agent() != protocol.Austin {
-		t.Fatalf("driver.Agent() = %v, want Austin", driver.Agent())
-	}
-	if driver.DriverType() != "pi" {
-		t.Fatalf("driver.DriverType() = %q, want \"pi\"", driver.DriverType())
-	}
-	if driver.SessionID() != "pi-austin-1" {
-		t.Fatalf("driver.SessionID() = %q, want \"pi-austin-1\"", driver.SessionID())
-	}
-	if cmd := driver.EffectiveCommand(); !strings.Contains(cmd, `pi --session-id "$DUO_PI_SESSION_ID"`) {
-		t.Fatalf("pi commandLine = %q, want --session-id", cmd)
-	}
-
-	// 2. Agy driver session
-	agyCfg := Config{
-		Agent:             protocol.Tony,
-		DriverType:        "agy",
-		Dir:               t.TempDir(),
-		Command:           "agy",
-		Session:           "sess-123",
-		AgyConversationID: "agy-tony-conv",
-	}
-	agySession := NewAgySession(agyCfg)
-
-	var agyDriver Driver = agySession
-	if agyDriver.Agent() != protocol.Tony {
-		t.Fatalf("agyDriver.Agent() = %v, want Tony", agyDriver.Agent())
-	}
-	if agyDriver.DriverType() != "agy" {
-		t.Fatalf("agyDriver.DriverType() = %q, want \"agy\"", agyDriver.DriverType())
-	}
-	if agyDriver.SessionID() != "agy-tony-conv" {
-		t.Fatalf("agyDriver.SessionID() = %q, want \"agy-tony-conv\"", agyDriver.SessionID())
-	}
-	if cmd := agyDriver.EffectiveCommand(); !strings.Contains(cmd, `agy --conversation "$DUO_AGY_CONVERSATION_ID" --dangerously-skip-permissions`) {
-		t.Fatalf("agy commandLine = %q, want --conversation and --dangerously-skip-permissions", cmd)
-	}
-	agySession.SetModel("google/gemini-3.8-flash-low")
-	if cmd := agyDriver.EffectiveCommand(); !strings.Contains(cmd, "gemini-3.8-flash-low") {
-		t.Fatalf("agy commandLine = %q, want the model name", cmd)
-	}
-	agySession.SetModel("")
-
-	// 3. Manager holding heterogeneous drivers
-	m := NewManager()
-	var events []LifecycleEvent
-	m.SetObserver(func(e LifecycleEvent) {
-		events = append(events, e)
-	})
-
-	m.Add(driver)
-	m.Add(agyDriver)
-
-	d1, ok1 := m.Driver(protocol.Austin)
-	if !ok1 || d1.DriverType() != "pi" {
-		t.Fatalf("m.Driver(Austin) = %v, %v, want pi driver", d1, ok1)
-	}
-	d2, ok2 := m.Session(protocol.Tony) // tests backward-compatible Session() method
-	if !ok2 || d2.DriverType() != "agy" {
-		t.Fatalf("m.Session(Tony) = %v, %v, want agy driver", d2, ok2)
-	}
-	if cmd := m.Command(); cmd != "pi" {
-		t.Fatalf("m.Command() = %q, want \"pi\"", cmd)
-	}
-}
-
+// TestDriverLifecycleAndExitObserver covers the process lifecycle Core owns for
+// every agent: start, the exit event a durable log is written from, and the fact
+// that a clean exit and a failure stay distinguishable.
 func TestDriverLifecycleAndExitObserver(t *testing.T) {
 	ctx := context.Background()
 	m := NewManager()
@@ -103,258 +27,195 @@ func TestDriverLifecycleAndExitObserver(t *testing.T) {
 		mu.Unlock()
 	})
 
-	austin := NewSession(Config{
-		Agent:   protocol.Austin,
-		Dir:     t.TempDir(),
-		Command: "sh -c 'exit 0'",
+	austin := mustSession(t, "pi", Config{
+		Agent: protocol.Austin, Dir: t.TempDir(),
+		BaseCommand: "sh -c 'exit 0'",
 	})
-	tony := NewAgySession(Config{
-		Agent:   protocol.Tony,
-		Dir:     t.TempDir(),
-		Command: "sh -c 'exit 0'",
+	tony := mustSession(t, "agy", Config{
+		Agent: protocol.Tony, Dir: t.TempDir(),
+		BaseCommand: "sh -c 'exit 3'",
 	})
-
 	m.Add(austin)
 	m.Add(tony)
 
 	if err := m.StartAll(ctx); err != nil {
 		t.Fatal(err)
 	}
+	defer m.StopAll()
+	defer m.CloseAll()
 
-	waitFor(t, func() bool {
+	deadline := time.Now().Add(3 * time.Second)
+	var got []LifecycleEvent
+	for time.Now().Before(deadline) {
 		mu.Lock()
-		defer mu.Unlock()
-		var exitCount int
-		for _, e := range events {
-			if e.Kind == "agent_exit" {
-				exitCount++
-			}
+		got = append([]LifecycleEvent(nil), events...)
+		mu.Unlock()
+		if countKind(got, "agent_exit") >= 2 {
+			break
 		}
-		return exitCount == 2
-	})
-
-	mu.Lock()
-	defer mu.Unlock()
-	var startCount, exitCount int
-	for _, e := range events {
-		switch e.Kind {
-		case "agent_start":
-			startCount++
-		case "agent_exit":
-			exitCount++
-		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	if startCount != 2 {
-		t.Fatalf("expected 2 agent_start events, got %d", startCount)
-	}
-	if exitCount != 2 {
-		t.Fatalf("expected 2 agent_exit events, got %d", exitCount)
+	if n := countKind(got, "agent_exit"); n < 2 {
+		t.Fatalf("got %d exit events, want one per agent: %+v", n, got)
 	}
 }
 
-func TestAgyDriverSessionWithActivitySink(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	tmpDir := t.TempDir()
-	logFile := filepath.Join(tmpDir, "agy.log")
-	convID := "test-conv-1234-5678-90ab"
-
-	// Mock brain directory
-	brainDir := filepath.Join(tmpDir, "brain", convID, ".system_generated", "logs")
-	if err := os.MkdirAll(brainDir, 0755); err != nil {
-		t.Fatal(err)
-	}
-	transcriptFile := filepath.Join(brainDir, "transcript.jsonl")
-
-	// Set env to redirect agyAppDataDir
-	t.Setenv("ANTIGRAVITY_APP_DATA_DIR", tmpDir)
-
-	// Write log file with conversation ID
-	if err := os.WriteFile(logFile, []byte("I0930 08:40:41.075572 1 server.go:1248] Created conversation "+convID+"\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Write initial transcript
-	if err := os.WriteFile(transcriptFile, []byte("{\"step_index\":0,\"source\":\"USER_EXPLICIT\",\"type\":\"USER_INPUT\",\"status\":\"DONE\",\"created_at\":\"2026-09-30T00:00:00Z\",\"content\":\"test\"}\n"), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	activityCh := make(chan protocol.Message, 10)
-	sink := FuncActivitySink(func(_ protocol.AgentID, msg protocol.Message) {
-		activityCh <- msg
+// TestSessionPreparesThroughThePlugin is the boundary this refactor exists to
+// create: what Core launches comes from the driver, and Core hands the driver back
+// the state it was given rather than interpreting it.
+func TestSessionPreparesThroughThePlugin(t *testing.T) {
+	stub := agenttest.New("stub").With(func(s *agenttest.Spec) {
+		s.Command = "sh -c 'exit 0'"
+		s.State = []byte(`{"sessionId":"abc"}`)
 	})
-
-	agySession := NewAgySession(Config{
-		Agent:             protocol.Austin,
-		DriverType:        "agy",
-		Dir:               tmpDir,
-		LogFile:           logFile,
-		AgyConversationID: convID,
-		ActivitySink:      sink,
-		Command:           "sh -c 'sleep 2'",
+	s, err := NewSession(context.Background(), Config{
+		Agent:       protocol.Austin,
+		Dir:         t.TempDir(),
+		Plugin:      stub.Caller(),
+		PluginState: []byte(`{"sessionId":"abc"}`),
 	})
-
-	if err := agySession.Start(ctx); err != nil {
-		t.Fatal(err)
-	}
-	defer agySession.Stop()
-
-	// Verify activity was captured
-	select {
-	case msg := <-activityCh:
-		if msg.Activity != protocol.ActivityAgentStart {
-			t.Fatalf("expected ActivityAgentStart, got %v", msg.Activity)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for activity from agy watcher")
-	}
-
-	// Now append a tool call
-	f, err := os.OpenFile(transcriptFile, os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _ = f.WriteString("{\"step_index\":1,\"source\":\"MODEL\",\"type\":\"PLANNER_RESPONSE\",\"status\":\"DONE\",\"created_at\":\"2026-09-30T00:00:01Z\",\"tool_calls\":[{\"name\":\"duo_send\",\"args\":{\"message\":\"hello peer\"}}]}\n")
-	_ = f.Close()
+	defer s.Close()
 
-	select {
-	case msg := <-activityCh:
-		if msg.Activity != protocol.ActivityToolStart || msg.Tool != "duo_send" || msg.Detail != "hello peer" {
-			t.Fatalf("expected ActivityToolStart duo_send with 'hello peer', got: %#v", msg)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for duo_send activity")
+	if len(stub.Prepares()) != 0 {
+		t.Fatal("NewSession must not launch anything")
+	}
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Stop()
+
+	prepares := stub.Prepares()
+	if len(prepares) != 1 {
+		t.Fatalf("prepare called %d times, want once per launch", len(prepares))
+	}
+	if string(prepares[0].State) != `{"sessionId":"abc"}` {
+		t.Errorf("prepare received state %q, want the blob Core was given", prepares[0].State)
+	}
+	if prepares[0].Agent != driver.AgentID(protocol.Austin) {
+		t.Errorf("prepare received agent %q", prepares[0].Agent)
+	}
+	if string(s.DriverState()) != `{"sessionId":"abc"}` {
+		t.Errorf("DriverState() = %s, want the plugin's blob verbatim", s.DriverState())
+	}
+	if s.SessionID() != "test-session" {
+		t.Errorf("SessionID() = %q, want the label the plugin reported", s.SessionID())
 	}
 }
 
-func TestAgyDriverSessionWithDelayedConversationCreation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	tmpDir := t.TempDir()
-	logFile := filepath.Join(tmpDir, "agy.log")
-	actualConvID := "a1b2c3d4-e5f6-4890-abcd-ef1234567890"
-
-	t.Setenv("ANTIGRAVITY_APP_DATA_DIR", tmpDir)
-
-	activityCh := make(chan protocol.Message, 10)
-	sink := FuncActivitySink(func(_ protocol.AgentID, msg protocol.Message) {
-		activityCh <- msg
+// TestSessionClearsWhatThePluginSaysToClear covers the generic replacement for the
+// per-driver log and session files Core used to delete by name: a stale value from
+// an earlier run must never be read as this run's.
+func TestSessionClearsWhatThePluginSaysToClear(t *testing.T) {
+	stale := t.TempDir() + "/stale.session"
+	if err := os.WriteFile(stale, []byte("ses_old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var notices []string
+	stub := agenttest.New("stub").With(func(s *agenttest.Spec) {
+		s.Command = "sh -c 'exit 0'"
+		s.Cleanup = []string{stale}
+		s.Notices = []string{"a helper tool is missing"}
 	})
-
-	agySession := NewAgySession(Config{
-		Agent:             protocol.Austin,
-		DriverType:        "agy",
-		Dir:               tmpDir,
-		LogFile:           logFile,
-		AgyConversationID: "initial-dummy-id-not-found",
-		ActivitySink:      sink,
-		Command:           "sh -c 'sleep 3'",
+	s, err := NewSession(context.Background(), Config{
+		Agent:   protocol.Austin,
+		Dir:     t.TempDir(),
+		Plugin:  stub.Caller(),
+		Notices: func(got []string) { notices = append(notices, got...) },
 	})
-
-	if err := agySession.Start(ctx); err != nil {
+	if err != nil {
 		t.Fatal(err)
 	}
-	defer agySession.Stop()
+	defer s.Close()
 
-	// Wait 250ms to ensure watcher is polling and hasn't crashed or given up
-	time.Sleep(250 * time.Millisecond)
-
-	// Now simulate agy creating a new conversation upon user prompt
-	brainDir := filepath.Join(tmpDir, "brain", actualConvID, ".system_generated", "logs")
-	if err := os.MkdirAll(brainDir, 0755); err != nil {
+	if err := s.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	transcriptFile := filepath.Join(brainDir, "transcript.jsonl")
+	defer s.Stop()
 
-	// 1. Write the log entry indicating conversation creation
-	if err := os.WriteFile(logFile, []byte("I1001 06:33:40.857869 1092 server.go:1248] Created conversation "+actualConvID+"\n"), 0644); err != nil {
-		t.Fatal(err)
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Error("the path the plugin asked Core to clear is still there")
 	}
-
-	// 2. Write the transcript steps
-	transcriptContent := "{\"step_index\":0,\"source\":\"USER_EXPLICIT\",\"type\":\"USER_INPUT\",\"status\":\"DONE\",\"created_at\":\"2026-10-01T06:33:40Z\",\"content\":\"create readme\"}\n" +
-		"{\"step_index\":1,\"source\":\"MODEL\",\"type\":\"PLANNER_RESPONSE\",\"status\":\"DONE\",\"created_at\":\"2026-10-01T06:33:41Z\",\"tool_calls\":[{\"name\":\"write_to_file\",\"args\":{\"TargetFile\":\"\\\"README.md\\\"\"}}]}\n" +
-		"{\"step_index\":2,\"source\":\"MODEL\",\"type\":\"PLANNER_RESPONSE\",\"status\":\"DONE\",\"created_at\":\"2026-10-01T06:33:42Z\",\"content\":\"README created successfully.\"}\n"
-	if err := os.WriteFile(transcriptFile, []byte(transcriptContent), 0644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Verify events are captured in sequence:
-	// Event 1: ActivityAgentStart (from USER_INPUT)
-	select {
-	case msg := <-activityCh:
-		if msg.Activity != protocol.ActivityAgentStart {
-			t.Fatalf("expected ActivityAgentStart, got %#v", msg)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for ActivityAgentStart")
-	}
-
-	// Event 2: ActivityToolStart (from write_to_file)
-	select {
-	case msg := <-activityCh:
-		if msg.Activity != protocol.ActivityToolStart || msg.Tool != "write_to_file" || msg.Detail != "README.md" {
-			t.Fatalf("expected ActivityToolStart write_to_file with 'README.md', got %#v", msg)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for ActivityToolStart")
-	}
-
-	// Event 3: MsgAssistantMessage (from final PLANNER_RESPONSE content)
-	select {
-	case msg := <-activityCh:
-		if msg.Type != protocol.MsgAssistantMessage || msg.Text != "README created successfully." {
-			t.Fatalf("expected MsgAssistantMessage with 'README created successfully.', got %#v", msg)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for MsgAssistantMessage")
-	}
-
-	// Event 4: ActivityStream (from final content)
-	select {
-	case msg := <-activityCh:
-		if msg.Activity != protocol.ActivityStream || msg.Detail != "README created successfully." {
-			t.Fatalf("expected ActivityStream, got %#v", msg)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for ActivityStream")
-	}
-
-	// Event 5: ActivityAgentSettled
-	select {
-	case msg := <-activityCh:
-		if msg.Activity != protocol.ActivityAgentSettled {
-			t.Fatalf("expected ActivityAgentSettled, got %#v", msg)
-		}
-	case <-time.After(3 * time.Second):
-		t.Fatal("timed out waiting for ActivityAgentSettled")
-	}
-
-	// Verify conversation ID on session was updated to the actual one
-	if agySession.SessionID() != actualConvID {
-		t.Errorf("agySession.SessionID() = %q, want %q", agySession.SessionID(), actualConvID)
+	if len(notices) != 1 || notices[0] != "a helper tool is missing" {
+		t.Errorf("notices = %v, want the plugin's own words", notices)
 	}
 }
 
-// A driver whose bridge does not attach on launch has to be announced by the
-// caller when its process starts. Otherwise an opencode agent looks missing for
-// the whole time before its first task, which is exactly when a human is
-// deciding whether it worked.
-func TestSelfReportsOnLaunch(t *testing.T) {
-	cases := map[string]bool{
-		"pi":        true,
-		"":          true,
-		"PI":        true,
-		"agy":       false,
-		"opencode":  false,
-		"unknown":   true,
-		"my-plugin": true,
+// TestSessionRefusesADriverThatCannotDescribeItself: an agent must not start
+// against a driver that could not say what it is, because everything Core does
+// afterwards would be a guess.
+func TestSessionRefusesADriverThatCannotDescribeItself(t *testing.T) {
+	if _, err := NewSession(context.Background(), Config{Agent: protocol.Austin, Dir: t.TempDir()}); err == nil {
+		t.Fatal("a session with no driver must be refused")
 	}
-	for driverType, want := range cases {
-		if got := SelfReportsOnLaunch(driverType); got != want {
-			t.Errorf("SelfReportsOnLaunch(%q) = %v, want %v", driverType, got, want)
+}
+
+// TestExportedEnvironmentIsCoreOnly pins the environment contract. A driver that
+// needs its own variable supplies it through prepare; Core sets only what every
+// agent and every plugin needs, and in particular nothing that names one agent.
+func TestExportedEnvironmentIsCoreOnly(t *testing.T) {
+	stub := agenttest.New("stub").With(func(s *agenttest.Spec) {
+		s.Command = "sh -c 'exit 0'"
+		s.Env = map[string]string{"DUO_STUB_ONLY": "mine"}
+	})
+	s, err := NewSession(context.Background(), Config{
+		Agent: protocol.Austin, Dir: t.TempDir(),
+		Plugin: stub.Caller(), Session: "sess", Token: "secret",
+		RepositoryRoot: "/repo", ScopePath: "internal/x", Mode: "goal",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	want := map[string]string{
+		"DUO_ACTIVE":          "1",
+		"DUO_DRIVER":          "stub",
+		"DUO_AGENT":           "Austin",
+		"DUO_MODE":            "goal",
+		"DUO_SESSION":         "sess",
+		"DUO_TOKEN":           "secret",
+		"DUO_REPOSITORY_ROOT": "/repo",
+		"DUO_SCOPE_PATH":      "internal/x",
+	}
+	seen := map[string]string{}
+	for _, entry := range coreEnv(s) {
+		name, value, _ := strings.Cut(entry, "=")
+		seen[name] = value
+	}
+	for name, value := range want {
+		if seen[name] != value {
+			t.Errorf("%s = %q, want %q", name, seen[name], value)
 		}
 	}
+	for name := range seen {
+		switch name {
+		case "DUO_ACTIVE", "DUO_DRIVER", "DUO_AGENT", "DUO_MODE", "DUO_HOST", "DUO_PORT",
+			"DUO_SESSION", "DUO_TOKEN", "DUO_REPOSITORY_ROOT", "DUO_SCOPE_PATH":
+		default:
+			t.Errorf("Core exports %s, which is not part of its contract", name)
+		}
+	}
+}
+
+func mustSession(t *testing.T, driverName string, cfg Config) *Session {
+	t.Helper()
+	cfg.Plugin = agenttest.New(driverName).Caller()
+	s, err := NewSession(context.Background(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
+
+func countKind(events []LifecycleEvent, kind string) int {
+	var n int
+	for _, e := range events {
+		if e.Kind == kind {
+			n++
+		}
+	}
+	return n
 }

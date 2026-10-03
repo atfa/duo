@@ -2,9 +2,11 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
+	"github.com/atfa/duo/internal/driver"
 	"github.com/atfa/duo/internal/protocol"
 )
 
@@ -48,13 +50,13 @@ func (m *Manager) observe(event LifecycleEvent) {
 	}
 }
 
-func (m *Manager) Add(driver Driver) {
-	driver.SetOnExit(func(event ExitEvent) {
+func (m *Manager) Add(d Driver) {
+	d.SetOnExit(func(event ExitEvent) {
 		m.observe(LifecycleEvent{Kind: "agent_exit", Agent: event.Agent, State: event.State, Err: event.Err, Output: event.Output})
 	})
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.drivers[driver.Agent()] = driver
+	m.drivers[d.Agent()] = d
 }
 
 func (m *Manager) StartAll(ctx context.Context) error {
@@ -85,18 +87,8 @@ func (m *Manager) Session(agent protocol.AgentID) (Driver, bool) {
 	return m.Driver(agent)
 }
 
-// Command returns the base agent command Duo launches agents with, so the model
-// catalog is read from the same installation (and flags) the agents use.
-func (m *Manager) Command() string {
-	for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
-		if d, ok := m.Driver(agent); ok {
-			return d.Command()
-		}
-	}
-	return ""
-}
-
-// CommandFor returns the command used by the specified agent.
+// CommandFor returns the operator's own command for an agent, if any. The model
+// picker asks the plugin for the catalog, so it no longer reads the command.
 func (m *Manager) CommandFor(agent protocol.AgentID) string {
 	if m == nil {
 		return ""
@@ -107,15 +99,72 @@ func (m *Manager) CommandFor(agent protocol.AgentID) string {
 	return ""
 }
 
-// DriverTypeFor returns the driver type name (e.g. "pi", "agy") used by the specified agent.
+// DriverTypeFor returns the plugin name behind an agent, for display only.
 func (m *Manager) DriverTypeFor(agent protocol.AgentID) string {
 	if m == nil {
-		return "pi"
+		return ""
 	}
 	if d, ok := m.Driver(agent); ok {
 		return d.DriverType()
 	}
-	return "pi"
+	return ""
+}
+
+// ManifestFor returns an agent's driver self-description, or nil when the agent has
+// no driver yet. It is the only source Core reads for how that agent behaves.
+func (m *Manager) ManifestFor(agent protocol.AgentID) *driver.Manifest {
+	if m == nil {
+		return nil
+	}
+	if d, ok := m.Driver(agent); ok {
+		return d.Manifest()
+	}
+	return nil
+}
+
+// CapabilitiesFor returns an agent's declared capabilities. A missing manifest
+// yields the zero value, which is every capability off: an agent Duo knows nothing
+// about is treated as the most restricted driver, never the most capable.
+func (m *Manager) CapabilitiesFor(agent protocol.AgentID) driver.Capabilities {
+	if m == nil {
+		return driver.Capabilities{}
+	}
+	if d, ok := m.Driver(agent); ok {
+		return d.Capabilities()
+	}
+	return driver.Capabilities{}
+}
+
+// DriverStates returns every agent's opaque driver state, for the durable snapshot.
+func (m *Manager) DriverStates() map[protocol.AgentID]json.RawMessage {
+	out := make(map[protocol.AgentID]json.RawMessage, len(m.drivers))
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for agent, d := range m.drivers {
+		if d == nil {
+			continue
+		}
+		if state := d.DriverState(); len(state) > 0 {
+			out[agent] = state
+		}
+	}
+	return out
+}
+
+// CloseAll releases every driver plugin. A plugin may own background work — a
+// transcript observer, for one — so it has to be told the session is over.
+func (m *Manager) CloseAll() {
+	m.mu.RLock()
+	drivers := make([]Driver, 0, len(m.drivers))
+	for _, d := range m.drivers {
+		drivers = append(drivers, d)
+	}
+	m.mu.RUnlock()
+	for _, d := range drivers {
+		if d != nil {
+			d.Close()
+		}
+	}
 }
 
 func (m *Manager) ResizeAll(cols, rows int) error {
@@ -147,6 +196,8 @@ func (m *Manager) StopAll() {
 	}
 	m.mu.RUnlock()
 	for _, d := range drivers {
-		d.Stop()
+		if d != nil {
+			d.Stop()
+		}
 	}
 }
