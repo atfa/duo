@@ -1,6 +1,7 @@
 package agy
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -9,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/atfa/duo/internal/driver"
+	"github.com/atfa/duo/internal/protocol"
 )
 
 // These tests moved here from internal/agent/commandline_test.go and
@@ -426,5 +428,29 @@ func TestDeclaredCapabilitiesAreImplemented(t *testing.T) {
 		if _, ok := h.(driver.ThinkingProvider); !ok {
 			t.Error("capabilities.thinking is declared but the thinking method is not implemented")
 		}
+	}
+}
+
+// TestClosingTheDriverStopsTheObserver is the test for a leak that is invisible
+// until it matters: an in-process driver has no process exit to stop its background
+// work, so nothing else will. The watcher polls a file forever otherwise.
+func TestClosingTheDriverStopsTheObserver(t *testing.T) {
+	t.Setenv("GEMINI_APP_DATA_DIR", t.TempDir())
+	p := &Plugin{observe: func(protocol.AgentID, protocol.Message) {}}
+
+	dir := t.TempDir()
+	transcript := filepath.Join(dir, "transcript.jsonl")
+	if err := os.WriteFile(transcript, []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p.watcher = NewAgyWatcher("Austin", transcript, protocolFuncSink(p.observe))
+	p.watcher.Start(context.Background())
+	if p.watcher == nil {
+		t.Fatal("no observer was started")
+	}
+
+	p.Close()
+	if p.watcher != nil {
+		t.Error("Close left the observer running")
 	}
 }
