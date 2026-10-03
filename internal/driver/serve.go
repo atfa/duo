@@ -14,6 +14,10 @@ import (
 // implementation never needs its own locking around these calls. It may still
 // start background work — an Agent Adapter attaching to Duo's bridge, for
 // example — as soon as it learns the launch context from Prepare.
+//
+// A Handler that starts background work should also implement io.Closer, so the
+// work stops when the session ends. An out-of-process plugin would be killed with
+// its process anyway, but an in-process one has nothing else to stop it.
 type Handler interface {
 	Describe() (*Manifest, error)
 	Probe() (*ProbeResult, error)

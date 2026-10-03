@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"sync"
 )
 
@@ -107,7 +108,16 @@ func (b *Builtin) Thinking(ctx context.Context) (*ThinkingOptions, error) {
 	return provider.Thinking()
 }
 
-func (b *Builtin) Close() {}
+// Close releases background work the Handler started. It is optional: a driver with
+// nothing to release need not implement it.
+//
+// A driver that watches a file or runs a goroutine has no other way to stop, and an
+// in-process driver has no process exit to stop it for it.
+func (b *Builtin) Close() {
+	if closer, ok := b.handler.(io.Closer); ok {
+		closer.Close()
+	}
+}
 
 // Supervised wraps a Caller so a crashed plugin process is replaced rather than
 // taking the session with it. A plugin is a separate process: if it dies, Duo's
