@@ -109,26 +109,40 @@ func Discover() []Entry {
 // discoverExecutables finds plugin executables by name, without executing them.
 func discoverExecutables() []Entry {
 	var out []Entry
-	seen := make(map[string]bool)
+	at := make(map[string]int)
+	rank := make(map[string][2]int)
 	// ~/.duo/plugins is scanned first so a plugin in development shadows a released
 	// one, which is what makes editing a plugin possible without uninstalling it.
-	add := func(name, path, source string) {
-		if name == "" || seen[name] || !isExecutable(path) {
+	//
+	// Within that, the candidate Lookup would actually run has to win, or `duo
+	// plugins` reports one executable while the session runs another: ReadDir order
+	// is alphabetical, which puts duo-pi ahead of duo-plugin-pi.
+	add := func(name, path, source string, dirIndex int) {
+		if name == "" || !isExecutable(path) {
 			return
 		}
-		seen[name] = true
+		key := [2]int{dirIndex, nameRank(name, filepath.Base(path))}
+		if i, seen := at[name]; seen {
+			if worse(key, rank[name]) {
+				return
+			}
+			out[i] = Entry{Name: name, Path: path, Source: source}
+			rank[name] = key
+			return
+		}
+		at[name], rank[name] = len(out), key
 		out = append(out, Entry{Name: name, Path: path, Source: source})
 	}
 	if dir := PluginDir(); dir != "" {
 		if entries, err := os.ReadDir(dir); err == nil {
 			for _, entry := range entries {
 				if !entry.IsDir() {
-					add(driverNameFromExecutable(entry.Name()), filepath.Join(dir, entry.Name()), "plugins")
+					add(driverNameFromExecutable(entry.Name()), filepath.Join(dir, entry.Name()), "plugins", 0)
 				}
 			}
 		}
 	}
-	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
+	for i, dir := range filepath.SplitList(os.Getenv("PATH")) {
 		if dir == "" {
 			continue
 		}
@@ -138,11 +152,31 @@ func discoverExecutables() []Entry {
 		}
 		for _, entry := range entries {
 			if !entry.IsDir() {
-				add(driverNameFromExecutable(entry.Name()), filepath.Join(dir, entry.Name()), "path")
+				add(driverNameFromExecutable(entry.Name()), filepath.Join(dir, entry.Name()), "path", i+1)
 			}
 		}
 	}
 	return out
+}
+
+// worse reports whether candidate a should lose to b, comparing directory first and
+// then the spelling, which is the order Lookup searches in.
+func worse(a, b [2]int) bool {
+	if a[0] != b[0] {
+		return a[0] > b[0]
+	}
+	return a[1] > b[1]
+}
+
+// nameRank orders the accepted spellings the way Lookup does: the canonical plugin
+// name first, then the 0.9 driver name, then the short form.
+func nameRank(driver, file string) int {
+	for i, candidate := range executablesFor(driver) {
+		if candidate == file {
+			return i
+		}
+	}
+	return len(executablesFor(driver))
 }
 
 // IsLegacyShim reports whether an executable is one of the pre-plugin launch
@@ -152,9 +186,15 @@ func discoverExecutables() []Entry {
 // working, and they are exec shims: they launch an agent and speak no protocol at
 // all. Telling that apart matters, because a shim that fails the contract has not
 // been written badly, it simply is not a plugin yet.
+// Only the short duo-<name> spelling is a shim. duo-plugin-<name> and
+// duo-driver-<name> are both accepted plugin names — the latter explicitly, so a
+// driver written against Duo 0.9's naming keeps working — and calling one a shim
+// would refuse to run a real plugin.
 func IsLegacyShim(path string) bool {
 	name := filepath.Base(path)
-	return driverNameFromExecutable(name) != "" && !strings.HasPrefix(name, "duo-plugin-")
+	return driverNameFromExecutable(name) != "" &&
+		!strings.HasPrefix(name, "duo-plugin-") &&
+		!strings.HasPrefix(name, "duo-driver-")
 }
 
 // reservedExecutables are Duo's own commands, which must never be mistaken for a

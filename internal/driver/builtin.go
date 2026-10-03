@@ -63,7 +63,12 @@ func Resolve(ctx context.Context, name string, env []string, report func(error))
 	// installing duo-plugin-pi puts Pi on the protocol for real, and uninstalling it
 	// falls back to the identical Handler running inside Duo, so `--agent pi` never
 	// depends on which is present.
-	if path, found := Lookup(name); found {
+	// A 0.9-era exec shim on PATH is not a plugin. Spawning it as one fails the
+	// describe call outright, so `--agent pi` would break on exactly the machine
+	// state this ordering exists to survive: the shim installed, the plugin not.
+	// Ignoring it falls through to the identical Handler running inside Duo,
+	// which is what "uninstalling it falls back" has to mean.
+	if path, found := Lookup(name); found && !IsLegacyShim(path) {
 		// The environment handed to a plugin process is exactly the one Core gives
 		// an agent, so an Agent Adapter has everything it needs to reach Duo's bridge
 		// without Core inventing a second channel.
