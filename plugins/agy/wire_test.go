@@ -139,6 +139,16 @@ func TestPluginBinarySpeaksTheProtocol(t *testing.T) {
 		}
 		return
 	}
+	// Being installed is not the same as being usable: a signed-out agy cannot
+	// enumerate its models, and that is the state of the machine rather than a
+	// property of the plugin. Ask the CLI itself, so a genuinely broken models
+	// method is still a failure here — gating on the plugin's own call would let
+	// one excuse itself.
+	if out, err := exec.CommandContext(ctx, probe.AgentPath, "models").CombinedOutput(); err != nil {
+		t.Logf("agy cannot list models on this machine, so the catalog is unverified: %v: %s",
+			err, strings.TrimSpace(string(out)))
+		return
+	}
 	list, err := c.Models(ctx)
 	if err != nil {
 		// `agy models` fetches over the network on top of the RPC round trip, so
@@ -153,6 +163,6 @@ func TestPluginBinarySpeaksTheProtocol(t *testing.T) {
 		t.Fatalf("models: %v", err)
 	}
 	if len(list.Models) == 0 {
-		t.Error("the catalog is empty on a machine where agy is installed")
+		t.Error("the catalog is empty on a machine where agy is installed and signed in")
 	}
 }
