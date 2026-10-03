@@ -34,12 +34,16 @@ func (s Snapshot) MigratedDriverStates() map[protocol.AgentID]DriverState {
 		out[agent] = state
 	}
 
+	type legacyEntry struct {
+		id  string
+		raw json.RawMessage
+	}
+	legacy := make(map[protocol.AgentID]legacyEntry, len(agents))
 	ids := make(map[protocol.AgentID]string, len(agents))
-	raws := make(map[protocol.AgentID]json.RawMessage, len(agents))
 	for _, agent := range agents {
 		if id, raw, ok := s.legacyIdentity(agent); ok {
+			legacy[agent] = legacyEntry{id: id, raw: raw}
 			ids[agent] = id
-			raws[agent] = raw
 		}
 	}
 	shared := ids[protocol.Austin] != "" && ids[protocol.Austin] == ids[protocol.Tony]
@@ -48,8 +52,8 @@ func (s Snapshot) MigratedDriverStates() map[protocol.AgentID]DriverState {
 		if _, ok := out[agent]; ok {
 			continue // a blob the plugin itself wrote always wins over a legacy value
 		}
-		id, raw := ids[agent], raws[agent]
-		if id == "" {
+		entry, ok := legacy[agent]
+		if !ok {
 			continue
 		}
 		if shared && agent != protocol.Austin {
@@ -62,17 +66,26 @@ func (s Snapshot) MigratedDriverStates() map[protocol.AgentID]DriverState {
 		if driverName == "" {
 			driverName = "pi"
 		}
-		out[agent] = DriverState{Driver: driverName, State: raw}
+		out[agent] = DriverState{Driver: driverName, State: entry.raw}
 	}
 	return out
 }
 
-// legacyIdentity resolves an agent's pre-driverStates identity, returning the
-// session id (used for cross-agent duplicate detection) and the raw state blob
-// to persist. Two legacy spellings must both migrate: the bare id v0.9.0 wrote
-// into piSessions, and the JSON blob the M1 bridge stringified into the same
-// field before DriverStates existed. A value that is neither is dropped rather
-// than migrated, so a corrupt id can never become a live session identity.
+// legacyIdentity resolves an agent's pre-driverStates state, returning the
+// session id when one can be read (used only for cross-agent duplicate
+// detection), the raw state blob to persist, and whether there was a value at
+// all. Two legacy spellings must both migrate:
+//
+//   - the bare id v0.9.0 wrote into piSessions, wrapped in the contract shape;
+//   - the JSON blob the M1 bridge stringified into the same field, preserved
+//     verbatim. Only sessionId is part of the contract; every other field —
+//     agy's conversationId and logFile, for example — belongs to the driver and
+//     must survive untouched, including when sessionId is absent entirely.
+//
+// A bare value that is not an object cannot be a corrupt blob and is migrated
+// as the id it has always been; an object-looking value that is not valid JSON
+// is dropped rather than migrated, so corruption can never become a live
+// session identity.
 func (s Snapshot) legacyIdentity(agent protocol.AgentID) (string, json.RawMessage, bool) {
 	value := strings.TrimSpace(s.PiSessions[agent])
 	if value == "" {
@@ -85,11 +98,14 @@ func (s Snapshot) legacyIdentity(agent protocol.AgentID) (string, json.RawMessag
 		}
 		return value, raw, true
 	}
-	var ident Ident
-	if err := json.Unmarshal([]byte(value), &ident); err != nil || strings.TrimSpace(ident.SessionID) == "" {
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(value), &probe); err != nil {
 		return "", nil, false
 	}
-	// Preserve the blob as written: it may carry fields beyond sessionId that
-	// belong to the driver.
-	return ident.SessionID, json.RawMessage(value), true
+	var ident Ident
+	id := ""
+	if err := json.Unmarshal([]byte(value), &ident); err == nil {
+		id = strings.TrimSpace(ident.SessionID)
+	}
+	return id, json.RawMessage(value), true
 }

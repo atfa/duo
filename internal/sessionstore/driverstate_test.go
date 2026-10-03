@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/atfa/duo/internal/protocol"
@@ -103,9 +104,11 @@ func TestLoadMigratesMissingDriverToPi(t *testing.T) {
 }
 
 func TestMigratedDriverStatesRepairsSharedIdentity(t *testing.T) {
+	// The duplicate check compares extracted sessionIds, so it holds even when
+	// the two agents' legacy values are spelled differently (bridge blob vs bare).
 	snap := Snapshot{
 		PiSessions: map[protocol.AgentID]string{
-			protocol.Austin: "same-id",
+			protocol.Austin: `{"sessionId":"same-id"}`,
 			protocol.Tony:   "same-id",
 		},
 	}
@@ -170,22 +173,54 @@ func TestDriverStateRoundTrip(t *testing.T) {
 }
 
 // TestMigratedDriverStatesReadsBridgeEraBlob pins compatibility with the M1
-// bridge, which stringifies the plugin's state into the legacy piSessions
-// field. Both spellings must migrate to the same session id.
+// bridge, which stringifies each plugin's state verbatim into the legacy
+// piSessions field. Only sessionId is part of the contract; every other field
+// belongs to the driver and must survive byte-for-byte, including in blobs
+// that carry no sessionId at all (agy's first run writes only logFile).
 func TestMigratedDriverStatesReadsBridgeEraBlob(t *testing.T) {
-	snap := Snapshot{
-		AgentDrivers: map[protocol.AgentID]string{protocol.Austin: "agy"},
-		PiSessions: map[protocol.AgentID]string{
-			protocol.Austin: `{"sessionId":"bridge-id"}`,
-			protocol.Tony:   "bare-id",
-		},
+	cases := []struct {
+		name      string
+		driver    string
+		blob      string
+		wantID    string // "" means no sessionId is expected
+		wantEntry bool
+	}{
+		{name: "pi", driver: "pi", blob: `{"sessionId":"pi-uuid"}`, wantID: "pi-uuid", wantEntry: true},
+		{name: "opencode", driver: "opencode", blob: `{"sessionId":"ses_01ABCdef"}`, wantID: "ses_01ABCdef", wantEntry: true},
+		{name: "agy learned", driver: "agy", blob: `{"conversationId":"conv-1","logFile":"/tmp/duo-agy-austin.log"}`, wantEntry: true},
+		{name: "agy first run", driver: "agy", blob: `{"logFile":"/tmp/duo-agy-austin.log"}`, wantEntry: true},
+		{name: "empty object", driver: "opencode", blob: `{}`, wantEntry: true},
+		// Any non-object was a valid v0.9.0 id and migrates as itself; only an
+		// object-shaped value that fails to parse is corrupt and dropped.
+		{name: "bare string is an id", driver: "agy", blob: `not-an-object`, wantID: "not-an-object", wantEntry: true},
+		{name: "broken object dropped", driver: "agy", blob: `{"broken`, wantEntry: false},
 	}
-	migrated := snap.MigratedDriverStates()
-	austin := migrated[protocol.Austin]
-	if austin.Driver != "agy" || string(austin.State) != `{"sessionId":"bridge-id"}` {
-		t.Fatalf("bridge-era blob not preserved: %+v", austin)
-	}
-	if stateSessionID(t, migrated[protocol.Tony].State) != "bare-id" {
-		t.Fatalf("bare id not migrated: %+v", migrated[protocol.Tony])
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			snap := Snapshot{
+				AgentDrivers: map[protocol.AgentID]string{protocol.Austin: tc.driver},
+				PiSessions:   map[protocol.AgentID]string{protocol.Austin: tc.blob},
+			}
+			migrated := snap.MigratedDriverStates()
+			state, ok := migrated[protocol.Austin]
+			if ok != tc.wantEntry {
+				t.Fatalf("entry present=%v, want %v (%+v)", ok, tc.wantEntry, migrated)
+			}
+			if !tc.wantEntry {
+				return
+			}
+			if state.Driver != tc.driver {
+				t.Fatalf("driver = %q, want %q", state.Driver, tc.driver)
+			}
+			if strings.HasPrefix(tc.blob, "{") {
+				// Object blobs are preserved verbatim, byte-for-byte.
+				if got := strings.TrimSpace(string(state.State)); got != tc.blob {
+					t.Fatalf("blob changed:\n got %s\nwant %s", got, tc.blob)
+				}
+			}
+			if stateSessionID(t, state.State) != tc.wantID {
+				t.Fatalf("sessionId = %q, want %q", stateSessionID(t, state.State), tc.wantID)
+			}
+		})
 	}
 }
