@@ -112,6 +112,9 @@ A failed reply:
 
 Requests arrive on stdin and you answer on stdout. On end-of-input, exit cleanly.
 
+> Implementing a driver with an AI agent? See
+> [`driver-development-for-ai-agents.md`](driver-development-for-ai-agents.md).
+
 ## Methods
 
 `describe`, `probe` and `prepare` are required. The rest exist only when the matching

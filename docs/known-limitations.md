@@ -6,27 +6,41 @@ Duo is an experimental runtime. The collaboration model works, but the current r
 
 The runtime currently assumes exactly two agents named **Austin** and **Tony**. Agent names, count and role templates are not yet configurable.
 
-## Agent drivers are pluggable but not interchangeable
+## A driver is only as limited as what it declares
 
-Duo does not target Pi alone. Three drivers are built in — `pi`, `agy`
-(Google Antigravity CLI, observed through its transcript rather than a bridge)
-and `opencode` — and any other driver can be supplied as a `duo-driver-<name>` /
-`duo-<name>` executable in `~/.duo/plugins/` or on `PATH`. `duo plugins` lists
-what is available.
+Duo does not target Pi alone. `pi`, `agy` (Google Antigravity CLI) and `opencode`
+all ship as real out-of-process plugins speaking the Duo Driver Plugin Protocol v1,
+and any other driver can be supplied the same way. Core never asks which driver it
+is running: it reads the manifest and branches only on declared capabilities.
 
-The protocol, phases, evidence rules and delivery are driver-independent; what
-varies is what Duo can observe. `pi` and `opencode` report through a bridge;
-`agy` has no bridge at all, so Duo observes its transcript and writes into the
-PTY. An external plugin driver is assumed to have a working bridge, so it is
-announced on launch like `pi`, and it is launched with the pi-style command line
-(`--session-id` unless the plugin already carries a session flag such as
-`--session`, `--resume` or `-c`).
+That moves the limits from "what Duo was built around" to "what a driver declares":
 
-Only `pi` applies a model or thinking-level change in place. `agy` and `opencode`
-take them as startup flags, so Duo restarts the agent; an external plugin is
-never given a `--model`/`--thinking` flag at launch and receives the change over
-its bridge instead, but it is still restarted, since Duo cannot assume a plugin
-handles a switch in place.
+- **The command line comes from the driver.** Core has no per-agent command builder
+  any more. `prepare` receives the base command, model and reasoning effort and
+  returns the finished line, so a driver with unusual flags owns them entirely.
+- **Resuming depends on who assigns the identity.** `pi` mints its own, so it
+  declares `resume: client`. `agy` and `opencode` assign their own, so they declare
+  `resume: server` and must implement the `state` method — otherwise every launch
+  silently opens a new conversation. A `server` driver that does not answer `state`
+  fails the contract suite.
+- **Where a prompt is delivered is declared, not assumed.** A driver with a bridge
+  that can receive (`bridge: agent`) takes prompts over it; otherwise they go to
+  the PTY, which the driver must accept with `ptyFallback: true`. `agy`'s plugin owns
+  its own bridge endpoint but declares `liveSteering: false`, so its prompts go via
+  the PTY while activity still reaches Core over the bridge. A driver with neither
+  delivery path fails the contract instead of silently eating prompts.
+- **Applying a model or effort change is declared.** All three shipped drivers take
+  `--model`/`--thinking` as startup flags and are restarted to apply them, which is
+  why they declare `liveModelSwitch: false`. A driver that can switch in place says
+  so and receives the change over its bridge instead.
+- **Whether an agent announces itself is declared.** `selfReports` tells Core
+  whether to expect the endpoint at launch rather than after the agent connects.
+
+`duo plugins` lists what is installed and `duo plugin test <path>` checks any driver
+against the protocol. The spec is `docs/driver-plugin-protocol.md`; the walkthrough
+is `docs/plugin-development-guide.md`. If you are an AI agent writing one, start with
+`docs/driver-development-for-ai-agents.md` instead — it is the same material arranged
+as preconditions, a decision table and a failure catalogue.
 
 ## Dynamic mode escalation: Fast to Goal
 

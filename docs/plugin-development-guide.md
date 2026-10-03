@@ -24,6 +24,11 @@ This guide is the tutorial. Where they disagree, the protocol document wins.
 - [Checklist](#checklist)
 - [The mistakes that have actually shipped](#the-mistakes-that-have-actually-shipped)
 
+> **Writing this with an AI coding agent?** Read
+> [`driver-development-for-ai-agents.md`](driver-development-for-ai-agents.md) instead.
+> It is the same material arranged as preconditions, a capability decision table and
+> a catalogue of the failures that actually shipped here behind green test suites.
+
 ## What you are building
 
 Duo runs two agents, Austin and Tony, each in its own worktree, and has them
