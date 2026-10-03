@@ -59,23 +59,57 @@ Owns Git-specific isolation and evidence:
 - merges Tony into Austin during INTEGRATE;
 - leaves conflicts visible for resolution.
 
+### `internal/driver`
+
+The Duo Driver Plugin Protocol v1: the wire types, the RPC client, the plugin-side
+`Serve` helper, manifest validation, and discovery by executable name. Duo Core
+reaches every coding agent through this package and nothing else, so adding an agent
+means adding a plugin rather than editing Core. See
+[docs/driver-plugin-protocol.md](driver-plugin-protocol.md) for the specification.
+
+Two implementations of one interface, `Caller`. A `Client` speaks it over a pipe to
+a plugin process; a `Builtin` speaks it by calling a `Handler` in the same process.
+They are the same contract, which is what lets a driver Duo ships be introduced
+through exactly the interface a third party implements.
+
+### `plugins/`
+
+The drivers Duo ships, each a Driver Plugin:
+
+- `plugins/pi` — the Pi CLI, paired with `pi-extension/` as its Agent Adapter
+- `plugins/agy` — the Antigravity CLI, including a transcript observer, because agy
+  has no extension API
+- `plugins/opencode` — the opencode CLI, paired with `opencode-extension/`
+- `cmd/duo-plugin-example` — the reference plugin, and the positive control for
+  contract tests
+
+A plugin is split in two, and the split is the design. The **Host Adapter** answers
+the protocol and is all Duo Core ever sees. The **Agent Adapter** runs inside the
+agent process, or observes it from outside, and is invisible to Core — which is why
+Core cannot tell a native extension from a transcript watcher from MCP, and does not
+need to.
+
 ### `internal/agent`
 
-Owns the two real agent processes behind one `Driver` interface (`pi`, `agy`, `opencode`, or an external plugin), so process lifecycle, PTY interaction and activity monitoring are not Pi-specific. Each `Session` starts the agent in its own pseudo-terminal (`creack/pty`), keeps a bounded raw-output ring buffer for native-attach replay, and tracks a process state that distinguishes `exited` from `failed`. `Manager` starts, resizes, restarts and stops both sessions and emits lifecycle events so the caller can journal them.
+Owns the two agent processes behind one `Driver` interface: process lifecycle, PTY
+interaction, resize, native-attach replay, and the distinction between `exited` and
+`failed`. A `Session` asks its driver for a launch specification and runs what comes
+back, so what gets launched is the driver's business.
 
-This layer also owns per-driver session identity, and the three drivers get there differently:
-
-- **pi** — unless `DUO_PI_COMMAND` already supplies a `--session-id`, Duo appends its own.
-- **agy** — Duo supplies a stable conversation id, unless the operator's command already carries one. Flag detection matches whole tokens: a substring test for `-c` also matches `--config`, which would silently drop the identity.
-- **opencode** — opencode assigns session ids server-side and rejects `--session` for an id it never issued. On a first run Duo therefore injects no id, the bridge writes the real one to `DUO_OPENCODE_SESSION_FILE`, and Duo picks it up and persists it. Later runs pass `--session <id>`.
-
-Values Duo injects into a command are shell-quoted with single quotes, never Go's `%q`: `%q` is Go escaping, so a model containing `$` would be expanded by the shell and one containing a backtick would be executed.
+It knows nothing about any agent. There is no field in `Config` for a session
+identity, a log file or an activity sink, and no branch on a driver name. What Core
+knows about an agent is what that agent's plugin declared: `Manifest()`,
+`Capabilities()`, `DriverState()`. `Manager` starts, resizes, restarts and stops both
+sessions, emits lifecycle events for the durable log, and releases the drivers at the
+end of a session — a plugin may own background work, such as a transcript observer,
+that must not outlive it.
 
 ### `internal/models`
 
-Reads the model catalog from the same agent installation (and flags) Duo launches — `pi --list-models`, `agy models`, `opencode models` — so the TUI model picker always matches what the running agent can actually select. Duo deliberately keeps no model list of its own.
-
-The default model is per-driver. pi reads `~/.pi/agent/settings.json`; agy has a fixed default; opencode gets no injected default at all, because a foreign provider id would fail with "Model not found" and opencode already resolves its own.
+Being replaced by the drivers' own `models` methods. The model catalog comes from the
+same agent installation Duo launches, and after each driver ships its parser the
+per-CLI knowledge — `pi --list-models`, `agy models`, `opencode models`, and each one's
+default-model rule — belongs to that driver rather than to Core.
 
 ### `internal/delivery`
 
