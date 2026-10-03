@@ -40,6 +40,7 @@ func prepareFor(t *testing.T, p *Plugin, agent driver.AgentID, state string) *dr
 func TestLearnedSessionSurvivesToDisk(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "opencode.session")
 	p := &Plugin{}
+	t.Cleanup(func() { _ = p.Close() })
 
 	// A first launch knows no id, so it launches without --session. The session
 	// file is seeded through the state because it is stable across runs.
@@ -92,6 +93,7 @@ func TestLearnedSessionSurvivesToDisk(t *testing.T) {
 func TestResumedIDSurvivesStateWithoutAnyLearn(t *testing.T) {
 	file := filepath.Join(t.TempDir(), "opencode.session")
 	p := &Plugin{}
+	t.Cleanup(func() { _ = p.Close() })
 
 	seed, err := json.Marshal(state{SessionFile: file})
 	if err != nil {
@@ -109,6 +111,7 @@ func TestResumedIDSurvivesStateWithoutAnyLearn(t *testing.T) {
 		t.Fatal(err)
 	}
 	p2 := &Plugin{}
+	t.Cleanup(func() { _ = p2.Close() })
 	prepareFor(t, p2, driver.AgentID("austin"), string(resumed))
 
 	raw, err := p2.State()
@@ -130,6 +133,7 @@ func TestResumedIDSurvivesStateWithoutAnyLearn(t *testing.T) {
 // is the newer truth.
 func TestLearnedWinsOverStaleBlob(t *testing.T) {
 	p := &Plugin{}
+	t.Cleanup(func() { _ = p.Close() })
 	p.learned = "ses_current"
 	plan := prepareFor(t, p, driver.AgentID("austin"), `{"sessionId":"ses_stale","sessionFile":"/tmp/x.session"}`)
 	if !strings.Contains(plan.Command, "ses_current") {

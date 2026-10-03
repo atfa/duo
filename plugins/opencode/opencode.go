@@ -62,12 +62,11 @@ type Plugin struct {
 	// than what prepare replayed — without it, resuming a session and then saving
 	// would replace a good id with an empty one and fork the next launch.
 	resolved string
-	// file is the session file currently being watched, so a second launch does
-	// not start a second watcher on the same file.
+	// file is the session file currently being watched, and is what State reports
+	// so a replacement process knows where to look.
 	file string
-	// watching guards against starting a watcher more than once.
-	watching bool
-	// stop ends the watch on Close.
+	// stop ends the watch on Close. A non-nil stop is also what marks the watch as
+	// already started, so there is no separate flag to fall out of step with it.
 	stop context.CancelFunc
 }
 
@@ -98,7 +97,7 @@ func (p *Plugin) watch(sessionFile string) {
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	p.stop, p.watching = cancel, true
+	p.stop = cancel
 	p.mu.Unlock()
 
 	go func() {
