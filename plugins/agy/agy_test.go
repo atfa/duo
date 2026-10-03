@@ -458,3 +458,19 @@ func TestClosingTheDriverStopsTheObserver(t *testing.T) {
 		t.Error("Close left the bridge endpoint open")
 	}
 }
+
+// TestManifestDeclaresTheDefaultModel keeps the default where the driver can see it.
+// It used to live in Core as a table keyed by driver name, which meant Core had to
+// know agy's model ids; the manifest is the only place that answer belongs.
+func TestManifestDeclaresTheDefaultModel(t *testing.T) {
+	manifest, err := New().Describe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.DefaultModel != DefaultModel {
+		t.Fatalf("manifest default = %q, want %q", manifest.DefaultModel, DefaultModel)
+	}
+	if manifest.ModelReference != driver.ModelBare {
+		t.Fatalf("agy takes a bare id, manifest says %q", manifest.ModelReference)
+	}
+}

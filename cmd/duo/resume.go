@@ -124,22 +124,12 @@ func runResume(ctx context.Context, cfg config, root, repoID, baseDir string) er
 		if cfg.agentDrivers == nil {
 			cfg.agentDrivers = make(map[protocol.AgentID]string)
 		}
-		if cfg.agentCommands == nil {
-			cfg.agentCommands = make(map[protocol.AgentID]string)
-		}
 		for _, ag := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
-			if drv := reconciled.AgentDrivers[ag]; drv != "" {
-				if !cfg.agentDriverExplicit[ag] {
-					cfg.agentDrivers[ag] = drv
-					if cfg.agentCommands[ag] == "pi" || cfg.agentCommands[ag] == "" {
-						switch drv {
-						case "agy":
-							cfg.agentCommands[ag] = "agy"
-						case "opencode":
-							cfg.agentCommands[ag] = "opencode"
-						}
-					}
-				}
+			if drv := reconciled.AgentDrivers[ag]; drv != "" && !cfg.agentDriverExplicit[ag] {
+				// The driver is restored, and nothing else: a restored driver's own
+				// manifest names the binary it runs, so there is no command to rewrite
+				// and no table here saying which name means which executable.
+				cfg.agentDrivers[ag] = drv
 			}
 		}
 	}

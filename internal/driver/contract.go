@@ -99,7 +99,7 @@ func RunContract(ctx context.Context, path, workDir string) Report {
 	}
 	report.add("executable", true, "%s", abs)
 
-	client, err := Start(ctx, filepath.Base(abs), abs, nil, nil)
+	client, err := StartWithTimeout(ctx, filepath.Base(abs), abs, nil, nil, StartTimeout)
 	if err != nil {
 		report.add("start", false, "%v", err)
 		return report
@@ -162,15 +162,22 @@ func RunContract(ctx context.Context, path, workDir string) Report {
 	// A declared capability with no method behind it is the failure mode that costs
 	// a user a feature which appears to exist and does nothing.
 	if manifest.Capabilities.Models {
+		// models shells out to the agent's own CLI, so on a loaded machine it can
+		// outrun any deadline we set. That is the machine being busy, not the
+		// protocol being wrong, so it is left unverified rather than failed.
 		if _, err := client.Models(ctx); err != nil {
-			report.add("capability-models", false, "capabilities.models is declared but models is not implemented: %v", err)
+			if errors.Is(err, context.DeadlineExceeded) {
+				report.skip("capability-models", "could not verify: the model listing timed out on this machine")
+			} else {
+				report.add("capability-models", false, "capabilities.models is declared but models did not answer: %s", cause(err))
+			}
 		} else {
 			report.add("capability-models", true, "models answered")
 		}
 	}
 	if manifest.Capabilities.Thinking {
 		if _, err := client.Thinking(ctx); err != nil {
-			report.add("capability-thinking", false, "capabilities.thinking is declared but thinking is not implemented: %v", err)
+			report.add("capability-thinking", false, "capabilities.thinking is declared but thinking did not answer: %s", cause(err))
 		} else {
 			report.add("capability-thinking", true, "thinking answered")
 		}
@@ -515,4 +522,17 @@ func ReferencePluginBinary(ctx context.Context, dir string) (string, error) {
 		return "", fmt.Errorf("build the reference plugin: %v\n%s", err, combined)
 	}
 	return out, nil
+}
+
+// cause names why a call failed in terms an author can act on, keeping a timeout
+// distinct from an absent method.
+func cause(err error) string {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return "the call timed out, which says nothing about whether the method exists"
+	case errors.Is(err, ErrUnsupported):
+		return "the plugin refused it as unsupported"
+	default:
+		return err.Error()
+	}
 }

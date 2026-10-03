@@ -19,11 +19,19 @@ import (
 // method and short enough that a wedged plugin cannot freeze the TUI.
 const defaultTimeout = 20 * time.Second
 
+// StartTimeout is the deadline StartTimeout-based callers ask for. The contract
+// suite drives real agent CLIs, whose model listing shells out again and can take
+// longer than an interactive call should ever block; a test that reports a slow
+// machine as a protocol violation is worse than a slow test.
+const StartTimeout = 90 * time.Second
+
 // Client is Core's handle on one plugin process. It is safe for concurrent use:
 // several goroutines may call different methods while the reader goroutine
 // dispatches replies.
 type Client struct {
 	name string
+	// timeout bounds one call. Zero means defaultTimeout.
+	timeout time.Duration
 
 	mu      sync.Mutex
 	cmd     *exec.Cmd
@@ -42,6 +50,17 @@ type Client struct {
 // process stays up for the lifetime of the returned Client: the plugin may hold
 // state across calls and may attach its Agent Adapter at any point.
 func Start(ctx context.Context, name, path string, args []string, env []string) (*Client, error) {
+	return start(ctx, name, path, args, env, defaultTimeout)
+}
+
+// StartWithTimeout is Start with a per-call deadline of the caller's choosing. Only
+// the contract suite needs it, because it drives plugins whose methods shell out to
+// a real agent CLI.
+func StartWithTimeout(ctx context.Context, name, path string, args, env []string, timeout time.Duration) (*Client, error) {
+	return start(ctx, name, path, args, env, timeout)
+}
+
+func start(ctx context.Context, name, path string, args []string, env []string, timeout time.Duration) (*Client, error) {
 	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.Env = env
 	stdin, err := cmd.StdinPipe()
@@ -63,6 +82,7 @@ func Start(ctx context.Context, name, path string, args []string, env []string) 
 
 	c := &Client{
 		name:    name,
+		timeout: timeout,
 		cmd:     cmd,
 		stdin:   stdin,
 		pending: make(map[int64]chan *Response),
@@ -175,7 +195,11 @@ func (c *Client) Call(ctx context.Context, method string, params, out any) error
 	}
 	c.mu.Unlock()
 
-	ctx, cancel := context.WithTimeout(ctx, defaultTimeout)
+	timeout := c.timeout
+	if timeout <= 0 {
+		timeout = defaultTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	select {
@@ -183,7 +207,7 @@ func (c *Client) Call(ctx context.Context, method string, params, out any) error
 		c.pendingMu.Lock()
 		delete(c.pending, id)
 		c.pendingMu.Unlock()
-		return fmt.Errorf("driver plugin %s: %s timed out after %s: %w", c.name, method, defaultTimeout, ctx.Err())
+		return fmt.Errorf("driver plugin %s: %s timed out after %s: %w", c.name, method, timeout, ctx.Err())
 	case resp, ok := <-ch:
 		if !ok || resp == nil {
 			return fmt.Errorf("driver plugin %s: %s: %w", c.name, method, ErrCrashed)

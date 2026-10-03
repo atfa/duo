@@ -43,6 +43,9 @@ type Driver interface {
 	DriverType() string
 	Manifest() *driver.Manifest
 	Capabilities() driver.Capabilities
+	// Models asks the driver which models it can select. Only meaningful when
+	// Capabilities.Models is set; otherwise it answers ErrUnsupported.
+	Models(ctx context.Context) (*driver.ModelList, error)
 
 	// The driver's own opaque state, and the label it reports for this agent's
 	// conversation. SessionID is display-only; nothing parses it.

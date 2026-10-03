@@ -12,6 +12,7 @@ import (
 
 	"github.com/atfa/duo/internal/agent"
 	"github.com/atfa/duo/internal/agent/agenttest"
+	"github.com/atfa/duo/internal/driver"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/sessionstore"
@@ -183,13 +184,23 @@ func TestLoadConfigFileAndPrecedence(t *testing.T) {
 	if cfg.harness.IdleThreshold != 42*time.Second {
 		t.Fatalf("idle threshold = %v, want 42s", cfg.harness.IdleThreshold)
 	}
-	austinCmd := cfg.agentCommand(protocol.Austin)
-	if austinCmd != "pi-custom --model anthropic/claude-3-7-sonnet --thinking high" {
-		t.Fatalf("austin command = %q", austinCmd)
+	// The command is the operator's override and nothing else. The model and the
+	// effort travel beside it and are spelled onto the command line by the plugin,
+	// so a value can no longer be baked in twice.
+	if cmd := cfg.agentCommand(protocol.Austin); cmd != "pi-custom" {
+		t.Fatalf("austin command = %q, want the override alone", cmd)
 	}
-	tonyCmd := cfg.agentCommand(protocol.Tony)
-	if tonyCmd != "pi-custom --model openai/o3-mini" {
-		t.Fatalf("tony command = %q", tonyCmd)
+	if cmd := cfg.agentCommand(protocol.Tony); cmd != "pi-custom" {
+		t.Fatalf("tony command = %q, want the override alone", cmd)
+	}
+	if m := cfg.agentModel(protocol.Austin); m != "anthropic/claude-3-7-sonnet" {
+		t.Fatalf("austin model = %q", m)
+	}
+	if e := cfg.agentThinking(protocol.Austin); e != "high" {
+		t.Fatalf("austin effort = %q", e)
+	}
+	if m := cfg.agentModel(protocol.Tony); m != "openai/o3-mini" {
+		t.Fatalf("tony model = %q", m)
 	}
 
 	// 2. Env var overrides config file
@@ -234,10 +245,14 @@ func TestAgentCommandDoesNotDuplicateFlags(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Austin should NOT append --model because DUO_PI_COMMAND already has --model, but SHOULD append --thinking
-	austinCmd := cfg.agentCommand(protocol.Austin)
-	if austinCmd != "pi --model custom-model --thinking high" {
-		t.Fatalf("austin command = %q", austinCmd)
+	// Core passes the command through untouched, so a flag the operator already
+	// wrote cannot be duplicated and the effort cannot be appended behind it. The
+	// plugin owns the command line and is the only thing that can add a flag.
+	if got := cfg.agentCommand(protocol.Austin); got != "pi --model custom-model" {
+		t.Fatalf("austin command = %q, want the operator's verbatim", got)
+	}
+	if got := cfg.agentThinking(protocol.Austin); got != "high" {
+		t.Fatalf("the effort should be recorded, not appended: %q", got)
 	}
 }
 
@@ -264,12 +279,24 @@ func TestAgyDriverUsesAgyExecutableWithPiCommandConfigured(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	austinCmd := cfg.agentCommand(protocol.Austin)
-	if !strings.HasPrefix(austinCmd, "agy ") {
-		t.Fatalf("expected austinCmd to start with agy, got: %q", austinCmd)
+	// piCommand is the command for the default driver. A driver named explicitly is
+	// not the default one, so it must not inherit pi-custom — and with no override
+	// there is nothing here at all, because the driver's own manifest names its
+	// binary.
+	if cmd := cfg.agentCommand(protocol.Austin); cmd != "" {
+		t.Fatalf("an explicit driver must not inherit piCommand, got %q", cmd)
 	}
-	if !strings.Contains(austinCmd, "--model gemini-3.8-flash-high") {
-		t.Fatalf("expected sanitized model in austinCmd, got: %q", austinCmd)
+	// The reference is recorded exactly as the operator wrote it. Whether agy wants
+	// it bare is answered by its manifest, not guessed here.
+	if m := cfg.agentModel(protocol.Austin); m != "google/gemini-3.8-flash-high" {
+		t.Fatalf("model = %q, want the operator's reference unaltered", m)
+	}
+	command, model, _ := cfg.resolveDriver(protocol.Austin, agyManifest())
+	if command != "agy" {
+		t.Fatalf("command = %q, want agy from the manifest", command)
+	}
+	if model != "gemini-3.8-flash-high" {
+		t.Fatalf("model = %q, want the provider folded off for a bare driver", model)
 	}
 }
 
@@ -299,24 +326,27 @@ func TestOpencodeDriverUsesOpencodeExecutable(t *testing.T) {
 	if got := cfg.agentDriver(protocol.Austin); got != "opencode" {
 		t.Fatalf("agentDriver(Austin) = %q, want opencode", got)
 	}
-	cmd := cfg.agentCommand(protocol.Austin)
-	if !strings.HasPrefix(cmd, "opencode") {
-		t.Fatalf("expected the opencode executable, got: %q", cmd)
+	if cmd := cfg.agentCommand(protocol.Austin); cmd != "" {
+		t.Fatalf("opencode driver must not inherit the pi command, got %q", cmd)
 	}
-	if strings.Contains(cmd, "pi-custom") {
-		t.Fatalf("opencode driver must not inherit the pi command: %q", cmd)
+	if m := cfg.agentModel(protocol.Austin); m != "opencode/claude-sonnet-4-6" {
+		t.Fatalf("model = %q, want the operator's reference unaltered", m)
 	}
-	// opencode model ids are provider-qualified and must not be stripped.
-	if !strings.Contains(cmd, "--model opencode/claude-sonnet-4-6") {
-		t.Fatalf("expected the provider-qualified model, got: %q", cmd)
+	// opencode declares qualified references, so nothing is folded off and the
+	// binary comes from its manifest rather than from a name comparison.
+	command, model, _ := cfg.resolveDriver(protocol.Austin, opencodeManifest())
+	if command != "opencode" {
+		t.Fatalf("command = %q, want opencode from the manifest", command)
 	}
-	if strings.Contains(cfg.agentModel(protocol.Austin), "pi") {
-		t.Fatalf("model for opencode should not fall back to pi: %q", cfg.agentModel(protocol.Austin))
+	if model != "opencode/claude-sonnet-4-6" {
+		t.Fatalf("model = %q, want the provider kept for a qualified driver", model)
 	}
 }
 
-// Reasoning effort is --variant on opencode, not --thinking.
-func TestOpencodeThinkingUsesVariantFlag(t *testing.T) {
+// Reasoning effort is recorded as a value and the driver puts it on its own command
+// line, so Core cannot spell the flag and gets opencode's --variant right by not
+// guessing --thinking.
+func TestOpencodeThinkingIsRecordedNotAppended(t *testing.T) {
 	temp := t.TempDir()
 	configJSON := `{
 		"driver": "opencode",
@@ -332,12 +362,16 @@ func TestOpencodeThinkingUsesVariantFlag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := cfg.agentCommand(protocol.Austin)
-	if !strings.Contains(cmd, "--variant high") {
-		t.Fatalf("expected --variant high, got: %q", cmd)
+	if got := cfg.agentThinking(protocol.Austin); got != "high" {
+		t.Fatalf("recorded effort = %q, want high", got)
 	}
-	if strings.Contains(cmd, "--thinking") {
-		t.Fatalf("opencode does not accept --thinking: %q", cmd)
+	command, _, effort := cfg.resolveDriver(protocol.Austin, opencodeManifest())
+	if effort != "high" {
+		t.Fatalf("effort did not survive resolution: %q", effort)
+	}
+	// No flag of any spelling is added here; the plugin owns that.
+	if strings.Contains(command, "--variant") || strings.Contains(command, "--thinking") {
+		t.Fatalf("Core must not spell the effort flag: %q", command)
 	}
 }
 
@@ -430,21 +464,26 @@ func TestDriverConfigurationResolution(t *testing.T) {
 		t.Fatalf("tony driver = %q, want pi", d)
 	}
 
-	// 4. Inferred driver when command is agy
+	// 4. The binary for a driver comes from that driver's own manifest
 	cfg, err = loadConfig([]string{"--austin-agent=agy"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cmd := cfg.agentCommand(protocol.Austin); cmd != "agy" {
-		t.Fatalf("austin command for agy driver = %q, want agy", cmd)
+	command, model, _ := cfg.resolveDriver(protocol.Austin, agyManifest())
+	if command != "agy" {
+		t.Fatalf("command = %q, want agy from the manifest", command)
+	}
+	if model != "gemini-3.8-flash-high" {
+		t.Fatalf("model = %q, want the default agy declares", model)
 	}
 }
 
-// The shipped duo-agy and duo-opencode bridges wrap their CLI, so an agent
-// command is never spelled "agy" or "opencode". A wrapper must still be
-// recognized as its driver instead of being recorded as pi, which handed an
-// agy agent pi's default model.
-func TestBridgeWrapperCommandsIdentifyTheDriver(t *testing.T) {
+// A command is a command. It used to be inspected for a driver name, so pointing
+// piCommand at the duo-agy bridge silently switched the driver — which is how an agy
+// agent ended up recorded as pi and handed pi's default model. The driver is now
+// whatever was asked for by name, and the command is handed over untouched for the
+// driver to interpret.
+func TestCommandDoesNotReidentifyTheDriver(t *testing.T) {
 	load := func(t *testing.T, command string) config {
 		t.Helper()
 		temp := t.TempDir()
@@ -463,18 +502,21 @@ func TestBridgeWrapperCommandsIdentifyTheDriver(t *testing.T) {
 	}
 
 	agyCfg := load(t, "duo-agy")
-	if got := agyCfg.agentDriver(protocol.Austin); got != "agy" {
-		t.Fatalf("austin driver for the duo-agy bridge = %q, want agy", got)
+	if got := agyCfg.agentDriver(protocol.Austin); got != "pi" {
+		t.Fatalf("driver = %q: a command must not change which driver is selected", got)
 	}
-	if got := agyCfg.agentModel(protocol.Austin); got != "gemini-3.8-flash-high" {
-		t.Fatalf("austin model for the duo-agy bridge = %q, want the agy default", got)
-	}
-	if got := agyCfg.agentCommand(protocol.Austin); !strings.HasPrefix(got, "duo-agy") {
-		t.Fatalf("austin command = %q, want the configured bridge", got)
+	if got := agyCfg.agentCommand(protocol.Austin); got != "duo-agy" {
+		t.Fatalf("command = %q, want the configured bridge untouched", got)
 	}
 
-	if got := load(t, "duo-opencode").agentDriver(protocol.Austin); got != "opencode" {
-		t.Fatalf("austin driver for the duo-opencode bridge = %q, want opencode", got)
+	// Naming the driver is how an operator selects one, and then the bridge is
+	// accepted as an override for that driver rather than as a way to detect it.
+	named := loadConfigFor(t, `{"driver": "agy", "agents": {"austin": {"command": "duo-agy"}}}`)
+	if got := named.agentDriver(protocol.Austin); got != "agy" {
+		t.Fatalf("driver = %q, want agy", got)
+	}
+	if _, model, _ := named.resolveDriver(protocol.Austin, agyManifest()); model != "gemini-3.8-flash-high" {
+		t.Fatalf("model = %q, want agy's own default", model)
 	}
 }
 
@@ -482,13 +524,17 @@ func TestDriverAndModelProjectConfigAndDefault(t *testing.T) {
 	tempDir := t.TempDir()
 	t.Setenv("DUO_DRIVER", "")
 
-	// 1. Default models when no config exists
+	// 1. Nothing is chosen for the operator: an empty model means the driver decides,
+	// and what it decides is whatever its manifest declares.
 	cfg, err := loadConfig([]string{"--driver", "agy", tempDir})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := cfg.agentModel(protocol.Austin); got != "gemini-3.8-flash-high" {
-		t.Fatalf("austin agy default model = %q, want gemini-3.8-flash-high", got)
+	if got := cfg.agentModel(protocol.Austin); got != "" {
+		t.Fatalf("austin model = %q, want none chosen by Core", got)
+	}
+	if _, model, _ := cfg.resolveDriver(protocol.Austin, agyManifest()); model != "gemini-3.8-flash-high" {
+		t.Fatalf("resolved model = %q, want the default agy declares", model)
 	}
 
 	// 2. Project config with .duo/config.json
@@ -522,7 +568,9 @@ func TestDriverAndModelProjectConfigAndDefault(t *testing.T) {
 		t.Fatalf("austin model = %q, want google/gemini-3.7-flash-high", loaded.Agents["austin"].Model)
 	}
 
-	// 3. loadConfig picks up the project config and sanitizes agy models (stripping google/ prefix)
+	// 3. loadConfig picks up the project config. The reference is recorded exactly as
+	// it was written, and the google/ prefix comes off when the driver that receives
+	// it declares that it takes a bare id — not because Core knew agy by name.
 	projCfg, err := loadConfig([]string{tempDir})
 	if err != nil {
 		t.Fatal(err)
@@ -530,11 +578,11 @@ func TestDriverAndModelProjectConfigAndDefault(t *testing.T) {
 	if projCfg.agentDriver(protocol.Austin) != "agy" {
 		t.Fatalf("austin driver = %q, want agy", projCfg.agentDriver(protocol.Austin))
 	}
-	if projCfg.agentModel(protocol.Austin) != "gemini-3.7-flash-high" {
-		t.Fatalf("austin model = %q, want gemini-3.7-flash-high", projCfg.agentModel(protocol.Austin))
+	if got := projCfg.agentModel(protocol.Austin); got != "google/gemini-3.7-flash-high" {
+		t.Fatalf("austin model = %q, want it recorded as written", got)
 	}
-	if !strings.Contains(projCfg.agentCommand(protocol.Austin), "--model gemini-3.7-flash-high") {
-		t.Fatalf("austin command = %q, want --model gemini-3.7-flash-high", projCfg.agentCommand(protocol.Austin))
+	if _, model, _ := projCfg.resolveDriver(protocol.Austin, agyManifest()); model != "gemini-3.7-flash-high" {
+		t.Fatalf("resolved model = %q, want the prefix folded off for a bare driver", model)
 	}
 }
 
@@ -646,8 +694,8 @@ func TestModelPersistedForAnotherDriverIsDropped(t *testing.T) {
 	if got := cfg.agentModel(protocol.Austin); got != "keep-this-model" {
 		t.Errorf("Austin model = %q, want the one persisted for his own driver", got)
 	}
-	if cmd := cfg.agentCommand(protocol.Austin); !strings.Contains(cmd, "keep-this-model") {
-		t.Errorf("Austin's pi command lost his model: %s", cmd)
+	if command, model, _ := cfg.resolveDriver(protocol.Austin, agyManifest()); model != "keep-this-model" || command == "" {
+		t.Errorf("Austin's own model did not survive resolution: model %q, command %q", model, command)
 	}
 }
 
@@ -779,4 +827,125 @@ func TestDriverSeedsKeepsBlobsAndBareIdentitiesApart(t *testing.T) {
 	if _, ok := piSessions[protocol.Tony]; ok {
 		t.Errorf("Tony mirror must skip the blob: %q", piSessions[protocol.Tony])
 	}
+}
+
+// manifestFor builds the manifest a driver would have declared, so the resolution
+// below can be tested without launching one.
+func manifestFor(name, cli, reference, defaultModel string) *driver.Manifest {
+	return &driver.Manifest{
+		Protocol:       driver.ProtocolVersion,
+		Name:           name,
+		Agent:          driver.AgentInfo{CLI: cli, DefaultCommand: cli},
+		DefaultModel:   defaultModel,
+		ModelReference: reference,
+	}
+}
+
+func agyManifest() *driver.Manifest {
+	return manifestFor("agy", "agy", driver.ModelBare, "gemini-3.8-flash-high")
+}
+
+func opencodeManifest() *driver.Manifest {
+	return manifestFor("opencode", "opencode", driver.ModelQualified, "")
+}
+
+// TestResolveDriverAnswersFromTheManifest is the M3 contract in one place: the binary,
+// the model and the default all come from the driver, and Core's own name for it
+// changes nothing.
+func TestResolveDriverAnswersFromTheManifest(t *testing.T) {
+	cases := []struct {
+		name        string
+		cfg         config
+		agent       protocol.AgentID
+		manifest    *driver.Manifest
+		wantCommand string
+		wantModel   string
+	}{
+		{
+			name:        "no override falls back to the manifest's binary",
+			cfg:         config{},
+			agent:       protocol.Austin,
+			manifest:    agyManifest(),
+			wantCommand: "agy",
+			wantModel:   "gemini-3.8-flash-high",
+		},
+		{
+			name:        "an operator's command still wins",
+			cfg:         config{agentCommands: map[protocol.AgentID]string{protocol.Austin: "my-wrapper"}},
+			agent:       protocol.Austin,
+			manifest:    agyManifest(),
+			wantCommand: "my-wrapper",
+			wantModel:   "gemini-3.8-flash-high",
+		},
+		{
+			name:        "a bare driver folds the provider off a persisted reference",
+			cfg:         config{agentModels: map[protocol.AgentID]string{protocol.Austin: "google/gemini-3.8-flash-high"}},
+			agent:       protocol.Austin,
+			manifest:    agyManifest(),
+			wantCommand: "agy",
+			wantModel:   "gemini-3.8-flash-high",
+		},
+		{
+			name:        "a qualified driver keeps the provider",
+			cfg:         config{agentModels: map[protocol.AgentID]string{protocol.Austin: "opencode/claude-sonnet-4-6"}},
+			agent:       protocol.Austin,
+			manifest:    opencodeManifest(),
+			wantCommand: "opencode",
+			wantModel:   "opencode/claude-sonnet-4-6",
+		},
+		{
+			name:        "a driver that declares no default is handed none",
+			cfg:         config{},
+			agent:       protocol.Tony,
+			manifest:    opencodeManifest(),
+			wantCommand: "opencode",
+			wantModel:   "",
+		},
+		{
+			name:        "an unresolved driver leaves the operator's values alone",
+			cfg:         config{agentModels: map[protocol.AgentID]string{protocol.Austin: "some/model"}},
+			agent:       protocol.Austin,
+			manifest:    nil,
+			wantCommand: "",
+			wantModel:   "some/model",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			command, model, _ := tc.cfg.resolveDriver(tc.agent, tc.manifest)
+			if command != tc.wantCommand {
+				t.Errorf("command = %q, want %q", command, tc.wantCommand)
+			}
+			if model != tc.wantModel {
+				t.Errorf("model = %q, want %q", model, tc.wantModel)
+			}
+		})
+	}
+}
+
+// TestResolveDriverPassesTheEffortThrough keeps the effort a separate value: which
+// flag carries it is the driver's, so Core only remembers what was asked for.
+func TestResolveDriverPassesTheEffortThrough(t *testing.T) {
+	cfg := config{agentThinkings: map[protocol.AgentID]string{protocol.Austin: "high"}}
+	if _, _, effort := cfg.resolveDriver(protocol.Austin, opencodeManifest()); effort != "high" {
+		t.Fatalf("effort = %q, want high", effort)
+	}
+}
+
+// loadConfigFor writes a config file and loads it, for the cases that only need the
+// JSON.
+func loadConfigFor(t *testing.T, configJSON string) config {
+	t.Helper()
+	temp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(temp, ".duo.json"), []byte(configJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DUO_REPO", temp)
+	t.Setenv("DUO_DRIVER", "")
+	t.Setenv("DUO_PI_COMMAND", "")
+	cfg, err := loadConfig(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg
 }

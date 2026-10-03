@@ -55,10 +55,13 @@ func (a *App) modelForAgent(agent protocol.AgentID) string {
 				}
 				return m
 			}
-			return models.DefaultModelForDriver(d.DriverType())
+			return models.Default(d.Manifest())
 		}
 	}
-	return models.DefaultModelForDriver(a.driverType(agent))
+	// With no driver handle there is no manifest to ask, and Core has no business
+	// keeping a copy of one driver's default to hand to another. An empty model
+	// means the driver resolves its own, which is what it would have done anyway.
+	return ""
 }
 
 func (a *App) initModelMaps() {
@@ -136,7 +139,15 @@ func (a *App) loadModels() {
 	a.modelLoading = true
 	a.modelLoadingByAgent[target] = true
 	go func() {
-		list, err := models.List(context.Background(), command)
+		// The driver answers for itself. Which command it will run is its business,
+		// so command is carried along only to label the result.
+		var src models.Source
+		if a.agents != nil {
+			if d, ok := a.agents.Driver(target); ok {
+				src = d
+			}
+		}
+		list, err := models.Load(context.Background(), src)
 		a.modelCh <- modelsResult{agent: target, command: command, models: list, err: err}
 	}()
 }

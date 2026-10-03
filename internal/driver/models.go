@@ -3,6 +3,7 @@ package driver
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -39,6 +40,12 @@ func RunModelList(ctx context.Context, command string, parse ModelParser) (*Mode
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
+		// A listing that ran out of time says the machine was busy, not that the
+		// plugin is wrong, so it is reported as a timeout rather than as whatever
+		// progress text happened to be on stderr.
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return nil, fmt.Errorf("list models: %s did not finish within %s: %w", command, ModelListTimeout, context.DeadlineExceeded)
+		}
 		detail := strings.TrimSpace(stderr.String())
 		if detail == "" {
 			detail = err.Error()

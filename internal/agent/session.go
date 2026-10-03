@@ -83,6 +83,9 @@ type Config struct {
 	BaseCommand string
 	// Model is the model to run with, empty when none was selected.
 	Model string
+	// Thinking is the reasoning effort to run with, empty when none was selected.
+	// Which flag carries it is the driver's to spell.
+	Thinking string
 	// OnExit observes process termination for durable logging.
 	OnExit func(ExitEvent)
 	// Notices receives the diagnostics a plugin reported while preparing a launch.
@@ -148,6 +151,7 @@ func NewSession(ctx context.Context, cfg Config) (*Session, error) {
 		manifest: man,
 		size:     pty.Winsize{Cols: 80, Rows: 24},
 		model:    strings.TrimSpace(cfg.Model),
+		effort:   strings.TrimSpace(cfg.Thinking),
 	}, nil
 }
 
@@ -164,6 +168,18 @@ func (s *Session) Command() string { return s.cfg.BaseCommand }
 // Manifest is the driver's self-description. It is the only source Core has for
 // how this agent behaves.
 func (s *Session) Manifest() *driver.Manifest { return s.manifest }
+
+// Models asks the driver which models it can select. A driver that publishes no
+// catalog answers unsupported, which is a declaration rather than a failure.
+func (s *Session) Models(ctx context.Context) (*driver.ModelList, error) {
+	if s.cfg.Plugin == nil {
+		return nil, fmt.Errorf("driver plugin %s: no plugin to ask", s.cfg.Agent)
+	}
+	if !s.Capabilities().Models {
+		return nil, fmt.Errorf("driver plugin %s: %s: %w", s.cfg.Plugin.Name(), driver.MethodModels, driver.ErrUnsupported)
+	}
+	return s.cfg.Plugin.Models(ctx)
+}
 
 // Capabilities is the driver's declared behaviour, read by every delivery decision.
 func (s *Session) Capabilities() driver.Capabilities {

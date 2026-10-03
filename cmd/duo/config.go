@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atfa/duo/internal/driver"
 	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/models"
 	"github.com/atfa/duo/internal/project"
@@ -34,6 +35,8 @@ type config struct {
 	agentCommands map[protocol.AgentID]string
 	agentDrivers  map[protocol.AgentID]string
 	agentModels   map[protocol.AgentID]string
+	// agentThinkings is the reasoning effort per agent, or empty for the driver's own default.
+	agentThinkings map[protocol.AgentID]string
 
 	driverExplicit      bool
 	agentDriverExplicit map[protocol.AgentID]bool
@@ -57,6 +60,11 @@ type config struct {
 // helpRequested reports whether arg asks for usage instead of an action. Every
 // parser accepts the three spellings, so `duo <repo> --help` and
 // `duo clean --help` print usage instead of failing with an unknown flag.
+// defaultDriver is the driver an agent gets when nothing names one. It is a name and
+// nothing more: Core branches on nothing here, and the driver it selects answers for
+// its own binary, models and defaults from its manifest.
+const defaultDriver = "pi"
+
 func helpRequested(arg string) bool {
 	switch strings.TrimSpace(arg) {
 	case "-h", "--help", "help":
@@ -65,25 +73,58 @@ func helpRequested(arg string) bool {
 	return false
 }
 
+// agentCommand is an operator override, or empty. With no override the driver's own
+// manifest names the binary, so there is nothing here to fall back to.
 func (c config) agentCommand(agent protocol.AgentID) string {
-	if cmd, ok := c.agentCommands[agent]; ok && cmd != "" {
-		return cmd
-	}
-	return c.piCommand
+	return c.agentCommands[agent]
 }
 
 func (c config) agentDriver(agent protocol.AgentID) string {
 	if drv, ok := c.agentDrivers[agent]; ok && drv != "" {
 		return drv
 	}
-	return "pi"
+	return defaultDriver
 }
 
+// agentModel is what the operator asked for, which may be nothing. The driver's
+// manifest supplies the default, so an empty answer here means "the driver decides"
+// rather than "Core has no idea".
 func (c config) agentModel(agent protocol.AgentID) string {
-	if m, ok := c.agentModels[agent]; ok && m != "" {
-		return m
+	return c.agentModels[agent]
+}
+
+// agentThinking is the reasoning effort the operator asked for, if any. Which flag
+// carries it is the driver's to spell.
+func (c config) agentThinking(agent protocol.AgentID) string {
+	return c.agentThinkings[agent]
+}
+
+// resolveDriver settles the three things only the driver can answer: which binary
+// to run, which model to start on, and what the operator's requested effort means.
+//
+// It runs after the driver resolves rather than while the configuration file is
+// parsed, and that ordering is the whole point rather than an inconvenience: a
+// driver's manifest is the only thing that knows the spelling of its model
+// references, its default, or the binary it prefers, and reading any of them
+// earlier is what made Core carry a table of driver names.
+func (c config) resolveDriver(agent protocol.AgentID, manifest *driver.Manifest) (command, model, effort string) {
+	command = strings.TrimSpace(c.agentCommand(agent))
+	model = strings.TrimSpace(c.agentModel(agent))
+	effort = strings.TrimSpace(c.agentThinking(agent))
+	if manifest == nil {
+		return command, model, effort
 	}
-	return models.DefaultModelForDriver(c.agentDriver(agent))
+	if command == "" {
+		command = strings.TrimSpace(manifest.Agent.DefaultCommand)
+	}
+	// A reference spelled for another driver is folded into this one's, because a
+	// model the agent has never heard of aborts it at startup rather than being
+	// ignored.
+	model = models.Apply(model, manifest.ModelReference)
+	if model == "" {
+		model = models.Default(manifest)
+	}
+	return command, model, effort
 }
 
 // configFile describes ~/.duo/config.json or .duo/config.json.
@@ -326,7 +367,7 @@ func loadConfig(args []string) (config, error) {
 	}
 	harnessEnabled = envBool("DUO_HARNESS", harnessEnabled)
 
-	defaultPiCmd := "pi"
+	defaultPiCmd := defaultDriver
 	if fileCfg.PiCommand != "" {
 		defaultPiCmd = fileCfg.PiCommand
 	}
@@ -335,8 +376,11 @@ func loadConfig(args []string) (config, error) {
 	agentCommands := make(map[protocol.AgentID]string)
 	agentDrivers := make(map[protocol.AgentID]string)
 	agentModels := make(map[protocol.AgentID]string)
+	agentThinkings := make(map[protocol.AgentID]string)
 	agentDriverExplicit := make(map[protocol.AgentID]bool)
-	driverExplicit := parsed.driver != "" || os.Getenv("DUO_DRIVER") != ""
+	// Naming a driver anywhere — flag, environment or file — makes it not the default
+	// one, and piCommand is a command for the default driver only.
+	driverExplicit := parsed.driver != "" || os.Getenv("DUO_DRIVER") != "" || fileCfg.Driver != ""
 
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
 		key := strings.ToLower(string(id))
@@ -351,7 +395,7 @@ func loadConfig(args []string) (config, error) {
 		}
 		agentDriverExplicit[id] = isExplicit
 
-		driverType := "pi"
+		driverType := defaultDriver
 		if fileCfg.Driver != "" {
 			driverType = fileCfg.Driver
 		}
@@ -371,24 +415,14 @@ func loadConfig(args []string) (config, error) {
 			driverType = parsed.tonyDriver
 		}
 
-		baseCmd := "agy"
-		switch driverType {
-		case "agy":
-			baseCmd = "agy"
-		case "opencode":
-			baseCmd = "opencode"
-		default:
+		// The command is an override, not a decision. Which binary a driver runs is
+		// answered by its own manifest once it resolves, and an operator's command
+		// reaches the plugin as the base command for it to interpret. piCommand is
+		// still honoured, as the command for the default driver, which is why it
+		// applies only when no driver was named explicitly.
+		baseCmd := agentCfg.Command
+		if baseCmd == "" && !isExplicit {
 			baseCmd = piCommand
-		}
-		if agentCfg.Command != "" {
-			baseCmd = agentCfg.Command
-		}
-		// An operator's command may name a driver Duo does not recognize by
-		// driver flag, including the shipped duo-agy/duo-opencode bridges. The
-		// same detection reads the model catalog, so a wrapper must not be
-		// recorded as pi and handed pi's default model.
-		if kind := models.DriverKind(baseCmd); kind != "pi" {
-			driverType = kind
 		}
 
 		// requested is the model the user asked for, and is emptied when it
@@ -403,42 +437,15 @@ func loadConfig(args []string) (config, error) {
 		if recorded := strings.TrimSpace(agentCfg.Driver); recorded != "" && recorded != driverType {
 			requested = ""
 		}
-		model := requested
-		if driverType == "agy" && strings.Contains(model, "/") {
-			model = model[strings.LastIndex(model, "/")+1:]
-		}
-		// opencode only accepts provider/model, so a bare id left behind by another
-		// driver would abort the agent at startup. Ignore it and let opencode
-		// resolve its own default.
-		if driverType == "opencode" && model != "" && !strings.Contains(model, "/") {
-			model = ""
-		}
-		if model == "" {
-			model = models.DefaultModelForDriver(driverType)
-		}
-		agentModels[id] = model
-
-		// Only a request that survived validation may reach the command line.
-		// Appending the raw persisted value instead is how an opencode model id
-		// was handed to pi even after the resolved model had been corrected.
-		if requested != "" && !hasFlag(baseCmd, "--model") {
-			modelArg := requested
-			if driverType == "agy" && strings.Contains(modelArg, "/") {
-				modelArg = modelArg[strings.LastIndex(modelArg, "/")+1:]
-			}
-			if !(driverType == "opencode" && !strings.Contains(modelArg, "/")) {
-				baseCmd = baseCmd + " --model " + modelArg
-			}
-		}
+		// What survives here is intent only. Spelling the reference for the driver
+		// that receives it, substituting its default, and choosing the flag are all
+		// answered from the manifest once the driver is resolved — which is also
+		// why nothing is appended to the command here. The plugin builds the command
+		// line and puts the model on it, so appending a second copy here is how a
+		// model reached an agent that had already been told a different one.
+		agentModels[id] = requested
 		if agentCfg.Thinking != "" {
-			// opencode spells reasoning effort --variant.
-			flag := "--thinking"
-			if driverType == "opencode" {
-				flag = "--variant"
-			}
-			if !hasFlag(baseCmd, flag) {
-				baseCmd = baseCmd + " " + flag + " " + agentCfg.Thinking
-			}
+			agentThinkings[id] = agentCfg.Thinking
 		}
 		agentCommands[id] = baseCmd
 		agentDrivers[id] = driverType
@@ -474,6 +481,7 @@ func loadConfig(args []string) (config, error) {
 		agentCommands:       agentCommands,
 		agentDrivers:        agentDrivers,
 		agentModels:         agentModels,
+		agentThinkings:      agentThinkings,
 		driverExplicit:      driverExplicit,
 		agentDriverExplicit: agentDriverExplicit,
 		resume:              parsed.resume,

@@ -455,7 +455,6 @@ func (r *runtime) serve(ctx context.Context) error {
 			return fmt.Errorf("session has no worktree for %s", agentID)
 		}
 		driverName := r.cfg.agentDriver(agentID)
-		modelName := r.cfg.agentModel(agentID)
 
 		// One lookup for every agent: a driver Duo ships in-process, or a plugin
 		// executable found on disk. The switch that used to be here is the thing
@@ -475,6 +474,11 @@ func (r *runtime) serve(ctx context.Context) error {
 			r.logger.Printf("%s: driver %s unavailable: %s", agentID, driverName, probe.Reason)
 		}
 
+		// The driver answers for itself now that it is resolved: the binary to run
+		// and the model to start on come from its manifest, not from Core's guess at
+		// what a driver of this name wants.
+		baseCommand, modelName, effort := r.cfg.resolveDriver(agentID, manifestOf(ctx, plugin))
+
 		session, err := agent.NewSession(ctx, agent.Config{
 			Agent:          agentID,
 			Mode:           r.mode.String(),
@@ -487,8 +491,9 @@ func (r *runtime) serve(ctx context.Context) error {
 			Token:          token,
 			Plugin:         plugin,
 			PluginState:    r.driverState[agentID].State,
-			BaseCommand:    r.cfg.agentCommand(agentID),
+			BaseCommand:    baseCommand,
 			Model:          modelName,
+			Thinking:       effort,
 			Notices:        r.collectNotice,
 		})
 		if err != nil {
@@ -659,4 +664,15 @@ func commandUsage(name string) string {
 		return command.Signature
 	}
 	return "duo " + name
+}
+
+// manifestOf reads a plugin's manifest, tolerating failure. NewSession describes the
+// plugin again and refuses to start an agent whose manifest is unusable, so a failure
+// here only means Core resolves nothing extra and the driver's own defaults apply.
+func manifestOf(ctx context.Context, plugin driver.Caller) *driver.Manifest {
+	manifest, err := plugin.Describe(ctx)
+	if err != nil {
+		return nil
+	}
+	return manifest
 }
