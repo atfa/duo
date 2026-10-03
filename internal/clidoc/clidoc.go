@@ -66,8 +66,8 @@ var commands = []Command{
 	{
 		Name:      "plugins",
 		Aliases:   []string{"plugin"},
-		Signature: "duo plugins   (alias: duo plugin)",
-		Summary:   "list built-in and discovered external agent driver plugins",
+		Signature: "duo plugins   (alias: duo plugin) | duo plugin test <path…> [--all|-a] [--verbose|-v]",
+		Summary:   "list Driver Plugins, or check them against the protocol",
 	},
 	{
 		Name:      "mcp-server",

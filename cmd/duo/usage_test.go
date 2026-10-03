@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"go/ast"
 	"go/parser"
@@ -28,13 +29,14 @@ import (
 // (--model, --thinking, --variant, --session-id, --conversation), which belong
 // to the agent CLIs and must never be documented as duo flags.
 var parserCommands = map[string]string{
-	"parseArgs":          "duo",
-	"parseApplyArgs":     "apply",
-	"parseCleanArgs":     "clean",
-	"parseLogsArgs":      "logs",
-	"parseMCPServerArgs": "mcp-server",
-	"parseSessionsArgs":  "sessions",
-	"runPlugins":         "plugins",
+	"parseArgs":           "duo",
+	"parseApplyArgs":      "apply",
+	"parseCleanArgs":      "clean",
+	"parseLogsArgs":       "logs",
+	"parseMCPServerArgs":  "mcp-server",
+	"parseSessionsArgs":   "sessions",
+	"parsePluginTestArgs": "plugins",
+	"runPlugins":          "plugins",
 }
 
 // flagToken matches a flag spelling and nothing else. After the "=" split it
@@ -330,6 +332,7 @@ func dispatchedTokens(t *testing.T) map[string]bool {
 // parsersByCommand maps each documented command to the parser that owns it.
 var parsersByCommand = map[string]bool{
 	"duo": true, "apply": true, "sessions": true, "logs": true, "clean": true, "mcp-server": true,
+	"plugins": true,
 }
 
 // TestUsageAcceptsEveryDocumentedFlag feeds each documented flag to the parser
@@ -342,6 +345,7 @@ func TestUsageAcceptsEveryDocumentedFlag(t *testing.T) {
 		"logs":       {"-h", "--help"},
 		"clean":      {"--all", "-a", "--all-repos", "--force", "-f", "--dry-run", "-n", "-h", "--help"},
 		"mcp-server": {"--agent", "--session", "--token", "--host", "--port", "--export-config", "--export", "--config", "-h", "--help"},
+		"plugins":    {"--all", "-a", "-v", "--verbose", "-h", "--help"},
 	}
 	for command, flags := range perCommand {
 		for _, flag := range flags {
@@ -405,6 +409,9 @@ func accepts(t *testing.T, command string, args ...string) error {
 	case "mcp-server":
 		_, err := parseMCPServerArgs(args)
 		return err
+	case "plugins":
+		_, err := parsePluginTestArgs(args)
+		return err
 	}
 	t.Fatalf("no parser for command %q", command)
 	return nil
@@ -441,10 +448,10 @@ func TestUsageSatisfiesEverySubcommandHelp(t *testing.T) {
 			}
 		}
 	}
-	if err := runPlugins([]string{"--help"}); err != nil {
+	if err := runPlugins(context.Background(), []string{"--help"}); err != nil {
 		t.Errorf("duo plugins --help was rejected: %v", err)
 	}
-	if err := runPlugins([]string{"--bogus"}); err == nil {
+	if err := runPlugins(context.Background(), []string{"--bogus"}); err == nil {
 		t.Error("duo plugins --bogus was accepted; an unknown flag must fail")
 	}
 }

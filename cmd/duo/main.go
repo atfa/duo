@@ -81,7 +81,7 @@ func main() {
 			}
 			return
 		case "plugins", "plugin":
-			if err := runPlugins(os.Args[2:]); err != nil && ctx.Err() == nil {
+			if err := runPlugins(ctx, os.Args[2:]); err != nil && ctx.Err() == nil {
 				log.Fatal(err)
 			}
 			return
@@ -595,6 +595,10 @@ func printUsage() {
 	fmt.Println("  duo --austin-driver <driver>")
 	fmt.Println("  duo --tony-driver <driver>")
 	fmt.Println("                       select one agent's driver, overriding --agent")
+	fmt.Println("  duo plugins            list every driver Duo can see")
+	fmt.Println("  duo plugin test <path…> [--all|-a] [--verbose|-v]")
+	fmt.Println("                       check Driver Plugins against the protocol; --all")
+	fmt.Println("                       checks every driver Duo can see, -v lists each check")
 	fmt.Println("  duo resume             resume this repository's unfinished session (same as -r / --resume)")
 	fmt.Println("  duo --resume           resume this repository's unfinished session")
 	fmt.Println("  duo --resume <id>      resume one specific session (required if several are unfinished)")
@@ -636,45 +640,4 @@ func commandUsage(name string) string {
 		return command.Signature
 	}
 	return "duo " + name
-}
-
-func runPlugins(args []string) error {
-	for _, arg := range args {
-		switch strings.TrimSpace(arg) {
-		case "":
-		case "-h", "--help", "help":
-			printUsage()
-			return nil
-		default:
-			if strings.HasPrefix(arg, "-") {
-				return fmt.Errorf("unknown flag %q (usage: %s)", arg, commandUsage("plugins"))
-			}
-			return fmt.Errorf("unexpected extra argument %q (usage: %s)", arg, commandUsage("plugins"))
-		}
-	}
-	printPlugins()
-	return nil
-}
-
-func printPlugins() {
-	// Registration is idempotent, so listing plugins populates the same table the
-	// session uses. No observer is needed: nothing is launched here.
-	registerDrivers(nil)
-	entries := driver.Discover()
-	if len(entries) == 0 {
-		fmt.Println("No driver plugins found.")
-	} else {
-		fmt.Printf("%d driver plugin(s) available:\n", len(entries))
-		for _, entry := range entries {
-			origin := "external"
-			if entry.Shipped {
-				origin = "shipped"
-			}
-			fmt.Printf("  %-12s %-8s %s\n", entry.Name, "["+origin+"]", entry.Path)
-		}
-	}
-	fmt.Println()
-	fmt.Println("Duo selects a driver with --agent <name>, or per agent with")
-	fmt.Println("--austin-driver / --tony-driver. Run `duo plugins` again after")
-	fmt.Println("installing one to confirm it was found.")
 }
