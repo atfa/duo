@@ -1,47 +1,59 @@
 # Security
 
-## Current trust model
+## Trust model
 
-Duo is designed for a **trusted local development machine**.
+Duo is designed for a trusted local development machine. The Go core listens on an
+OS-assigned localhost port and gives each run a random session token. It rejects
+clients with the wrong session, token or agent identity. The local protocol is not
+encrypted and must not be exposed to an untrusted network.
 
-The Go core listens on an OS-assigned localhost port. Each run gives its Pi processes a random session token, and the core rejects clients with the wrong session, token or agent identity. The local protocol is not encrypted and should not be exposed to an untrusted network.
-
-## Agent capabilities
-
-Pi coding agents may execute tools and shell commands with the permissions of the user running them. Git worktrees isolate branches and reduce accidental overwrite between Austin and Tony, but they are **not OS sandboxes**.
-
-Run Duo only against repositories and environments where you are comfortable allowing your configured Pi agents to operate.
+Configured coding agents run with the permissions of the user running Duo and may
+execute tools and shell commands. Git worktrees isolate changes between Austin and
+Tony, but they are **not OS sandboxes**. Run Duo only in repositories and
+environments where those agents may operate.
 
 ## Git safety boundary
 
-When Austin and Tony both sign INTEGRATE, Duo hands the final integrated HEAD back to your repository by **fast-forwarding only the branch Duo recorded when the session started**.
+After the phase-specific approval, Duo delivers by fast-forwarding only the branch
+recorded when the session started: Tony's successful verification of Austin's exact
+commit in Fast, or both agents' approval of the integrated Austin HEAD in Goal.
 
-Against your working checkout, the only mutating Git command Duo runs is `git merge --ff-only <final-head>`. Duo does not create a merge commit, does not rebase, and does not rewrite history. It never runs `reset --hard`, `checkout -f`, `clean`, or `merge --no-ff` against your repository. (Duo does create and remove linked worktrees and `duo/<session>/austin|tony` branches inside your repository's Git directory; those do not touch your checkout.)
+Duo checks safety with read-only Git queries before changing the original checkout.
+For delivery, its only mutating Git command against that checkout is
+`git merge --ff-only <final-head>`. It never creates a merge commit, rebases, or
+rewrites history there, and never runs `reset --hard`, `checkout -f`, `clean`, or
+`merge --no-ff` against it. Duo does create/remove linked worktrees and temporary
+`duo/<session>/austin|tony` branches in the repository's Git directory.
 
-The fast-forward is verified with read-only Git queries **before** anything is written. Duo refuses, leaves every file untouched, keeps the session in INTEGRATE with both signatures, and records a `pending` delivery when:
+Delivery refuses without changing the checkout if it is dirty, on a different or
+detached branch, diverged from the final result, or the result cannot be proven to
+derive from the recorded base. A refused handoff remains pending in VERIFY (Fast)
+or INTEGRATE (Goal). If you finish the merge yourself, `duo apply` recognizes it
+when the final HEAD is an ancestor of your current HEAD. A cherry-pick alone does
+not satisfy that check. A no-change task is a no-op when the final commit is already
+an ancestor, even if the checkout is dirty.
 
-- the working tree has uncommitted changes;
-- you are on a different branch than the one Duo recorded;
-- your HEAD has diverged from the final result, or the final result is not derived from the recorded base commit;
-- the repository is on a detached HEAD, or the recorded starting branch is unknown.
+After a successful fast-forward, Duo re-reads HEAD and fails loudly if it is not
+exactly the expected final commit.
 
-After a successful fast-forward, Duo re-reads HEAD and fails loudly if it is not exactly the expected final commit.
-
-Delivery is also a no-op when the final HEAD is already an ancestor of the current HEAD, so a merge you finished yourself is recognized as applied and your own commit is preserved. A cherry-pick is not recognized, because it does not make the final HEAD an ancestor.
-
-Review the delivered commit as you would any other change to your branch. Duo's guarantee is that it will not guess at an unsafe merge — not that the delivered work is correct. When delivery is refused, finish the handoff yourself with `git merge --no-ff <final-head>` from the printed final HEAD; `duo apply` then recognizes the result as already applied. A cherry-pick alone does not satisfy `duo apply` — it never makes the final HEAD an ancestor — so Duo will keep refusing until you merge.
+Review the delivered commit like any other branch change. Duo guarantees that it
+refuses an unsafe handoff; it does not guarantee the agents' work is correct.
 
 ## On-disk session files
 
 Durable sessions write to `~/.duo/sessions/<repo-id>/<session-id>/`:
 
-- `state.json` — phase, Plan, signatures, evidence, worktree paths and branches, and Pi session IDs. It contains no credentials.
-- `events.jsonl` — a diagnostic journal of phase, signature, bridge and merge events. It also carries the TUI pane transcript (`tui_entry` records, 200 per pane) so the visible history can be replayed on resume; treat it as containing whatever your agents wrote to the panes.
-- `duo.log` — lifecycle output. Session tokens are redacted before being written.
-- `lock` — an advisory `flock` holding the owner PID and hostname.
+- `state.json` — mode, phase, Plan or verification, signatures, evidence, worktree
+  paths/branches and driver session state.
+- `events.jsonl` — diagnostic events and the TUI transcript (`tui_entry`, up to 200
+  entries per pane), which may contain agent output.
+- `duo.log` — lifecycle output with session tokens redacted.
+- `lock` — advisory `flock` with the owner PID and hostname.
 
-The directory is created with owner-only permissions. These files describe your project's state and are worth treating like any other local development artifact; they are not encrypted and are not designed to be shared.
+The directory is owner-only. Files are not encrypted and describe project activity;
+treat them as local development artifacts and do not share them casually.
 
 ## Reporting a security issue
 
-Please avoid publishing exploit details in a public issue before maintainers have had a chance to assess them. Use a private GitHub security advisory when available for the repository.
+Please avoid publishing exploit details in a public issue before maintainers have had
+a chance to assess them. Use a private GitHub security advisory when available.

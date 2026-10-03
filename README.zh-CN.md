@@ -1,23 +1,17 @@
 # Duo
 
-> 一个为 Pi 设计的双平级 Coding Agent Runtime。
+> 一个通过隔离 Git worktree 协调两个平级 Coding Agent 的终端工具。
 
-**Duo 让两个 Pi coding agent 以平级伙伴的方式协作，而不是把一个 Agent 设为 Planner、另一个设为 subordinate worker。** 会话在启动时固定为以下两种工作流之一：
+**Duo 让两个 coding agent 以平级伙伴的方式协作，而不是把一个 Agent 设为 Planner、另一个设为 subordinate worker。** 会话在启动时固定为以下两种工作流之一：
 
 - **Fast（默认）。** Austin 负责实现，Tony 独立验证那个确切的 commit。`RUNNING → VERIFY → DONE`，没有共享 Plan、没有双重签字——大多数任务走这条路。
 - **Goal（`duo --mode goal`）。** 完整的协商式工作流：共享 Plan、隔离 worktree、交叉 Review、双重签字，`PLAN → EXECUTE → REVIEW → INTEGRATE → DONE`。
 
 两种模式下，Agent 都会在不停下的前提下实时互发消息、在隔离的 Git worktree 中各自工作，最终被验证的成果会交付回你启动 Duo 的那个仓库。
 
-运行时由一个 Go 协调核心加一层刻意做薄的 Pi bridge 组成。Duo 只强制那些确实需要确定性协调的东西——身份、路由、模式与阶段流转、验证、签字、Git 证据——其余部分留给模型自然地自行协作。
+运行时由 Go 协调核心、轻量 driver 插件和可选的 Agent bridge 组成。Duo 只强制那些确实需要确定性协调的东西——身份、路由、模式与阶段流转、验证、签字、Git 证据——其余部分留给模型自然地自行协作。
 
-- **默认 Fast，需要时 Goal。** Fast 保留安全边界——worktree、Git 证据、验证后交付——同时去掉繁文缛节；Goal 为更大的任务加上协商式规划与双重签字。
-- **平级，而非层级。** 没有固定的 Planner。任何一方都可以反对，分歧本身就是流程的正常部分。
-- **证据优先于口头声明。** 一个干净的 commit SHA 比 Agent 说"做完了"更有价值。验证和签字都是对 Git 校验过的，不是被无条件相信的。
-- **隔离，且绝不破坏。** Austin 和 Tony 从不共用工作树；Duo 也不会改写你启动它的那个仓库的历史。
-- **持久。** 会话能扛住崩溃，恢复后模式、worktree 和 Pi 对话身份都还在。
 
-当前版本：**v0.7.0** — 完整历史见 [CHANGELOG.md](./CHANGELOG.md)。
 
 ## 快速开始
 
@@ -54,37 +48,6 @@ curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-relea
 ```
 
 装完 bridge 后请重启所有正在运行的 Pi 与 opencode 进程。从源码构建还需要 Go 1.22+。
-
-## Duo 与常见多 Agent 框架的区别
-
-常见模式：
-
-```text
-Planner
- ├─ Worker A
- └─ Worker B
-```
-
-Duo：
-
-```text
-            用户
-             │
-             ▼
-           Austin
-             │ 唤醒
-             ▼
-Austin  ◄──────────►  Tony
-   │       实时通信       │
-   └──────────┬───────────┘
-              ▼
- FAST： RUNNING → VERIFY → DONE
- GOAL： PLAN → EXECUTE → REVIEW → INTEGRATE → DONE
-```
-
-没有 Planner 来分发任务：用户和 Austin 对话。Goal 模式里 Austin 唤醒 Tony，两人直接互发消息，任何一方都不能代替对方签字。Fast 模式里 Austin 是 driver，Tony 是只读 verifier，只能通过或拒绝正在被 Review 的那个确切 commit。
-
-Duo Core 负责的是一小组可靠的"制度"：模式、阶段、验证、签字、成果证据、worktree、harness、集成与交付。至于怎么讨论、怎么分工、要不要先做个实验，仍由 Austin 和 Tony 自主决定。
 
 ## 协作如何运作
 
@@ -253,7 +216,7 @@ Duo 可以驱动你安装的任意一种 Agent CLI。三者使用同一套 Duo �
 | Driver | 选择方式 | Duo 的通信方式 |
 |---|---|---|
 | `pi`（默认） | `--agent pi` | Pi bridge 扩展通过本地 socket 回连。完整流式能力：工具活动、peer 消息与模型切换都是实时的。 |
-| `agy` | `--agent agy` | Google Antigravity CLI。没有 bridge，因此 Duo 观测对话 transcript，并把消息写进 PTY。Token 用量显示需要 `PATH` 上的 `sqlite3`。 |
+| `agy` | `--agent agy` | Google Antigravity CLI。Duo 观测对话并把消息写进 PTY。Token 用量显示需要 `PATH` 上的 `sqlite3`。 |
 | `opencode` | `--agent opencode` | opencode 插件通过本地 socket 回连，与 Pi bridge 同一机制。 |
 
 `--driver` 是 `--agent` 的别名，`--austin-agent` / `--tony-agent` 则是
@@ -371,7 +334,7 @@ driver，切换 driver 时它会被丢弃——那个 id 对新的 CLI 没有意
 ~/.duo/plugins/     可选的 `duo-driver-<name>` / `duo-<name>` 可执行文件
 ```
 
-会话目录以仅属主权限创建，且不含凭据；但它确实描述了你项目的状态，详见 [SECURITY.md](./SECURITY.md)。
+会话目录以仅属主权限创建，并记录项目状态，详见 [SECURITY.md](./SECURITY.md)。
 
 ## 工作 Scope
 
@@ -458,101 +421,23 @@ duo logs <repository>       # 列出另一个仓库的会话记录
 
 其余命令不涉及会话：`duo plugins` 列出内置 driver 与所有已发现的外部插件，[`duo mcp-server`](#mcp-服务duo-mcp-server) 通过 MCP 提供 Duo 工具，`duo version`（`--version`）与 `duo help`（`-h`、`--help`）分别打印版本号与完整用法。
 
-## 真实流程记录
+## 使用边界
 
-### Fast（默认）
-
-一段精简的 Fast 模式记录：
-
-```text
-用户 → Austin
-
-Austin 实现 → commit 4c1a9f2          （RUNNING）
-Austin：duo_set_status ready=true
-  → VERIFY，验证绑定到 4c1a9f2
-
-Tony 检查 4c1a9f2
-Tony：duo_set_verification issue_found
-  "src/cache.ts 仍会缓存一次失败的查询，所以重试永远不会发生"
-  → RUNNING
-
-Austin 修复 → commit 8e02b1d
-Austin：duo_set_status ready=true
-  → VERIFY，绑定到 8e02b1d
-
-Tony：duo_set_verification passed
-  → 交付把你的分支 fast-forward 到 8e02b1d
-DONE
-```
-
-### Goal
-
-一段 v0.2 时期成功运行的精简记录，被测对象是一个宠物医院小应用 —— **不是本仓库**。下面的 commit 号属于那个应用，在本仓库里 `git show` 会失败：
-
-```text
-用户 → Austin
-
-Austin → Tony：
-"用户认为 UI 老旧。我有初步判断，请你独立分析，不要直接附和。"
-
-Tony → Austin：
-"我不同意大改字体/徽章。真正的问题更像点阵、装饰圆、圆角层级和阴影。"
-
-Shared Plan v1
-Austin ✓
-Tony   ✓
-
-PLAN → EXECUTE
-Austin 修改 → commit 7bf559e
-Tony 对该 commit Review ✓
-
-EXECUTE → REVIEW → INTEGRATE
-Austin ✓ integrated HEAD
-Tony   ✓ same HEAD
-
-DONE
-```
-
-这里最重要的设计原则是：**Phase 是 checkpoint，不是行为牢笼。** Tony 可以提前看 diff，Austin 也可以在 PLAN 阶段提前做 prototype；Duo 只在"正式共识和正式成果"处设置硬边界。Fast 模式遵循同一原则，只是仪式更少：Tony 随时可以检查 commit，但只有一次 `duo_set_verification` 的结果才能放行交付。
-
-更完整的记录见 [docs/demo.md](./docs/demo.md)。
-
-## 已知限制
-
-Duo 仍是实验性运行时。简要说：Agent 拓扑固定为两个名为 Austin 和 Tony 的 Agent，各自使用一种[受支持的 driver](#agent-drivers)（`pi`、`agy`、`opencode`，或外部插件）；Fast 模式支持在运行中动态升级到 Goal 模式（`/escalate` 或 `duo_escalate`），但暂不支持从 Goal 降级回 Fast；Fast 是单写者，Tony 永不向被交付的成果 commit；恢复无法重建 Agent 的*推理过程*，只能恢复其状态；Duo Core 自身崩溃后不会自动重启；会话绑定机器与仓库路径，不可迁移。
-
-完整清单，以及刻意划为非目标（non-goal）的部分，见 [docs/known-limitations.md](./docs/known-limitations.md)。
+Duo 固定使用 Austin 与 Tony 两个角色。Fast 可以升级为 Goal，但不能降回 Fast。崩溃恢复不会重建 Agent 的推理过程；Duo Core 自身崩溃后需手动运行 `duo --resume`。会话绑定本机和仓库路径，辅助脚本面向 macOS/Linux。交付安全边界与本地 TCP 信任模型见[架构说明](./docs/architecture.md)和 [SECURITY.md](./SECURITY.md)。
 
 ## 开发
 
-```bash
-make check     # go test ./... && go vet ./... && go build ./cmd/...
-```
-
-或逐项执行：
-
-```bash
-go test ./...
-go vet ./...
-go build ./cmd/...
-```
-
-测试覆盖 Git worktree 与集成行为、PTY 监管、持久会话对账、交付并发，以及阶段流转规则。如果改动了 Pi bridge，请另外跑它自己的测试（`cd pi-extension && bun test`）。CI 在 Ubuntu 与 macOS 上分别用 Go 1.22.x 和 Go stable 跑一遍；推送 `v*` tag 会构建并发布四平台归档。
+运行 `make check` 执行 Go 测试、vet 和命令构建。若改动 Pi bridge，也运行
+`cd pi-extension && bun test`。推送 `v*` tag 会执行发布验证，并发布 macOS/Linux
+的 amd64/arm64 归档。
 
 ## 文档
 
-| 文档 | 内容 |
-|---|---|
-| [docs/architecture.md](./docs/architecture.md) | 组件边界、为什么用 worktree 而不是锁、为什么 PLAN 不是写锁。 |
-| [docs/known-limitations.md](./docs/known-limitations.md) | 完整限制与明确的非目标。 |
-| [docs/demo.md](./docs/demo.md) | 一次真实双 Agent 运行的精简记录。 |
-| [docs/publishing.md](./docs/publishing.md) | 发布与仓库设置说明。 |
-| [CHANGELOG.md](./CHANGELOG.md) | 版本历史。 |
-| [ROADMAP.md](./ROADMAP.md) | 项目方向。 |
-| [CONTRIBUTING.md](./CONTRIBUTING.md) | 需要保持的设计原则，以及可以从哪里入手。 |
-| [SECURITY.md](./SECURITY.md) | 信任模型、Git 安全边界、磁盘数据、漏洞披露。 |
-
-英文版本见 [README.md](./README.md)。
+- [架构与关键约束](./docs/architecture.md)
+- [Driver 插件协议](./docs/driver-plugin-protocol.md)与[开发指南](./docs/plugin-development-guide.md)
+- [Bridge 协议](./docs/duo-bridge-protocol.md)
+- [安全边界](./SECURITY.md)
+- [版本历史](./CHANGELOG.md)
 
 ## License
 

@@ -1,23 +1,15 @@
 # Duo
 
-**Two peer Pi coding agents in one terminal.**
+**Two peer coding agents in one terminal, coordinated through isolated Git worktrees.**
 
-Duo runs two Pi coding agents as *peers* rather than as a planner and a subordinate worker, in one of two fixed workflows:
+Duo runs two coding agents as *peers* rather than as a planner and a subordinate worker, in one of two fixed workflows:
 
 - **Fast (default).** Austin drives the implementation; Tony independently verifies the exact commit. `RUNNING → VERIFY → DONE`, with no shared Plan and no dual sign-off — the quick path for most tasks.
 - **Goal (`duo --mode goal`).** The full negotiated workflow: a shared Plan, isolated worktrees, cross-review and dual sign-off, `PLAN → EXECUTE → REVIEW → INTEGRATE → DONE`.
 
 In both modes the agents message each other while both keep working, changes stay in isolated Git worktrees, and the verified result is handed back to the repository you launched Duo from.
 
-The runtime is a Go coordination core plus a deliberately thin Pi bridge. Duo enforces only what benefits from deterministic coordination — identity, routing, mode and phase transitions, verification, signatures, Git evidence — and leaves the models free to collaborate naturally.
-
-- **Fast by default, Goal on request.** Fast keeps the safety boundary — worktrees, Git evidence, verified delivery — while dropping the ceremony; Goal adds negotiated planning and dual sign-off for larger tasks.
-- **Peer, not hierarchical.** No fixed planner. Either agent can disagree, and disagreement is a normal part of the flow.
-- **Evidence over claims.** A clean commit SHA is worth more than an assistant saying "done". Verification and sign-offs are validated against Git, not trusted.
-- **Isolated, never destructive.** Austin and Tony never share a working tree, and Duo will not rewrite the history of the repository you launched it from.
-- **Durable.** Sessions survive a crash and can be resumed, including their mode, worktrees and Pi conversation identity.
-
-Current release: **v0.7.0** — see [CHANGELOG.md](./CHANGELOG.md) for the full history.
+The runtime is a Go coordination core plus thin driver plugins and optional agent-side bridges. Duo enforces only what benefits from deterministic coordination — identity, routing, mode and phase transitions, verification, signatures, Git evidence — and leaves the models free to collaborate naturally.
 
 ## Quick start
 
@@ -54,37 +46,6 @@ curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-relea
 ```
 
 Restart any running Pi or opencode processes after installing the bridges.
-
-## How Duo differs from a planner/worker setup
-
-The common pattern:
-
-```text
-Planner
- ├─ Worker A
- └─ Worker B
-```
-
-Duo:
-
-```text
-            human
-             │
-             ▼
-          Austin
-             │ wakes
-             ▼
-Austin  ◄──────────►  Tony
-   │    live messages │
-   └──────────┬──────┘
-              ▼
- FAST:  RUNNING → VERIFY → DONE
- GOAL:  PLAN → EXECUTE → REVIEW → INTEGRATE → DONE
-```
-
-There is no planner distributing tasks. The human talks to Austin. In Goal mode Austin wakes Tony and the two peers message each other directly; neither can sign off on the other's behalf. In Fast mode Austin is the driver and Tony is a read-only verifier who can only pass or reject the exact commit under review.
-
-Duo Core owns only a small set of reliable institutions — mode, phases, verification, signatures, evidence, worktrees, the harness, integration and delivery. How the agents discuss, split the work, or whether to prototype first stays theirs to decide.
 
 ## How the collaboration works
 
@@ -252,7 +213,7 @@ identical — only how Duo launches the agent and observes it differs.
 | Driver | Select with | How Duo talks to it |
 |---|---|---|
 | `pi` (default) | `--agent pi` | A Pi bridge extension connects back over a local socket. Full streaming: tool activity, peer messages and model switching are live. |
-| `agy` | `--agent agy` | Google Antigravity CLI. No bridge, so Duo watches the conversation transcript and writes messages into the PTY. Token usage requires sqlite3 on PATH. |
+| `agy` | `--agent agy` | Google Antigravity CLI. Duo observes the conversation and writes messages into the PTY. Token usage requires sqlite3 on PATH. |
 | `opencode` | `--agent opencode` | An opencode plugin connects back over a local socket, the same way the Pi bridge does. |
 
 `--driver` is an alias for `--agent`, and `--austin-agent` / `--tony-agent` are
@@ -377,7 +338,7 @@ when the driver changes, since its id means nothing to the new CLI. Because
 ~/.duo/plugins/     optional `duo-driver-<name>` / `duo-<name>` executables
 ```
 
-Session directories are created owner-only and contain no credentials, but they do describe your project's state; see [SECURITY.md](./SECURITY.md).
+Session directories are created owner-only and describe your project's state; see [SECURITY.md](./SECURITY.md).
 
 ## Working scope
 
@@ -465,102 +426,23 @@ Cleaning a session removes its Git worktrees (`git worktree remove --force`), pr
 
 The remaining commands do not touch sessions: `duo plugins` lists the built-in drivers plus every discovered external plugin, [`duo mcp-server`](#mcp-server-duo-mcp-server) serves the Duo tools over MCP, and `duo version` (`--version`) and `duo help` (`-h`, `--help`) print the version and full usage.
 
-## Traces from real runs
+## Limits that affect use
 
-### Fast mode (default)
-
-A condensed fast-mode trace:
-
-```text
-human → Austin
-
-Austin works → commit 4c1a9f2          (RUNNING)
-Austin: duo_set_status ready=true
-  → VERIFY, verification bound to 4c1a9f2
-
-Tony inspects 4c1a9f2
-Tony: duo_set_verification issue_found
-  "src/cache.ts still caches a failed lookup, so the retry never happens"
-  → RUNNING
-
-Austin fixes → commit 8e02b1d
-Austin: duo_set_status ready=true
-  → VERIFY, bound to 8e02b1d
-
-Tony: duo_set_verification passed
-  → delivery fast-forwards your branch to 8e02b1d
-DONE
-```
-
-### Goal mode
-
-A condensed trace from a successful v0.2 run against a small pet-hospital web app — **not this repository**. The commit hash below belongs to that app, so `git show` on it here will fail:
-
-```text
-human → Austin
-
-Austin → Tony:
-"The user thinks the UI looks dated. I have a tentative read; analyse it
-independently, don't just agree with me."
-
-Tony → Austin:
-"I disagree with a wholesale font/badge rewrite. The real problems look more
-like the bitmap grid, the decorative circles, the corner-radius scale and
-the shadows."
-
-Shared Plan v1
-Austin ✓
-Tony   ✓
-
-PLAN → EXECUTE
-Austin edits → commit 7bf559e
-Tony reviews that commit ✓
-
-EXECUTE → REVIEW → INTEGRATE
-Austin ✓ integrated HEAD
-Tony   ✓ same HEAD
-
-DONE
-```
-
-The design principle that matters here: **a phase is a checkpoint, not a cage.** Tony may look at the diff early, and Austin may prototype during PLAN. Duo puts hard boundaries only around formal consensus and formal artifacts. In Fast mode the same principle holds with a smaller ceremony: Tony may inspect the commit at any time, but only a `duo_set_verification` result gates delivery.
-
-The full record lives in [docs/demo.md](./docs/demo.md).
-
-## Limitations
-
-Duo is an experimental runtime. In short: the agent topology is fixed at two agents named Austin and Tony, each running one of the [supported drivers](#agent-drivers) (`pi`, `agy`, `opencode`, or an external plugin); Fast mode can dynamically escalate to Goal mode on the fly (`/escalate` or `duo_escalate`), though downgrading back to Fast is unsupported; Fast is single-writer, so Tony never commits to the delivered artifact; recovery cannot reconstruct an agent's *reasoning*, only its state; Duo Core itself is not auto-restarted after a crash; and sessions are per-machine and per-repository-path, not portable.
-
-The full, current list — including what is deliberately a non-goal — is in [docs/known-limitations.md](./docs/known-limitations.md).
+Duo supports two fixed roles, Austin and Tony. Fast can escalate to Goal but cannot return to Fast. A session cannot recover agent reasoning, and Duo Core does not restart itself after a crash; run `duo --resume`. Session data is local to the machine and repository path. The shell scripts target macOS/Linux. Delivery safety and local TCP trust boundaries are described in [architecture](./docs/architecture.md) and [SECURITY.md](./SECURITY.md).
 
 ## Development
 
-```bash
-make check     # go test ./... && go vet ./... && go build ./cmd/...
-```
-
-Or individually:
-
-```bash
-go test ./...
-go vet ./...
-go build ./cmd/...
-```
-
-The suite covers Git worktree and integration behavior, PTY supervision, durable session reconcile, delivery concurrency, and phase transition rules. If you change the Pi bridge, run its own suite too (`cd pi-extension && bun test`). CI runs the Go suite on Go 1.22.x and Go stable across Ubuntu and macOS; pushing a `v*` tag builds and publishes the four release archives.
+`make check` runs Go tests, vet and command builds. If you change the Pi bridge,
+also run `cd pi-extension && bun test`. Pushing a `v*` tag runs release validation
+and publishes macOS/Linux archives for amd64/arm64.
 
 ## Documentation
 
-| Document | Contents |
-|---|---|
-| [docs/architecture.md](./docs/architecture.md) | Component boundaries, why worktrees instead of locks, why PLAN is not a write lock. |
-| [docs/known-limitations.md](./docs/known-limitations.md) | Complete limitations and explicit non-goals. |
-| [docs/demo.md](./docs/demo.md) | A condensed trace of one real two-agent run. |
-| [docs/publishing.md](./docs/publishing.md) | Release and repository notes. |
-| [CHANGELOG.md](./CHANGELOG.md) | Release history. |
-| [ROADMAP.md](./ROADMAP.md) | Where the project is heading. |
-| [CONTRIBUTING.md](./CONTRIBUTING.md) | Design principles to preserve, and where to start. |
-| [SECURITY.md](./SECURITY.md) | Trust model, Git safety boundary, on-disk data, disclosure. |
+- [Architecture and invariants](./docs/architecture.md)
+- [Driver plugin protocol](./docs/driver-plugin-protocol.md) and [development guide](./docs/plugin-development-guide.md)
+- [Bridge protocol](./docs/duo-bridge-protocol.md)
+- [Security boundaries](./SECURITY.md)
+- [Release history](./CHANGELOG.md)
 
 ## License
 

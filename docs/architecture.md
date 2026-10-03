@@ -20,152 +20,23 @@ The core should enforce only what benefits from deterministic coordination:
 
 Everything else should remain flexible enough for the models to collaborate naturally.
 
-## Components
+## State ownership and module boundaries
 
-### `internal/protocol`
+| Area | Owns | Boundary to preserve |
+|---|---|---|
+| `internal/project` | Mode, phase, Plan (Goal), verification (Fast), signatures and evidence | The authoritative state machine; UI and adapters do not keep competing copies. |
+| `internal/coordinator` | Wire requests, gates, phase transitions, peer routing and notices | Apply mode policy once and validate claims against Git evidence. |
+| `internal/transport`, `internal/protocol`, `internal/mcp` | Local bridge messages, stable identities and stdio MCP transport | Transport carries requests; it does not own workflow policy. |
+| `internal/driver`, `plugins/`, `internal/agent` | Plugin contract/discovery, per-agent CLI behavior and process/PTY lifecycle | Core has no driver-name branches; plugins own CLI flags, identity and capabilities. |
+| `internal/workspace` | Isolated worktrees, commit evidence and Goal integration | Austin and Tony never edit the same worktree; conflicts remain visible for resolution. |
+| `internal/recovery`, `internal/sessionstore` | Snapshot reconciliation, journal, transcript replay and session lock | Revoke unverifiable approvals before agents start; never discard user files or rewrite user history. |
+| `internal/delivery` | Read-only safety decision and final handoff | Move only the recorded branch by a provably safe fast-forward; otherwise refuse without changing the checkout. |
+| `internal/harness`, `internal/events` | Runtime activity tracking, nudges and event fan-out | Harness observes runtime state; events are non-blocking and do not become project state. |
+| `internal/tui` | Input, rendering, help and timeline | A projection of project state, never another source of truth. |
+| `pi-extension/`, `opencode-extension/` | Agent-side tool, activity and prompt adapters | Keep the adapter thin; Go Core remains responsible for shared state and authorization. |
 
-Wire messages and stable Austin/Tony identifiers. No Git, agent-CLI or UI logic should live here.
-
-### `internal/transport`
-
-Owns local TCP connections and the client registry. The coordinator sends semantic messages through this layer rather than touching `net.Conn` directly.
-
-### `internal/project`
-
-Owns the shared state machine and the per-session mode. A small internal workflow policy per mode keeps mode checks from spreading across layers.
-
-```text
-Fast: RUNNING → VERIFY → DONE        (issue_found returns VERIFY → RUNNING)
-Goal: PLAN → EXECUTE → REVIEW → INTEGRATE → DONE
-```
-
-It stores the mode, phase, shared Plan and version (Goal), the verification result and target commit (Fast), and per-agent readiness, notes and evidence. A legacy snapshot with no recorded mode is restored as Goal.
-
-### `internal/coordinator`
-
-The orchestration boundary. It interprets wire messages, dispatches once on the session mode, routes peer messages, verifies phase evidence through the workspace manager, enforces the verification gates, advances phases, detects stale verification and signatures, and sends phase notices back to the agents. Fast rejects `duo_set_plan` and a Tony `duo_set_status`; only Tony may call `duo_set_verification`, and only while the session is in `VERIFY`.
-
-### `internal/harness`
-
-Tracks runtime activity independently from project state. In Goal it nudges when the project is unfinished and both agents have gone idle. In Fast it nudges the agent that owns the current phase — Austin in `RUNNING`, Tony in `VERIFY` — so a verifier waiting on nothing cannot block the driver, and it escalates a stuck `RUNNING` episode into one diagnosis request to Tony.
-
-### `internal/workspace`
-
-Owns Git-specific isolation and evidence:
-
-- creates Austin/Tony worktrees from one base commit;
-- reports HEAD/dirty/ahead status;
-- captures clean commit artifacts;
-- merges Tony into Austin during INTEGRATE;
-- leaves conflicts visible for resolution.
-
-### `internal/driver`
-
-The Duo Driver Plugin Protocol v1: the wire types, the RPC client, the plugin-side
-`Serve` helper, manifest validation, and discovery by executable name. Duo Core
-reaches every coding agent through this package and nothing else, so adding an agent
-means adding a plugin rather than editing Core. See
-[docs/driver-plugin-protocol.md](driver-plugin-protocol.md) for the specification.
-
-Two implementations of one interface, `Caller`. A `Client` speaks it over a pipe to
-a plugin process; a `Builtin` speaks it by calling a `Handler` in the same process.
-They are the same contract, which is what lets a driver Duo ships be introduced
-through exactly the interface a third party implements.
-
-### `plugins/`
-
-The drivers Duo ships, each a Driver Plugin:
-
-- `plugins/pi` — the Pi CLI, paired with `pi-extension/` as its Agent Adapter
-- `plugins/agy` — the Antigravity CLI, including a transcript observer, because agy
-  has no extension API
-- `plugins/opencode` — the opencode CLI, paired with `opencode-extension/`
-- `cmd/duo-plugin-example` — the reference plugin, and the positive control for
-  contract tests
-
-A plugin is split in two, and the split is the design. The **Host Adapter** answers
-the protocol and is all Duo Core ever sees. The **Agent Adapter** runs inside the
-agent process, or observes it from outside, and is invisible to Core — which is why
-Core cannot tell a native extension from a transcript watcher from MCP, and does not
-need to.
-
-### `internal/agent`
-
-Owns the two agent processes behind one `Driver` interface: process lifecycle, PTY
-interaction, resize, native-attach replay, and the distinction between `exited` and
-`failed`. A `Session` asks its driver for a launch specification and runs what comes
-back, so what gets launched is the driver's business.
-
-It knows nothing about any agent. There is no field in `Config` for a session
-identity, a log file or an activity sink, and no branch on a driver name. What Core
-knows about an agent is what that agent's plugin declared: `Manifest()`,
-`Capabilities()`, `DriverState()`. `Manager` starts, resizes, restarts and stops both
-sessions, emits lifecycle events for the durable log, and releases the drivers at the
-end of a session — a plugin may own background work, such as a transcript observer,
-that must not outlive it.
-
-### `internal/models`
-
-Being replaced by the drivers' own `models` methods. The model catalog comes from the
-same agent installation Duo launches, and after each driver ships its parser the
-per-CLI knowledge — `pi --list-models`, `agy models`, `opencode models`, and each one's
-default-model rule — belongs to that driver rather than to Core.
-
-### `internal/delivery`
-
-Owns the handoff back to the human's repository. `Check` inspects the original repository **without modifying it** and decides whether auto-delivery is safe; `Deliver` fast-forwards the recorded branch only when that check passes. See [Integration and delivery boundary](#integration-and-delivery-boundary).
-
-### `internal/sessionstore`
-
-Owns durable state on disk: an atomically written `state.json` checkpoint, an append-only `events.jsonl` journal, a redacting `duo.log`, and an advisory `flock` lock that records the owner PID and hostname. Sessions are keyed by repository (`RepoID`) and session id under `~/.duo/sessions/`.
-
-`events.jsonl` is both the diagnostic journal and the TUI transcript: `tui_entry` records are replayed into the conversation timeline on `--resume` (capped at 200 entries per speaker), so a resumed session shows the same visible history it had before.
-
-### `internal/recovery`
-
-Owns the resume path: composing a snapshot from live state, validating it against Git, and reconciling the two. Reconciliation is deliberately conservative — any verification or signature whose evidence can no longer be proved valid is revoked before agents start, so a crash cannot resurrect a stale approval. In Fast, a `passed` verification whose commit is no longer Austin's HEAD deterministically returns the session to `RUNNING`; recovery never otherwise moves a session backwards.
-
-### `internal/events`
-
-A small in-process pub/sub bus carrying typed events (`system`, `assistant`, `peer`, `activity`, `harness`, `user`, `error`, `verdict`, `model`, `thinking`) from the coordinator, harness and transport to the UI. Delivery is non-blocking: a subscriber that cannot keep up drops events rather than stalling coordination.
-
-### `internal/tui`
-
-The terminal UI: model, renderer, layout, help, input decoding, mouse selection and markdown rendering in the conversation timeline. It is a projection of authoritative state, never a second source of truth. Frames are rebuilt from scratch and scheduled through a dirty tracker at about 60 FPS.
-
-### `internal/terminal`
-
-Low-level terminal ownership: raw mode, alt screen, mouse reporting, `modifyOtherKeys`, synchronized output, and the exact escape sequences used to hand the terminal to native Pi and take it back.
-
-### `pi-extension`
-
-A deliberately thin adapter:
-
-```text
-Pi event → Duo activity
-Pi tool  → Duo request
-Duo msg  → Pi steer
-```
-
-It publishes a mode-aware system prompt: a common base (worktree model and shared rules) plus exactly one policy section (`Fast driver`, `Fast verifier`, or `Goal`), selected from `DUO_MODE`. Tool registration is mode-gated too — `duo_set_plan` is offered only in Goal and `duo_set_verification` only in Fast — but the Go core still rejects the wrong tool. The extension should not become a second source of project truth.
-
-### `opencode-extension`
-
-The same three-way mapping for opencode, over opencode's own plugin API:
-
-```text
-opencode event → Duo activity
-Duo tool       → Duo request
-Duo msg        → opencode prompt on the live session
-```
-
-`protocol.ts`, `transport.ts` and `mode.ts` are shared verbatim with `pi-extension`: both bridges speak wire protocol version 1, so only the host binding differs. Inbound Duo messages become `client.session.promptAsync` calls on the tracked session, which is how a peer message or harness nudge reaches the agent mid-turn instead of being typed at a PTY.
-
-opencode exposes `experimental.chat.system.transform` with a mutable `system: string[]`, so the Duo policy is appended as one extra section instead of replacing anything opencode built. The plugin is inert unless `DUO_ACTIVE=1`, so a normal opencode session behaves exactly as it would without Duo installed.
-
-### `internal/mcp`
-
-Serves the same coordination tools over the Model Context Protocol (JSON-RPC 2.0 on stdio) instead of a socket bridge, for agent CLIs that speak MCP. Each tool is validated and forwarded to the coordinator exactly as the bridge version is, so the state machine has one implementation and one set of gates; the MCP layer adds transport, not policy.
+The Driver Plugin Protocol is specified in [driver-plugin-protocol.md](driver-plugin-protocol.md),
+and the agent-side socket contract in [duo-bridge-protocol.md](duo-bridge-protocol.md).
 
 ## Why worktrees instead of file locks?
 
@@ -231,4 +102,17 @@ Two properties make this safe to automate:
 
 So the boundary is not "Duo never moves your branch". It is: **Duo only ever moves the recorded branch forward, by an amount Git itself proves to be lossless, and refuses rather than guesses.** When it refuses, the human finishes the handoff from the printed final HEAD with `git merge --no-ff <final-head>` and re-runs `duo apply`, which then recognizes the result as already applied. A cherry-pick does not work here: it leaves the final HEAD out of the branch's history, so `duo apply` refuses again until the histories are merged.
 
-This asymmetry is not configurable yet; see the roadmap entry for a configurable integration strategy.
+This integration strategy is fixed: Austin is the integration worktree in Goal, and
+Fast delivers Austin's verified commit directly.
+
+## Current constraints
+
+- The topology has two fixed roles, Austin and Tony. Fast can escalate to Goal, but
+  Goal cannot downgrade to Fast.
+- Session state is local to a machine and repository path. Recovery restores
+  coordination state and agent session identities, not model reasoning.
+- Duo never rewrites the user's Git history. Delivery is a checked fast-forward;
+  when it cannot prove that safe, it leaves the repository untouched and reports
+  the final commit for a human-managed merge.
+- The bridge uses a random token on a localhost TCP endpoint. It is not designed
+  for remote or untrusted networks; see [SECURITY.md](../SECURITY.md).

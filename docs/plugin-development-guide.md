@@ -24,10 +24,9 @@ This guide is the tutorial. Where they disagree, the protocol document wins.
 - [Checklist](#checklist)
 - [The mistakes that have actually shipped](#the-mistakes-that-have-actually-shipped)
 
-> **Writing this with an AI coding agent?** Read
-> [`driver-development-for-ai-agents.md`](driver-development-for-ai-agents.md) instead.
-> It is the same material arranged as preconditions, a capability decision table and
-> a catalogue of the failures that actually shipped here behind green test suites.
+When using an AI coding agent, have it follow this guide in order and verify each
+stage before moving on. In particular, do not skip the capability contract, state
+round-trip, or real-binary checks below.
 
 ## What you are building
 
@@ -510,6 +509,24 @@ distribution story.
 ## The mistakes that have actually shipped
 
 Every one of these is in Duo's own history, and every one was silent.
+
+Before implementation, establish a baseline: run the reference plugin contract,
+build `cmd/duo-plugin-example`, and run `duo plugin test` against that binary. Find
+the `Handler` and manifest types by name in `internal/driver`; line numbers drift.
+For a new driver, keep the sequence small: `describe`, `probe`, `prepare`, learned
+state if needed, optional model/thinking methods, then an Agent Adapter only when
+the agent exposes a usable API. Run `duo plugin test <binary> -v` and inspect its
+individual checks.
+
+One environment-dependent trap deserves a separate rule: a model-catalog test must
+distinguish a broken plugin from a CLI that is absent or unauthenticated. Probe the
+CLI directly and skip only when that CLI cannot enumerate models; never use the
+plugin's own failing `Models()` result to justify skipping its test.
+
+For a release-quality check, run `gofmt -l .`, `go build ./...`, `go vet ./...`,
+`go test ./... -count=1`, then build and contract-test the plugin binary. For a
+non-trivial state or catalog behavior, deliberately break that behavior once and
+confirm the relevant check fails.
 
 **Declaring a capability whose method is missing.** A method with a subtly different
 signature compiles, passes every unit test, and answers `unsupported` at runtime. The
