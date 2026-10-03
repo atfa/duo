@@ -69,18 +69,49 @@ const BuiltInSource = "(built-in)"
 
 // Discover returns every driver available to this Duo, shipped or external.
 //
-// A shipped driver is reported from its registration rather than from a file on
-// disk: that is the implementation that will actually run, and a same-named
-// executable left over from an earlier install must not shadow it. External
+// A driver is reported from whichever implementation will actually run: the
+// executable when one is installed, the in-process registration otherwise. External
 // discovery is by executable name alone — nothing is executed and nothing is asked
 // — so listing plugins can never hang on a broken plugin.
 func Discover() []Entry {
-	seen := make(map[string]bool)
-	var out []Entry
-	for _, name := range BuiltinNames() {
-		seen[name] = true
-		out = append(out, Entry{Name: name, Path: BuiltInSource, Shipped: true, Source: "duo"})
+	found := map[string]Entry{}
+	for _, entry := range discoverExecutables() {
+		found[entry.Name] = entry
 	}
+
+	names := map[string]bool{}
+	for name := range found {
+		names[name] = true
+	}
+	for _, name := range BuiltinNames() {
+		names[name] = true
+	}
+
+	ordered := make([]string, 0, len(names))
+	for name := range names {
+		ordered = append(ordered, name)
+	}
+	sort.Strings(ordered)
+
+	out := make([]Entry, 0, len(ordered))
+	for _, name := range ordered {
+		entry, ok := found[name]
+		if !ok {
+			entry = Entry{Path: BuiltInSource, Source: "duo"}
+		}
+		entry.Name = name
+		entry.Shipped = IsBuiltin(name)
+		out = append(out, entry)
+	}
+	return out
+}
+
+// discoverExecutables finds plugin executables by name, without executing them.
+func discoverExecutables() []Entry {
+	var out []Entry
+	seen := make(map[string]bool)
+	// ~/.duo/plugins is scanned first so a plugin in development shadows a released
+	// one, which is what makes editing a plugin possible without uninstalling it.
 	add := func(name, path, source string) {
 		if name == "" || seen[name] || !isExecutable(path) {
 			return
@@ -88,14 +119,12 @@ func Discover() []Entry {
 		seen[name] = true
 		out = append(out, Entry{Name: name, Path: path, Source: source})
 	}
-
 	if dir := PluginDir(); dir != "" {
 		if entries, err := os.ReadDir(dir); err == nil {
 			for _, entry := range entries {
-				if entry.IsDir() {
-					continue
+				if !entry.IsDir() {
+					add(driverNameFromExecutable(entry.Name()), filepath.Join(dir, entry.Name()), "plugins")
 				}
-				add(driverNameFromExecutable(entry.Name()), filepath.Join(dir, entry.Name()), "plugins")
 			}
 		}
 	}
@@ -108,14 +137,11 @@ func Discover() []Entry {
 			continue
 		}
 		for _, entry := range entries {
-			if entry.IsDir() {
-				continue
+			if !entry.IsDir() {
+				add(driverNameFromExecutable(entry.Name()), filepath.Join(dir, entry.Name()), "path")
 			}
-			add(driverNameFromExecutable(entry.Name()), filepath.Join(dir, entry.Name()), "path")
 		}
 	}
-
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 

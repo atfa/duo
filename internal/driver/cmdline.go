@@ -68,10 +68,13 @@ func SetFlag(command, flag, value string) string {
 }
 
 // AppendFlag adds flag value unless the command already carries flag. It is how a
-// plugin injects a flag it considers mandatory without fighting an operator who
-// already supplied one.
+// plugin injects a flag without fighting an operator who already supplied one.
+//
+// An empty value adds nothing: "--model ”" is not the same as no flag at all, it is
+// a flag whose argument is the empty string, and a CLI that validates its arguments
+// will reject it.
 func AppendFlag(command, flag, value string) string {
-	if HasFlag(command, flag) {
+	if HasFlag(command, flag) || strings.TrimSpace(value) == "" {
 		return command
 	}
 	return strings.TrimSpace(command) + " " + flag + " " + ShellQuote(value)

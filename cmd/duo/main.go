@@ -503,6 +503,14 @@ func (r *runtime) serve(ctx context.Context) error {
 	if err := agents.StartAll(ctx); err != nil {
 		return err
 	}
+	// Checkpoint once the agents are up. An agent's identity is only known after its
+	// driver has prepared the launch, so the checkpoint written before startup cannot
+	// contain one — and this is the point at which the first real conversation exists.
+	// Without it, a session whose agents never reached the bridge would be recorded
+	// with no identity at all.
+	if err := r.store.Save(r.composeSnapshot(coord)); err != nil {
+		r.logger.Printf("checkpoint after startup: %v", err)
+	}
 	defer agents.StopAll()
 
 	if r.cfg.harnessEnabled {

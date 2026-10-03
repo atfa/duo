@@ -166,10 +166,12 @@ func unregisterForTest(name string) {
 	delete(builtins, name)
 }
 
-// TestResolvePrefersRegisteredBuiltinOverAnExecutableOnDisk is the transition
-// guarantee: a driver Duo ships in-process wins over a same-named executable, so
-// converting pi to a plugin cannot change behaviour on a machine that has both.
-func TestResolvePrefersRegisteredBuiltinOverAnExecutableOnDisk(t *testing.T) {
+// TestResolvePrefersTheExecutableOverTheBuiltin is the migration guarantee: an
+// installed plugin is the implementation that runs, and removing it falls back to
+// the identical Handler in-process. `--agent <name>` therefore behaves the same
+// either way, which is what makes converting a driver to a real plugin safe to ship
+// before every machine has one.
+func TestResolvePrefersTheExecutableOverTheBuiltin(t *testing.T) {
 	t.Cleanup(func() { unregisterForTest("example") })
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -178,7 +180,8 @@ func TestResolvePrefersRegisteredBuiltinOverAnExecutableOnDisk(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "duo-plugin-example"), nil, 0o755); err != nil {
+	plugin := filepath.Join(dir, "duo-plugin-example")
+	if err := os.WriteFile(plugin, nil, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -188,8 +191,53 @@ func TestResolvePrefersRegisteredBuiltinOverAnExecutableOnDisk(t *testing.T) {
 		t.Fatalf("resolve: %v", err)
 	}
 	defer caller.Close()
-	if _, ok := caller.(*Builtin); !ok {
-		t.Fatalf("resolve chose %T, want the registered builtin", caller)
+	if _, ok := caller.(*Builtin); ok {
+		t.Fatal("an installed plugin was ignored in favour of the in-process driver")
+	}
+
+	// Removing the plugin must fall back rather than fail.
+	if err := os.Remove(plugin); err != nil {
+		t.Fatal(err)
+	}
+	fallback, err := Resolve(context.Background(), "example", nil, nil)
+	if err != nil {
+		t.Fatalf("resolve without a plugin: %v", err)
+	}
+	defer fallback.Close()
+	if _, ok := fallback.(*Builtin); !ok {
+		t.Fatalf("resolve chose %T, want the in-process driver", fallback)
+	}
+}
+
+// TestDiscoverReportsWhicheverImplementationRuns keeps `duo plugins` honest: the
+// path it prints is the one that will be executed, not a leftover from another
+// install.
+func TestDiscoverReportsWhicheverImplementationRuns(t *testing.T) {
+	t.Cleanup(func() { unregisterForTest("example") })
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", t.TempDir())
+	Register("example", func() Handler { return noopDriver{} })
+
+	entries := Discover()
+	if len(entries) != 1 || entries[0].Name != "example" || entries[0].Path != BuiltInSource {
+		t.Fatalf("Discover() = %+v, want the in-process driver", entries)
+	}
+
+	dir := filepath.Join(home, ".duo", "plugins")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plugin := filepath.Join(dir, "duo-plugin-example")
+	if err := os.WriteFile(plugin, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	entries = Discover()
+	if len(entries) != 1 || entries[0].Path != plugin {
+		t.Fatalf("Discover() = %+v, want the installed plugin at %q", entries, plugin)
+	}
+	if !entries[0].Shipped {
+		t.Error("a registered driver is still shipped, plugin or not")
 	}
 }
 

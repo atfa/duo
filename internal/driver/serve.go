@@ -23,6 +23,9 @@ type Handler interface {
 // ModelLister is the optional model-catalog method. Implement it only when
 // Capabilities.Models is set; otherwise Core never calls it and the plugin
 // answers `unsupported` if it somehow does.
+//
+// It carries no context, matching Handler: a plugin runs one request at a time, and
+// the per-call timeout belongs to the transport, not to the handler.
 type ModelLister interface {
 	Models() (*ModelList, error)
 }

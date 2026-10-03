@@ -274,11 +274,11 @@ func (p *Plugin) Close() {
 // ModelOptions are agy's reasoning-effort levels, in escalation order.
 var ModelOptions = []string{"off", "low", "medium", "high", "max"}
 
-func (p *Plugin) Models(ctx context.Context) (*driver.ModelList, error) {
-	return driver.RunModelList(ctx, ListCommand(), ParseModels)
+func (p *Plugin) Models() (*driver.ModelList, error) {
+	return driver.RunModelList(context.Background(), ListCommand(), ParseModels)
 }
 
-func (p *Plugin) Thinking(ctx context.Context) (*driver.ThinkingOptions, error) {
+func (p *Plugin) Thinking() (*driver.ThinkingOptions, error) {
 	return &driver.ThinkingOptions{Levels: ModelOptions, Default: "medium"}, nil
 }
 
