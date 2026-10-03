@@ -1004,3 +1004,56 @@ func loadConfigFor(t *testing.T, configJSON string) config {
 	}
 	return cfg
 }
+
+// TestMirrorCarriesTheIdentityALiveDriverReported pins the downgrade guarantee at the
+// only link that can break it. Every other test seeds the mirror by hand; this one
+// lets a session report an identity the way a resume: server driver does after
+// launch, and checks that it reaches the snapshot a v0.9.0 binary would read.
+//
+// A driver whose learned identity never reached the mirror looks fine everywhere
+// else: its own resume works, DriverStates is authoritative, and the only visible
+// symptom is that downgrading forks every conversation.
+func TestMirrorCarriesTheIdentityALiveDriverReported(t *testing.T) {
+	stub := agenttest.New("stub").With(func(s *agenttest.Spec) {
+		s.Command = "sh -c 'exit 0'"
+		s.Capabilities.Resume = driver.ResumeServer
+		s.Capabilities.Bridge = driver.BridgeAgent
+		s.State = []byte(`{"conversationId":"conv-learned-after-launch"}`)
+		s.SessionIdentity = "conv-learned-after-launch"
+	})
+	session, err := agent.NewSession(context.Background(), agent.Config{
+		Agent:  protocol.Austin,
+		Dir:    t.TempDir(),
+		Plugin: stub.Caller(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
+	if err := session.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer session.Stop()
+
+	manager := agent.NewManager()
+	manager.Add(session)
+	r := &runtime{
+		cfg:         config{agentDrivers: map[protocol.AgentID]string{protocol.Austin: "stub"}},
+		repoID:      "repo-1",
+		sessionID:   "session-1",
+		createdAt:   time.Unix(0, 0).UTC(),
+		state:       project.NewStateFor(project.ModeGoal),
+		set:         workspace.Set{},
+		agents:      manager,
+		driverState: map[protocol.AgentID]sessionstore.DriverState{},
+	}
+
+	// The identity has to be the plugin's, which is what a server-assigned one is.
+	if got := session.SessionID(); got != "conv-learned-after-launch" {
+		t.Fatalf("session identity = %q, want the one the plugin reported", got)
+	}
+	snap := r.composeSnapshot(nil)
+	if got := snap.PiSessions[protocol.Austin]; got != "conv-learned-after-launch" {
+		t.Fatalf("mirror = %q; a v0.9.0 binary would resume nothing", got)
+	}
+}

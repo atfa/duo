@@ -9,6 +9,7 @@
 package agenttest
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"strings"
@@ -34,6 +35,9 @@ type Spec struct {
 	Notices []string
 	// Cleanup lists paths prepare asks Core to clear.
 	Cleanup []string
+	// SessionIdentity is the label prepare reports for this agent's conversation.
+	// It is what Core persists and mirrors, so a test can set a realistic one.
+	SessionIdentity string
 	// Available is what probe reports.
 	Available bool
 	// ProbeReason is why probe says the CLI is unavailable.
@@ -164,7 +168,7 @@ func (d *Driver) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
 		Command:         command,
 		Env:             d.spec.Env,
 		State:           d.spec.State,
-		SessionIdentity: "test-session",
+		SessionIdentity: cmp.Or(d.spec.SessionIdentity, "test-session"),
 		Cleanup:         d.spec.Cleanup,
 		Notices:         d.spec.Notices,
 	}, nil
