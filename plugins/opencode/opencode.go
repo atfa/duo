@@ -39,27 +39,36 @@ const sessionIDPrefix = "ses_"
 // state is the plugin's private resume blob. Core stores it verbatim and never
 // reads it.
 type state struct {
-	SessionID string `json:"sessionId"`
+	// SessionID is omitted when there is none, so a plugin with nothing to report
+	// never hands Core a blob that looks like an answer and erases a good id.
+	SessionID string `json:"sessionId,omitempty"`
 	// SessionFile is where the Agent Adapter reports the id opencode assigned. It
 	// is a file rather than a message because the extension runs inside the agent
 	// process and has no other way to reach this one before the session exists.
 	SessionFile string `json:"sessionFile,omitempty"`
 }
 
-// Plugin is the opencode Host Adapter.
 // Plugin is the opencode host adapter. It holds the session identity the Agent
 // Adapter reported, because opencode mints it after launch and prepare has
 // already returned by then.
 type Plugin struct {
 	mu sync.Mutex
 	// learned is the session id opencode assigned, as read from the session file
-	// the Adapter rewrites. Empty until one exists.
+	// the Adapter rewrites. Empty until one exists, and written by nothing else:
+	// only a real discovery may claim this slot.
 	learned string
+	// resolved is the last id prepare settled on, whether it came from learned or
+	// from the stored blob. State reports this, so what Core saves is never less
+	// than what prepare replayed — without it, resuming a session and then saving
+	// would replace a good id with an empty one and fork the next launch.
+	resolved string
 	// file is the session file currently being watched, so a second launch does
 	// not start a second watcher on the same file.
 	file string
 	// watching guards against starting a watcher more than once.
 	watching bool
+	// stop ends the watch on Close.
+	stop context.CancelFunc
 }
 
 // New returns the opencode driver.
@@ -74,7 +83,7 @@ func Register() { driver.Register(Name, func() driver.Handler { return New() }) 
 func (p *Plugin) State() (json.RawMessage, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return json.Marshal(state{SessionID: p.learned, SessionFile: p.file})
+	return json.Marshal(state{SessionID: p.resolved, SessionFile: p.file})
 }
 
 // watch starts reading the session file once, in the background. A resume: server
@@ -84,22 +93,37 @@ func (p *Plugin) watch(sessionFile string) {
 		return
 	}
 	p.mu.Lock()
-	if p.watching || p.file == sessionFile && p.learned != "" {
+	if p.stop != nil {
 		p.mu.Unlock()
 		return
 	}
-	p.watching, p.file = true, sessionFile
+	ctx, cancel := context.WithCancel(context.Background())
+	p.stop, p.watching = cancel, true
 	p.mu.Unlock()
 
 	go func() {
-		id := LearnSessionID(context.Background(), sessionFile)
+		id := LearnSessionID(ctx, sessionFile)
 		if id == "" {
 			return
 		}
 		p.mu.Lock()
-		p.learned = id
-		p.mu.Unlock()
+		defer p.mu.Unlock()
+		// Both slots, because both describe the same id from here on: learned is
+		// what a later prepare prefers, resolved is what State reports until then.
+		p.learned, p.resolved = id, id
 	}()
+}
+
+// Close ends the watch. Without it the always-on poll outlives the session, which
+// is the cost of watching on every launch rather than only the first.
+func (p *Plugin) Close() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.stop != nil {
+		p.stop()
+		p.stop = nil
+	}
+	return nil
 }
 
 func (*Plugin) Describe() (*driver.Manifest, error) {
@@ -217,14 +241,17 @@ func (p *Plugin) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Start reading the session file before Core launches the agent, so the id
-	// exists by the time the next snapshot is written.
+	// The resolved id is recorded whatever it came from, so State reports at least
+	// what this launch replayed. Recording it in resolved rather than learned is
+	// deliberate: a blob Core sent is replay material, and must never be mistaken
+	// for a discovery on a later stateless prepare.
 	p.mu.Lock()
-	p.file = sessionFile
+	p.file, p.resolved = sessionFile, sessionID
 	p.mu.Unlock()
-	if sessionID == "" {
-		p.watch(sessionFile)
-	}
+	// The session file is always watched, not only on a first run. opencode rejects
+	// an id it never issued and mints another, and the only way to learn the id it
+	// actually used is to read it back.
+	p.watch(sessionFile)
 	return &driver.LaunchPlan{
 		Command: strings.Join(parts, " "),
 		Env: map[string]string{

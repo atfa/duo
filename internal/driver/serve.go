@@ -112,7 +112,7 @@ func handle(h Handler, req *Request) *Response {
 			}
 			resp.Result = raw
 		}
-	case errors.Is(err, errNotImplemented):
+	case errors.Is(err, errNotImplemented), errors.Is(err, ErrUnsupported):
 		resp.Error = &RPCError{Code: CodeUnsupported, Message: err.Error()}
 	default:
 		var rpcErr *RPCError

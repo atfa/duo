@@ -178,18 +178,28 @@ func (s *Session) Capabilities() driver.Capabilities {
 // because State() is already the process state, which is Core's and unrelated.
 //
 // The value is read live rather than taken from the launch plan, because a driver
-// with resume: server learns its identity after prepare has already run. A failed
-// read falls back to the blob from the last successful prepare: a blob that is one
-// launch stale resumes, and a blob that is empty does not.
+// with resume: server learns its identity after prepare has already run. Only such a
+// driver is asked: a client driver mints its identity up front and has already put
+// it in the plan.
+//
+// A blank answer falls back to the blob from the last successful prepare. "Blank"
+// means null, an empty string, an empty object or an empty array — the shapes a
+// plugin produces when it has nothing to say, and the shapes a plugin process
+// produces when it has just been respawned and has not run prepare since. Core does
+// not try to interpret a blob any further than that: deciding whether some other
+// object is meaningful would mean reading a plugin's private schema, which is the
+// one thing this protocol exists to prevent. A plugin that has nothing new must
+// omit the field rather than send a placeholder.
 func (s *Session) DriverState() json.RawMessage {
 	s.mu.RLock()
 	cached, launched := s.plan, s.plan != nil
+	asks := s.manifest != nil && s.manifest.Capabilities.Resume == driver.ResumeServer
 	s.mu.RUnlock()
 
-	if launched && s.cfg.Plugin != nil {
+	if launched && asks && s.cfg.Plugin != nil {
 		// The lock is deliberately not held: this crosses a process boundary and
 		// would otherwise block every reader for the length of a plugin call.
-		if state, err := s.cfg.Plugin.State(context.Background()); err == nil && len(state) > 0 {
+		if state, err := s.cfg.Plugin.State(context.Background()); err == nil && !blankState(state) {
 			return state
 		}
 	}
@@ -200,6 +210,19 @@ func (s *Session) DriverState() json.RawMessage {
 		return s.cfg.PluginState
 	}
 	return cached.State
+}
+
+// blankState reports a resume blob that carries nothing worth saving. The four
+// shapes are the only ones judged: null is what a plugin process answers with when
+// it has no state at all, which after a crash and a lazy respawn is every save
+// until the replacement process has run a prepare of its own.
+func blankState(raw json.RawMessage) bool {
+	switch s := strings.TrimSpace(string(raw)); s {
+	case "", "null", `""`, "{}", "[]":
+		return true
+	default:
+		return false
+	}
 }
 
 // SessionID is the label the plugin reported for this agent's conversation. It goes

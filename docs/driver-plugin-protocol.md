@@ -344,31 +344,43 @@ new conversation while every other check still passes.
 
 Core calls `state` when it writes a snapshot, which is the only moment a value
 learned mid-session can still reach the disk. Keep the answer in memory on the
-plugin — remember what your Agent Adapter reported — and return it. Return the same
-blob `prepare` returned if you have learned nothing new; returning an empty blob is
-treated as "keep what you already had", not as an error. A `state` call that fails
-or is unimplemented falls back to the last blob `prepare` returned, so a plugin that
-crashes mid-call cannot cost the user the identity they already had.
+plugin — remember what your Agent Adapter reported — and return it. Report at least
+what your last `prepare` resolved, so a save can never report less than the launch
+you just performed.
+
+Omit the fields you have nothing for rather than sending placeholders. Core treats a
+blob that is null, an empty string, an empty object or an empty array as "keep what
+you already had", so a blank answer is free; a blob like `{"sessionId":""}` is not,
+and it will replace a good identity with an empty one. Core does not look inside
+your object to decide whether it is meaningful — reading your schema is the one
+thing this protocol exists to prevent. A `state` call that fails or is unimplemented
+falls back the same way, so a plugin that crashes mid-call cannot cost the user the
+identity they already had.
 
 Declare `state` only when you need it. Core never calls it on a `client` or `none`
 driver, and the contract suite checks the opposite direction: a driver that declares
 `resume: server` and does not answer `state` fails.
 
-### One process, one session
+### One process, one session — until it is replaced
 
-Core resolves a driver once per agent per session and gives you a process that
-lives for exactly that session. Two consequences worth designing around:
+Core resolves a driver once per agent per session. That process normally lives as
+long as the session does, but it is **not** guaranteed to: if it dies, Core reports
+the crash once and starts a replacement on the next call. A `state` call is such a
+call, so the process answering it may be a replacement that has never run
+`prepare`.
 
-- **You may keep state in memory between calls.** A learned identity does not have
-  to survive a restart of your own process, because your process does not restart
-  while the session runs.
-- **A stateless `prepare` is a legitimate answer.** If nothing has been learned
-  yet, returning what Core sent you is correct — but never *record* it as something
-  you learned, or a later `prepare` in the same session would treat your own
-  replay material as a discovery.
+Two consequences:
 
-Do not build a plugin that expects to outlive one session, or that assumes a `state`
-call can arrive before the first `prepare`.
+- **You may keep state in memory between calls, but expect to lose it.** Memory
+  survives a restart of the agent, not of your process. Whatever you would need
+  after a crash has to be recoverable from somewhere the replacement can reach.
+- **A blank answer is the correct answer before your first `prepare`.** A
+  replacement process has nothing, and saying so is honest. Core reads a blank
+  answer as "keep the blob you already had", so answering blank never costs you
+  anything — whereas inventing a placeholder is how a resumed session gets erased.
+
+Do not assume a `state` call arrives after a `prepare` of your own, and do not
+assume your process is the one Core first started.
 
 **Compatibility requirement.** A session written by Duo 0.9.0 migrates to
 `{"sessionId":"…"}` under the one word every driver shares, because Core does not

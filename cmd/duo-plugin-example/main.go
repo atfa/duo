@@ -26,7 +26,7 @@ import (
 // never reads it, which is what lets a new driver add resume support without a
 // change to Duo's session schema.
 type state struct {
-	SessionID string `json:"sessionId"`
+	SessionID string `json:"sessionId,omitempty"`
 }
 
 type plugin struct{}
@@ -142,7 +142,7 @@ func (plugin) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
 // answer as "keep what you had", so an empty blob is a no-op and not an error.
 func (plugin) State() (json.RawMessage, error) {
 	var current struct {
-		SessionID string `json:"sessionId"`
+		SessionID string `json:"sessionId,omitempty"`
 	}
 	// A real driver returns the identity it has learned since prepare.
 	return json.Marshal(current)

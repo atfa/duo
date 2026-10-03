@@ -84,6 +84,47 @@ func TestLearnedSessionSurvivesToDisk(t *testing.T) {
 	}
 }
 
+// TestResumedIDSurvivesStateWithoutAnyLearn is the regression test for losing a
+// resumed session at the first save. Nothing is learned here: the id came from the
+// blob, exactly as it does on `duo --resume`. State must still report it, because
+// Core saves what State says and a save that reported nothing would drop the id and
+// fork the launch after next.
+func TestResumedIDSurvivesStateWithoutAnyLearn(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "opencode.session")
+	p := &Plugin{}
+
+	seed, err := json.Marshal(state{SessionFile: file})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := prepareFor(t, p, driver.AgentID("austin"), string(seed))
+	if !strings.Contains(plan.Command, "ses_resumed") && strings.Contains(plan.Command, "--session") {
+		t.Fatalf("unexpected: %q", plan.Command)
+	}
+
+	// Now the real case: a blob carrying an id, on a process that has learned
+	// nothing, must still be reported by State.
+	resumed, err := json.Marshal(state{SessionID: "ses_resumed", SessionFile: file})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p2 := &Plugin{}
+	prepareFor(t, p2, driver.AgentID("austin"), string(resumed))
+
+	raw, err := p2.State()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "ses_resumed") {
+		t.Fatalf("State dropped a resumed id that was never re-learned: %s", raw)
+	}
+	// And it must not be mistaken for a discovery: a later stateless prepare still
+	// has no --session.
+	if stateless := prepareFor(t, p2, driver.AgentID("austin"), `{}`); strings.Contains(stateless.Command, "--session") {
+		t.Fatalf("a replayed blob masqueraded as a learn: %q", stateless.Command)
+	}
+}
+
 // TestLearnedWinsOverStaleBlob covers a restart inside one run: the stored blob
 // still describes the conversation from before, and the id opencode actually used
 // is the newer truth.
