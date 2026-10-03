@@ -162,25 +162,6 @@ func TestApplyFoldsAReferenceIntoTheDeclaredFormat(t *testing.T) {
 	}
 }
 
-func TestKnowsMatchesWhatTheDriverPublished(t *testing.T) {
-	catalog := []Model{
-		{Provider: "anthropic", ID: "sonnet"},
-		{ID: "flash", Bare: true},
-	}
-	if !Knows(catalog, "anthropic/sonnet") {
-		t.Error("a published reference should be known")
-	}
-	if !Knows(catalog, "sonnet") {
-		t.Error("a bare id should match a qualified entry")
-	}
-	if Knows(catalog, "gpt-9") {
-		t.Error("a model the driver never published must not be known")
-	}
-	if Knows(catalog, "") {
-		t.Error("an empty reference is not a model anyone asked for")
-	}
-}
-
 func contains(haystack, needle string) bool {
 	return len(haystack) >= len(needle) && (haystack == needle ||
 		len(needle) == 0 || indexOf(haystack, needle) >= 0)

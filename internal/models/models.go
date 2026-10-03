@@ -107,18 +107,3 @@ func Apply(reference, format string) string {
 	}
 	return ref
 }
-
-// Knows reports whether a model the driver published is the one a reference names.
-// An empty reference is not a model anyone asked for, so it matches nothing.
-func Knows(catalog []Model, reference string) bool {
-	want := strings.TrimSpace(reference)
-	if want == "" {
-		return false
-	}
-	for _, m := range catalog {
-		if m.Reference() == want || m.ID == want {
-			return true
-		}
-	}
-	return false
-}

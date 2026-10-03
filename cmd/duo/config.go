@@ -121,6 +121,13 @@ func (c config) resolveDriver(agent protocol.AgentID, manifest *driver.Manifest)
 	// model the agent has never heard of aborts it at startup rather than being
 	// ignored.
 	model = models.Apply(model, manifest.ModelReference)
+	// The other direction: a bare id left behind by a driver that takes bare ones is
+	// just as unusable here, and this one aborts rather than ignoring it. Dropping it
+	// lets the manifest's default stand, or nothing at all if the driver declares
+	// none — which is the same answer the agent would have given on its own.
+	if manifest.ModelReference == driver.ModelQualified && model != "" && !strings.Contains(model, "/") {
+		model = ""
+	}
 	if model == "" {
 		model = models.Default(manifest)
 	}
@@ -421,7 +428,11 @@ func loadConfig(args []string) (config, error) {
 		// still honoured, as the command for the default driver, which is why it
 		// applies only when no driver was named explicitly.
 		baseCmd := agentCfg.Command
-		if baseCmd == "" && !isExplicit {
+		// piCommand is a command for the default driver, so it applies unless a
+		// driver other than the default one was named. Naming the default driver
+		// explicitly is not naming a different one, and must not silently drop an
+		// operator's custom binary.
+		if baseCmd == "" && (!isExplicit || driverType == defaultDriver) {
 			baseCmd = piCommand
 		}
 

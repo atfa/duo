@@ -614,6 +614,61 @@ func TestOpencodeIgnoresBareModelFromAnotherDriver(t *testing.T) {
 	if cfg.agentDriver(protocol.Austin) != "opencode" {
 		t.Fatalf("driver = %q, want opencode", cfg.agentDriver(protocol.Austin))
 	}
+	// The command is no longer where the model travels, so the assertion above could
+	// pass while the launch was broken. What the agent is actually handed is what
+	// resolveDriver produces, and opencode aborts on a bare id.
+	if _, model, _ := cfg.resolveDriver(protocol.Austin, opencodeManifest()); model != "" {
+		t.Fatalf("a bare id reached a driver that requires provider-qualified models: %q", model)
+	}
+	// A driver that declares a default gets that instead of the unusable id.
+	manifest := opencodeManifest()
+	manifest.DefaultModel = "opencode/fallback"
+	if _, model, _ := cfg.resolveDriver(protocol.Austin, manifest); model != "opencode/fallback" {
+		t.Fatalf("model = %q, want the driver's own default", model)
+	}
+}
+
+// TestNamingTheDefaultDriverStillHonoursPiCommand pins the upgrade case: a config
+// that names the default driver, or an environment that exports it, must not
+// silently lose the operator's custom binary. DUO_DRIVER is exported into every
+// agent environment, so a duo launched inside a duo session hits this.
+func TestNamingTheDefaultDriverStillHonoursPiCommand(t *testing.T) {
+	temp := t.TempDir()
+	configJSON := `{"driver": "pi", "piCommand": "pi-custom"}`
+	if err := os.WriteFile(filepath.Join(temp, ".duo.json"), []byte(configJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DUO_REPO", temp)
+	t.Setenv("DUO_DRIVER", "")
+	cfg, err := loadConfig(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.agentCommand(protocol.Austin); got != "pi-custom" {
+		t.Fatalf("naming the default driver dropped piCommand: %q", got)
+	}
+
+	// The same through the environment Duo itself exports.
+	t.Setenv("DUO_DRIVER", "pi")
+	envCfg, err := loadConfig(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := envCfg.agentCommand(protocol.Austin); got != "pi-custom" {
+		t.Fatalf("DUO_DRIVER=pi dropped piCommand: %q", got)
+	}
+}
+
+// TestANonDefaultDriverDoesNotInheritPiCommand is the other half of that rule.
+func TestANonDefaultDriverDoesNotInheritPiCommand(t *testing.T) {
+	cfg := loadConfigFor(t, `{"driver": "opencode", "piCommand": "pi-custom"}`)
+	if got := cfg.agentCommand(protocol.Austin); got != "" {
+		t.Fatalf("opencode inherited the pi command: %q", got)
+	}
+	command, _, _ := cfg.resolveDriver(protocol.Austin, opencodeManifest())
+	if command != "opencode" {
+		t.Fatalf("command = %q, want the driver's own binary", command)
+	}
 }
 
 // TestModelPersistedForAnotherDriverIsDropped covers the launch that failed for a

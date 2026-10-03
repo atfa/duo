@@ -156,6 +156,14 @@ func (c *Client) readLoop(stdout io.Reader) {
 	c.dead()
 }
 
+// forget drops a call that can never be answered, so a client that has died does not
+// accumulate one pending entry per call made after the fact.
+func (c *Client) forget(id int64) {
+	c.pendingMu.Lock()
+	delete(c.pending, id)
+	c.pendingMu.Unlock()
+}
+
 func (c *Client) failPending(cause error) {
 	c.pendingMu.Lock()
 	pending := c.pending
@@ -228,6 +236,7 @@ func (c *Client) Call(ctx context.Context, method string, params, out any) error
 		}
 		return decodeResponse(c.name, method, resp, out)
 	case <-c.done:
+		c.forget(id)
 		return fmt.Errorf("driver plugin %s: %s: %w", c.name, method, ErrCrashed)
 	}
 }
@@ -243,6 +252,12 @@ func decodeResponse(name, method string, resp *Response, out any) error {
 		}
 		if rpcErr.Code == CodeUnsupported || rpcErr.Code == CodeUnknownMethod {
 			return fmt.Errorf("driver plugin %s: %s: %w", name, method, ErrUnsupported)
+		}
+		// The code travels; the sentinel does not. A caller that must tell a slow
+		// method from a broken one can only do it if the deadline survives the round
+		// trip, which is why this wraps rather than only reading well.
+		if rpcErr.Code == CodeTimeout {
+			return fmt.Errorf("driver plugin %s: %s: %s: %w", name, method, rpcErr.Message, context.DeadlineExceeded)
 		}
 		return fmt.Errorf("driver plugin %s: %s: %w", name, method, rpcErr)
 	}

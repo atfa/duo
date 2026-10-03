@@ -69,11 +69,15 @@ const (
 // outcome that a capability check should have prevented and the second must be
 // reported.
 const (
-	CodeUnsupported   = "unsupported"
-	CodeInvalid       = "invalid_request"
-	CodeUnavailable   = "unavailable"
-	CodeInternal      = "internal"
-	CodeProtocol      = "protocol_mismatch"
+	CodeUnsupported = "unsupported"
+	CodeInvalid     = "invalid_request"
+	CodeUnavailable = "unavailable"
+	CodeInternal    = "internal"
+	CodeProtocol    = "protocol_mismatch"
+	// CodeTimeout reports that a method ran out of time rather than failing. It
+	// exists because a timeout and a bug need different responses from a caller:
+	// a Core that retries or reports is right for one and wrong for the other.
+	CodeTimeout       = "timeout"
 	CodeUnknownMethod = "unknown_method"
 )
 

@@ -2,6 +2,8 @@ package driver
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -303,4 +305,59 @@ func hasOptional(r *Report, name string) bool {
 		}
 	}
 	return false
+}
+
+// TestContractLeavesATimedOutListingUnverified pins the difference between a method
+// that is missing and a method that was slow. A plugin whose listing timed out has
+// implemented everything the contract asks for; failing it would send its author to
+// look for a method that is already there.
+//
+// The deadline has to survive the round trip for this to work at all: it leaves the
+// plugin as an error code and reappears as context.DeadlineExceeded on the way back.
+// When it did not, this check failed a plugin for a busy machine.
+func TestContractLeavesATimedOutListingUnverified(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping subprocess contract test in short mode")
+	}
+	bin := buildPlugin(t, "github.com/atfa/duo/internal/driver/testdata/slowmodels", "duo-plugin-slow")
+
+	report := RunContract(context.Background(), bin, t.TempDir())
+	for _, line := range strings.Split(report.Format(), "\n") {
+		if !strings.Contains(line, "capability-models") {
+			continue
+		}
+		if !strings.HasPrefix(strings.TrimSpace(line), "skip") {
+			t.Fatalf("a timed-out listing must be skipped, not failed: %s", line)
+		}
+		return
+	}
+	t.Fatalf("capability-models was never reported; the deadline did not survive the round trip:\n%s", report.Format())
+}
+
+// TestTimeoutCodeSurvivesTheRoundTrip checks the same link directly, without a
+// process, so a regression names itself.
+func TestTimeoutCodeSurvivesTheRoundTrip(t *testing.T) {
+	resp := handle(deadlinePlugin{}, &Request{Protocol: ProtocolVersion, ID: 1, Method: MethodModels})
+	if resp.Error == nil || resp.Error.Code != CodeTimeout {
+		t.Fatalf("a deadline must be served as %s, got %+v", CodeTimeout, resp.Error)
+	}
+	err := decodeResponse("slow", MethodModels, resp, nil)
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("the deadline did not survive the round trip: %v", err)
+	}
+}
+
+// deadlinePlugin is the smallest Handler that answers models with a deadline, which
+// is the error RunModelList produces when a listing runs out of time.
+type deadlinePlugin struct{}
+
+func (deadlinePlugin) Describe() (*Manifest, error) {
+	return &Manifest{Protocol: ProtocolVersion, Name: "slow"}, nil
+}
+func (deadlinePlugin) Probe() (*ProbeResult, error) { return &ProbeResult{Available: true}, nil }
+func (deadlinePlugin) Prepare(LaunchRequest) (*LaunchPlan, error) {
+	return &LaunchPlan{Command: "sh -c 'exit 0'"}, nil
+}
+func (deadlinePlugin) Models() (*ModelList, error) {
+	return nil, fmt.Errorf("did not finish: %w", context.DeadlineExceeded)
 }
