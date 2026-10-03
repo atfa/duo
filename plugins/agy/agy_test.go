@@ -176,7 +176,7 @@ custom-model-fast         Custom Fast Model`
 // TestManifestDeclaresAgyBehaviour pins the capabilities Core branches on. Each one
 // changes a delivery decision, and two of them exist to prevent silent data loss.
 func TestManifestDeclaresAgyBehaviour(t *testing.T) {
-	man, err := New(nil).Describe()
+	man, err := New().Describe()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -207,7 +207,7 @@ func TestManifestDeclaresAgyBehaviour(t *testing.T) {
 // TestManifestIsRejectedIfAgyClaimedSteering keeps the impossible combination out
 // of a manifest: it would look healthy and then drop every prompt.
 func TestPrepareRejectsUnreadableState(t *testing.T) {
-	if _, err := New(nil).Prepare(driver.LaunchRequest{BaseCommand: "agy", State: []byte("{not json")}); err == nil {
+	if _, err := New().Prepare(driver.LaunchRequest{BaseCommand: "agy", State: []byte("{not json")}); err == nil {
 		t.Fatal("a corrupt resume blob must be reported, not treated as a first run")
 	}
 }
@@ -314,7 +314,7 @@ func prepare(t *testing.T, req driver.LaunchRequest) *driver.LaunchPlan {
 	if dir := os.Getenv("GEMINI_APP_DATA_DIR"); dir == "" {
 		t.Setenv("GEMINI_APP_DATA_DIR", t.TempDir())
 	}
-	plan, err := New(nil).Prepare(req)
+	plan, err := New().Prepare(req)
 	if err != nil {
 		t.Fatalf("prepare %+v: %v", req, err)
 	}
@@ -414,7 +414,7 @@ func TestBridgeEraBlobKeepsItsLogFile(t *testing.T) {
 //
 // It is cheap, and it is the minimum the contract suite in M6 will generalise.
 func TestDeclaredCapabilitiesAreImplemented(t *testing.T) {
-	var h driver.Handler = New(nil)
+	var h driver.Handler = New()
 	man, err := h.Describe()
 	if err != nil {
 		t.Fatal(err)
@@ -433,17 +433,18 @@ func TestDeclaredCapabilitiesAreImplemented(t *testing.T) {
 
 // TestClosingTheDriverStopsTheObserver is the test for a leak that is invisible
 // until it matters: an in-process driver has no process exit to stop its background
-// work, so nothing else will. The watcher polls a file forever otherwise.
+// work, so nothing else will. The watcher polls a file forever otherwise, and the
+// bridge connection would outlive the session it belongs to.
 func TestClosingTheDriverStopsTheObserver(t *testing.T) {
 	t.Setenv("GEMINI_APP_DATA_DIR", t.TempDir())
-	p := &Plugin{observe: func(protocol.AgentID, protocol.Message) {}}
+	p := &Plugin{sink: newBridgeSink(protocol.Austin, "session", "token", "127.0.0.1", "1")}
 
 	dir := t.TempDir()
 	transcript := filepath.Join(dir, "transcript.jsonl")
 	if err := os.WriteFile(transcript, []byte("{}\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	p.watcher = NewAgyWatcher("Austin", transcript, protocolFuncSink(p.observe))
+	p.watcher = NewAgyWatcher("Austin", transcript, FuncActivitySink(func(protocol.AgentID, protocol.Message) {}))
 	p.watcher.Start(context.Background())
 	if p.watcher == nil {
 		t.Fatal("no observer was started")
@@ -452,5 +453,8 @@ func TestClosingTheDriverStopsTheObserver(t *testing.T) {
 	p.Close()
 	if p.watcher != nil {
 		t.Error("Close left the observer running")
+	}
+	if p.sink != nil {
+		t.Error("Close left the bridge endpoint open")
 	}
 }

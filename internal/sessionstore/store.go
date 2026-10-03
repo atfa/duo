@@ -110,6 +110,10 @@ func (s *Store) Load() (Snapshot, error) {
 	if strings.TrimSpace(snap.SessionID) == "" {
 		return Snapshot{}, fmt.Errorf("session state %s is missing sessionId", s.StatePath())
 	}
+	// DriverStates is authoritative from here on: a snapshot written before the
+	// field existed is migrated in memory so every reader sees it, whatever
+	// order the fields appear in the file.
+	snap.DriverStates = snap.MigratedDriverStates()
 	return snap, nil
 }
 

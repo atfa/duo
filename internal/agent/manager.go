@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -133,22 +132,6 @@ func (m *Manager) CapabilitiesFor(agent protocol.AgentID) driver.Capabilities {
 		return d.Capabilities()
 	}
 	return driver.Capabilities{}
-}
-
-// DriverStates returns every agent's opaque driver state, for the durable snapshot.
-func (m *Manager) DriverStates() map[protocol.AgentID]json.RawMessage {
-	out := make(map[protocol.AgentID]json.RawMessage, len(m.drivers))
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	for agent, d := range m.drivers {
-		if d == nil {
-			continue
-		}
-		if state := d.DriverState(); len(state) > 0 {
-			out[agent] = state
-		}
-	}
-	return out
 }
 
 // CloseAll releases every driver plugin. A plugin may own background work — a

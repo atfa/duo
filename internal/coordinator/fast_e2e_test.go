@@ -487,6 +487,3 @@ func TestFastModeEscalateViaComposer(t *testing.T) {
 		t.Fatal("expected error when attempting to switch from Goal to Fast")
 	}
 }
-
-
-

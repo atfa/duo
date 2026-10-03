@@ -105,7 +105,7 @@ func runPluginTest(ctx context.Context, args []string) error {
 	if all {
 		// Registration is idempotent, so listing and testing see the same table the
 		// session uses.
-		registerDrivers(nil)
+		registerDrivers()
 		reports = driver.DiscoverAndRun(ctx, work)
 	}
 	for _, path := range paths {
@@ -167,7 +167,7 @@ func verdict(report driver.Report) string {
 // printPlugins lists every driver Duo can see, with the executable that will
 // actually run for it.
 func printPlugins() {
-	registerDrivers(nil)
+	registerDrivers()
 	entries := driver.Discover()
 	if len(entries) == 0 {
 		fmt.Println("No driver plugins found.")

@@ -387,4 +387,3 @@ func TestStateEscalateToGoal(t *testing.T) {
 		t.Fatalf("expected ErrProjectDone, got %v", err)
 	}
 }
-

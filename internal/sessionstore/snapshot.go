@@ -109,6 +109,13 @@ type Snapshot struct {
 	Worktrees  map[protocol.AgentID]Worktree `json:"worktrees"`
 	PiSessions map[protocol.AgentID]string   `json:"piSessions"`
 
+	// DriverStates is the authoritative per-agent driver identity and resume
+	// blob. It is absent in snapshots written by v0.9.x; Load migrates those
+	// from AgentDrivers and PiSessions (see MigratedDriverStates). PiSessions
+	// above is kept written for one release as a downgrade mirror so a v0.9.0
+	// binary can still resume instead of minting fresh identities.
+	DriverStates map[protocol.AgentID]DriverState `json:"driverStates,omitempty"`
+
 	Integration Integration `json:"integration"`
 	Delivery    Delivery    `json:"delivery"`
 

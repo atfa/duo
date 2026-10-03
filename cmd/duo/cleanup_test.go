@@ -14,10 +14,10 @@ import (
 
 func TestParseSessionsArgs(t *testing.T) {
 	cases := []struct {
-		args    []string
-		wantAll bool
+		args     []string
+		wantAll  bool
 		wantRepo string
-		wantErr bool
+		wantErr  bool
 	}{
 		{args: []string{}, wantAll: false, wantRepo: ""},
 		{args: []string{"--all"}, wantAll: true, wantRepo: ""},

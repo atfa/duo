@@ -18,7 +18,7 @@ jobs:
           go-version: stable
       - run: go test ./...
       - run: go vet ./...
-      - run: CGO_ENABLED=0 go build ./cmd/duo ./cmd/duo-pi ./cmd/duo-agy ./cmd/duo-opencode ./cmd/duo-plugin-pi ./cmd/duo-plugin-opencode ./cmd/duo-plugin-example
+      - run: CGO_ENABLED=0 go build ./cmd/duo ./cmd/duo-pi ./cmd/duo-agy ./cmd/duo-opencode ./cmd/duo-plugin-pi ./cmd/duo-plugin-agy ./cmd/duo-plugin-opencode ./cmd/duo-plugin-example
 
   build:
     needs: test
@@ -43,6 +43,7 @@ jobs:
           CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" go build -trimpath -ldflags="-s -w" -o dist/package/duo-agy ./cmd/duo-agy
           CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" go build -trimpath -ldflags="-s -w" -o dist/package/duo-opencode ./cmd/duo-opencode
           CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" go build -trimpath -ldflags="-s -w" -o dist/package/duo-plugin-pi ./cmd/duo-plugin-pi
+          CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" go build -trimpath -ldflags="-s -w" -o dist/package/duo-plugin-agy ./cmd/duo-plugin-agy
           CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" go build -trimpath -ldflags="-s -w" -o dist/package/duo-plugin-opencode ./cmd/duo-plugin-opencode
           CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" go build -trimpath -ldflags="-s -w" -o dist/package/duo-plugin-example ./cmd/duo-plugin-example
           cp -R pi-extension dist/package/pi-extension

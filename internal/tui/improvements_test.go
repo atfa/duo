@@ -356,4 +356,3 @@ func TestDetailViewToggleWithCtrlO(t *testing.T) {
 		t.Fatalf("view after second ctrl-o = %v, want viewMain", a.view)
 	}
 }
-

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -655,7 +656,8 @@ func TestModelPersistedForAnotherDriverIsDropped(t *testing.T) {
 //
 // Core cannot round-trip this itself — it does not know the blob's shape — so the
 // test asserts equality rather than meaning. A driver that stores a conversation id
-// and a driver that stores nothing at all are both correct here.
+// and a driver that stores nothing at all are both correct here. The blob lives in
+// DriverStates only: PiSessions is the bare downgrade mirror a v0.9.0 binary reads.
 func TestComposeSnapshotCarriesDriverStateVerbatim(t *testing.T) {
 	agyBlob := `{"conversationId":"conv-1","logFile":"/tmp/duo-agy-austin.log"}`
 	piBlob := `{"sessionId":"0f2b7c1e-1111-4222-8333-444455556666"}`
@@ -667,18 +669,30 @@ func TestComposeSnapshotCarriesDriverStateVerbatim(t *testing.T) {
 		createdAt: time.Unix(0, 0).UTC(),
 		state:     project.NewStateFor(project.ModeGoal),
 		set:       workspace.Set{},
-		driverState: map[protocol.AgentID]string{
-			protocol.Austin: agyBlob,
-			protocol.Tony:   piBlob,
+		driverState: map[protocol.AgentID]sessionstore.DriverState{
+			protocol.Austin: {Driver: "agy", State: json.RawMessage(agyBlob)},
+			protocol.Tony:   {Driver: "pi", State: json.RawMessage(piBlob)},
+		},
+		piSessions: map[protocol.AgentID]string{
+			protocol.Austin: "conv-1",
+			protocol.Tony:   "0f2b7c1e-1111-4222-8333-444455556666",
 		},
 	}
 
 	snap := r.composeSnapshot(nil)
-	if got := snap.PiSessions[protocol.Austin]; got != agyBlob {
-		t.Errorf("Austin state = %q, want %q", got, agyBlob)
+	if got := snap.DriverStates[protocol.Austin]; got.Driver != "agy" || string(got.State) != agyBlob {
+		t.Errorf("Austin state = %+v, want driver agy and the blob verbatim", got)
 	}
-	if got := snap.PiSessions[protocol.Tony]; got != piBlob {
-		t.Errorf("Tony state = %q, want %q", got, piBlob)
+	if got := snap.DriverStates[protocol.Tony]; got.Driver != "pi" || string(got.State) != piBlob {
+		t.Errorf("Tony state = %+v, want driver pi and the blob verbatim", got)
+	}
+	// The mirror stays bare: a `{`-prefixed value here would be read by a v0.9.0
+	// binary as an identity string and resume nothing.
+	if got := snap.PiSessions[protocol.Austin]; got != "conv-1" {
+		t.Errorf("Austin mirror = %q, want the bare identity", got)
+	}
+	if got := snap.PiSessions[protocol.Tony]; got != "0f2b7c1e-1111-4222-8333-444455556666" {
+		t.Errorf("Tony mirror = %q, want the bare identity", got)
 	}
 	if snap.AgentDrivers[protocol.Austin] != "agy" || snap.AgentDrivers[protocol.Tony] != "pi" {
 		t.Errorf("drivers = %v, want each agent's plugin recorded", snap.AgentDrivers)
@@ -687,7 +701,8 @@ func TestComposeSnapshotCarriesDriverStateVerbatim(t *testing.T) {
 
 // TestComposeSnapshotPrefersTheLiveDriverState covers a restart: the state a plugin
 // returned for the run that just happened must win over what was loaded, or a
-// driver that learned its identity would keep replaying the previous one.
+// driver that learned its identity would keep replaying the previous one. The same
+// run refills the downgrade mirror from the identity the driver reports.
 func TestComposeSnapshotPrefersTheLiveDriverState(t *testing.T) {
 	mgr := agent.NewManager()
 	stub := agenttest.New("stub").With(func(spec *agenttest.Spec) {
@@ -718,11 +733,50 @@ func TestComposeSnapshotPrefersTheLiveDriverState(t *testing.T) {
 		state:     project.NewStateFor(project.ModeGoal),
 		set:       workspace.Set{},
 		agents:    mgr,
-		driverState: map[protocol.AgentID]string{
-			protocol.Austin: `{"sessionId":""}`,
+		driverState: map[protocol.AgentID]sessionstore.DriverState{
+			protocol.Austin: {Driver: "stub", State: json.RawMessage(`{"sessionId":""}`)},
+		},
+		piSessions: map[protocol.AgentID]string{},
+	}
+	snap := r.composeSnapshot(nil)
+	if got := snap.DriverStates[protocol.Austin]; string(got.State) != `{"sessionId":"learned"}` || got.Driver != "stub" {
+		t.Errorf("snapshot state = %+v, want what the driver learned this run", got)
+	}
+	// The stub reports "test-session" as its identity; the mirror must carry that
+	// bare value, never the blob.
+	if got := snap.PiSessions[protocol.Austin]; got != "test-session" {
+		t.Errorf("mirror = %q, want the driver's reported identity", got)
+	}
+}
+
+// TestDriverSeedsKeepsBlobsAndBareIdentitiesApart pins the resume wiring: the
+// authoritative blobs come from DriverStates, and only bare values enter the
+// downgrade mirror. An M1-era blob sitting in PiSessions must not become a
+// "v0.9.0 identity" — it is skipped until the driver reports one live.
+func TestDriverSeedsKeepsBlobsAndBareIdentitiesApart(t *testing.T) {
+	snap := sessionstore.Snapshot{
+		DriverStates: map[protocol.AgentID]sessionstore.DriverState{
+			protocol.Austin: {Driver: "agy", State: json.RawMessage(`{"conversationId":"conv-1"}`)},
+			protocol.Tony:   {Driver: "pi", State: json.RawMessage(`{"sessionId":"pi-id"}`)},
+		},
+		PiSessions: map[protocol.AgentID]string{
+			protocol.Austin: "conv-1",
+			protocol.Tony:   `{"sessionId":"blob-era"}`,
 		},
 	}
-	if got := r.composeSnapshot(nil).PiSessions[protocol.Austin]; got != `{"sessionId":"learned"}` {
-		t.Errorf("snapshot state = %q, want what the driver learned this run", got)
+
+	driverState, piSessions := driverSeeds(snap)
+
+	if got := driverState[protocol.Austin]; got.Driver != "agy" || string(got.State) != `{"conversationId":"conv-1"}` {
+		t.Errorf("Austin blob = %+v, want the stored driver state", got)
+	}
+	if got := driverState[protocol.Tony]; got.Driver != "pi" || string(got.State) != `{"sessionId":"pi-id"}` {
+		t.Errorf("Tony blob = %+v, want the stored driver state", got)
+	}
+	if got := piSessions[protocol.Austin]; got != "conv-1" {
+		t.Errorf("Austin mirror = %q, want the bare identity", got)
+	}
+	if _, ok := piSessions[protocol.Tony]; ok {
+		t.Errorf("Tony mirror must skip the blob: %q", piSessions[protocol.Tony])
 	}
 }
