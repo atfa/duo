@@ -26,13 +26,6 @@ func (a *App) commandForTarget() string {
 	return ""
 }
 
-// needsRestartForModel reports whether a driver picks up a new model only at
-// launch. Pi has a live bridge and switches in place; the CLI-only drivers take
-// the model as a startup flag, so changing it means restarting the agent.
-func needsRestartForModel(driverType string) bool {
-	return driverType != "pi"
-}
-
 func (a *App) driverType(agent protocol.AgentID) string {
 	if a.agents != nil {
 		return a.agents.DriverTypeFor(agent)
@@ -42,7 +35,9 @@ func (a *App) driverType(agent protocol.AgentID) string {
 
 func (a *App) modelForAgent(agent protocol.AgentID) string {
 	if m := a.currentModel[agent]; m != "" {
-		if a.driverType(agent) == "agy" && strings.Contains(m, "/") {
+		// A bare-reference driver only ever displays its own id, so a qualified
+		// value (a stale config entry, say) is shortened to what it accepts.
+		if a.agents.ManifestFor(agent).Bare() && strings.Contains(m, "/") {
 			m = m[strings.LastIndex(m, "/")+1:]
 		}
 		return m
@@ -50,7 +45,7 @@ func (a *App) modelForAgent(agent protocol.AgentID) string {
 	if a.agents != nil {
 		if d, ok := a.agents.Driver(agent); ok {
 			if m := d.Model(); m != "" {
-				if d.DriverType() == "agy" && strings.Contains(m, "/") {
+				if d.Manifest().Bare() && strings.Contains(m, "/") {
 					m = m[strings.LastIndex(m, "/")+1:]
 				}
 				return m
@@ -253,10 +248,11 @@ func (a *App) applySelectedModel(ctx context.Context, keepOpen bool) {
 			// only accepts provider/model and aborts on a bare id. agy strips any
 			// provider prefix itself, and pi takes the model over the bridge.
 			d.SetModel(model.Reference())
-			if needsRestartForModel(d.DriverType()) {
-				// The model only reaches a non-pi agent as a startup flag, and
-				// RestartRunning stops before it starts, so a failure here leaves
-				// the agent dead. Report it instead of claiming the new model.
+			if !d.Capabilities().LiveModelSwitch {
+				// Without a live switch the model only reaches the agent as a
+				// startup flag, and RestartRunning stops before it starts, so a
+				// failure here leaves the agent dead. Report it instead of
+				// claiming the new model.
 				if err := d.RestartRunning(ctx); err != nil {
 					a.setStatus(fmt.Sprintf("%s model → %s failed: %v", a.modelTarget, model.Reference(), err), true)
 					if !keepOpen {

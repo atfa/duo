@@ -106,8 +106,13 @@ func TestBridgeSinkOwnsASingleRegisteredEndpoint(t *testing.T) {
 	}
 
 	// Releasing must actually unregister, or the agent stays "connected" forever.
+	// The handler's disconnect record lands asynchronously after the server drops
+	// the client, so wait for both or a loaded machine snapshots in between.
 	sink.Close()
-	waitFor(t, "the endpoint to release", func() bool { return !s.IsConnected(protocol.Austin) })
+	waitFor(t, "the endpoint to release", func() bool {
+		_, disconnects, _ := h.snapshot()
+		return !s.IsConnected(protocol.Austin) && disconnects >= 1
+	})
 	connects, disconnects, _ = h.snapshot()
 	if connects != 1 || disconnects != 1 {
 		t.Errorf("connects/disconnects = %d/%d, want 1/1", connects, disconnects)

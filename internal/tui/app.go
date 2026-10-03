@@ -298,11 +298,11 @@ func (a *App) applyAction(ctx context.Context, action inputAction) bool {
 			if a.agents != nil {
 				if d, ok := a.agents.Driver(a.modelTarget); ok {
 					d.SetEffort(thinking)
-					if needsRestartForModel(d.DriverType()) {
-						// The effort only reaches a non-pi agent as a startup flag,
-						// and RestartRunning stops before it starts, so a failure
-						// here leaves the agent dead. Report it rather than
-						// claiming the new level took effect.
+					if !d.Capabilities().LiveThinkingSwitch {
+						// Without a live switch the effort only reaches the agent as
+						// a startup flag, and RestartRunning stops before it starts,
+						// so a failure here leaves the agent dead. Report it rather
+						// than claiming the new level took effect.
 						if err := d.RestartRunning(ctx); err != nil {
 							// Report the failure and skip the success line;
 							// returning true here would quit the TUI. The level

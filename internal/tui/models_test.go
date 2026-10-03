@@ -149,18 +149,30 @@ type modelRecordingDriver struct {
 	agent.Driver
 	agentID    protocol.AgentID
 	driverType string
-	model      string
-	restarts   int
+	// reference overrides the declared model reference; empty means qualified.
+	reference string
+	// liveModelSwitch declares that a running session picks the model up over
+	// the bridge, so applying one needs no restart.
+	liveModelSwitch bool
+	model           string
+	restarts        int
 }
 
 func (d *modelRecordingDriver) Agent() protocol.AgentID { return d.agentID }
 func (d *modelRecordingDriver) DriverType() string      { return d.driverType }
 func (d *modelRecordingDriver) Manifest() *driver.Manifest {
+	ref := d.reference
+	if ref == "" {
+		ref = driver.ModelQualified
+	}
 	return &driver.Manifest{
 		Protocol:       driver.ProtocolVersion,
 		Name:           d.driverType,
-		ModelReference: driver.ModelQualified,
-		Capabilities:   driver.Capabilities{Resume: driver.ResumeServer, Bridge: driver.BridgeAgent, PTYFallback: true},
+		ModelReference: ref,
+		Capabilities: driver.Capabilities{
+			Resume: driver.ResumeServer, Bridge: driver.BridgeAgent,
+			PTYFallback: true, LiveModelSwitch: d.liveModelSwitch,
+		},
 	}
 }
 func (d *modelRecordingDriver) Capabilities() driver.Capabilities  { return d.Manifest().Capabilities }
@@ -209,6 +221,33 @@ func TestRouteModelEventUpdatesPickerStateWithoutPaneNoise(t *testing.T) {
 	}
 	if len(a.duo)+len(a.austin)+len(a.tony) != 0 {
 		t.Fatalf("model/thinking reports should not add pane entries")
+	}
+}
+
+// The declared model reference decides how Core joins and displays a model,
+// never the driver's name: a driver calling itself "pi" but declaring bare
+// references gets bare treatment, and one calling itself "agy" while declaring
+// qualified gets joined. This is the name-guessing the whole refactor removes.
+func TestModelReferenceFollowsTheManifestNotTheName(t *testing.T) {
+	mgr := agent.NewManager()
+	mgr.Add(&modelRecordingDriver{agentID: protocol.Tony, driverType: "pi", reference: driver.ModelBare})
+	a := &App{agents: mgr}
+
+	a.route(events.Event{Kind: events.KindModel, Agent: protocol.Tony, Provider: "cline", Model: "x/y"})
+	if got := a.currentModel[protocol.Tony]; got != "x/y" {
+		t.Fatalf("bare-declared driver joined the reference: %q, want x/y", got)
+	}
+	a.currentModel[protocol.Tony] = "cline/model-x"
+	if got := a.modelForAgent(protocol.Tony); got != "model-x" {
+		t.Fatalf("modelForAgent = %q, want the bare id model-x", got)
+	}
+
+	mgr2 := agent.NewManager()
+	mgr2.Add(&modelRecordingDriver{agentID: protocol.Austin, driverType: "agy", reference: driver.ModelQualified})
+	b := &App{agents: mgr2}
+	b.route(events.Event{Kind: events.KindModel, Agent: protocol.Austin, Provider: "cline", Model: "x/y"})
+	if got := b.currentModel[protocol.Austin]; got != "cline/x/y" {
+		t.Fatalf("qualified-declared driver left the reference unjoined: %q", got)
 	}
 }
 

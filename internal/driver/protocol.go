@@ -191,6 +191,13 @@ type Manifest struct {
 	Notices []string `json:"notices,omitempty"`
 }
 
+// Bare reports whether this driver's model references carry no provider prefix.
+// A nil manifest is not bare: a driver Duo knows nothing about is joined and
+// displayed the way every reference was treated before manifests existed.
+func (m *Manifest) Bare() bool {
+	return m != nil && m.ModelReference == ModelBare
+}
+
 // ProbeResult reports whether the underlying agent CLI can be used right now.
 type ProbeResult struct {
 	Available    bool   `json:"available"`
