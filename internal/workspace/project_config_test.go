@@ -106,14 +106,18 @@ func TestSaveProjectConfig(t *testing.T) {
 	if parsed.Driver != "" {
 		t.Fatalf("expected top-level driver to be empty when per-agent drivers are set, got %s", parsed.Driver)
 	}
-	if parsed.Agents["austin"].Model != "gemini-3.8-flash-high" {
-		t.Fatalf("expected austin model gemini-3.8-flash-high, got %s", parsed.Agents["austin"].Model)
+	// The model is stored as it was chosen. This used to be rewritten here for one
+	// driver by name, which meant saving a model required knowing which driver it
+	// belonged to; folding a reference into the form a driver takes now happens when
+	// that driver is resolved, from the format it declares.
+	if parsed.Agents["austin"].Model != "google/gemini-3.8-flash-high" {
+		t.Fatalf("expected austin model to be stored verbatim, got %s", parsed.Agents["austin"].Model)
 	}
 	if parsed.Agents["tony"].Driver != "agy" {
 		t.Fatalf("expected tony driver agy, got %s", parsed.Agents["tony"].Driver)
 	}
 
-	// When per-agent drivers are not specified, top-level driver is kept and models are sanitized
+	// When per-agent drivers are not specified, the top-level driver is kept
 	tempDir2 := t.TempDir()
 	if err := SaveProjectConfig(tempDir2, "agy", nil, map[protocol.AgentID]string{protocol.Austin: "google/gemini-3.8-flash-high"}); err != nil {
 		t.Fatalf("SaveProjectConfig failed: %v", err)
@@ -129,8 +133,8 @@ func TestSaveProjectConfig(t *testing.T) {
 	if parsed2.Driver != "agy" {
 		t.Fatalf("expected driver agy, got %s", parsed2.Driver)
 	}
-	if parsed2.Agents["austin"].Model != "gemini-3.8-flash-high" {
-		t.Fatalf("expected austin model gemini-3.8-flash-high, got %s", parsed2.Agents["austin"].Model)
+	if parsed2.Agents["austin"].Model != "google/gemini-3.8-flash-high" {
+		t.Fatalf("expected austin model to be stored verbatim, got %s", parsed2.Agents["austin"].Model)
 	}
 }
 

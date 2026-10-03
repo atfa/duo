@@ -44,6 +44,15 @@ type Client struct {
 	pending   map[int64]chan *Response
 
 	done chan struct{}
+	// died guards closing done, which both the process waiter and the read loop can
+	// reach: a plugin that exits and a pipe that reaches EOF are the same event
+	// observed twice.
+	died sync.Once
+}
+
+// dead records that this plugin can no longer answer, once.
+func (c *Client) dead() {
+	c.died.Do(func() { close(c.done) })
 }
 
 // Start launches the plugin executable and begins reading its replies. The
@@ -95,7 +104,7 @@ func start(ctx context.Context, name, path string, args []string, env []string, 
 		c.waitErr = err
 		c.mu.Unlock()
 		c.failPending(ErrCrashed)
-		close(c.done)
+		c.dead()
 	}()
 	return c, nil
 }
@@ -138,8 +147,13 @@ func (c *Client) readLoop(stdout io.Reader) {
 			ch <- &resp
 		}
 	}
-	// EOF with no more replies: every outstanding call is now unanswerable.
+	// EOF with no more replies: every outstanding call is now unanswerable, and so
+	// is every call that has not been made yet. Recording that matters as much as
+	// failing the pending ones — a plugin that was already gone when a call started
+	// would otherwise find an empty pending map, register into the fresh one, and
+	// wait out the full timeout for a reply that can never come.
 	c.failPending(ErrCrashed)
+	c.dead()
 }
 
 func (c *Client) failPending(cause error) {

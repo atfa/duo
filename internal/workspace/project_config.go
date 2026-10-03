@@ -161,19 +161,10 @@ func SaveProjectConfig(repoRoot string, driver string, agentDrivers map[protocol
 		}
 		entry := cfg.Agents[key]
 		if model != "" {
-			drv := entry.Driver
-			if drv == "" {
-				drv = agentDrivers[id]
-			}
-			if drv == "" {
-				drv = cfg.Driver
-			}
-			if drv == "" {
-				drv = driver
-			}
-			if drv == "agy" && strings.Contains(model, "/") {
-				model = model[strings.LastIndex(model, "/")+1:]
-			}
+			// The reference is recorded exactly as it was chosen. Whether this
+			// driver takes it bare is answered by the modelReference it declares,
+			// when it is resolved to run — so saving a model here no longer needs to
+			// know which driver it belongs to, and a fourth one needs nothing here.
 			entry.Model = model
 		}
 		cfg.Agents[key] = entry
