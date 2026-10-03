@@ -18,7 +18,7 @@ func TestExitStatusMapsToProcessState(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := NewSession(Config{Agent: protocol.Austin, Dir: t.TempDir(), Command: tt.cmd})
+			s := mustSession(t, "stub", Config{Agent: protocol.Austin, Dir: t.TempDir(), BaseCommand: tt.cmd})
 			if err := s.Start(context.Background()); err != nil {
 				t.Fatal(err)
 			}
@@ -34,7 +34,7 @@ func TestExitStatusMapsToProcessState(t *testing.T) {
 }
 
 func TestStopReportsNormalExit(t *testing.T) {
-	s := NewSession(Config{Agent: protocol.Tony, Dir: t.TempDir(), Command: "sleep 30"})
+	s := mustSession(t, "stub", Config{Agent: protocol.Tony, Dir: t.TempDir(), BaseCommand: "sleep 30"})
 	if err := s.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}

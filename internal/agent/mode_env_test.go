@@ -23,10 +23,10 @@ func TestSessionExportsModeForThePiExtension(t *testing.T) {
 		{"bogus", "goal"},
 	} {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		s := NewSession(Config{
+		s := mustSession(t, "stub", Config{
 			Agent: protocol.Austin, Mode: tc.mode, Dir: t.TempDir(), Host: "127.0.0.1", Port: "1",
 			Session: "session-mode", Token: "token",
-			Command: `printf 'duo-mode=%s\n' "$DUO_MODE"`,
+			BaseCommand: `printf 'duo-mode=%s\n' "$DUO_MODE"`,
 		})
 		if err := s.Start(ctx); err != nil {
 			cancel()

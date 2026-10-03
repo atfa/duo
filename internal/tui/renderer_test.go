@@ -17,14 +17,13 @@ import (
 
 func testApp(w, h int) *App {
 	app := &App{
-		state:      project.NewState(),
-		tracker:    harness.NewTracker(),
-		server:     transport.NewServer("127.0.0.1:0", "session", "token"),
-		agents:     agent.NewManager(),
-		width:      w,
-		height:     h,
-		version:    "v0.4.6",
-		hasSqlite3: agent.HasSqlite3(),
+		state:   project.NewState(),
+		tracker: harness.NewTracker(),
+		server:  transport.NewServer("127.0.0.1:0", "session", "token"),
+		agents:  agent.NewManager(),
+		width:   w,
+		height:  h,
+		version: "v0.4.6",
 	}
 	app.renderer = newRenderer(frameInterval, nil, app.buildFrame)
 	return app

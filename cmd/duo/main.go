@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -11,12 +12,14 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"github.com/atfa/duo/internal/agent"
 	"github.com/atfa/duo/internal/clidoc"
 	"github.com/atfa/duo/internal/coordinator"
+	"github.com/atfa/duo/internal/driver"
 	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/project"
@@ -139,16 +142,62 @@ type runtime struct {
 	journal *sessionstore.EventLog
 	logger  *sessionstore.Logger
 
-	agents      *agent.Manager
-	piSessions  map[protocol.AgentID]string
-	// generatedIDs marks the ids this run invented rather than reused, so a
-	// driver that owns its own identity is not handed one of ours.
-	generatedIDs map[protocol.AgentID]bool
+	agents *agent.Manager
+	// driverState is each agent's opaque, plugin-owned resume blob, stored exactly
+	// as the plugin returned it. Duo Core never parses it: it hands the same bytes
+	// back on the next launch and lets the plugin interpret them.
+	//
+	// It is carried in the snapshot's legacy string map until the per-driver state
+	// field lands; see composeSnapshot.
+	driverState map[protocol.AgentID]string
+
 	integration workspace.IntegrationResult
 	delivery    sessionstore.Delivery
 	tuiHistory  []sessionstore.TUIEntry
 	resume      bool
 	mode        project.Mode
+
+	// notices collects diagnostics a driver reported while preparing a launch, for
+	// drivers that prepare before the interface exists to show them.
+	noticeMu sync.Mutex
+	notices  []string
+}
+
+// collectNotice records a diagnostic a driver reported while preparing a launch.
+//
+// Drivers are built before the interface exists, so a notice produced during a
+// launch is buffered here and handed over as soon as there is somewhere to show it.
+// It is the driver's own words: Duo Core hard-codes no warning about any agent.
+func (r *runtime) collectNotice(notices []string) {
+	r.noticeMu.Lock()
+	r.notices = append(r.notices, notices...)
+	r.noticeMu.Unlock()
+}
+
+func (r *runtime) takeNotices() []string {
+	r.noticeMu.Lock()
+	defer r.noticeMu.Unlock()
+	out := r.notices
+	r.notices = nil
+	return out
+}
+
+// pluginEnv is the environment a driver plugin process gets: exactly the one Duo
+// Core gives an agent. An Agent Adapter therefore has everything it needs to reach
+// Duo's bridge without Core inventing a second channel, and no driver-specific
+// variable is set for a driver that does not own it.
+func pluginEnv(r *runtime, id protocol.AgentID, host, port, token string) []string {
+	return []string{
+		"DUO_ACTIVE=1",
+		"DUO_AGENT=" + string(id),
+		"DUO_MODE=" + r.mode.String(),
+		"DUO_HOST=" + host,
+		"DUO_PORT=" + port,
+		"DUO_SESSION=" + r.sessionID,
+		"DUO_TOKEN=" + token,
+		"DUO_REPOSITORY_ROOT=" + r.set.Repository,
+		"DUO_SCOPE_PATH=" + r.set.ScopePath,
+	}
 }
 
 // composeSnapshot builds the durable snapshot. When coord is nil the
@@ -160,9 +209,9 @@ func (r *runtime) composeSnapshot(coord *coordinator.Coordinator) sessionstore.S
 		integration = coord.CurrentIntegration()
 		deliveryState = coord.CurrentDelivery()
 	}
-	piSessions := make(map[protocol.AgentID]string, len(r.piSessions))
-	for k, v := range r.piSessions {
-		piSessions[k] = v
+	driverState := make(map[protocol.AgentID]string, len(r.driverState))
+	for k, v := range r.driverState {
+		driverState[k] = v
 	}
 	agentDrivers := make(map[protocol.AgentID]string)
 	agentModels := make(map[protocol.AgentID]string)
@@ -175,11 +224,11 @@ func (r *runtime) composeSnapshot(coord *coordinator.Coordinator) sessionstore.S
 		}
 	}
 	if r.agents != nil {
+		for id, state := range r.agents.DriverStates() {
+			driverState[id] = string(state)
+		}
 		for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
 			if d, ok := r.agents.Driver(id); ok {
-				if sid := d.SessionID(); sid != "" {
-					piSessions[id] = sid
-				}
 				if dt := d.DriverType(); dt != "" {
 					agentDrivers[id] = dt
 				}
@@ -206,7 +255,7 @@ func (r *runtime) composeSnapshot(coord *coordinator.Coordinator) sessionstore.S
 		CreatedAt:    r.createdAt,
 		Project:      r.state.Snapshot(),
 		Worktrees:    r.set,
-		PiSessions:   piSessions,
+		PiSessions:   driverState,
 		AgentDrivers: agentDrivers,
 		AgentModels:  agentModels,
 		Integration:  integration,
@@ -249,25 +298,19 @@ func runFresh(ctx context.Context, cfg config, root, scope, repoID, baseDir stri
 	}
 	defer lock.Release()
 
-	piSessions, generatedIDs, err := piSessionIDs(nil)
-	if err != nil {
-		return err
-	}
-
 	r := &runtime{
-		cfg:        cfg,
-		repoID:     repoID,
-		sessionID:  set.Session,
-		createdAt:  time.Now().UTC(),
-		state:      project.NewStateFor(cfg.mode),
-		ws:         ws,
-		set:        set,
-		store:      store,
-		journal:      store.OpenEvents(),
-		logger:       store.OpenLog(),
-		piSessions:   piSessions,
-		generatedIDs: generatedIDs,
-		mode:         cfg.mode,
+		cfg:         cfg,
+		repoID:      repoID,
+		sessionID:   set.Session,
+		createdAt:   time.Now().UTC(),
+		state:       project.NewStateFor(cfg.mode),
+		ws:          ws,
+		set:         set,
+		store:       store,
+		journal:     store.OpenEvents(),
+		logger:      store.OpenLog(),
+		driverState: map[protocol.AgentID]string{},
+		mode:        cfg.mode,
 	}
 	r.logger.Printf("starting Duo %s session %s mode=%s (source=%s) repository=%s scope=%s", version.Version, r.sessionID, r.mode, r.cfg.modeSource, root, set.ScopePath)
 	r.journal.Record("session_start", map[string]any{
@@ -302,6 +345,12 @@ func (r *runtime) serve(ctx context.Context) error {
 	tracker := harness.NewTracker()
 	bus := events.NewBus()
 	coord := coordinator.New(server, r.state, tracker, r.ws, bus)
+
+	// Duo Core's whole knowledge of which coding agents it ships. Each is a Driver
+	// Plugin running in-process until its milestone moves it out.
+	registerDrivers(func(id protocol.AgentID, msg protocol.Message) {
+		coord.RecordActivity(id, msg)
+	})
 	if r.cfg.testCommand != "" {
 		coord.SetTestCommand(r.cfg.testCommand)
 	}
@@ -344,9 +393,11 @@ func (r *runtime) serve(ctx context.Context) error {
 		r.journal.Record(event.Kind, fields)
 		switch event.Kind {
 		case "agent_start":
-			// A driver whose bridge cannot announce itself reports here instead, so
-			// every agent produces the same "connected" signal at the same moment.
-			if d, ok := agents.Driver(event.Agent); ok && !agent.SelfReportsOnLaunch(d.DriverType()) {
+			// A driver whose bridge cannot announce itself is announced here
+			// instead, so every agent produces the same "connected" signal at the
+			// same moment. The answer is the driver's declared capability, not its
+			// name.
+			if d, ok := agents.Driver(event.Agent); ok && !d.Capabilities().SelfReports {
 				bus.Emit(events.Event{Time: time.Now(), Kind: events.KindSystem, Agent: event.Agent, Text: fmt.Sprintf("%s connected", event.Agent)})
 			}
 		case "agent_start_failed", "agent_restart":
@@ -384,81 +435,45 @@ func (r *runtime) serve(ctx context.Context) error {
 		if !ok || wt.Path == "" || !hasDir {
 			return fmt.Errorf("session has no worktree for %s", agentID)
 		}
-		driverType := r.cfg.agentDriver(agentID)
+		driverName := r.cfg.agentDriver(agentID)
 		modelName := r.cfg.agentModel(agentID)
-		var session agent.Driver
-		switch driverType {
-		case "agy":
-			session = agent.NewAgySession(agent.Config{
-				Agent:             agentID,
-				DriverType:        "agy",
-				Mode:              r.mode.String(),
-				Dir:               dir,
-				RepositoryRoot:    r.set.Repository,
-				ScopePath:         r.set.ScopePath,
-				Host:              host,
-				Port:              port,
-				Session:           r.sessionID,
-				Token:             token,
-				Command:           r.cfg.agentCommand(agentID),
-				AgyConversationID: r.driverOwnedID(agentID),
-				Model:             modelName,
-				ActivitySink: agent.FuncActivitySink(func(ag protocol.AgentID, msg protocol.Message) {
-					coord.RecordActivity(ag, msg)
-				}),
-			})
-		case "opencode":
-			session = agent.NewOpencodeSession(agent.Config{
-				Agent:             agentID,
-				DriverType:        "opencode",
-				Mode:              r.mode.String(),
-				Dir:               dir,
-				RepositoryRoot:    r.set.Repository,
-				ScopePath:         r.set.ScopePath,
-				Host:              host,
-				Port:              port,
-				Session:           r.sessionID,
-				Token:             token,
-				Command:           r.cfg.agentCommand(agentID),
-				OpencodeSessionID: r.piSessions[agentID],
-				Model:             modelName,
-			})
-		case "pi", "":
-			session = agent.NewPiSession(agent.Config{
-				Agent:          agentID,
-				DriverType:     "pi",
-				Mode:           r.mode.String(),
-				Dir:            dir,
-				RepositoryRoot: r.set.Repository,
-				ScopePath:      r.set.ScopePath,
-				Host:           host,
-				Port:           port,
-				Session:        r.sessionID,
-				Token:          token,
-				Command:        r.cfg.agentCommand(agentID),
-				PiSessionID:    r.piSessions[agentID],
-				Model:          modelName,
-			})
-		default:
-			pluginPath, ok := agent.LookupPlugin(driverType)
-			if !ok {
-				return fmt.Errorf("unknown driver %q for %s: no built-in driver or plugin (duo-driver-%s / duo-%s) found in ~/.duo/plugins/ or PATH", driverType, agentID, driverType, driverType)
-			}
-			session = agent.NewExternalSession(agent.Config{
-				Agent:          agentID,
-				DriverType:     driverType,
-				Mode:           r.mode.String(),
-				Dir:            dir,
-				RepositoryRoot: r.set.Repository,
-				ScopePath:      r.set.ScopePath,
-				Host:           host,
-				Port:           port,
-				Session:        r.sessionID,
-				Token:          token,
-				Command:        pluginPath,
-				PiSessionID:    r.piSessions[agentID],
-				Model:          modelName,
-			}, pluginPath)
+
+		// One lookup for every agent: a driver Duo ships in-process, or a plugin
+		// executable found on disk. The switch that used to be here is the thing
+		// this whole refactor removes — Core asked nothing of a driver and guessed
+		// from its name instead.
+		plugin, err := driver.Resolve(ctx, driverName, pluginEnv(r, agentID, host, port, token), func(err error) {
+			r.logger.Printf("%s: driver plugin: %v", agentID, err)
+			bus.Emit(events.Event{Time: time.Now(), Kind: events.KindError, Agent: protocol.Duo, Text: fmt.Sprintf("%s driver plugin: %v", agentID, err)})
+		})
+		if err != nil {
+			return fmt.Errorf("%s: %w", agentID, err)
+		}
+		if probe, err := plugin.Probe(ctx); err == nil && !probe.Available {
+			// Not fatal: the agent CLI may be a wrapper that only exists inside the
+			// agent's own worktree, and the failure is reported in context if it
+			// turns out to matter. The reason is always shown.
+			r.logger.Printf("%s: driver %s unavailable: %s", agentID, driverName, probe.Reason)
+		}
+
+		session, err := agent.NewSession(ctx, agent.Config{
+			Agent:          agentID,
+			Mode:           r.mode.String(),
+			Dir:            dir,
+			RepositoryRoot: r.set.Repository,
+			ScopePath:      r.set.ScopePath,
+			Host:           host,
+			Port:           port,
+			Session:        r.sessionID,
+			Token:          token,
+			Plugin:         plugin,
+			PluginState:    json.RawMessage(r.driverState[agentID]),
+			BaseCommand:    r.cfg.agentCommand(agentID),
+			Model:          modelName,
+			Notices:        r.collectNotice,
+		})
+		if err != nil {
+			return err
 		}
 		agents.Add(session)
 		coord.SetCurrentModel(agentID, modelName)
@@ -496,10 +511,16 @@ func (r *runtime) serve(ctx context.Context) error {
 	}
 
 	app := tui.New(coord, r.state, tracker, r.ws, server, agents, bus, version.Version, r.tuiHistory, r.journal, transcripts)
+	// Drivers are built before the interface exists, so any diagnostic one of them
+	// reported is shown now, in its own words.
+	app.Notices(r.takeNotices())
 	if err := app.Run(ctx); err != nil && ctx.Err() == nil {
 		log.Printf("Duo TUI: %v", err)
 	}
 	agents.StopAll()
+	// Release the drivers too: a plugin may own background work, such as a
+	// transcript observer, that must not outlive the session.
+	defer agents.CloseAll()
 
 	phase := r.state.Snapshot().Phase
 	r.journal.Record("session_stop", map[string]any{"phase": string(phase)})
@@ -511,19 +532,6 @@ func (r *runtime) serve(ctx context.Context) error {
 	}
 	fmt.Printf("\nDuo stopped. Session %s was preserved; resume it with `duo --resume %s`.\nWorktrees preserved in %s\n", what, r.sessionID, r.set.Root)
 	return nil
-}
-
-// driverOwnedID returns an agent's identity only if the driver reported it on an
-// earlier run. agy assigns conversation ids itself and refuses one it has not
-// seen, and opencode assigns session ids server-side, so for both the value must
-// be learned and replayed rather than invented. Returning empty leaves agy to
-// open a conversation, which its watcher then learns, instead of being sent an id
-// it will reject while Duo persists that same rejected id for next time.
-func (r *runtime) driverOwnedID(id protocol.AgentID) string {
-	if r.generatedIDs[id] {
-		return ""
-	}
-	return r.piSessions[id]
 }
 
 // exitReason describes a failed process in one clause, for a headline above the
@@ -641,20 +649,24 @@ func runPlugins(args []string) error {
 }
 
 func printPlugins() {
-	fmt.Println("Available Agent Drivers:")
-	fmt.Println("  pi       [built-in]   Pi CLI coding agent driver (socket streaming)")
-	fmt.Println("  agy      [built-in]   Google Antigravity CLI driver (transcript observation)")
-	fmt.Println("  opencode [built-in]   opencode CLI coding agent driver (socket streaming)")
-	plugins := agent.ListDiscoveredPlugins()
-	if len(plugins) > 0 {
-		fmt.Println("\nDiscovered External Driver Plugins:")
-		for _, p := range plugins {
-			path, _ := agent.LookupPlugin(p)
-			fmt.Printf("  %s   [plugin]     %s\n", p, path)
-		}
+	// Registration is idempotent, so listing plugins populates the same table the
+	// session uses. No observer is needed: nothing is launched here.
+	registerDrivers(nil)
+	entries := driver.Discover()
+	if len(entries) == 0 {
+		fmt.Println("No driver plugins found.")
 	} else {
-		fmt.Println("\nDiscovered External Plugins:")
-		fmt.Println("  (none found in ~/.duo/plugins/ or PATH)")
-		fmt.Println("  To install a plugin driver, place an executable named 'duo-driver-<name>' or 'duo-<name>' in ~/.duo/plugins/ or in your PATH.")
+		fmt.Printf("%d driver plugin(s) available:\n", len(entries))
+		for _, entry := range entries {
+			origin := "external"
+			if entry.Shipped {
+				origin = "shipped"
+			}
+			fmt.Printf("  %-12s %-8s %s\n", entry.Name, "["+origin+"]", entry.Path)
+		}
 	}
+	fmt.Println()
+	fmt.Println("Duo selects a driver with --agent <name>, or per agent with")
+	fmt.Println("--austin-driver / --tony-driver. Run `duo plugins` again after")
+	fmt.Println("installing one to confirm it was found.")
 }

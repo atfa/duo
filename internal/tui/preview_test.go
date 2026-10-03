@@ -15,7 +15,8 @@ import (
 	"time"
 
 	"github.com/atfa/duo/internal/agent"
-	"github.com/atfa/duo/internal/events"
+	"github.com/atfa/duo/internal/agent/agenttest"
+	"github.com/atfa/duo/internal/driver"
 	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/protocol"
 )
@@ -170,7 +171,16 @@ func TestPreviewHeaderAnimatesWhileTheAgentWorks(t *testing.T) {
 		t.Fatal("Tony did not connect")
 	}
 
-	session := agent.NewSession(agent.Config{Agent: protocol.Tony, Dir: t.TempDir(), Command: "sleep 30"})
+	session, err := agent.NewSession(context.Background(), agent.Config{
+		Agent:       protocol.Tony,
+		Dir:         t.TempDir(),
+		Plugin:      agenttest.New("stub").Caller(),
+		BaseCommand: "sleep 30",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer session.Close()
 	a.agents.Add(session)
 	if err := session.Start(context.Background()); err != nil {
 		t.Fatal(err)
@@ -269,8 +279,8 @@ func TestPreviewHeaderShowsContextAndLiveTokenRate(t *testing.T) {
 func TestPreviewHeaderShowsDriver(t *testing.T) {
 	a := testApp(140, 30)
 	mgr := agent.NewManager()
-	mgr.Add(agent.NewAgySession(agent.Config{Agent: protocol.Austin, DriverType: "agy", Model: "gemini-3.8-flash-low"}))
-	mgr.Add(agent.NewPiSession(agent.Config{Agent: protocol.Tony, DriverType: "pi", Model: "workbuddy/deepseek-v4.1-flash"}))
+	mgr.Add(newPreviewSession(t, "agy", protocol.Austin, "gemini-3.8-flash-low"))
+	mgr.Add(newPreviewSession(t, "pi", protocol.Tony, "workbuddy/deepseek-v4.1-flash"))
 	a.agents = mgr
 
 	austinHeader := a.previewHeader(protocol.Austin, 70)
@@ -289,11 +299,54 @@ type previewMockDriver struct {
 	agentID    protocol.AgentID
 	driverType string
 	state      agent.ProcessState
+	// lateBridge marks a driver whose bridge can only attach once its agent has
+	// something to say, so Duo has to announce the connection itself.
+	lateBridge bool
 }
 
-func (m *previewMockDriver) Agent() protocol.AgentID            { return m.agentID }
-func (m *previewMockDriver) DriverType() string                 { return m.driverType }
-func (m *previewMockDriver) State() agent.ProcessState          { return m.state }
+func (m *previewMockDriver) Agent() protocol.AgentID   { return m.agentID }
+func (m *previewMockDriver) DriverType() string        { return m.driverType }
+func (m *previewMockDriver) State() agent.ProcessState { return m.state }
+func (m *previewMockDriver) Manifest() *driver.Manifest {
+	return &driver.Manifest{
+		Protocol:       driver.ProtocolVersion,
+		Name:           m.driverType,
+		ModelReference: driver.ModelQualified,
+		Capabilities:   m.Capabilities(),
+	}
+}
+
+// Capabilities declares how this mock driver behaves. A test that needs a driver
+// whose bridge cannot attach on launch sets selfReports false, rather than relying
+// on a driver name — which is the condition this refactor removes.
+func (m *previewMockDriver) Capabilities() driver.Capabilities {
+	caps := driver.Capabilities{
+		Resume: driver.ResumeClient, Bridge: driver.BridgeAgent,
+		PTYFallback: true, LiveSteering: true, SelfReports: true,
+	}
+	if m.lateBridge {
+		caps.SelfReports = false
+		caps.Resume = driver.ResumeServer
+	}
+	return caps
+}
+
+// newPreviewSession builds an agent session backed by a stub driver, so a preview
+// test can show any driver without running a coding agent.
+func newPreviewSession(t *testing.T, name string, id protocol.AgentID, model string) agent.Driver {
+	t.Helper()
+	s, err := agent.NewSession(context.Background(), agent.Config{
+		Agent: id,
+		Plugin: agenttest.New(name).With(func(spec *agenttest.Spec) {
+			spec.Command = name
+		}).Caller(),
+		Model: model,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
+}
 func (m *previewMockDriver) SetOnExit(fn func(agent.ExitEvent)) {}
 func (m *previewMockDriver) Model() string                      { return "" }
 func (m *previewMockDriver) SetModel(model string)              {}
@@ -358,7 +411,7 @@ func TestPreviewBodyReportsExitedProcessInsteadOfWaiting(t *testing.T) {
 func TestPreviewHeaderTreatsRunningOpencodeAsPresent(t *testing.T) {
 	a := testApp(100, 30)
 	mgr := agent.NewManager()
-	mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "opencode", state: agent.ProcessRunning})
+	mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "opencode", state: agent.ProcessRunning, lateBridge: true})
 	mgr.Add(&previewMockDriver{agentID: protocol.Tony, driverType: "pi", state: agent.ProcessRunning})
 	a.agents = mgr
 
@@ -371,7 +424,7 @@ func TestPreviewHeaderTreatsRunningOpencodeAsPresent(t *testing.T) {
 	}
 
 	// Once the process is gone it must report that instead.
-	mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "opencode", state: agent.ProcessExited})
+	mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "opencode", state: agent.ProcessExited, lateBridge: true})
 	if header := a.previewHeader(protocol.Austin, 60); !strings.Contains(header, "exited") {
 		t.Fatalf("header = %q, want exited", header)
 	}
@@ -383,7 +436,7 @@ func TestPreviewHeaderTreatsRunningOpencodeAsPresent(t *testing.T) {
 func TestAnnounceRunningAgentsCoversBridgeLessDrivers(t *testing.T) {
 	a := testApp(100, 30)
 	mgr := agent.NewManager()
-	mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "opencode", state: agent.ProcessRunning})
+	mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "opencode", state: agent.ProcessRunning, lateBridge: true})
 	mgr.Add(&previewMockDriver{agentID: protocol.Tony, driverType: "pi", state: agent.ProcessRunning})
 	a.agents = mgr
 
@@ -476,231 +529,4 @@ func createTestDBForPreview(t *testing.T, dir string, populateMode string) strin
 		f.Close()
 	}
 	return dbPath
-}
-
-func TestPreviewAgySqlite3DiagnosticsTableDriven(t *testing.T) {
-	origLookPath := agent.LookPath
-	defer func() {
-		agent.LookPath = origLookPath
-	}()
-
-	tests := []struct {
-		name              string
-		sqlite3Exists     bool
-		dbMode            string
-		wantHeaderContain string
-		wantHeaderReject  string
-		wantTimeline      bool
-	}{
-		{
-			name:              "sqlite3 exists and has gen_metadata rows",
-			sqlite3Exists:     true,
-			dbMode:            "with_data",
-			wantHeaderContain: "ctx 50k/1.0M",
-			wantHeaderReject:  "no sqlite3",
-			wantTimeline:      false,
-		},
-		{
-			name:              "sqlite3 does not exist",
-			sqlite3Exists:     false,
-			dbMode:            "with_data",
-			wantHeaderContain: "no sqlite3",
-			wantHeaderReject:  "ctx ",
-			wantTimeline:      true,
-		},
-		{
-			name:              "sqlite3 exists but database is empty",
-			sqlite3Exists:     true,
-			dbMode:            "empty_db",
-			wantHeaderContain: "",
-			wantHeaderReject:  "no sqlite3",
-			wantTimeline:      false,
-		},
-		{
-			name:              "sqlite3 exists but no gen_metadata rows",
-			sqlite3Exists:     true,
-			dbMode:            "no_rows",
-			wantHeaderContain: "",
-			wantHeaderReject:  "no sqlite3",
-			wantTimeline:      false,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if tc.sqlite3Exists {
-				agent.LookPath = exec.LookPath
-			} else {
-				agent.LookPath = func(string) (string, error) {
-					return "", exec.ErrNotFound
-				}
-			}
-
-			tmpDir := t.TempDir()
-			dbPath := createTestDBForPreview(t, tmpDir, tc.dbMode)
-
-			a := testApp(140, 30)
-			mgr := agent.NewManager()
-			mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "agy", state: agent.ProcessRunning})
-			a.agents = mgr
-
-			// Simulate token usage query as done by watcher
-			if usage, ok := agent.QueryLatestAgyUsage(dbPath); ok {
-				a.tracker.UpdateUsage(protocol.Austin, usage.TotalInputTokens, usage.ContextWindow, 0)
-			}
-
-			a.announceRunningAgents()
-
-			header := a.previewHeader(protocol.Austin, 120)
-			if tc.wantHeaderContain != "" && !strings.Contains(header, tc.wantHeaderContain) {
-				t.Errorf("previewHeader = %q, want it to contain %q", header, tc.wantHeaderContain)
-			}
-			if tc.wantHeaderReject != "" && strings.Contains(header, tc.wantHeaderReject) {
-				t.Errorf("previewHeader = %q, want it NOT to contain %q", header, tc.wantHeaderReject)
-			}
-			if tc.dbMode == "empty_db" || tc.dbMode == "no_rows" {
-				if strings.Contains(header, "ctx ") {
-					t.Errorf("previewHeader = %q, want no context tokens displayed when database has no data", header)
-				}
-			}
-
-			tl := timelineText(a)
-			if tc.wantTimeline {
-				if !strings.Contains(tl, agent.AgySqlite3MissingNotice) {
-					t.Errorf("timeline = %q, want diagnostic notice %q", tl, agent.AgySqlite3MissingNotice)
-				}
-			} else {
-				if strings.Contains(tl, "sqlite3 is required") {
-					t.Errorf("timeline = %q, want no sqlite3 missing notice", tl)
-				}
-			}
-		})
-	}
-}
-
-func TestPreviewAgySqlite3PreservesLiveTokenSpeed(t *testing.T) {
-	origLookPath := agent.LookPath
-	defer func() { agent.LookPath = origLookPath }()
-
-	agent.LookPath = func(string) (string, error) {
-		return "", exec.ErrNotFound
-	}
-
-	a := testApp(140, 30)
-	mgr := agent.NewManager()
-	mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "agy", state: agent.ProcessRunning})
-	a.agents = mgr
-
-	a.tracker.Handle(protocol.Austin, protocol.ActivityAgentStart)
-	a.tracker.Handle(protocol.Austin, protocol.ActivityStream)
-	a.tracker.UpdateUsage(protocol.Austin, 0, 0, 42.0)
-
-	header := a.previewHeader(protocol.Austin, 120)
-	if !strings.Contains(header, "42 tok/s · no sqlite3") {
-		t.Fatalf("previewHeader = %q, want '42 tok/s · no sqlite3'", header)
-	}
-
-	// Tool execution clears the active token speed; "no sqlite3" badge persists
-	a.tracker.Handle(protocol.Austin, protocol.ActivityToolStart)
-	header = a.previewHeader(protocol.Austin, 120)
-	if !strings.Contains(header, "no sqlite3") || strings.Contains(header, "tok/s") {
-		t.Fatalf("tool execution header = %q, want 'no sqlite3' without token rate", header)
-	}
-
-	// Idle state retains "no sqlite3" without token rate
-	a.tracker.Handle(protocol.Austin, protocol.ActivityAgentSettled)
-	header = a.previewHeader(protocol.Austin, 120)
-	if !strings.Contains(header, "no sqlite3") || strings.Contains(header, "tok/s") {
-		t.Fatalf("idle header = %q, want 'no sqlite3' without token rate", header)
-	}
-}
-
-func TestPreviewAgySqlite3WatcherAndTUIInteraction(t *testing.T) {
-	origLookPath := agent.LookPath
-	defer func() { agent.LookPath = origLookPath }()
-
-	agent.LookPath = func(string) (string, error) {
-		return "", exec.ErrNotFound
-	}
-
-	// 1. Construct watcher first (simulating watcher start before TUI subscribes to bus)
-	w := agent.NewAgyWatcher(protocol.Austin, "/tmp/nonexistent/transcript.jsonl", nil)
-	w.ProcessLine([]byte(`{"step_index":0,"source":"USER_EXPLICIT","type":"USER_INPUT","status":"DONE","created_at":"2026-10-02T00:00:00Z","content":"start"}`))
-
-	a := testApp(140, 30)
-	mgr := agent.NewManager()
-	mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "agy", state: agent.ProcessRunning})
-	a.agents = mgr
-
-	// 2. TUI startup announces running agents
-	a.announceRunningAgents()
-
-	tl := timelineText(a)
-	if !strings.Contains(tl, agent.AgySqlite3MissingNotice) {
-		t.Fatalf("timeline = %q, want diagnostic notice even when watcher was constructed first", tl)
-	}
-
-	// 3. Repeated announcements or incoming events must not duplicate the notice
-	a.announceRunningAgents()
-	a.route(events.Event{Agent: protocol.Austin, Kind: events.KindActivity})
-	count := strings.Count(timelineText(a), agent.AgySqlite3MissingNotice)
-	if count != 1 {
-		t.Fatalf("expected notice once, got %d times in timeline: %q", count, timelineText(a))
-	}
-}
-
-// The sqlite3 probe is a PATH lookup, and it used to run once per event (route)
-// plus twice per frame (previewHeader). It is decided once per App instead, so
-// changing PATH afterwards must not change what the session shows.
-func TestSqlite3ProbeIsDecidedOncePerApp(t *testing.T) {
-	origLookPath := agent.LookPath
-	defer func() { agent.LookPath = origLookPath }()
-
-	tests := []struct {
-		name          string
-		presentAtOpen bool
-		presentLater  bool
-		wantBadge     string
-	}{
-		{name: "sqlite3 installed after startup", presentAtOpen: false, presentLater: true, wantBadge: "no sqlite3"},
-		{name: "sqlite3 removed after startup", presentAtOpen: true, presentLater: false, wantBadge: ""},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			probes := 0
-			present := tc.presentAtOpen
-			agent.LookPath = func(string) (string, error) {
-				probes++
-				if present {
-					return "/usr/bin/sqlite3", nil
-				}
-				return "", exec.ErrNotFound
-			}
-
-			a := testApp(140, 30)
-			mgr := agent.NewManager()
-			mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "agy", state: agent.ProcessRunning})
-			a.agents = mgr
-			if probes != 1 {
-				t.Fatalf("probes after startup = %d, want 1", probes)
-			}
-
-			present = tc.presentLater
-			for i := 0; i < 5; i++ {
-				a.route(events.Event{Agent: protocol.Austin, Kind: events.KindActivity})
-			}
-			a.previewHeader(protocol.Austin, 120)
-			if probes != 1 {
-				t.Fatalf("probes after 5 events and a frame = %d, want 1", probes)
-			}
-			badge := a.previewUsage(protocol.Austin, harness.AgentRuntime{})
-			if tc.wantBadge == "" {
-				if strings.Contains(badge, "no sqlite3") {
-					t.Fatalf("previewUsage = %q, want no 'no sqlite3' badge", badge)
-				}
-			} else if !strings.Contains(badge, tc.wantBadge) {
-				t.Fatalf("previewUsage = %q, want %q from the cached probe", badge, tc.wantBadge)
-			}
-		})
-	}
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -8,6 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atfa/duo/internal/agent"
+	"github.com/atfa/duo/internal/agent/agenttest"
+	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/sessionstore"
 	"github.com/atfa/duo/internal/workspace"
@@ -128,49 +132,6 @@ func TestResumeAddsHarnessGrace(t *testing.T) {
 	}
 	if resumed.harness.RecoveryGrace < 30*time.Second || resumed.harness.RecoveryGrace > 60*time.Second {
 		t.Fatalf("resume grace %s is outside the required 30-60s window", resumed.harness.RecoveryGrace)
-	}
-}
-
-func TestPiSessionIDsAreStableAndDistinct(t *testing.T) {
-	first, _, err := piSessionIDs(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	austin, tony := first[protocol.Austin], first[protocol.Tony]
-	if austin == "" || tony == "" {
-		t.Fatalf("generated ids must not be empty: %+v", first)
-	}
-	if austin == tony {
-		t.Fatalf("Austin and Tony must never share a Pi session id: %q", austin)
-	}
-
-	reused, _, err := piSessionIDs(first)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if reused[protocol.Austin] != austin || reused[protocol.Tony] != tony {
-		t.Fatalf("persisted ids must be reused: got %+v want %+v", reused, first)
-	}
-
-	// A duplicated pair must be repaired rather than silently shared.
-	repaired, _, err := piSessionIDs(map[protocol.AgentID]string{
-		protocol.Austin: "same",
-		protocol.Tony:   "same",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if repaired[protocol.Austin] == repaired[protocol.Tony] {
-		t.Fatalf("duplicate ids were not repaired: %+v", repaired)
-	}
-
-	// A missing side is generated without disturbing the other.
-	partial, _, err := piSessionIDs(map[protocol.AgentID]string{protocol.Austin: "keep-me"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if partial[protocol.Austin] != "keep-me" || partial[protocol.Tony] == "" || partial[protocol.Tony] == "keep-me" {
-		t.Fatalf("partial ids handled incorrectly: %+v", partial)
 	}
 }
 
@@ -689,59 +650,79 @@ func TestModelPersistedForAnotherDriverIsDropped(t *testing.T) {
 	}
 }
 
-// TestGeneratedIDsAreMarkedSoDriverOwnedIdentityIsNotFabricated pins the split
-// that the agy launch failure came from. pi adopts an id it has never seen, so a
-// generated id is what pi needs; agy rejects one ("conversation not found,
-// ignoring --conversation flag") and opencode assigns its own server-side.
+// TestComposeSnapshotCarriesDriverStateVerbatim is the durability guarantee: what a
+// plugin stored must come back out of the snapshot byte for byte, for any driver.
 //
-// The generated set is what tells the two apart, and getting it wrong is silent:
-// the fabricated id is accepted into the launch command, then persisted, then
-// replayed on the next run, so the agent never resumes and nothing ever reports
-// a problem.
-func TestGeneratedIDsAreMarkedSoDriverOwnedIdentityIsNotFabricated(t *testing.T) {
-	_, generated, err := piSessionIDs(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !generated[protocol.Austin] || !generated[protocol.Tony] {
-		t.Errorf("a fresh session must mark both ids as invented, got %v", generated)
+// Core cannot round-trip this itself — it does not know the blob's shape — so the
+// test asserts equality rather than meaning. A driver that stores a conversation id
+// and a driver that stores nothing at all are both correct here.
+func TestComposeSnapshotCarriesDriverStateVerbatim(t *testing.T) {
+	agyBlob := `{"conversationId":"conv-1","logFile":"/tmp/duo-agy-austin.log"}`
+	piBlob := `{"sessionId":"0f2b7c1e-1111-4222-8333-444455556666"}`
+
+	r := &runtime{
+		cfg:       config{agentDrivers: map[protocol.AgentID]string{protocol.Austin: "agy", protocol.Tony: "pi"}},
+		repoID:    "repo-1",
+		sessionID: "session-1",
+		createdAt: time.Unix(0, 0).UTC(),
+		state:     project.NewStateFor(project.ModeGoal),
+		set:       workspace.Set{},
+		driverState: map[protocol.AgentID]string{
+			protocol.Austin: agyBlob,
+			protocol.Tony:   piBlob,
+		},
 	}
 
-	// Reusing a persisted id is not inventing one, even when the other agent's
-	// id has to be replaced.
-	persisted := map[protocol.AgentID]string{protocol.Austin: "learned-austin"}
-	reused, generated2, err := piSessionIDs(persisted)
-	if err != nil {
-		t.Fatal(err)
+	snap := r.composeSnapshot(nil)
+	if got := snap.PiSessions[protocol.Austin]; got != agyBlob {
+		t.Errorf("Austin state = %q, want %q", got, agyBlob)
 	}
-	if generated2[protocol.Austin] {
-		t.Error("a persisted id was reported as invented; a driver-owned identity would be discarded")
+	if got := snap.PiSessions[protocol.Tony]; got != piBlob {
+		t.Errorf("Tony state = %q, want %q", got, piBlob)
 	}
-	if !generated2[protocol.Tony] {
-		t.Error("Tony's missing id should be reported as invented")
-	}
-	if reused[protocol.Austin] != "learned-austin" {
-		t.Errorf("Austin's persisted id was replaced: %q", reused[protocol.Austin])
+	if snap.AgentDrivers[protocol.Austin] != "agy" || snap.AgentDrivers[protocol.Tony] != "pi" {
+		t.Errorf("drivers = %v, want each agent's plugin recorded", snap.AgentDrivers)
 	}
 }
 
-// TestDriverOwnedIDSuppressesInventedValues covers the runtime helper that keeps a
-// fabricated id away from a driver that would reject it.
-func TestDriverOwnedIDSuppressesInventedValues(t *testing.T) {
-	r := &runtime{
-		piSessions: map[protocol.AgentID]string{
-			protocol.Austin: "inv-a",
-			protocol.Tony:   "inv-t",
-		},
-		generatedIDs: map[protocol.AgentID]bool{protocol.Austin: true, protocol.Tony: true},
+// TestComposeSnapshotPrefersTheLiveDriverState covers a restart: the state a plugin
+// returned for the run that just happened must win over what was loaded, or a
+// driver that learned its identity would keep replaying the previous one.
+func TestComposeSnapshotPrefersTheLiveDriverState(t *testing.T) {
+	mgr := agent.NewManager()
+	stub := agenttest.New("stub").With(func(spec *agenttest.Spec) {
+		spec.Command = "sh -c 'exit 0'"
+		spec.State = []byte(`{"sessionId":"learned"}`)
+	})
+	s, err := agent.NewSession(context.Background(), agent.Config{
+		Agent:       protocol.Austin,
+		Dir:         t.TempDir(),
+		Plugin:      stub.Caller(),
+		PluginState: []byte(`{"sessionId":""}`),
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := r.driverOwnedID(protocol.Tony); got != "" {
-		t.Errorf("an invented id reached a driver that owns its identity: %q", got)
+	defer s.Close()
+	if err := s.Start(context.Background()); err != nil {
+		t.Fatal(err)
 	}
+	defer s.Stop()
+	mgr.Add(s)
 
-	// Once a driver has reported an id on an earlier run it must be replayed.
-	r.generatedIDs = map[protocol.AgentID]bool{}
-	if got := r.driverOwnedID(protocol.Tony); got != "inv-t" {
-		t.Errorf("a learned id was not replayed: %q", got)
+	r := &runtime{
+		cfg:       config{agentDrivers: map[protocol.AgentID]string{protocol.Austin: "stub"}},
+		repoID:    "repo-1",
+		sessionID: "session-1",
+		createdAt: time.Unix(0, 0).UTC(),
+		state:     project.NewStateFor(project.ModeGoal),
+		set:       workspace.Set{},
+		agents:    mgr,
+		driverState: map[protocol.AgentID]string{
+			protocol.Austin: `{"sessionId":""}`,
+		},
+	}
+	if got := r.composeSnapshot(nil).PiSessions[protocol.Austin]; got != `{"sessionId":"learned"}` {
+		t.Errorf("snapshot state = %q, want what the driver learned this run", got)
 	}
 }

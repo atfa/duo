@@ -475,9 +475,13 @@ func (c *Coordinator) OnConnect(ctx context.Context, client *transport.Client) {
 	c.wakeResumedAgent(ctx, client.Agent)
 }
 
-// announcedOnStart reports whether this agent's driver reported its own
-// connection when the process started, because its bridge does not attach on
-// launch.
+// announcedOnStart reports whether Duo already announced this agent when its
+// process started, because its driver does not announce itself over the bridge.
+//
+// The answer comes from the driver's declared selfReports capability. A driver whose
+// bridge attaches the moment the agent starts speaks for itself; one that cannot
+// attach until its agent has something to say needs Duo to say it once, or the human
+// is told an agent is missing when it is already working.
 func (c *Coordinator) announcedOnStart(agent protocol.AgentID) bool {
 	if c.agents == nil {
 		return false
@@ -486,7 +490,7 @@ func (c *Coordinator) announcedOnStart(agent protocol.AgentID) bool {
 	if !ok || d == nil {
 		return false
 	}
-	return !agentpkg.SelfReportsOnLaunch(d.DriverType())
+	return !d.Capabilities().SelfReports
 }
 
 func (c *Coordinator) wakeResumedAgent(ctx context.Context, agent protocol.AgentID) {

@@ -122,12 +122,9 @@ type App struct {
 	// shown whenever the terminal is tall enough to keep usable panes.
 	hidePreview bool
 
-	warnedSqlite3 bool
-	// hasSqlite3 is decided once, when the App is built, and every reader uses
-	// the cached answer. Whether the sqlite3 CLI is on PATH cannot change while
-	// a session runs, so re-running exec.LookPath per event and per frame was
-	// pure overhead on the render hot path.
-	hasSqlite3 bool
+	// warnedNotices remembers the diagnostics already shown, so a notice a driver
+	// reports on every launch appears once rather than once per restart.
+	warnedNotices map[string]bool
 
 	austin []entry
 	tony   []entry
@@ -171,8 +168,8 @@ func New(
 	logs *sessionstore.LogWriter,
 ) *App {
 	a := &App{coord: coord, state: state, tracker: tracker, ws: ws, server: server, agents: agents, bus: bus, version: version, journal: journal, logs: logs, historyIdx: -1,
-		history:        loadComposerHistory(),
-		modelTarget:    protocol.Austin, modelCh: make(chan modelsResult, 1),
+		history:     loadComposerHistory(),
+		modelTarget: protocol.Austin, modelCh: make(chan modelsResult, 1),
 		modelsByAgent:       map[protocol.AgentID][]models.Model{},
 		modelLoadedByAgent:  map[protocol.AgentID]bool{},
 		modelLoadingByAgent: map[protocol.AgentID]bool{},
@@ -180,7 +177,7 @@ func New(
 		timeline:            true,
 		showTimestamps:      true,
 		currentModel:        map[protocol.AgentID]string{}, currentThinking: map[protocol.AgentID]string{},
-		hasSqlite3: agent.HasSqlite3()}
+		warnedNotices: map[string]bool{}}
 	for _, item := range history {
 		a.restoreEntry(item)
 	}
@@ -230,9 +227,6 @@ func (a *App) spinnerTick() bool {
 }
 
 func (a *App) route(event events.Event) {
-	if !a.warnedSqlite3 && a.driverName(event.Agent) == "agy" {
-		a.warnSqlite3Once()
-	}
 	// Model and thinking reports carry no free text; they update picker state
 	// rather than adding a pane entry.
 	if event.Kind == events.KindModel && event.Model != "" {
