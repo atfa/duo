@@ -123,5 +123,3 @@ func runeWidthNear(r, next rune) int {
 	}
 	return 1
 }
-
-

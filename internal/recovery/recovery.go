@@ -78,16 +78,17 @@ func FastVerificationTarget(ctx context.Context, ws workspace.Manager) (string, 
 
 // ComposeInput collects everything needed to build one durable snapshot.
 type ComposeInput struct {
-	DuoVersion  string
-	SessionID   string
-	RepoID      string
-	Repository  string
-	BaseBranch  string
-	BaseCommit  string
-	CreatedAt   time.Time
-	Project     project.Snapshot
+	DuoVersion   string
+	SessionID    string
+	RepoID       string
+	Repository   string
+	BaseBranch   string
+	BaseCommit   string
+	CreatedAt    time.Time
+	Project      project.Snapshot
 	Worktrees    workspace.Set
-	PiSessions   map[protocol.AgentID]string
+	PiSessions   map[protocol.AgentID]string                   // downgrade mirror: bare identities a v0.9.0 binary can read
+	DriverStates map[protocol.AgentID]sessionstore.DriverState // authoritative plugin-owned state
 	AgentDrivers map[protocol.AgentID]string
 	AgentModels  map[protocol.AgentID]string
 	Integration  workspace.IntegrationResult
@@ -127,6 +128,17 @@ func Compose(in ComposeInput) sessionstore.Snapshot {
 		CreatedAt: in.CreatedAt,
 	}
 
+	if len(in.DriverStates) > 0 {
+		for k, v := range in.DriverStates {
+			if len(v.State) == 0 {
+				continue
+			}
+			if snap.DriverStates == nil {
+				snap.DriverStates = make(map[protocol.AgentID]sessionstore.DriverState, len(in.DriverStates))
+			}
+			snap.DriverStates[k] = v
+		}
+	}
 	if len(in.AgentDrivers) > 0 {
 		snap.AgentDrivers = make(map[protocol.AgentID]string, len(in.AgentDrivers))
 		for k, v := range in.AgentDrivers {

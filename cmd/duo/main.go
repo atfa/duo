@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -143,13 +142,16 @@ type runtime struct {
 	logger  *sessionstore.Logger
 
 	agents *agent.Manager
-	// driverState is each agent's opaque, plugin-owned resume blob, stored exactly
-	// as the plugin returned it. Duo Core never parses it: it hands the same bytes
-	// back on the next launch and lets the plugin interpret them.
-	//
-	// It is carried in the snapshot's legacy string map until the per-driver state
-	// field lands; see composeSnapshot.
-	driverState map[protocol.AgentID]string
+	// driverState is each agent's opaque, plugin-owned state: the driver name plus
+	// the resume blob exactly as the plugin returned it. Duo Core never parses the
+	// blob: it hands the same bytes back on the next launch and lets the plugin
+	// interpret them. It seeds the snapshot's authoritative driverStates field.
+	driverState map[protocol.AgentID]sessionstore.DriverState
+	// piSessions is the downgrade mirror: the bare identity per agent, in the shape
+	// a v0.9.0 binary still reads. It is seeded from the loaded snapshot and kept
+	// current from each driver's SessionID(), never from the blob, so a driver that
+	// spells its identity differently is still mirrored correctly.
+	piSessions map[protocol.AgentID]string
 
 	integration workspace.IntegrationResult
 	delivery    sessionstore.Delivery
@@ -209,9 +211,15 @@ func (r *runtime) composeSnapshot(coord *coordinator.Coordinator) sessionstore.S
 		integration = coord.CurrentIntegration()
 		deliveryState = coord.CurrentDelivery()
 	}
-	driverState := make(map[protocol.AgentID]string, len(r.driverState))
+	driverStates := make(map[protocol.AgentID]sessionstore.DriverState, len(r.driverState))
 	for k, v := range r.driverState {
-		driverState[k] = v
+		driverStates[k] = v
+	}
+	piSessions := make(map[protocol.AgentID]string, len(r.piSessions))
+	for k, v := range r.piSessions {
+		if strings.TrimSpace(v) != "" {
+			piSessions[k] = v
+		}
 	}
 	agentDrivers := make(map[protocol.AgentID]string)
 	agentModels := make(map[protocol.AgentID]string)
@@ -224,17 +232,28 @@ func (r *runtime) composeSnapshot(coord *coordinator.Coordinator) sessionstore.S
 		}
 	}
 	if r.agents != nil {
-		for id, state := range r.agents.DriverStates() {
-			driverState[id] = string(state)
-		}
 		for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
-			if d, ok := r.agents.Driver(id); ok {
+			d, ok := r.agents.Driver(id)
+			if !ok {
+				continue
+			}
+			if dt := d.DriverType(); dt != "" {
+				agentDrivers[id] = dt
+			}
+			if m := d.Model(); m != "" {
+				agentModels[id] = m
+			}
+			// What the driver learned this run wins over anything loaded, or a
+			// driver that learned its identity would keep replaying the previous one.
+			if state := d.DriverState(); len(state) > 0 {
 				if dt := d.DriverType(); dt != "" {
-					agentDrivers[id] = dt
+					driverStates[id] = sessionstore.DriverState{Driver: dt, State: state}
 				}
-				if m := d.Model(); m != "" {
-					agentModels[id] = m
-				}
+			}
+			// The mirror follows the identity the driver reports — the same value
+			// v0.9.0 persisted — never a field read out of the blob.
+			if sid := d.SessionID(); sid != "" {
+				piSessions[id] = sid
 			}
 		}
 	}
@@ -255,7 +274,8 @@ func (r *runtime) composeSnapshot(coord *coordinator.Coordinator) sessionstore.S
 		CreatedAt:    r.createdAt,
 		Project:      r.state.Snapshot(),
 		Worktrees:    r.set,
-		PiSessions:   driverState,
+		PiSessions:   piSessions,
+		DriverStates: driverStates,
 		AgentDrivers: agentDrivers,
 		AgentModels:  agentModels,
 		Integration:  integration,
@@ -309,7 +329,8 @@ func runFresh(ctx context.Context, cfg config, root, scope, repoID, baseDir stri
 		store:       store,
 		journal:     store.OpenEvents(),
 		logger:      store.OpenLog(),
-		driverState: map[protocol.AgentID]string{},
+		driverState: map[protocol.AgentID]sessionstore.DriverState{},
+		piSessions:  map[protocol.AgentID]string{},
 		mode:        cfg.mode,
 	}
 	r.logger.Printf("starting Duo %s session %s mode=%s (source=%s) repository=%s scope=%s", version.Version, r.sessionID, r.mode, r.cfg.modeSource, root, set.ScopePath)
@@ -467,7 +488,7 @@ func (r *runtime) serve(ctx context.Context) error {
 			Session:        r.sessionID,
 			Token:          token,
 			Plugin:         plugin,
-			PluginState:    json.RawMessage(r.driverState[agentID]),
+			PluginState:    r.driverState[agentID].State,
 			BaseCommand:    r.cfg.agentCommand(agentID),
 			Model:          modelName,
 			Notices:        r.collectNotice,

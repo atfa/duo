@@ -226,4 +226,3 @@ func TestMCPEndToEndWithBridge(t *testing.T) {
 		t.Fatalf("expected MsgPeerMessage with 'hello peer', got: %#v", handler.lastMsg)
 	}
 }
-
