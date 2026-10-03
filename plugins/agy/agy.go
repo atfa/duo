@@ -60,26 +60,24 @@ func (s state) conversation() string {
 	return s.SessionID
 }
 
-// Observe receives the activity this plugin infers from watching agy. Core
-// supplies it while the driver runs in-process; an out-of-process plugin reports
-// the same messages over Duo's bridge instead.
-type Observe func(protocol.AgentID, protocol.Message)
-
 // Plugin is the Agy Host Adapter and Agent Adapter.
 type Plugin struct {
-	observe Observe
-
 	mu      sync.Mutex
 	watcher *AgyWatcher
+	// sink is the agent's single bridge endpoint. It is created on the first
+	// prepare and kept for the life of the plugin: restarting the agent must
+	// not tear down and re-establish a connection upstream would see as an
+	// outage.
+	sink *bridgeSink
 }
 
-// New returns the Agy driver. observe may be nil, in which case no activity is
-// inferred; the agent still runs and still reports through Duo's PTY fallback.
-func New(observe Observe) driver.Handler { return &Plugin{observe: observe} }
+// New returns the Agy driver. Activity reaches Core through this process's own
+// bridge connection; Core supplies the endpoint in the launch environment.
+func New() driver.Handler { return &Plugin{} }
 
 // Register makes Agy available to Duo in-process.
-func Register(observe Observe) {
-	driver.Register(Name, func() driver.Handler { return New(observe) })
+func Register() {
+	driver.Register(Name, func() driver.Handler { return New() })
 }
 
 func (p *Plugin) Describe() (*driver.Manifest, error) {
@@ -227,7 +225,9 @@ func (p *Plugin) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
 // plugin, so Core never learns that agy is observed at all: from Core's side the
 // only difference is that `activity` is true.
 func (p *Plugin) startObserver(req driver.LaunchRequest, conversation string, st state) {
-	if p.observe == nil {
+	// The bridge endpoint is the only way an observation reaches Core, so a
+	// launch without one has nothing to report to and nothing to watch for.
+	if strings.TrimSpace(req.Host) == "" || strings.TrimSpace(req.Port) == "" {
 		return
 	}
 	transcript := TranscriptPath(conversation)
@@ -245,7 +245,7 @@ func (p *Plugin) startObserver(req driver.LaunchRequest, conversation string, st
 			if p.watcher != nil {
 				return
 			}
-			p.watcher = NewAgyWatcher(protocol.AgentID(req.Agent), TranscriptPath(id), protocolFuncSink(p.observe))
+			p.watcher = NewAgyWatcher(protocol.AgentID(req.Agent), TranscriptPath(id), p.bridge(protocol.AgentID(req.Agent), req))
 			p.watcher.Start(context.Background())
 		}()
 		return
@@ -256,18 +256,33 @@ func (p *Plugin) startObserver(req driver.LaunchRequest, conversation string, st
 	if p.watcher != nil {
 		p.watcher.Stop()
 	}
-	p.watcher = NewAgyWatcher(protocol.AgentID(req.Agent), transcript, protocolFuncSink(p.observe))
+	p.watcher = NewAgyWatcher(protocol.AgentID(req.Agent), transcript, p.bridge(protocol.AgentID(req.Agent), req))
 	p.watcher.Start(context.Background())
 }
 
-// Close stops the observer. An out-of-process plugin reaches this when Core closes
-// the plugin; a built-in driver reaches it when the session ends.
+// bridge returns the plugin's single bridge sink, creating it on first use.
+// The caller must hold p.mu. One sink per plugin, not per launch: an agent
+// restart reuses the established connection so upstream sees no outage.
+func (p *Plugin) bridge(agent protocol.AgentID, req driver.LaunchRequest) *bridgeSink {
+	if p.sink == nil {
+		p.sink = newBridgeSink(agent, req.Session, req.Token, req.Host, req.Port)
+	}
+	return p.sink
+}
+
+// Close stops the observer and releases the endpoint. An out-of-process plugin
+// reaches this when Core closes the plugin; a built-in driver reaches it when
+// the session ends.
 func (p *Plugin) Close() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.watcher != nil {
 		p.watcher.Stop()
 		p.watcher = nil
+	}
+	if p.sink != nil {
+		p.sink.Close()
+		p.sink = nil
 	}
 }
 
@@ -302,11 +317,4 @@ func setEffort(base, effort string) string {
 		return base
 	}
 	return driver.SetFlag(base, "--effort", effort)
-}
-
-// protocolFuncSink adapts an Observe to the watcher's sink.
-type protocolFuncSink func(protocol.AgentID, protocol.Message)
-
-func (f protocolFuncSink) OnActivity(agent protocol.AgentID, msg protocol.Message) {
-	f(agent, msg)
 }

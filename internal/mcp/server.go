@@ -123,6 +123,12 @@ type Config struct {
 	Token     string
 	Host      string
 	Port      string
+	// ClientType is what the hello declares. The server treats "mcp" as a
+	// control client: it does not occupy the agent's endpoint slot and fires no
+	// connect events. Empty means "mcp", which is what Duo's own MCP client
+	// wants; an Agent Adapter must set something else or it will not be
+	// registered as the endpoint its manifest declared.
+	ClientType string
 }
 
 // LoadConfigFromEnv fills unset fields from standard DUO_* environment variables.
@@ -176,10 +182,14 @@ func ConnectBridge(ctx context.Context, cfg Config) (*BridgeClient, error) {
 	}
 
 	// Send Hello
+	clientType := cfg.ClientType
+	if clientType == "" {
+		clientType = "mcp"
+	}
 	hello := protocol.Message{
 		Version:    protocol.Version,
 		Type:       protocol.MsgHello,
-		ClientType: "mcp",
+		ClientType: clientType,
 		Agent:      cfg.Agent,
 		SessionID:  cfg.SessionID,
 		Token:      cfg.Token,
@@ -196,6 +206,22 @@ func ConnectBridge(ctx context.Context, cfg Config) (*BridgeClient, error) {
 
 func (bc *BridgeClient) Close() error {
 	return bc.conn.Close()
+}
+
+// Send delivers a message without expecting a reply — how an Agent Adapter
+// reports activity, which the coordinator handles on arrival. Call is for
+// requests that carry a requestId; this is for observation.
+func (bc *BridgeClient) Send(msg protocol.Message) error {
+	if msg.Version == 0 {
+		msg.Version = protocol.Version
+	}
+	if msg.Agent == "" {
+		msg.Agent = bc.agent
+	}
+	if msg.Timestamp == 0 {
+		msg.Timestamp = time.Now().UnixMilli()
+	}
+	return bc.sendRaw(msg)
 }
 
 func (bc *BridgeClient) sendRaw(msg protocol.Message) error {

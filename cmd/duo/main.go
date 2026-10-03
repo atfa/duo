@@ -369,9 +369,7 @@ func (r *runtime) serve(ctx context.Context) error {
 
 	// Duo Core's whole knowledge of which coding agents it ships. Each is a Driver
 	// Plugin running in-process until its milestone moves it out.
-	registerDrivers(func(id protocol.AgentID, msg protocol.Message) {
-		coord.RecordActivity(id, msg)
-	})
+	registerDrivers()
 	if r.cfg.testCommand != "" {
 		coord.SetTestCommand(r.cfg.testCommand)
 	}
@@ -679,8 +677,8 @@ func runPlugins(args []string) error {
 
 func printPlugins() {
 	// Registration is idempotent, so listing plugins populates the same table the
-	// session uses. No observer is needed: nothing is launched here.
-	registerDrivers(nil)
+	// session uses. Nothing is launched here, so no endpoint is opened either.
+	registerDrivers()
 	entries := driver.Discover()
 	if len(entries) == 0 {
 		fmt.Println("No driver plugins found.")

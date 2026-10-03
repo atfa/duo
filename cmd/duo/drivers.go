@@ -2,7 +2,6 @@ package main
 
 import (
 	"github.com/atfa/duo/internal/driver"
-	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/plugins/agy"
 	"github.com/atfa/duo/plugins/opencode"
 	"github.com/atfa/duo/plugins/pi"
@@ -15,9 +14,9 @@ import (
 // change. Registering one here is a single line, and it says only "Duo ships this".
 // What the driver does comes from the manifest it returns, which is why adding a
 // fourth agent is one line here and nothing at all anywhere else.
-func registerDrivers(observe func(protocol.AgentID, protocol.Message)) {
+func registerDrivers() {
 	pi.Register()
-	agy.Register(observe)
+	agy.Register()
 	opencode.Register()
 }
 

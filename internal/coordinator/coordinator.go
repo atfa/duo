@@ -12,6 +12,7 @@ import (
 
 	agentpkg "github.com/atfa/duo/internal/agent"
 	"github.com/atfa/duo/internal/delivery"
+	"github.com/atfa/duo/internal/driver"
 	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/project"
@@ -121,7 +122,12 @@ func (c *Coordinator) sendToAgent(ctx context.Context, agent protocol.AgentID, m
 		protocol.MsgDuoNotice, protocol.MsgSteer:
 		c.noteInjected(agent, message.Text)
 	}
-	if c.server != nil && c.server.IsConnected(agent) {
+	// The bridge may only carry a request whose capability the driver declared.
+	// An endpoint that observes the agent rather than receiving from Core (a
+	// plugin-owned bridge) cannot deliver an injected prompt, so writing to it
+	// would drop the message silently; the terminal is the delivery path there,
+	// regardless of connection state.
+	if c.server != nil && c.server.IsConnected(agent) && c.capabilities(agent).LiveSteering {
 		return c.server.Send(ctx, agent, message)
 	}
 	if c.agents != nil {
@@ -581,13 +587,14 @@ func (c *Coordinator) handleActivity(agent protocol.AgentID, message protocol.Me
 	}
 }
 
-// RecordActivity records agent activity observations (used by observation-based drivers like agy).
-func (c *Coordinator) RecordActivity(agent protocol.AgentID, message protocol.Message) {
-	if message.Type == protocol.MsgAssistantMessage {
-		c.handleAssistant(agent, message)
-		return
+// capabilities returns what the agent's driver declared. A missing driver
+// yields every capability off, so the zero set is the most restricted path —
+// never the most capable.
+func (c *Coordinator) capabilities(agent protocol.AgentID) driver.Capabilities {
+	if c.agents == nil {
+		return driver.Capabilities{}
 	}
-	c.handleActivity(agent, message)
+	return c.agents.CapabilitiesFor(agent)
 }
 
 func (c *Coordinator) handleAssistant(agent protocol.AgentID, message protocol.Message) {
@@ -630,15 +637,18 @@ func (c *Coordinator) wasInjected(agent protocol.AgentID, text string) bool {
 	return ok && previous != "" && strings.TrimSpace(text) == previous
 }
 
-// SetModel asks one agent to switch its active model. If connected via the transport
-// server (e.g. Pi bridge), it forwards the message. If not connected (e.g. Agy driver),
-// it records the state locally and emits the model event to the bus.
+// SetModel asks one agent to switch its active model. It goes over the bridge
+// only when the driver declared liveModelSwitch: an endpoint that observes the
+// agent rather than driving it (a plugin-owned bridge) cannot reach a running
+// session, so the local record-and-restart path is the one that keeps the
+// selection honest. Without the gate, a connected-but-silent endpoint would
+// swallow the message and the model would silently never change.
 func (c *Coordinator) SetModel(ctx context.Context, agent protocol.AgentID, provider, id string) error {
 	provider, id = strings.TrimSpace(provider), strings.TrimSpace(id)
 	if id == "" {
 		return fmt.Errorf("set model: model id is required")
 	}
-	if c.server != nil && c.server.IsConnected(agent) {
+	if c.server != nil && c.server.IsConnected(agent) && c.capabilities(agent).LiveModelSwitch {
 		if provider == "" {
 			if slash := strings.Index(id, "/"); slash != -1 {
 				provider = id[:slash]
@@ -678,11 +688,13 @@ func nextThinkingLevel(current string) string {
 	}
 }
 
-// CycleThinking advances one agent's thinking level. When connected to a bridge
-// (e.g. Pi), it delegates to the bridge. Otherwise (e.g. Agy), it cycles through
-// standard levels locally.
+// CycleThinking advances one agent's thinking level. The bridge carries it only
+// when the driver declared liveThinkingSwitch — for the same reason as SetModel:
+// an endpoint that cannot reach the running agent would drop the message and the
+// picker would appear to cycle while nothing changed. Otherwise the level is
+// cycled locally and applied on the next launch.
 func (c *Coordinator) CycleThinking(ctx context.Context, agent protocol.AgentID) error {
-	if c.server != nil && c.server.IsConnected(agent) {
+	if c.server != nil && c.server.IsConnected(agent) && c.capabilities(agent).LiveThinkingSwitch {
 		return c.server.Send(ctx, agent, protocol.Message{
 			Version: protocol.Version, Type: protocol.MsgCycleThinking, From: protocol.Duo, To: agent,
 			Timestamp: time.Now().UnixMilli(),
