@@ -189,7 +189,15 @@ func (r *runtime) takeNotices() []string {
 // Duo's bridge without Core inventing a second channel, and no driver-specific
 // variable is set for a driver that does not own it.
 func pluginEnv(r *runtime, id protocol.AgentID, host, port, token string) []string {
-	return []string{
+	// The operator's environment comes first and Duo's own variables are appended
+	// after it, so ours win: the process reads the later of two identical names.
+	//
+	// The world the agent gets is the world the plugin runs in. Withholding it
+	// looks harmless and is not — HOME is where every one of these CLIs keeps its
+	// configuration and credentials, and PATH is how a plugin finds the CLI it
+	// wraps. Without them a plugin silently answered from a hardcoded default and
+	// reported a CLI missing that was sitting right there on PATH.
+	return append(os.Environ(), []string{
 		"DUO_ACTIVE=1",
 		"DUO_AGENT=" + string(id),
 		"DUO_MODE=" + r.mode.String(),
@@ -199,7 +207,7 @@ func pluginEnv(r *runtime, id protocol.AgentID, host, port, token string) []stri
 		"DUO_TOKEN=" + token,
 		"DUO_REPOSITORY_ROOT=" + r.set.Repository,
 		"DUO_SCOPE_PATH=" + r.set.ScopePath,
-	}
+	}...)
 }
 
 // composeSnapshot builds the durable snapshot. When coord is nil the
