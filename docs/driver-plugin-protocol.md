@@ -354,6 +354,22 @@ Declare `state` only when you need it. Core never calls it on a `client` or `non
 driver, and the contract suite checks the opposite direction: a driver that declares
 `resume: server` and does not answer `state` fails.
 
+### One process, one session
+
+Core resolves a driver once per agent per session and gives you a process that
+lives for exactly that session. Two consequences worth designing around:
+
+- **You may keep state in memory between calls.** A learned identity does not have
+  to survive a restart of your own process, because your process does not restart
+  while the session runs.
+- **A stateless `prepare` is a legitimate answer.** If nothing has been learned
+  yet, returning what Core sent you is correct — but never *record* it as something
+  you learned, or a later `prepare` in the same session would treat your own
+  replay material as a discovery.
+
+Do not build a plugin that expects to outlive one session, or that assumes a `state`
+call can arrive before the first `prepare`.
+
 **Compatibility requirement.** A session written by Duo 0.9.0 migrates to
 `{"sessionId":"…"}` under the one word every driver shares, because Core does not
 know your agent's vocabulary. Your `prepare` **must** accept `sessionId` as the
