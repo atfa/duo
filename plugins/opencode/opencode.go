@@ -173,8 +173,8 @@ func (Plugin) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
 	}, nil
 }
 
-func (Plugin) Models(ctx context.Context) (*driver.ModelList, error) {
-	return driver.RunModelList(ctx, ListCommand(), ParseModels)
+func (Plugin) Models() (*driver.ModelList, error) {
+	return driver.RunModelList(context.Background(), ListCommand(), ParseModels)
 }
 
 func (Plugin) Thinking() (*driver.ThinkingOptions, error) {

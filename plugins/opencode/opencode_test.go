@@ -270,3 +270,28 @@ func prepare(t *testing.T, req driver.LaunchRequest) *driver.LaunchPlan {
 	}
 	return plan
 }
+
+// TestDeclaredCapabilitiesAreImplemented is a guard against the one mistake that
+// makes a driver look healthy and behave as if it had no features at all: declaring
+// a capability without implementing the method behind it. Over RPC the plugin
+// answers `unsupported`, the picker comes up empty, and nothing anywhere reports an
+// error — which is exactly how this shipped once.
+//
+// It is cheap, and it is the minimum the contract suite in M6 will generalise.
+func TestDeclaredCapabilitiesAreImplemented(t *testing.T) {
+	var h driver.Handler = New()
+	man, err := h.Describe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if man.Capabilities.Models {
+		if _, ok := h.(driver.ModelLister); !ok {
+			t.Error("capabilities.models is declared but the models method is not implemented")
+		}
+	}
+	if man.Capabilities.Thinking {
+		if _, ok := h.(driver.ThinkingProvider); !ok {
+			t.Error("capabilities.thinking is declared but the thinking method is not implemented")
+		}
+	}
+}
