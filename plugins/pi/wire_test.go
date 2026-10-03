@@ -99,14 +99,23 @@ func TestPluginBinarySpeaksTheProtocol(t *testing.T) {
 		}
 		return
 	}
-	// Being installed is not the same as being usable: a signed-out pi cannot
-	// enumerate its models, and that is the state of the machine rather than a
-	// property of the plugin. Ask the CLI itself, so a genuinely broken models
-	// method is still a failure here — gating on the plugin's own call would let
-	// one excuse itself.
-	if out, err := exec.CommandContext(ctx, probe.AgentPath, "--list-models").CombinedOutput(); err != nil {
+	// Being installed is not the same as being usable, and a signed-out pi says so
+	// by printing a notice and exiting zero rather than by failing. Both shapes
+	// mean the same thing, so both are checked against the CLI itself: gating on
+	// the plugin's own call would let a broken models method excuse itself.
+	out, cliErr := exec.CommandContext(ctx, probe.AgentPath, "--list-models").CombinedOutput()
+	if cliErr != nil {
 		t.Logf("pi cannot list models on this machine, so the catalog is unverified: %v: %s",
-			err, strings.TrimSpace(string(out)))
+			cliErr, strings.TrimSpace(string(out)))
+		return
+	}
+	// An exit code alone does not tell you the CLI can enumerate. Parse what it
+	// printed with the same parser the plugin uses, so "the CLI answered with a
+	// catalog" is the question being asked. Parser rot cannot hide here: the parse
+	// is pinned by fixture tests that do not involve this subprocess.
+	if parsed, perr := pi.ParseListModels(string(out)); perr != nil || len(parsed) == 0 {
+		t.Logf("pi printed no usable catalog on this machine, so the catalog is unverified: %s",
+			strings.TrimSpace(string(out)))
 		return
 	}
 	list, err := c.Models(ctx)
