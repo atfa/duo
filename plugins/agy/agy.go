@@ -69,6 +69,22 @@ type Plugin struct {
 	// not tear down and re-establish a connection upstream would see as an
 	// outage.
 	sink *bridgeSink
+	// conversation is the last conversation this process resolved for a launch
+	// and reports through State, and logFile the file it was learned from.
+	// Prepare writes both under mu; the learn additionally writes learned. A
+	// blob Core passed in must never masquerade as a discovery: only learned
+	// (set solely by the log learn) wins over the blob on a later prepare, so
+	// each launch derives from its own state unless agy itself said otherwise.
+	// State returns all of it, so a discovery made after launch — when
+	// prepare's frozen blob can no longer describe reality — still reaches disk
+	// at save time.
+	conversation string
+	learned      string
+	logFile      string
+	// closed marks Close as terminal so a learn still in flight cannot
+	// resurrect the observer and bridge endpoint after the session that owned
+	// them ended.
+	closed bool
 }
 
 // New returns the Agy driver. Activity reaches Core through this process's own
@@ -149,7 +165,31 @@ func (p *Plugin) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
 			}
 		}
 	}
+	logFile := prior.LogFile
+	// A stale log from an earlier run must never be read as this run's: the
+	// adapter learns the conversation id from it. The name is stable across runs
+	// so a resume keeps reading the same file, and carries the agent so two
+	// agents never watch each other's conversation.
+	if logFile == "" {
+		who := strings.ToLower(strings.TrimSpace(string(req.Agent)))
+		if who == "" {
+			who = "agent"
+		}
+		logFile = filepath.Join(os.TempDir(), fmt.Sprintf("duo-agy-%s.log", who))
+	}
+
+	// A conversation agy itself reported beats the blob Core sent: the blob is
+	// what was true at the last save, the learn is what agy did afterwards. The
+	// read and the write share one critical section so a learn racing this
+	// prepare cannot be overwritten by a value read before it happened.
+	p.mu.Lock()
 	conversation := prior.conversation()
+	if learned := p.learned; learned != "" {
+		conversation = learned
+	}
+	p.conversation = conversation
+	p.logFile = logFile
+	p.mu.Unlock()
 
 	// An agent runs unattended in its own worktree, so the interactive workspace
 	// trust prompt must not block it.
@@ -177,18 +217,6 @@ func (p *Plugin) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
 		parts = append(parts, "--dangerously-skip-permissions")
 	}
 
-	logFile := prior.LogFile
-	// A stale log from an earlier run must never be read as this run's: the
-	// adapter learns the conversation id from it. The name is stable across runs
-	// so a resume keeps reading the same file, and carries the agent so two
-	// agents never watch each other's conversation.
-	if logFile == "" {
-		who := strings.ToLower(strings.TrimSpace(string(req.Agent)))
-		if who == "" {
-			who = "agent"
-		}
-		logFile = filepath.Join(os.TempDir(), fmt.Sprintf("duo-agy-%s.log", who))
-	}
 	if !strings.Contains(command, "--log-file") {
 		parts = append(parts, "--log-file "+driver.ShellQuote(logFile))
 	}
@@ -242,11 +270,24 @@ func (p *Plugin) startObserver(req driver.LaunchRequest, conversation string, st
 			}
 			p.mu.Lock()
 			defer p.mu.Unlock()
-			if p.watcher != nil {
+			if p.closed {
 				return
 			}
-			p.watcher = NewAgyWatcher(protocol.AgentID(req.Agent), TranscriptPath(id), p.bridge(protocol.AgentID(req.Agent), req))
-			p.watcher.Start(context.Background())
+			// The id is recorded before any watcher bookkeeping: a watcher
+			// already running must not be what costs Core the conversation.
+			p.conversation = id
+			p.learned = id
+			// An existing watcher tailing a different conversation is left
+			// over from a previous launch; it would report activity no agent
+			// is producing while the real conversation goes unobserved.
+			if want := TranscriptPath(id); want != "" && p.watcher != nil && p.watcher.transcriptPath != want {
+				p.watcher.Stop()
+				p.watcher = nil
+			}
+			if p.watcher == nil {
+				p.watcher = NewAgyWatcher(protocol.AgentID(req.Agent), TranscriptPath(id), p.bridge(protocol.AgentID(req.Agent), req))
+				p.watcher.Start(context.Background())
+			}
 		}()
 		return
 	}
@@ -270,12 +311,28 @@ func (p *Plugin) bridge(agent protocol.AgentID, req driver.LaunchRequest) *bridg
 	return p.sink
 }
 
+// State reports what this plugin has learned for itself: the conversation agy
+// opened and the log file it was learned from. It is the only moment a discovery
+// made after launch can reach disk — the blob passed to prepare was frozen
+// before the agent ever ran. An empty object means this process has learned
+// nothing yet (or has just respawned), and Core keeps the blob it already has
+// instead of replacing it.
+func (p *Plugin) State() (json.RawMessage, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return json.Marshal(state{
+		ConversationID: p.conversation,
+		LogFile:        p.logFile,
+	})
+}
+
 // Close stops the observer and releases the endpoint. An out-of-process plugin
 // reaches this when Core closes the plugin; a built-in driver reaches it when
 // the session ends.
 func (p *Plugin) Close() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	p.closed = true
 	if p.watcher != nil {
 		p.watcher.Stop()
 		p.watcher = nil
