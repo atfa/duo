@@ -34,6 +34,8 @@ install -m 0755 "$tmp/duo" "$bin_dir/duo"
 [ -f "$tmp/duo-pi" ] && install -m 0755 "$tmp/duo-pi" "$bin_dir/duo-pi"
 [ -f "$tmp/duo-agy" ] && install -m 0755 "$tmp/duo-agy" "$bin_dir/duo-agy"
 [ -f "$tmp/duo-opencode" ] && install -m 0755 "$tmp/duo-opencode" "$bin_dir/duo-opencode"
+[ -f "$tmp/duo-plugin-pi" ] && install -m 0755 "$tmp/duo-plugin-pi" "$bin_dir/duo-plugin-pi"
+[ -f "$tmp/duo-plugin-example" ] && install -m 0755 "$tmp/duo-plugin-example" "$bin_dir/duo-plugin-example"
 rm -rf "$extension_dir"
 cp -R "$tmp/pi-extension" "$extension_dir"
 

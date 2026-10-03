@@ -58,17 +58,24 @@ func IsBuiltin(name string) bool {
 // agent, so an Agent Adapter has everything it needs to reach Duo's bridge
 // without Core having to invent a second channel.
 func Resolve(ctx context.Context, name string, env []string, report func(error)) (Caller, error) {
+	// A plugin executable wins over an in-process built-in. That ordering is what
+	// makes the move to real plugins progressive and safe in both directions:
+	// installing duo-plugin-pi puts Pi on the protocol for real, and uninstalling it
+	// falls back to the identical Handler running inside Duo, so `--agent pi` never
+	// depends on which is present.
+	if path, found := Lookup(name); found {
+		// The environment handed to a plugin process is exactly the one Core gives
+		// an agent, so an Agent Adapter has everything it needs to reach Duo's bridge
+		// without Core inventing a second channel.
+		return NewSupervised(name, SupervisedOptions{Path: path, Env: env, Report: report}), nil
+	}
 	builtinMu.Lock()
 	factory, ok := builtins[name]
 	builtinMu.Unlock()
 	if ok {
 		return NewBuiltin(name, factory()), nil
 	}
-	path, found := Lookup(name)
-	if !found {
-		return nil, &NotFoundError{Driver: name}
-	}
-	return NewSupervised(name, SupervisedOptions{Path: path, Env: env, Report: report}), nil
+	return nil, &NotFoundError{Driver: name}
 }
 
 // ResolveAll resolves one Caller per agent for a session, reporting a missing

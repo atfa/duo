@@ -177,7 +177,7 @@ func (Plugin) Models(ctx context.Context) (*driver.ModelList, error) {
 	return driver.RunModelList(ctx, ListCommand(), ParseModels)
 }
 
-func (Plugin) Thinking(ctx context.Context) (*driver.ThinkingOptions, error) {
+func (Plugin) Thinking() (*driver.ThinkingOptions, error) {
 	return &driver.ThinkingOptions{Levels: []string{"off", "low", "medium", "high"}, Default: "medium"}, nil
 }
 

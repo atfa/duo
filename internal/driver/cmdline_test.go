@@ -56,8 +56,13 @@ func TestAppendFlagRespectsAnOperatorsChoice(t *testing.T) {
 	if got := AppendFlag("agy --model mine", "--model", "theirs"); got != "agy --model mine" {
 		t.Errorf("AppendFlag overrode an operator's flag: %q", got)
 	}
-	if got := AppendFlag("agy run", "--auto", ""); got != "agy run --auto ''" {
-		t.Errorf("AppendFlag with an empty value = %q", got)
+	// An empty value adds nothing at all: "--model ''" is a flag whose argument is
+	// the empty string, which a CLI that validates arguments will reject.
+	if got := AppendFlag("agy run", "--model", ""); got != "agy run" {
+		t.Errorf("AppendFlag with an empty value = %q, want no flag added", got)
+	}
+	if got := AppendFlag("agy run", "--auto", "1"); got != "agy run --auto '1'" {
+		t.Errorf("AppendFlag with a valueless flag = %q", got)
 	}
 }
 

@@ -137,16 +137,20 @@ func (Plugin) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
 	}, nil
 }
 
-func (Plugin) Models(ctx context.Context) (*driver.ModelList, error) {
-	command := ListCommand()
-	return driver.RunModelList(ctx, command, ParseListModels)
+func (Plugin) Models() (*driver.ModelList, error) {
+	return driver.RunModelList(context.Background(), ListCommand(), ParseListModels)
 }
 
-func (Plugin) Thinking(ctx context.Context) (*driver.ThinkingOptions, error) {
-	return &driver.ThinkingOptions{Levels: ThinkingLevels, Default: ThinkingLevels[2]}, nil
+func (Plugin) Thinking() (*driver.ThinkingOptions, error) {
+	return &driver.ThinkingOptions{Levels: ThinkingLevels, Default: DefaultThinking}, nil
 }
 
 // ThinkingLevels are the levels Pi understands, in escalation order. Pi clamps a
-// level to what the current model supports, so this is the order Core cycles and
-// the plugin reports back whatever Pi settled on.
+// level to what the current model supports, so this is the order Core cycles and the
+// plugin reports back whatever Pi settled on.
 var ThinkingLevels = []string{"off", "minimal", "low", "medium", "high", "xhigh", "max"}
+
+// DefaultThinking is the level a picker shows before Pi has reported one. It is a
+// middle setting on purpose: low costs almost nothing and high can be very slow, so
+// neither extreme is a sensible starting guess for an unattended agent.
+const DefaultThinking = "medium"
