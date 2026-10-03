@@ -72,11 +72,12 @@ func (a *App) isConnected(id protocol.AgentID) bool {
 	if a.server != nil && a.server.IsConnected(id) {
 		return true
 	}
-	// pi always reports itself over the bridge. The other drivers may not have a
-	// usable bridge yet: agy has none at all, and opencode's only attaches once
-	// its TUI has a session. A running process is still a present agent, and
-	// showing it as "connecting" hid the fact that it was ready to work.
-	return a.driverName(id) != "pi" && a.processState(id) == agent.ProcessRunning
+	// A driver that reports itself over the bridge counts as present only when
+	// that endpoint is there. One that cannot announce itself at launch — its
+	// bridge attaches once the agent has a session — is present as soon as its
+	// process is running: showing it as "connecting" hid the fact that it was
+	// ready to work.
+	return !a.selfReports(id) && a.processState(id) == agent.ProcessRunning
 }
 
 func (a *App) previewHeader(agent protocol.AgentID, width int) string {

@@ -733,7 +733,9 @@ func (c *Coordinator) handleModelState(agent protocol.AgentID, message protocol.
 		return
 	}
 	ref := model
-	if provider != "" && provider != "agy" && !strings.HasPrefix(model, provider+"/") {
+	// A bare-reference driver reports its id complete; only a driver that spells
+	// models "provider/id" gets the reported provider joined back on.
+	if provider != "" && !c.agents.ManifestFor(agent).Bare() && !strings.HasPrefix(model, provider+"/") {
 		ref = provider + "/" + model
 	}
 	c.modelMu.Lock()

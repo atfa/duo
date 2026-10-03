@@ -234,7 +234,7 @@ func (a *App) route(event events.Event) {
 			a.currentModel = map[protocol.AgentID]string{}
 		}
 		ref := event.Model
-		if event.Provider != "" && event.Provider != "agy" && !strings.HasPrefix(ref, event.Provider+"/") {
+		if event.Provider != "" && !a.agents.ManifestFor(event.Agent).Bare() && !strings.HasPrefix(ref, event.Provider+"/") {
 			ref = event.Provider + "/" + ref
 		}
 		a.currentModel[event.Agent] = ref

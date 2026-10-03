@@ -354,7 +354,7 @@ func (m *previewMockDriver) SetModel(model string)              {}
 func TestPreviewHeaderAgyRunningState(t *testing.T) {
 	a := testApp(100, 30)
 	mgr := agent.NewManager()
-	mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "agy", state: agent.ProcessRunning})
+	mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "agy", state: agent.ProcessRunning, lateBridge: true})
 	mgr.Add(&previewMockDriver{agentID: protocol.Tony, driverType: "pi", state: agent.ProcessRunning})
 	a.agents = mgr
 
@@ -371,7 +371,7 @@ func TestPreviewHeaderAgyRunningState(t *testing.T) {
 	}
 
 	// When agy process fails, it should show "failed [Restart]"
-	mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "agy", state: agent.ProcessFailed})
+	mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "agy", state: agent.ProcessFailed, lateBridge: true})
 	austinFailedHeader := a.previewHeader(protocol.Austin, 50)
 	if !strings.Contains(austinFailedHeader, "failed [Restart]") {
 		t.Fatalf("austinFailedHeader = %q, want 'failed [Restart]'", austinFailedHeader)

@@ -70,10 +70,11 @@ func TestApplySelectedModelReportsFailedRestart(t *testing.T) {
 	}
 }
 
-// A pi driver takes the model over the bridge, so no restart is needed and
-// currentModel must still be recorded.
+// A driver that declares a live model switch takes the model over the bridge,
+// so no restart is needed and currentModel must still be recorded.
 func TestApplySelectedModelRecordsModelForBridgeDriver(t *testing.T) {
 	a, drv := restartFailureFixture(t, "pi")
+	drv.liveModelSwitch = true
 
 	a.applySelectedModel(context.Background(), false)
 
