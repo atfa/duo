@@ -146,6 +146,18 @@ func RunContract(ctx context.Context, path, workDir string) Report {
 		}
 	}
 
+	// A resume: server driver mints its own identity after prepare has run, so
+	// state is the only way that identity can reach the disk. Without it every
+	// launch silently opens a new conversation, which no other check here can see:
+	// prepare round-trips its own blob perfectly while the conversation forks.
+	if manifest.Capabilities.Resume == ResumeServer {
+		if _, err := client.State(ctx); err != nil {
+			report.add("resume-server-state", false, "capabilities.resume is `server` but state is not implemented, so an identity learned after launch can never be saved: %v", err)
+		} else {
+			report.add("resume-server-state", true, "state answered")
+		}
+	}
+
 	// --- capabilities agree with the methods implemented ----------------------
 	// A declared capability with no method behind it is the failure mode that costs
 	// a user a feature which appears to exist and does nothing.

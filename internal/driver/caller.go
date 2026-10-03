@@ -19,6 +19,11 @@ type Caller interface {
 	Describe(ctx context.Context) (*Manifest, error)
 	Probe(ctx context.Context) (*ProbeResult, error)
 	Prepare(ctx context.Context, req LaunchRequest) (*LaunchPlan, error)
+	// State is the driver's current resume blob, which can differ from the one
+	// Prepare returned because the agent learned its identity after launch. A
+	// driver with nothing new to report answers ErrUnsupported and Core keeps
+	// the blob it already has.
+	State(ctx context.Context) (json.RawMessage, error)
 	Models(ctx context.Context) (*ModelList, error)
 	Thinking(ctx context.Context) (*ThinkingOptions, error)
 	// Close releases the driver. A plugin process exits; a built-in stops any
@@ -90,6 +95,14 @@ func (b *Builtin) Prepare(ctx context.Context, req LaunchRequest) (*LaunchPlan, 
 		return nil, fmt.Errorf("driver plugin %s: prepare returned no command", b.name)
 	}
 	return plan, nil
+}
+
+func (b *Builtin) State(ctx context.Context) (json.RawMessage, error) {
+	provider, ok := b.handler.(StateProvider)
+	if !ok {
+		return nil, fmt.Errorf("driver plugin %s: %s: %w", b.name, MethodState, ErrUnsupported)
+	}
+	return provider.State()
 }
 
 func (b *Builtin) Models(ctx context.Context) (*ModelList, error) {
@@ -255,6 +268,19 @@ func (s *Supervised) Prepare(ctx context.Context, req LaunchRequest) (*LaunchPla
 	var out *LaunchPlan
 	err := s.invoke(ctx, func(c *Client) error {
 		res, err := c.Prepare(ctx, req)
+		if err != nil {
+			return err
+		}
+		out = res
+		return nil
+	})
+	return out, err
+}
+
+func (s *Supervised) State(ctx context.Context) (json.RawMessage, error) {
+	var out json.RawMessage
+	err := s.invoke(ctx, func(c *Client) error {
+		res, err := c.State(ctx)
 		if err != nil {
 			return err
 		}

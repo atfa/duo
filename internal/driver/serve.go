@@ -40,6 +40,20 @@ type ThinkingProvider interface {
 	Thinking() (*ThinkingOptions, error)
 }
 
+// StateProvider is the current-resume-blob method.
+//
+// prepare runs before the agent starts, so it cannot know the identity an agent
+// mints for itself. A driver with resume: server therefore has to be able to
+// report what it learned afterwards, or every launch opens a new conversation.
+// Core reads state when it saves a snapshot, which is the only moment a value
+// learned mid-session can still reach the disk.
+//
+// It is required for resume: server and optional otherwise, so a driver with
+// nothing to add leaves it out and Core falls back to the blob prepare returned.
+type StateProvider interface {
+	State() (json.RawMessage, error)
+}
+
 // Server answers Core's calls over a byte stream. A plugin's main is two lines:
 //
 //	if err := driver.Serve(os.Stdin, os.Stdout, myPlugin{}); err != nil {
@@ -127,6 +141,16 @@ func dispatch(h Handler, req *Request) (any, error) {
 			}
 		}
 		return h.Prepare(in)
+	case MethodState:
+		provider, ok := h.(StateProvider)
+		if !ok {
+			return nil, errNotImplemented
+		}
+		state, err := provider.State()
+		if err != nil {
+			return nil, err
+		}
+		return StateResult{State: state}, nil
 	case MethodModels:
 		lister, ok := h.(ModelLister)
 		if !ok {

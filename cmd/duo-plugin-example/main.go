@@ -130,6 +130,24 @@ func (plugin) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
 	}, nil
 }
 
+// State reports the resume blob as it stands right now.
+//
+// Only a driver with `resume: server` needs this. Such a driver mints its identity
+// after prepare has already run, so the blob prepare returned cannot contain it —
+// without this method the identity would be lost at the next save and every launch
+// would open a new conversation. This driver is `resume: client` and mints nothing,
+// so Core works perfectly well without the method; it is implemented here to show
+// the shape. Implement State by returning whatever the driver knows now, never by
+// returning an empty blob to mean "nothing to report": Core reads a failed or empty
+// answer as "keep what you had", so an empty blob is a no-op and not an error.
+func (plugin) State() (json.RawMessage, error) {
+	var current struct {
+		SessionID string `json:"sessionId"`
+	}
+	// A real driver returns the identity it has learned since prepare.
+	return json.Marshal(current)
+}
+
 // Models lists the catalog. Core only calls it when Capabilities.Models is set,
 // so a driver that cannot enumerate models simply omits the method.
 func (plugin) Models() (*driver.ModelList, error) {

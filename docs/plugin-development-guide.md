@@ -276,6 +276,28 @@ resumes".
 
 So: send **no** identity until you have a real one.
 
+And once you have one, you have to be able to *report* it, because `prepare` has
+already returned by the time your Agent Adapter learns anything. Declare `resume:
+server` and you must implement `state`:
+
+```go
+type Plugin struct {
+    mu          sync.Mutex
+    conversation string // learned from the Agent Adapter, after prepare
+}
+
+func (p *Plugin) State() (json.RawMessage, error) {
+    p.mu.Lock()
+    defer p.mu.Unlock()
+    return json.Marshal(state{ConversationID: p.conversation})
+}
+```
+
+Keep it in memory, set it when the Adapter reports, and return whatever you know
+now. Prefer it over the stored blob in `prepare` too, so a restart inside one
+session resumes instead of forking. `duo plugin test` fails a driver that declares
+`resume: server` and does not answer `state`.
+
 ### cleanup and notices
 
 `cleanup` lists paths Duo deletes before your next launch. Use it for anything your
@@ -471,6 +493,7 @@ distribution story.
 - [ ] An unset model or effort adds no flag at all
 - [ ] `prepare` accepts `sessionId` in state, for Duo 0.9 compatibility
 - [ ] `resume: server` sends no identity until a real one is known
+- [ ] `resume: server` implements `state` and reports the learned identity
 - [ ] A restart replays the stored state and reattaches
 - [ ] Corrupt state is reported, not treated as a first run
 - [ ] `cleanup` lists anything a stale value could be misread from
@@ -493,6 +516,11 @@ is a flag whose argument is the empty string. Most CLIs reject it.
 
 **Replaying an identity the agent never issued.** Produces a new conversation on every
 launch, with no error anywhere. This is what `resume: server` exists to prevent.
+
+**Learning an identity with nowhere to put it.** `prepare` runs before the agent
+starts, so a `resume: server` driver that does not implement `state` cannot persist
+the id it learns afterwards. Every launch opens a new conversation, and every other
+check still passes. The contract suite now fails this driver.
 
 **Matching flags by substring.** `-c` matches `--config`. The agent silently loses
 its configuration, or its session, depending on which flag you were guarding.

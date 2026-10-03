@@ -176,13 +176,30 @@ func (s *Session) Capabilities() driver.Capabilities {
 // DriverState is the plugin's opaque resume blob for this agent. Core stores it and
 // hands it back on the next launch without reading it. It is named for its owner
 // because State() is already the process state, which is Core's and unrelated.
+//
+// The value is read live rather than taken from the launch plan, because a driver
+// with resume: server learns its identity after prepare has already run. A failed
+// read falls back to the blob from the last successful prepare: a blob that is one
+// launch stale resumes, and a blob that is empty does not.
 func (s *Session) DriverState() json.RawMessage {
 	s.mu.RLock()
+	cached, launched := s.plan, s.plan != nil
+	s.mu.RUnlock()
+
+	if launched && s.cfg.Plugin != nil {
+		// The lock is deliberately not held: this crosses a process boundary and
+		// would otherwise block every reader for the length of a plugin call.
+		if state, err := s.cfg.Plugin.State(context.Background()); err == nil && len(state) > 0 {
+			return state
+		}
+	}
+
+	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.plan == nil || len(s.plan.State) == 0 {
+	if !launched || cached == nil || len(cached.State) == 0 {
 		return s.cfg.PluginState
 	}
-	return s.plan.State
+	return cached.State
 }
 
 // SessionID is the label the plugin reported for this agent's conversation. It goes

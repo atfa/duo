@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/atfa/duo/internal/driver"
@@ -46,15 +47,62 @@ type state struct {
 }
 
 // Plugin is the opencode Host Adapter.
-type Plugin struct{}
+// Plugin is the opencode host adapter. It holds the session identity the Agent
+// Adapter reported, because opencode mints it after launch and prepare has
+// already returned by then.
+type Plugin struct {
+	mu sync.Mutex
+	// learned is the session id opencode assigned, as read from the session file
+	// the Adapter rewrites. Empty until one exists.
+	learned string
+	// file is the session file currently being watched, so a second launch does
+	// not start a second watcher on the same file.
+	file string
+	// watching guards against starting a watcher more than once.
+	watching bool
+}
 
 // New returns the opencode driver.
-func New() driver.Handler { return Plugin{} }
+func New() driver.Handler { return &Plugin{} }
 
 // Register makes opencode available to Duo in-process.
 func Register() { driver.Register(Name, func() driver.Handler { return New() }) }
 
-func (Plugin) Describe() (*driver.Manifest, error) {
+// State reports the resume blob as it stands now, which includes an identity
+// learned after the last prepare. Without it every launch would start a new
+// opencode session and Core could never persist the one in use.
+func (p *Plugin) State() (json.RawMessage, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return json.Marshal(state{SessionID: p.learned, SessionFile: p.file})
+}
+
+// watch starts reading the session file once, in the background. A resume: server
+// driver cannot block prepare waiting for an id that only exists after launch.
+func (p *Plugin) watch(sessionFile string) {
+	if strings.TrimSpace(sessionFile) == "" {
+		return
+	}
+	p.mu.Lock()
+	if p.watching || p.file == sessionFile && p.learned != "" {
+		p.mu.Unlock()
+		return
+	}
+	p.watching, p.file = true, sessionFile
+	p.mu.Unlock()
+
+	go func() {
+		id := LearnSessionID(context.Background(), sessionFile)
+		if id == "" {
+			return
+		}
+		p.mu.Lock()
+		p.learned = id
+		p.mu.Unlock()
+	}()
+}
+
+func (*Plugin) Describe() (*driver.Manifest, error) {
 	return &driver.Manifest{
 		Protocol:    driver.ProtocolVersion,
 		Name:        Name,
@@ -94,7 +142,7 @@ func (Plugin) Describe() (*driver.Manifest, error) {
 	}, nil
 }
 
-func (Plugin) Probe() (*driver.ProbeResult, error) {
+func (*Plugin) Probe() (*driver.ProbeResult, error) {
 	path, err := exec.LookPath(Name)
 	if err != nil {
 		return &driver.ProbeResult{Available: false, Reason: "the opencode CLI is not on PATH"}, nil
@@ -107,7 +155,7 @@ func (Plugin) Probe() (*driver.ProbeResult, error) {
 // --session is only injected once this plugin knows an id opencode has issued. On
 // a first run there is none, and opencode must be allowed to mint its own; the
 // Agent Adapter reports it and the next launch replays it.
-func (Plugin) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
+func (p *Plugin) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
 	var prior state
 	if len(req.State) > 0 {
 		if err := json.Unmarshal(req.State, &prior); err != nil {
@@ -132,7 +180,17 @@ func (Plugin) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
 	// would produce "Session not found" on every launch. It is dropped entirely,
 	// not just withheld from the command line, because the value that is reported
 	// is also the value persisted — keeping it would replay the rejection forever.
-	sessionID := strings.TrimSpace(prior.SessionID)
+	//
+	// What the Adapter has learned wins over the stored blob: the blob describes
+	// the conversation as it was when it was written, and opencode's real session
+	// is the newer truth.
+	p.mu.Lock()
+	learned := p.learned
+	p.mu.Unlock()
+	sessionID := learned
+	if sessionID == "" {
+		sessionID = strings.TrimSpace(prior.SessionID)
+	}
 	if !strings.HasPrefix(sessionID, sessionIDPrefix) {
 		sessionID = ""
 	}
@@ -159,6 +217,14 @@ func (Plugin) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Start reading the session file before Core launches the agent, so the id
+	// exists by the time the next snapshot is written.
+	p.mu.Lock()
+	p.file = sessionFile
+	p.mu.Unlock()
+	if sessionID == "" {
+		p.watch(sessionFile)
+	}
 	return &driver.LaunchPlan{
 		Command: strings.Join(parts, " "),
 		Env: map[string]string{
@@ -173,11 +239,11 @@ func (Plugin) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
 	}, nil
 }
 
-func (Plugin) Models() (*driver.ModelList, error) {
+func (*Plugin) Models() (*driver.ModelList, error) {
 	return driver.RunModelList(context.Background(), ListCommand(), ParseModels)
 }
 
-func (Plugin) Thinking() (*driver.ThinkingOptions, error) {
+func (*Plugin) Thinking() (*driver.ThinkingOptions, error) {
 	return &driver.ThinkingOptions{Levels: []string{"off", "low", "medium", "high"}, Default: "medium"}, nil
 }
 
