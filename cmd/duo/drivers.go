@@ -1,7 +1,6 @@
 package main
 
 import (
-	"github.com/atfa/duo/internal/driver"
 	"github.com/atfa/duo/plugins/agy"
 	"github.com/atfa/duo/plugins/opencode"
 	"github.com/atfa/duo/plugins/pi"
@@ -19,7 +18,3 @@ func registerDrivers() {
 	agy.Register()
 	opencode.Register()
 }
-
-// shippedDrivers lists the driver names Duo ships, for `duo --help` and for the
-// error message when a name is not installed.
-func shippedDrivers() []string { return driver.BuiltinNames() }
