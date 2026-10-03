@@ -158,6 +158,16 @@ func RunContract(ctx context.Context, path, workDir string) Report {
 		}
 	}
 
+	// A driver Core cannot deliver a prompt to is worth saying out loud here. The
+	// failure it prevents is invisible at every other layer: the agent starts, the
+	// session looks healthy, and the prompt simply never arrives.
+	if !reachable(manifest.Capabilities) {
+		report.add("delivery-path", false, "no delivery path: bridge=%q, liveSteering=%v, ptyFallback=%v, so an injected prompt cannot reach this agent and Core will report an error instead",
+			manifest.Capabilities.Bridge, manifest.Capabilities.LiveSteering, manifest.Capabilities.PTYFallback)
+	} else {
+		report.add("delivery-path", true, "an injected prompt can reach this agent")
+	}
+
 	// --- capabilities agree with the methods implemented ----------------------
 	// A declared capability with no method behind it is the failure mode that costs
 	// a user a feature which appears to exist and does nothing.
@@ -522,6 +532,12 @@ func ReferencePluginBinary(ctx context.Context, dir string) (string, error) {
 		return "", fmt.Errorf("build the reference plugin: %v\n%s", err, combined)
 	}
 	return out, nil
+}
+
+// reachable reports whether an injected prompt has any path to the agent at all:
+// a bridge endpoint that can receive one, or a terminal that will act on it.
+func reachable(c Capabilities) bool {
+	return (c.Bridge == BridgeAgent && c.LiveSteering) || c.PTYFallback
 }
 
 // cause names why a call failed in terms an author can act on, keeping a timeout

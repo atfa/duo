@@ -361,3 +361,28 @@ func (deadlinePlugin) Prepare(LaunchRequest) (*LaunchPlan, error) {
 func (deadlinePlugin) Models() (*ModelList, error) {
 	return nil, fmt.Errorf("did not finish: %w", context.DeadlineExceeded)
 }
+
+// TestContractReportsADriverWithNoDeliveryPath drives the fixture that declares
+// bridge:none and ptyFallback:false. The check is the point: a driver Core cannot
+// reach fails the contract instead of being accepted, because otherwise the first
+// symptom is a prompt that vanishes at runtime with nothing logged.
+func TestContractReportsADriverWithNoDeliveryPath(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping subprocess contract test in short mode")
+	}
+	bin := buildPlugin(t, "github.com/atfa/duo/internal/driver/testdata/undeliverable", "duo-plugin-undeliverable")
+
+	report := RunContract(context.Background(), bin, t.TempDir())
+	for _, line := range strings.Split(report.Format(), "\n") {
+		if !strings.Contains(line, "delivery-path") {
+			continue
+		}
+		if !strings.HasPrefix(strings.TrimSpace(line), "FAIL") {
+			t.Fatalf("a driver with no delivery path must fail the contract: %s", line)
+		}
+		if !report.Passed() {
+			return
+		}
+	}
+	t.Fatal("delivery-path was never reported")
+}

@@ -132,6 +132,13 @@ func (c *Coordinator) sendToAgent(ctx context.Context, agent protocol.AgentID, m
 	}
 	if c.agents != nil {
 		if d, ok := c.agents.Driver(agent); ok && d != nil && d.Running() {
+			// The terminal is a delivery path, not a guaranteed one. A driver that
+			// declares ptyFallback false is saying that nothing typed here reaches
+			// it, and writing anyway is the silent drop this gate exists to prevent:
+			// the prompt looks delivered and is gone. Say so instead.
+			if !c.capabilities(agent).PTYFallback {
+				return fmt.Errorf("%s has no delivery path: its driver declares liveSteering=false and ptyFallback=false, so a prompt cannot reach it", agent)
+			}
 			if message.Text != "" {
 				text := message.Text
 				if strings.Contains(text, "\n") {
