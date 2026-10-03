@@ -171,6 +171,7 @@ func (a *App) helpLines(width int) []string {
 		}},
 		{"Delivery", []string{
 			"DONE means the final integrated artifact has been delivered to the original repository.",
+			"At DONE Duo asks Austin to summarise the whole session for you, and the answer arrives as `Austin → Human`.",
 			"If delivery is blocked: duo apply or duo apply <session-id>. Delivery is fast-forward only.",
 			"A merge you finish yourself (git merge --no-ff <final-head>) is recognized as already applied by duo apply.",
 		}},

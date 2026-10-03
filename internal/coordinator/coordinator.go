@@ -62,6 +62,11 @@ type Coordinator struct {
 	// agent's session. See handleAssistant for why it is kept.
 	injectedMu sync.Mutex
 	injected   map[protocol.AgentID]string
+
+	// summaryMu guards summaryRequested, the single final-summary request one
+	// finished round may make. See requestFinalSummary.
+	summaryMu        sync.Mutex
+	summaryRequested bool
 }
 
 // Durability wires a session store into the coordinator.
@@ -444,6 +449,9 @@ func (c *Coordinator) reopenFinishedSession() {
 		c.logf("reopen finished session: %v", err)
 		return
 	}
+	// The finished round has already reported on itself; the new one gets its
+	// own summary when it is delivered.
+	c.unclaimFinalSummary()
 	c.persistNow("session reopened for a new task")
 	c.recordEvent("round_started", map[string]any{"phase": string(snap.Phase)})
 	c.logf("session reopened after DONE → %s for a new human task", snap.Phase)
@@ -1273,6 +1281,7 @@ func (c *Coordinator) deliverFinal(ctx context.Context, _ project.Snapshot) {
 			if err := c.persistStrict("project complete"); err != nil {
 				c.logf("persist completed applied delivery: %v", err)
 			}
+			c.requestFinalSummary(ctx)
 		}
 		return
 	}
@@ -1472,6 +1481,9 @@ func (c *Coordinator) completeDelivery(ctx context.Context, record sessionstore.
 		fmt.Sprintf("delivery complete → %s@%s", applied.TargetBranch, shortSHA(applied.AppliedHead)))
 	c.reportChanges(result.Changes)
 	c.broadcastPhaseAdvance(ctx, previous, project.PhaseDone, done, "")
+	// The round is finished and delivered, so the human gets the account of it
+	// from the agent that did the work rather than from Duo's own notices.
+	c.requestFinalSummary(ctx)
 	return nil
 }
 

@@ -336,6 +336,7 @@ type e2eRuntime struct {
 	coord      *Coordinator
 	state      *project.State
 	server     *transport.Server
+	bus        *events.Bus
 	cancel     context.CancelFunc
 	serverDone <-chan struct{}
 	agents     []*testAgent
@@ -386,7 +387,8 @@ func startE2EWithOptions(t *testing.T, ctx context.Context, scope string, mode p
 	token := "e2e-token"
 	server := transport.NewServer("127.0.0.1:0", e2eSession, token)
 	state := project.NewStateFor(mode)
-	coord := New(server, state, harness.NewTracker(), ws, events.NewBus())
+	bus := events.NewBus()
+	coord := New(server, state, harness.NewTracker(), ws, bus)
 	coord.SetIntegration(workspace.IntegrationResult{
 		AustinBranch: set.Austin.Branch,
 		AustinPath:   set.Austin.Path,
@@ -425,7 +427,7 @@ func startE2EWithOptions(t *testing.T, ctx context.Context, scope string, mode p
 
 	runtime := &e2eRuntime{
 		repo: repo, workspace: ws, set: set, store: store, coord: coord, state: state,
-		server: server, cancel: cancel, serverDone: serverDone,
+		server: server, bus: bus, cancel: cancel, serverDone: serverDone,
 	}
 	t.Cleanup(func() { runtime.Close(t) })
 	return runtime

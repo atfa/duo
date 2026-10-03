@@ -124,6 +124,8 @@ In both modes a phase is a **checkpoint, not a behavioral cage**: Duo does not s
 
 `DONE` is terminal for the round, not for the session. Submitting another task through the Duo composer reopens it for a new round — Fast returns to `RUNNING`, Goal to `PLAN` — and clears the finished round's delivery checkpoint so the follow-up can be verified and delivered on its own. Attaching to an agent's own session (`Ctrl+A` / `Ctrl+T`) does not route a task through Duo, but it stays recoverable in Fast mode: when Austin commits new work there and requests verification, Duo opens a fresh round on the new HEAD instead of rejecting the request, so the follow-up can still be verified and delivered. A repeated request that still names the already-delivered HEAD is rejected, so a stray resend never reopens a delivered session.
 
+When a round reaches `DONE` in either mode, Duo asks Austin to summarise the session for you: how the work actually went, and what the repository now has that it did not have before. Austin answers in a normal message, so the report arrives in the timeline as `Austin → Human`, in bold like the human's own mail. The request is made once per finished round, and the next round reports on itself.
+
 A Goal plan update creates a new version and **invalidates both signatures**, so wording churn has a visible cost. In Goal, a sign-off is bound to an exact commit: if the peer pushes a new commit, the previous review is stale and must be repeated.
 
 ## The Duo tools
