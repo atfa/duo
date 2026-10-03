@@ -42,6 +42,18 @@ type Spec struct {
 	Models []driver.Model
 	// Thinking is the reasoning-effort set the thinking method returns.
 	Thinking []string
+	// LiveState is what the state method reports, which for a resume: server
+	// driver differs from State once the agent has minted its identity. Empty
+	// means the driver implements nothing beyond the required methods, so Core
+	// has to fall back to State.
+	LiveState json.RawMessage
+	// ImplementsState declares that the driver answers state even when it has
+	// nothing to say, so Core has to cope with an empty answer rather than an
+	// `unsupported` one.
+	ImplementsState bool
+	// LiveStateErr makes the state method fail, standing in for a plugin that
+	// crashed or was killed mid-call.
+	LiveStateErr error
 }
 
 // Driver is a stub implementing the plugin protocol's Handler interface.
@@ -156,6 +168,18 @@ func (d *Driver) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
 		Cleanup:         d.spec.Cleanup,
 		Notices:         d.spec.Notices,
 	}, nil
+}
+
+// State reports the blob as it stands now. It answers unsupported when the spec
+// asks for nothing, which is what a driver with no live identity reports.
+func (d *Driver) State() (json.RawMessage, error) {
+	if d.spec.LiveStateErr != nil {
+		return nil, d.spec.LiveStateErr
+	}
+	if len(d.spec.LiveState) == 0 && !d.spec.ImplementsState {
+		return nil, driver.ErrUnsupported
+	}
+	return d.spec.LiveState, nil
 }
 
 func (d *Driver) Models() (*driver.ModelList, error) {

@@ -271,12 +271,21 @@ type ThinkingOptions struct {
 }
 
 // Method names. describe, probe and prepare are required; the rest exist only
-// when the matching capability is true.
+// when the matching capability is true. state is additionally required for
+// every resume: server driver, and optional for everyone else.
 const (
 	MethodDescribe = "describe"
 	MethodProbe    = "probe"
 	MethodPrepare  = "prepare"
+	MethodState    = "state"
 	MethodModels   = "models"
 	MethodThinking = "thinking"
 	MethodClose    = "close"
 )
+
+// StateResult is the answer to MethodState: the plugin's current resume blob,
+// which may differ from the one prepare returned because the agent learned its
+// own identity after launch.
+type StateResult struct {
+	State json.RawMessage `json:"state"`
+}

@@ -122,6 +122,7 @@ capability is true, and Core will not call them otherwise.
 | `describe` | yes | the manifest |
 | `probe` | yes | whether the agent CLI is usable right now |
 | `prepare` | yes | a launch plan |
+| `state` | if `capabilities.resume` is `server` | the resume blob as it stands now |
 | `models` | if `capabilities.models` | the model catalog |
 | `thinking` | if `capabilities.thinking` | reasoning-effort levels |
 | `close` | no | — Core may simply exit the process instead |
@@ -322,7 +323,7 @@ Put whatever your agent needs in it.
 | value | meaning | what `prepare` must do |
 |---|---|---|
 | `client` | your agent adopts an identity you choose. | Mint one on the first run, store it in `state`, and replay it on every later launch. |
-| `server` | your agent assigns the identity itself. | Send **nothing** until your Agent Adapter has learned a real id. Store it, and replay it afterwards. |
+| `server` | your agent assigns the identity itself. | Send **nothing** until your Agent Adapter has learned a real id, then report it through the `state` method and replay it. |
 | `none` | the agent cannot reattach to a previous session. | Store nothing. |
 
 `server` is not a detail. An agent that rejects an id it never issued — answering
@@ -330,6 +331,28 @@ Put whatever your agent needs in it.
 fresh on **every** launch if you hand it an invented id, because the rejected value
 is what gets persisted and replayed. The symptom is an agent that never seems to
 resume, with nothing reporting a problem.
+
+### `state`
+
+No params. Returns `{"state": <blob>}` — the resume blob as it stands *now*.
+
+`prepare` runs before the agent starts, so it cannot know the identity an agent
+assigns to itself. That is fine for `client`, which mints the id up front, and
+impossible for `server`. Without this method a `server` driver has nowhere to put a
+learned identity: Core saves the blob `prepare` returned, so every launch starts a
+new conversation while every other check still passes.
+
+Core calls `state` when it writes a snapshot, which is the only moment a value
+learned mid-session can still reach the disk. Keep the answer in memory on the
+plugin — remember what your Agent Adapter reported — and return it. Return the same
+blob `prepare` returned if you have learned nothing new; returning an empty blob is
+treated as "keep what you already had", not as an error. A `state` call that fails
+or is unimplemented falls back to the last blob `prepare` returned, so a plugin that
+crashes mid-call cannot cost the user the identity they already had.
+
+Declare `state` only when you need it. Core never calls it on a `client` or `none`
+driver, and the contract suite checks the opposite direction: a driver that declares
+`resume: server` and does not answer `state` fails.
 
 **Compatibility requirement.** A session written by Duo 0.9.0 migrates to
 `{"sessionId":"…"}` under the one word every driver shares, because Core does not
@@ -443,6 +466,7 @@ Core starts you            → describe
 Core starts each agent     → prepare          (once per agent, per launch)
                             → Core runs the command you returned
 your Agent Adapter         → connects to Duo's bridge when it can
+Core saves a snapshot      → state            (if you declared resume: server)
 Core restarts an agent     → prepare          (again, with the state from last time)
 Core ends the session      → close, or stdin closes and you exit
 ```

@@ -251,6 +251,17 @@ func (c *Client) Prepare(ctx context.Context, req LaunchRequest) (*LaunchPlan, e
 	return &out, nil
 }
 
+// State asks the plugin what its resume blob is right now. A plugin that
+// implements nothing beyond the required methods answers ErrUnsupported, which
+// is a normal outcome and not a failure.
+func (c *Client) State(ctx context.Context) (json.RawMessage, error) {
+	var out StateResult
+	if err := c.Call(ctx, MethodState, nil, &out); err != nil {
+		return nil, err
+	}
+	return out.State, nil
+}
+
 // Models lists the catalog, and is only valid when Capabilities.Models is set.
 func (c *Client) Models(ctx context.Context) (*ModelList, error) {
 	var out ModelList
