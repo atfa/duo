@@ -4,9 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
-	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -25,13 +23,13 @@ import (
 // while a long turn runs, so it must show the tool, a failure and the streamed
 // text, and must not break the frame's exact geometry.
 func TestWorkPreviewShowsToolFailureAndStreamTail(t *testing.T) {
-	a := testApp(100, 30)
-	a.tracker.Handle(protocol.Austin, protocol.ActivityAgentStart)
-	a.tracker.Handle(protocol.Austin, protocol.ActivityToolStart)
-	a.tracker.Note(protocol.Austin, protocol.ActivityToolStart, "bash", "go test ./...")
-	a.tracker.Handle(protocol.Tony, protocol.ActivityProviderStart)
-	a.tracker.Note(protocol.Tony, protocol.ActivityStream, "", "checking the diff on Tony's branch")
-	a.tracker.NoteError(protocol.Austin, "provider 429")
+	a := newPreview(100, 30)
+	a.Handle(protocol.Austin, protocol.ActivityAgentStart)
+	a.Handle(protocol.Austin, protocol.ActivityToolStart)
+	a.Note(protocol.Austin, protocol.ActivityToolStart, "bash", "go test ./...")
+	a.Handle(protocol.Tony, protocol.ActivityProviderStart)
+	a.Note(protocol.Tony, protocol.ActivityStream, "", "checking the diff on Tony's branch")
+	a.NoteError(protocol.Austin, "provider 429")
 
 	frame := a.buildFrame(renderNormal)
 	plain := ansiPattern.ReplaceAllString(frame, "")
@@ -60,7 +58,7 @@ func TestWorkPreviewShowsToolFailureAndStreamTail(t *testing.T) {
 }
 
 func TestPreviewCanBeHiddenAndIsSkippedWhenShort(t *testing.T) {
-	a := testApp(100, 30)
+	a := newPreview(100, 30)
 	if a.layoutFor(a.width, a.height).preview == 0 {
 		t.Fatal("preview should be visible at 100x30")
 	}
@@ -88,7 +86,7 @@ func TestPreviewCanBeHiddenAndIsSkippedWhenShort(t *testing.T) {
 // The band's rows and the panes' rows are complementary: shrinking one must give
 // the lost rows to the other so the frame always exactly fills the terminal.
 func TestPreviewRowsTradeWithPaneRows(t *testing.T) {
-	a := testApp(100, 40)
+	a := newPreview(100, 40)
 	shown := a.layoutFor(a.width, a.height)
 	a.hidePreview = true
 	hidden := a.layoutFor(a.width, a.height)
@@ -102,7 +100,7 @@ func TestPreviewRowsTradeWithPaneRows(t *testing.T) {
 // The band is the only live view of a long turn, so it has to show the shape of
 // the turn — model, running tool, recent tool trail — not just one word.
 func TestWorkPreviewShowsTurnShape(t *testing.T) {
-	a := testApp(120, 34)
+	a := newPreview(120, 34)
 	a.currentModel = map[protocol.AgentID]string{protocol.Austin: "workbuddy/hy4-preview-f"}
 	a.currentThinking = map[protocol.AgentID]string{protocol.Austin: "high"}
 
@@ -112,16 +110,16 @@ func TestWorkPreviewShowsTurnShape(t *testing.T) {
 		protocol.ActivityToolStart, protocol.ActivityToolError,
 		protocol.ActivityToolStart,
 	} {
-		a.tracker.Handle(protocol.Austin, activity)
+		a.Handle(protocol.Austin, activity)
 	}
-	a.tracker.Note(protocol.Austin, protocol.ActivityAgentStart, "", "")
-	a.tracker.Note(protocol.Austin, protocol.ActivityToolStart, "read", "server.js")
-	a.tracker.Note(protocol.Austin, protocol.ActivityToolEnd, "read", "")
-	a.tracker.Note(protocol.Austin, protocol.ActivityToolStart, "edit", "server.js")
-	a.tracker.Note(protocol.Austin, protocol.ActivityToolEnd, "edit", "")
-	a.tracker.Note(protocol.Austin, protocol.ActivityToolStart, "bash", "node --check server.js")
-	a.tracker.Note(protocol.Austin, protocol.ActivityToolError, "bash", "exit status 1")
-	a.tracker.Note(protocol.Austin, protocol.ActivityToolStart, "bash", "go test ./... -count=1")
+	a.Note(protocol.Austin, protocol.ActivityAgentStart, "", "")
+	a.Note(protocol.Austin, protocol.ActivityToolStart, "read", "server.js")
+	a.Note(protocol.Austin, protocol.ActivityToolEnd, "read", "")
+	a.Note(protocol.Austin, protocol.ActivityToolStart, "edit", "server.js")
+	a.Note(protocol.Austin, protocol.ActivityToolEnd, "edit", "")
+	a.Note(protocol.Austin, protocol.ActivityToolStart, "bash", "node --check server.js")
+	a.Note(protocol.Austin, protocol.ActivityToolError, "bash", "exit status 1")
+	a.Note(protocol.Austin, protocol.ActivityToolStart, "bash", "go test ./... -count=1")
 
 	plain := ansiPattern.ReplaceAllString(a.buildFrame(renderNormal), "")
 	for _, want := range []string{
@@ -136,9 +134,9 @@ func TestWorkPreviewShowsTurnShape(t *testing.T) {
 	}
 
 	// A thinking agent shows the model and level it is thinking with.
-	a.tracker.Handle(protocol.Tony, protocol.ActivityAgentStart)
-	a.tracker.Handle(protocol.Tony, protocol.ActivityProviderStart)
-	a.tracker.Note(protocol.Tony, protocol.ActivityProviderStart, "", "")
+	a.Handle(protocol.Tony, protocol.ActivityAgentStart)
+	a.Handle(protocol.Tony, protocol.ActivityProviderStart)
+	a.Note(protocol.Tony, protocol.ActivityProviderStart, "", "")
 	a.currentModel[protocol.Tony] = "workbuddy/hy4-preview-f"
 	a.currentThinking[protocol.Tony] = "xhigh"
 	plain = ansiPattern.ReplaceAllString(a.buildFrame(renderNormal), "")
@@ -150,43 +148,10 @@ func TestWorkPreviewShowsTurnShape(t *testing.T) {
 // The preview header is now the only live agent state, so it carries the
 // spinner: a running, connected agent must animate frame to frame.
 func TestPreviewHeaderAnimatesWhileTheAgentWorks(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	a := testApp(100, 30)
-
-	go func() { _ = a.server.ListenAndServe(ctx) }()
-	<-a.server.Ready()
-	conn, err := net.Dial("tcp", a.server.Addr())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
-	hello := protocol.Message{Version: protocol.Version, Type: protocol.MsgHello, Agent: protocol.Tony, SessionID: "session", Token: "token"}
-	if err := json.NewEncoder(conn).Encode(hello); err != nil {
-		t.Fatal(err)
-	}
-	for deadline := time.Now().Add(2 * time.Second); !a.server.IsConnected(protocol.Tony) && time.Now().Before(deadline); time.Sleep(time.Millisecond) {
-	}
-	if !a.server.IsConnected(protocol.Tony) {
-		t.Fatal("Tony did not connect")
-	}
-
-	session, err := agent.NewSession(context.Background(), agent.Config{
-		Agent:       protocol.Tony,
-		Dir:         t.TempDir(),
-		Plugin:      agenttest.New("stub").Caller(),
-		BaseCommand: "sleep 30",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer session.Close()
-	a.agents.Add(session)
-	if err := session.Start(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	defer session.Stop()
-	a.tracker.Handle(protocol.Tony, protocol.ActivityProviderStart)
+	a := newPreview(100, 30)
+	a.setDriver(&previewMockDriver{agentID: protocol.Tony, driverType: "pi", state: agent.ProcessRunning})
+	a.setConnected(protocol.Tony, true)
+	a.Handle(protocol.Tony, protocol.ActivityProviderStart)
 
 	for frame, want := range []string{"thinking |", "thinking /", "thinking -", "thinking \\"} {
 		a.frame = frame
@@ -237,23 +202,21 @@ func TestPreviewHeaderShowsContextAndLiveTokenRate(t *testing.T) {
 		{driver: "opencode", agent: protocol.Tony, tokens: 12000, window: 128000, speed: 24.8, wantCtx: "ctx 12k/128k", wantSpd: "25 tok/s"},
 	} {
 		t.Run(tc.driver, func(t *testing.T) {
-			a := testApp(140, 30)
-			mgr := agent.NewManager()
-			mgr.Add(&previewMockDriver{agentID: tc.agent, driverType: tc.driver, state: agent.ProcessRunning})
-			a.agents = mgr
+			a := newPreview(140, 30)
+			a.setDriver(&previewMockDriver{agentID: tc.agent, driverType: tc.driver, state: agent.ProcessRunning})
 
 			// Live streaming state shows both context usage and active token rate
 			if tc.driver == "agy" {
-				a.tracker.Handle(tc.agent, protocol.ActivityAgentStart)
+				a.Handle(tc.agent, protocol.ActivityAgentStart)
 			} else {
-				a.tracker.Handle(tc.agent, protocol.ActivityProviderStart)
+				a.Handle(tc.agent, protocol.ActivityProviderStart)
 			}
-			a.tracker.Handle(tc.agent, protocol.ActivityStream)
+			a.Handle(tc.agent, protocol.ActivityStream)
 			if tc.window > 0 {
-				a.tracker.UpdateContext(tc.agent, tc.tokens, tc.window)
+				a.UpdateContext(tc.agent, tc.tokens, tc.window)
 			}
 			if tc.speed > 0 {
-				a.tracker.UpdateRate(tc.agent, tc.speed)
+				a.UpdateRate(tc.agent, tc.speed)
 			}
 			header := a.previewHeader(tc.agent, 120)
 			if !strings.Contains(header, tc.wantCtx) || !strings.Contains(header, tc.wantSpd) {
@@ -261,7 +224,7 @@ func TestPreviewHeaderShowsContextAndLiveTokenRate(t *testing.T) {
 			}
 
 			// Tool execution clears the active token speed but retains context usage
-			a.tracker.Handle(tc.agent, protocol.ActivityToolStart)
+			a.Handle(tc.agent, protocol.ActivityToolStart)
 			header = a.previewHeader(tc.agent, 120)
 			if !strings.Contains(header, tc.wantCtx) || strings.Contains(header, "tok/s") {
 				t.Fatalf("%s tool execution header = %q, want retained %q without active token rate", tc.driver, header, tc.wantCtx)
@@ -269,9 +232,9 @@ func TestPreviewHeaderShowsContextAndLiveTokenRate(t *testing.T) {
 
 			// Idle state retains context without token rate
 			if tc.driver == "agy" {
-				a.tracker.Handle(tc.agent, protocol.ActivityAgentSettled)
+				a.Handle(tc.agent, protocol.ActivityAgentSettled)
 			} else {
-				a.tracker.Handle(tc.agent, protocol.ActivityProviderEnd)
+				a.Handle(tc.agent, protocol.ActivityProviderEnd)
 			}
 			header = a.previewHeader(tc.agent, 120)
 			if !strings.Contains(header, tc.wantCtx) || strings.Contains(header, "tok/s") {
@@ -282,11 +245,9 @@ func TestPreviewHeaderShowsContextAndLiveTokenRate(t *testing.T) {
 }
 
 func TestPreviewHeaderShowsDriver(t *testing.T) {
-	a := testApp(140, 30)
-	mgr := agent.NewManager()
-	mgr.Add(newPreviewSession(t, "agy", protocol.Austin, "gemini-3.8-flash-low"))
-	mgr.Add(newPreviewSession(t, "pi", protocol.Tony, "workbuddy/deepseek-v4.1-flash"))
-	a.agents = mgr
+	a := newPreview(140, 30)
+	a.setDriver(newPreviewSession(t, "agy", protocol.Austin, "gemini-3.8-flash-low"))
+	a.setDriver(newPreviewSession(t, "pi", protocol.Tony, "workbuddy/deepseek-v4.1-flash"))
 
 	austinHeader := a.previewHeader(protocol.Austin, 70)
 	if !strings.Contains(austinHeader, "Austin preview (agy · gemini-3.8-flash-low)") {
@@ -357,11 +318,9 @@ func (m *previewMockDriver) Model() string                      { return "" }
 func (m *previewMockDriver) SetModel(model string)              {}
 
 func TestPreviewHeaderAgyRunningState(t *testing.T) {
-	a := testApp(100, 30)
-	mgr := agent.NewManager()
-	mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "agy", state: agent.ProcessRunning, lateBridge: true})
-	mgr.Add(&previewMockDriver{agentID: protocol.Tony, driverType: "pi", state: agent.ProcessRunning})
-	a.agents = mgr
+	a := newPreview(100, 30)
+	a.setDriver(&previewMockDriver{agentID: protocol.Austin, driverType: "agy", state: agent.ProcessRunning, lateBridge: true})
+	a.setDriver(&previewMockDriver{agentID: protocol.Tony, driverType: "pi", state: agent.ProcessRunning})
 
 	// Austin (agy running, no TCP server connection) should show "idle" instead of "connecting"
 	austinHeader := a.previewHeader(protocol.Austin, 50)
@@ -376,7 +335,7 @@ func TestPreviewHeaderAgyRunningState(t *testing.T) {
 	}
 
 	// When agy process fails, it should show "failed [Restart]"
-	mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "agy", state: agent.ProcessFailed, lateBridge: true})
+	a.setDriver(&previewMockDriver{agentID: protocol.Austin, driverType: "agy", state: agent.ProcessFailed, lateBridge: true})
 	austinFailedHeader := a.previewHeader(protocol.Austin, 50)
 	if !strings.Contains(austinFailedHeader, "failed [Restart]") {
 		t.Fatalf("austinFailedHeader = %q, want 'failed [Restart]'", austinFailedHeader)
@@ -394,13 +353,11 @@ func TestPreviewBodyReportsExitedProcessInsteadOfWaiting(t *testing.T) {
 		{agent.ProcessFailed, "failed"},
 		{agent.ProcessStopping, "stopping"},
 	} {
-		a := testApp(100, 30)
-		mgr := agent.NewManager()
-		mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "opencode", state: tc.state})
-		mgr.Add(&previewMockDriver{agentID: protocol.Tony, driverType: "pi", state: agent.ProcessRunning})
-		a.agents = mgr
+		a := newPreview(100, 30)
+		a.setDriver(&previewMockDriver{agentID: protocol.Austin, driverType: "opencode", state: tc.state})
+		a.setDriver(&previewMockDriver{agentID: protocol.Tony, driverType: "pi", state: agent.ProcessRunning})
 
-		line := a.previewNow(protocol.Austin, a.tracker.Snapshot(protocol.Austin))
+		line := a.previewNow(protocol.Austin, a.Snapshot(protocol.Austin))
 		if strings.Contains(line, "waiting") {
 			t.Errorf("state %v: preview line = %q, must not read as waiting", tc.state, line)
 		}
@@ -414,11 +371,9 @@ func TestPreviewBodyReportsExitedProcessInsteadOfWaiting(t *testing.T) {
 // first task it has no socket at all. A running process is still a present agent
 // and must not be reported as "connecting".
 func TestPreviewHeaderTreatsRunningOpencodeAsPresent(t *testing.T) {
-	a := testApp(100, 30)
-	mgr := agent.NewManager()
-	mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "opencode", state: agent.ProcessRunning, lateBridge: true})
-	mgr.Add(&previewMockDriver{agentID: protocol.Tony, driverType: "pi", state: agent.ProcessRunning})
-	a.agents = mgr
+	a := newPreview(100, 30)
+	a.setDriver(&previewMockDriver{agentID: protocol.Austin, driverType: "opencode", state: agent.ProcessRunning, lateBridge: true})
+	a.setDriver(&previewMockDriver{agentID: protocol.Tony, driverType: "pi", state: agent.ProcessRunning})
 
 	header := a.previewHeader(protocol.Austin, 60)
 	if !strings.Contains(header, "opencode") {
@@ -429,7 +384,7 @@ func TestPreviewHeaderTreatsRunningOpencodeAsPresent(t *testing.T) {
 	}
 
 	// Once the process is gone it must report that instead.
-	mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "opencode", state: agent.ProcessExited, lateBridge: true})
+	a.setDriver(&previewMockDriver{agentID: protocol.Austin, driverType: "opencode", state: agent.ProcessExited, lateBridge: true})
 	if header := a.previewHeader(protocol.Austin, 60); !strings.Contains(header, "exited") {
 		t.Fatalf("header = %q, want exited", header)
 	}
@@ -439,15 +394,13 @@ func TestPreviewHeaderTreatsRunningOpencodeAsPresent(t *testing.T) {
 // that cannot announce itself over the bridge has to be announced from state at
 // timeline start. Otherwise it looks absent until its first task.
 func TestAnnounceRunningAgentsCoversBridgeLessDrivers(t *testing.T) {
-	a := testApp(100, 30)
-	mgr := agent.NewManager()
-	mgr.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "opencode", state: agent.ProcessRunning, lateBridge: true})
-	mgr.Add(&previewMockDriver{agentID: protocol.Tony, driverType: "pi", state: agent.ProcessRunning})
-	a.agents = mgr
+	a := newPreview(100, 30)
+	a.setDriver(&previewMockDriver{agentID: protocol.Austin, driverType: "opencode", state: agent.ProcessRunning, lateBridge: true})
+	a.setDriver(&previewMockDriver{agentID: protocol.Tony, driverType: "pi", state: agent.ProcessRunning})
 
 	a.announceRunningAgents()
 
-	joined := timelineText(a)
+	joined := timelineText(a.App)
 	if !strings.Contains(joined, "Austin connected") {
 		t.Fatalf("timeline = %q, want Austin announced", joined)
 	}
@@ -456,13 +409,11 @@ func TestAnnounceRunningAgentsCoversBridgeLessDrivers(t *testing.T) {
 	}
 
 	// An agent that is not running must not be announced.
-	a2 := testApp(100, 30)
-	mgr2 := agent.NewManager()
-	mgr2.Add(&previewMockDriver{agentID: protocol.Austin, driverType: "opencode", state: agent.ProcessExited})
-	mgr2.Add(&previewMockDriver{agentID: protocol.Tony, driverType: "pi", state: agent.ProcessRunning})
-	a2.agents = mgr2
+	a2 := newPreview(100, 30)
+	a2.setDriver(&previewMockDriver{agentID: protocol.Austin, driverType: "opencode", state: agent.ProcessExited})
+	a2.setDriver(&previewMockDriver{agentID: protocol.Tony, driverType: "pi", state: agent.ProcessRunning})
 	a2.announceRunningAgents()
-	if joined := timelineText(a2); strings.Contains(joined, "Austin connected") {
+	if joined := timelineText(a2.App); strings.Contains(joined, "Austin connected") {
 		t.Fatalf("timeline = %q, want no announcement for an exited agent", joined)
 	}
 }

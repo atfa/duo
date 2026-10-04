@@ -253,7 +253,7 @@ func TestTimelineHumanHeadersAreHighlighted(t *testing.T) {
 }
 
 func TestNewEnablesStampedTimeline(t *testing.T) {
-	a := New(nil, nil, nil, nil, nil, nil, nil, "test", nil, nil, nil)
+	a := New(nil)
 	if !a.timeline {
 		t.Fatal("New must enable the timeline main view")
 	}

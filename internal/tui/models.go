@@ -7,7 +7,7 @@ import (
 
 	"github.com/atfa/duo/internal/models"
 	"github.com/atfa/duo/internal/protocol"
-	"github.com/atfa/duo/internal/workspace"
+	"github.com/atfa/duo/internal/session"
 )
 
 // modelsResult carries an asynchronous model catalog read back to the event
@@ -20,42 +20,38 @@ type modelsResult struct {
 }
 
 func (a *App) commandForTarget() string {
-	if a.agents != nil {
-		return a.agents.CommandFor(a.modelTarget)
-	}
-	return ""
+	return a.live.Agent(a.modelTarget).Command
 }
 
 func (a *App) driverType(agent protocol.AgentID) string {
-	if a.agents != nil {
-		return a.agents.DriverTypeFor(agent)
+	if d := a.live.Agent(agent).Driver; d != "" {
+		return d
 	}
 	return "pi"
 }
 
 func (a *App) modelForAgent(agent protocol.AgentID) string {
+	av := a.live.Agent(agent)
 	if m := a.currentModel[agent]; m != "" {
 		// A bare-reference driver only ever displays its own id, so a qualified
 		// value (a stale config entry, say) is shortened to what it accepts.
-		if a.agents.ManifestFor(agent).Bare() && strings.Contains(m, "/") {
+		if av.Manifest.Bare() && strings.Contains(m, "/") {
 			m = m[strings.LastIndex(m, "/")+1:]
 		}
 		return m
 	}
-	if a.agents != nil {
-		if d, ok := a.agents.Driver(agent); ok {
-			if m := d.Model(); m != "" {
-				if d.Manifest().Bare() && strings.Contains(m, "/") {
-					m = m[strings.LastIndex(m, "/")+1:]
-				}
-				return m
-			}
-			return models.Default(d.Manifest())
+	if m := av.Model; m != "" {
+		if av.Manifest.Bare() && strings.Contains(m, "/") {
+			m = m[strings.LastIndex(m, "/")+1:]
 		}
+		return m
 	}
-	// With no driver handle there is no manifest to ask, and Core has no business
-	// keeping a copy of one driver's default to hand to another. An empty model
-	// means the driver resolves its own, which is what it would have done anyway.
+	// With no driver there is no manifest to ask, and Core has no business keeping
+	// a copy of one driver's default to hand to another. An empty model means the
+	// driver resolves its own, which is what it would have done anyway.
+	if av.Manifest != nil {
+		return models.Default(av.Manifest)
+	}
 	return ""
 }
 
@@ -136,13 +132,7 @@ func (a *App) loadModels() {
 	go func() {
 		// The driver answers for itself. Which command it will run is its business,
 		// so command is carried along only to label the result.
-		var src models.Source
-		if a.agents != nil {
-			if d, ok := a.agents.Driver(target); ok {
-				src = d
-			}
-		}
-		list, err := models.Load(context.Background(), src)
+		list, err := a.svc.Models(context.Background(), target)
 		a.modelCh <- modelsResult{agent: target, command: command, models: list, err: err}
 	}()
 }
@@ -158,10 +148,7 @@ func (a *App) applyModelList(res modelsResult) {
 		a.modelErrByAgent[res.agent] = ""
 
 		other := otherAgent(res.agent)
-		otherCmd := ""
-		if a.agents != nil {
-			otherCmd = a.agents.CommandFor(other)
-		}
+		otherCmd := a.live.Agent(other).Command
 		if otherCmd == res.command && !a.modelLoadedByAgent[other] {
 			a.modelsByAgent[other] = res.models
 			a.modelLoadedByAgent[other] = true
@@ -238,47 +225,17 @@ func (a *App) applySelectedModel(ctx context.Context, keepOpen bool) {
 		}
 		return
 	}
-	if err := a.coord.SetModel(ctx, a.modelTarget, model.Provider, model.ID); err != nil {
+	if err := a.svc.Do(ctx, session.SetModel{Agent: a.modelTarget, Provider: model.Provider, Model: model.ID}); err != nil {
 		a.setStatus(err.Error(), true)
-		return
-	}
-	if a.agents != nil {
-		if d, ok := a.agents.Driver(a.modelTarget); ok {
-			// The launch flag needs the provider-qualified reference: opencode
-			// only accepts provider/model and aborts on a bare id. agy strips any
-			// provider prefix itself, and pi takes the model over the bridge.
-			d.SetModel(model.Reference())
-			if !d.Capabilities().LiveModelSwitch {
-				// Without a live switch the model only reaches the agent as a
-				// startup flag, and RestartRunning stops before it starts, so a
-				// failure here leaves the agent dead. Report it instead of
-				// claiming the new model.
-				if err := d.RestartRunning(ctx); err != nil {
-					a.setStatus(fmt.Sprintf("%s model → %s failed: %v", a.modelTarget, model.Reference(), err), true)
-					if !keepOpen {
-						a.closeModelPicker()
-					}
-					return
-				}
-			}
+		if !keepOpen {
+			a.closeModelPicker()
 		}
+		return
 	}
 	if a.currentModel == nil {
 		a.currentModel = make(map[protocol.AgentID]string)
 	}
 	a.currentModel[a.modelTarget] = model.Reference()
-	if a.ws != nil && a.ws.Set().Repository != "" {
-		repoRoot := a.ws.Set().Repository
-		agentDrivers := map[protocol.AgentID]string{
-			protocol.Austin: a.driverType(protocol.Austin),
-			protocol.Tony:   a.driverType(protocol.Tony),
-		}
-		agentModels := map[protocol.AgentID]string{
-			protocol.Austin: a.modelForAgent(protocol.Austin),
-			protocol.Tony:   a.modelForAgent(protocol.Tony),
-		}
-		_ = workspace.SaveProjectConfig(repoRoot, a.driverType(protocol.Austin), agentDrivers, agentModels)
-	}
 	a.setStatus(fmt.Sprintf("%s model → %s", a.modelTarget, model.Reference()), false)
 	if !keepOpen {
 		a.closeModelPicker()

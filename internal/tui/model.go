@@ -6,17 +6,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/atfa/duo/internal/agent"
-	"github.com/atfa/duo/internal/coordinator"
 	"github.com/atfa/duo/internal/events"
-	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/models"
-	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
+	"github.com/atfa/duo/internal/session"
 	"github.com/atfa/duo/internal/sessionstore"
 	"github.com/atfa/duo/internal/terminal"
-	"github.com/atfa/duo/internal/transport"
-	"github.com/atfa/duo/internal/workspace"
 )
 
 type entry struct {
@@ -46,18 +41,13 @@ type paneCache struct {
 }
 
 type App struct {
-	coord   *coordinator.Coordinator
-	state   *project.State
-	tracker *harness.Tracker
-	ws      workspace.Manager
-	server  *transport.Server
-	agents  *agent.Manager
-	bus     *events.Bus
-	journal *sessionstore.EventLog
-	// logs mirrors the journal into Markdown transcripts under the main
-	// repository's .duo/logs, so a finished session is readable without
-	// hunting for its journal or its worktrees.
-	logs *sessionstore.LogWriter
+	// svc is the session this interface projects. It is the only way the interface
+	// reaches or changes anything: rendering reads svc.View(), input issues
+	// commands, and no other part of the workflow is reachable from here.
+	svc Session
+	// live is the most recent View. Panes render from it instead of calling the
+	// session per line, and it is refreshed as events arrive.
+	live session.View
 
 	tty *terminal.TTY
 
@@ -154,20 +144,8 @@ type App struct {
 	selection       paneSelection
 }
 
-func New(
-	coord *coordinator.Coordinator,
-	state *project.State,
-	tracker *harness.Tracker,
-	ws workspace.Manager,
-	server *transport.Server,
-	agents *agent.Manager,
-	bus *events.Bus,
-	version string,
-	history []sessionstore.TUIEntry,
-	journal *sessionstore.EventLog,
-	logs *sessionstore.LogWriter,
-) *App {
-	a := &App{coord: coord, state: state, tracker: tracker, ws: ws, server: server, agents: agents, bus: bus, version: version, journal: journal, logs: logs, historyIdx: -1,
+func New(svc Session) *App {
+	a := &App{svc: svc, historyIdx: -1,
 		history:     loadComposerHistory(),
 		modelTarget: protocol.Austin, modelCh: make(chan modelsResult, 1),
 		modelsByAgent:       map[protocol.AgentID][]models.Model{},
@@ -178,10 +156,22 @@ func New(
 		showTimestamps:      true,
 		currentModel:        map[protocol.AgentID]string{}, currentThinking: map[protocol.AgentID]string{},
 		warnedNotices: map[string]bool{}}
-	for _, item := range history {
-		a.restoreEntry(item)
+	if svc != nil {
+		a.live = svc.View()
+		for _, item := range svc.History() {
+			a.restoreEntry(item)
+		}
 	}
 	return a
+}
+
+// refreshView re-reads the session projection. It is called when an event arrives
+// and before a frame is built, so what is drawn is a snapshot of one moment rather
+// than a mixture of moments.
+func (a *App) refreshView() {
+	if a.svc != nil {
+		a.live = a.svc.View()
+	}
 }
 
 func (a *App) setStatus(text string, isError bool) {
@@ -207,7 +197,7 @@ func (a *App) requestFullClear() {
 // spinnerActive reports whether either agent is doing animated work.
 func (a *App) spinnerActive() bool {
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
-		rt := a.tracker.Snapshot(id)
+		rt := a.live.Runtime(id)
 		if rt.Busy || rt.ProviderActive || rt.ToolDepth > 0 {
 			return true
 		}
@@ -234,7 +224,7 @@ func (a *App) route(event events.Event) {
 			a.currentModel = map[protocol.AgentID]string{}
 		}
 		ref := event.Model
-		if event.Provider != "" && !a.agents.ManifestFor(event.Agent).Bare() && !strings.HasPrefix(ref, event.Provider+"/") {
+		if event.Provider != "" && !a.live.Agent(event.Agent).Manifest.Bare() && !strings.HasPrefix(ref, event.Provider+"/") {
 			ref = event.Provider + "/" + ref
 		}
 		a.currentModel[event.Agent] = ref
@@ -323,13 +313,10 @@ func (a *App) addLabeled(agent protocol.AgentID, label, text string, isError, is
 	item := entry{at: time.Now(), text: text, error: isError, warning: isWarning, label: label}
 	a.appendEntry(agent, item)
 	// One funnel for everything the interface shows, so the journal and the
-	// Markdown transcripts cannot drift apart.
-	if a.journal != nil || a.logs != nil {
-		recorded := sessionstore.TUIEntry{Time: item.at, Pane: string(agent), Text: text, Error: isError, Warning: isWarning, Label: label}
-		if a.journal != nil {
-			a.journal.RecordTUIEntry(recorded)
-		}
-		a.logs.Append(recorded)
+	// Markdown transcripts cannot drift apart. They are session records, so the
+	// session writes them.
+	if a.svc != nil {
+		a.svc.RecordEntry(sessionstore.TUIEntry{Time: item.at, Pane: string(agent), Text: text, Error: isError, Warning: isWarning, Label: label})
 	}
 }
 
@@ -379,10 +366,10 @@ func (a *App) submit(ctx context.Context) bool {
 	if a.runSlashCommand(ctx, text) {
 		return text == "/quit" || text == "/exit"
 	}
-	if a.coord == nil {
+	if a.svc == nil {
 		return false
 	}
-	if err := a.coord.SubmitUserTask(ctx, text); err != nil {
+	if err := a.svc.Do(ctx, session.SubmitTask{Text: text}); err != nil {
 		a.setStatus(err.Error(), true)
 		a.add(protocol.Duo, "ERROR: "+err.Error())
 	} else {

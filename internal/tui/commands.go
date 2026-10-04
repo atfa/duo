@@ -195,9 +195,7 @@ func (a *App) runSlashCommand(ctx context.Context, text string) bool {
 		return true
 	case "/status":
 		status := "Duo status"
-		if a.coord != nil {
-			status = a.coord.StatusText(ctx)
-		}
+		status = a.svc.StatusText(ctx)
 		a.add(protocol.Duo, status)
 		a.setStatus("status reported in timeline", false)
 		return true
@@ -206,7 +204,7 @@ func (a *App) runSlashCommand(ctx context.Context, text string) bool {
 		return true
 	case "/mode":
 		if len(fields) == 1 {
-			mode := a.state.Snapshot().EffectiveMode().Display()
+			mode := a.live.EffectiveMode().Display()
 			a.setStatus(fmt.Sprintf("current mode: %s (use /mode goal to escalate)", mode), false)
 			return true
 		}

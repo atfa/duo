@@ -2,33 +2,17 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
-	"net"
 	"os"
 	"os/signal"
-	"strings"
-	"sync"
 	"syscall"
-	"time"
 
-	"github.com/atfa/duo/internal/agent"
 	"github.com/atfa/duo/internal/clidoc"
-	"github.com/atfa/duo/internal/coordinator"
-	"github.com/atfa/duo/internal/driver"
-	"github.com/atfa/duo/internal/events"
-	"github.com/atfa/duo/internal/harness"
-	"github.com/atfa/duo/internal/project"
-	"github.com/atfa/duo/internal/protocol"
-	"github.com/atfa/duo/internal/recovery"
-	"github.com/atfa/duo/internal/sessionstore"
-	"github.com/atfa/duo/internal/transport"
+	"github.com/atfa/duo/internal/session"
 	"github.com/atfa/duo/internal/tui"
 	"github.com/atfa/duo/internal/version"
-	"github.com/atfa/duo/internal/workspace"
 )
 
 func main() {
@@ -104,508 +88,52 @@ func main() {
 	}
 }
 
-func run(ctx context.Context, cfg config) error {
-	root, err := workspace.FindRoot(ctx, cfg.launchDir)
-	if err != nil {
-		return err
-	}
-	scope, err := workspace.ScopePath(root, cfg.launchDir)
-	if err != nil {
-		return err
-	}
-	baseDir, err := sessionstore.DefaultBaseDir()
-	if err != nil {
-		return err
-	}
-	repoID := sessionstore.RepoID(root)
-
-	if cfg.resume {
-		return runResume(ctx, cfg, root, repoID, baseDir)
-	}
-	return runFresh(ctx, cfg, root, scope, repoID, baseDir)
-}
-
-// runtime holds everything a started session needs. Fresh and resumed sessions
-// differ only in how it is populated.
-type runtime struct {
-	cfg       config
-	repoID    string
-	sessionID string
-	createdAt time.Time
-
-	state *project.State
-	ws    *workspace.GitManager
-	set   workspace.Set
-
-	store   *sessionstore.Store
-	journal *sessionstore.EventLog
-	logger  *sessionstore.Logger
-
-	agents *agent.Manager
-	// driverState is each agent's opaque, plugin-owned state: the driver name plus
-	// the resume blob exactly as the plugin returned it. Duo Core never parses the
-	// blob: it hands the same bytes back on the next launch and lets the plugin
-	// interpret them. It seeds the snapshot's authoritative driverStates field.
-	driverState map[protocol.AgentID]sessionstore.DriverState
-	// piSessions is the downgrade mirror: the bare identity per agent, in the shape
-	// a v0.9.0 binary still reads. It is seeded from the loaded snapshot and kept
-	// current from each driver's SessionID(), never from the blob, so a driver that
-	// spells its identity differently is still mirrored correctly.
-	piSessions map[protocol.AgentID]string
-
-	integration workspace.IntegrationResult
-	delivery    sessionstore.Delivery
-	tuiHistory  []sessionstore.TUIEntry
-	resume      bool
-	mode        project.Mode
-
-	// notices collects diagnostics a driver reported while preparing a launch, for
-	// drivers that prepare before the interface exists to show them.
-	noticeMu sync.Mutex
-	notices  []string
-}
-
-// collectNotice records a diagnostic a driver reported while preparing a launch.
+// run starts a session and attaches the terminal interface to it.
 //
-// Drivers are built before the interface exists, so a notice produced during a
-// launch is buffered here and handed over as soon as there is somewhere to show it.
-// It is the driver's own words: Duo Core hard-codes no warning about any agent.
-func (r *runtime) collectNotice(notices []string) {
-	r.noticeMu.Lock()
-	r.notices = append(r.notices, notices...)
-	r.noticeMu.Unlock()
-}
+// It owns no session state. The whole composition root — repository discovery,
+// worktrees, the durable store, recovery, delivery and the agents — lives in
+// internal/session, so this function differs from any other frontend only in the
+// interface it attaches and the lines it prints afterwards.
+func run(ctx context.Context, cfg config) error {
+	svc := session.New(cfg.sessionOptions())
 
-func (r *runtime) takeNotices() []string {
-	r.noticeMu.Lock()
-	defer r.noticeMu.Unlock()
-	out := r.notices
-	r.notices = nil
-	return out
-}
-
-// pluginEnv is the environment a driver plugin process gets: exactly the one Duo
-// Core gives an agent. An Agent Adapter therefore has everything it needs to reach
-// Duo's bridge without Core inventing a second channel, and no driver-specific
-// variable is set for a driver that does not own it.
-func pluginEnv(r *runtime, id protocol.AgentID, host, port, token string) []string {
-	// The operator's environment comes first and Duo's own variables are appended
-	// after it, so ours win: the process reads the later of two identical names.
-	//
-	// The world the agent gets is the world the plugin runs in. Withholding it
-	// looks harmless and is not — HOME is where every one of these CLIs keeps its
-	// configuration and credentials, and PATH is how a plugin finds the CLI it
-	// wraps. Without them a plugin silently answered from a hardcoded default and
-	// reported a CLI missing that was sitting right there on PATH.
-	return append(os.Environ(), []string{
-		"DUO_ACTIVE=1",
-		"DUO_AGENT=" + string(id),
-		"DUO_MODE=" + r.mode.String(),
-		"DUO_HOST=" + host,
-		"DUO_PORT=" + port,
-		"DUO_SESSION=" + r.sessionID,
-		"DUO_TOKEN=" + token,
-		"DUO_REPOSITORY_ROOT=" + r.set.Repository,
-		"DUO_SCOPE_PATH=" + r.set.ScopePath,
-	}...)
-}
-
-// composeSnapshot builds the durable snapshot. When coord is nil the
-// integration result is empty, which is exactly right for a fresh session.
-func (r *runtime) composeSnapshot(coord *coordinator.Coordinator) sessionstore.Snapshot {
-	integration := r.integration
-	deliveryState := r.delivery
-	if coord != nil {
-		integration = coord.CurrentIntegration()
-		deliveryState = coord.CurrentDelivery()
-	}
-	driverStates := make(map[protocol.AgentID]sessionstore.DriverState, len(r.driverState))
-	for k, v := range r.driverState {
-		driverStates[k] = v
-	}
-	piSessions := make(map[protocol.AgentID]string, len(r.piSessions))
-	for k, v := range r.piSessions {
-		if strings.TrimSpace(v) != "" {
-			piSessions[k] = v
-		}
-	}
-	agentDrivers := make(map[protocol.AgentID]string)
-	agentModels := make(map[protocol.AgentID]string)
-	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
-		if r.cfg.agentDrivers != nil && r.cfg.agentDrivers[id] != "" {
-			agentDrivers[id] = r.cfg.agentDrivers[id]
-		}
-		if r.cfg.agentModels != nil && r.cfg.agentModels[id] != "" {
-			agentModels[id] = r.cfg.agentModels[id]
-		}
-	}
-	if r.agents != nil {
-		for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
-			d, ok := r.agents.Driver(id)
-			if !ok {
-				continue
-			}
-			if dt := d.DriverType(); dt != "" {
-				agentDrivers[id] = dt
-			}
-			if m := d.Model(); m != "" {
-				agentModels[id] = m
-			}
-			// What the driver learned this run wins over anything loaded, or a
-			// driver that learned its identity would keep replaying the previous one.
-			if state := d.DriverState(); len(state) > 0 {
-				if dt := d.DriverType(); dt != "" {
-					driverStates[id] = sessionstore.DriverState{Driver: dt, State: state}
-				}
-			}
-			// The mirror follows the identity the driver reports — the same value
-			// v0.9.0 persisted — never a field read out of the blob.
-			if sid := d.SessionID(); sid != "" {
-				piSessions[id] = sid
-			}
-		}
-	}
-	if coord != nil {
-		for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
-			if m := coord.Model(id); m != "" {
-				agentModels[id] = m
-			}
-		}
-	}
-	return recovery.Compose(recovery.ComposeInput{
-		DuoVersion:   version.Version,
-		SessionID:    r.sessionID,
-		RepoID:       r.repoID,
-		Repository:   r.set.Repository,
-		BaseBranch:   r.set.BaseBranch,
-		BaseCommit:   r.set.BaseCommit,
-		CreatedAt:    r.createdAt,
-		Project:      r.state.Snapshot(),
-		Worktrees:    r.set,
-		PiSessions:   piSessions,
-		DriverStates: driverStates,
-		AgentDrivers: agentDrivers,
-		AgentModels:  agentModels,
-		Integration:  integration,
-		Delivery:     deliveryState,
-	})
-}
-
-// runFresh creates new worktrees, a new session store and a new checkpoint.
-func runFresh(ctx context.Context, cfg config, root, scope, repoID, baseDir string) error {
-	ws := workspace.NewGitManager(workspace.GitConfig{
-		Repository: root,
-		ScopePath:  scope,
-		Root:       cfg.worktreeRoot,
-		Session:    cfg.session,
-		BaseRef:    cfg.baseRef,
-	})
-	set, err := ws.Prepare(ctx)
-	if err != nil {
-		return fmt.Errorf("prepare Duo worktrees: %w", err)
-	}
-	_ = workspace.EnsureGitIgnore(root)
-	_ = workspace.SaveProjectConfig(root, cfg.agentDriver(protocol.Austin), cfg.agentDrivers, cfg.agentModels)
-
-	store, err := sessionstore.New(baseDir, repoID, set.Session)
+	result, err := svc.Start(ctx)
 	if err != nil {
 		return err
 	}
-	// Plain `duo` always starts a new session; it must never silently overwrite
-	// an earlier unfinished one.
-	if store.Exists() {
-		return fmt.Errorf(
-			"Duo session %q already exists for this repository; run `duo --resume %s` to continue it",
-			set.Session, set.Session,
-		)
-	}
-
-	lock, err := store.Lock()
-	if err != nil {
-		return err
-	}
-	defer lock.Release()
-
-	r := &runtime{
-		cfg:         cfg,
-		repoID:      repoID,
-		sessionID:   set.Session,
-		createdAt:   time.Now().UTC(),
-		state:       project.NewStateFor(cfg.mode),
-		ws:          ws,
-		set:         set,
-		store:       store,
-		journal:     store.OpenEvents(),
-		logger:      store.OpenLog(),
-		driverState: map[protocol.AgentID]sessionstore.DriverState{},
-		piSessions:  map[protocol.AgentID]string{},
-		mode:        cfg.mode,
-	}
-	r.logger.Printf("starting Duo %s session %s mode=%s (source=%s) repository=%s scope=%s", version.Version, r.sessionID, r.mode, r.cfg.modeSource, root, set.ScopePath)
-	r.journal.Record("session_start", map[string]any{
-		"sessionId":  r.sessionID,
-		"mode":       r.mode.String(),
-		"phase":      string(r.state.Snapshot().Phase),
-		"baseCommit": set.BaseCommit,
-		"repository": set.Repository,
-		"scope":      set.ScopePath,
-		"duoVersion": version.Version,
-	})
-
-	// The initial checkpoint must exist before any agent starts, so a crash
-	// during startup is still resumable.
-	if err := r.store.Save(r.composeSnapshot(nil)); err != nil {
-		return err
-	}
-	return r.serve(ctx)
-}
-
-// serve starts the bridge, both Pi agents, the harness and the TUI. It is shared
-// by fresh and resumed sessions so crash recovery cannot diverge from normal
-// startup.
-func (r *runtime) serve(ctx context.Context) error {
-	token, err := sessionToken()
-	if err != nil {
-		return fmt.Errorf("create Duo session token: %w", err)
-	}
-	r.logger.AddSecret(token)
-
-	server := transport.NewServer(r.cfg.listen, r.sessionID, token)
-	tracker := harness.NewTracker()
-	bus := events.NewBus()
-	coord := coordinator.New(server, r.state, tracker, r.ws, bus)
-
-	// Duo Core's whole knowledge of which coding agents it ships. Each is a Driver
-	// Plugin running in-process until its milestone moves it out.
-	registerDrivers()
-	if r.cfg.testCommand != "" {
-		coord.SetTestCommand(r.cfg.testCommand)
-	}
-	coord.SetIntegration(r.integration)
-	coord.SetDelivery(r.delivery)
-	coord.EnableDurability(coordinator.Durability{
-		Store:  r.store,
-		Events: r.journal,
-		Log:    r.logger,
-		Compose: func(project.Snapshot) sessionstore.Snapshot {
-			return r.composeSnapshot(coord)
-		},
-	})
-	if r.resume {
-		coord.EnableResumeWake()
-	}
-	server.SetHandler(coord)
-
-	serverErr := make(chan error, 1)
-	go func() { serverErr <- server.ListenAndServe(ctx) }()
-	select {
-	case <-server.Ready():
-	case err := <-serverErr:
-		if err != nil {
-			return err
-		}
-		return nil
-	case <-ctx.Done():
+	// A session that is already finished needs no interface: the artifact is in the
+	// user's repository, or delivery is pending and only a human can unblock it.
+	if result.Finished {
+		reportDelivery(result.Outcome)
 		return nil
 	}
 
-	host, port := bridgeAddress(server.Addr())
-	agents := agent.NewManager()
-	r.agents = agents
-	agents.SetObserver(func(event agent.LifecycleEvent) {
-		fields := map[string]any{"agent": string(event.Agent), "state": event.State.String()}
-		if event.Err != nil {
-			fields["error"] = event.Err.Error()
-		}
-		r.journal.Record(event.Kind, fields)
-		switch event.Kind {
-		case "agent_start":
-			// A driver whose bridge cannot announce itself is announced here
-			// instead, so every agent produces the same "connected" signal at the
-			// same moment. The answer is the driver's declared capability, not its
-			// name.
-			if d, ok := agents.Driver(event.Agent); ok && !d.Capabilities().SelfReports {
-				bus.Emit(events.Event{Time: time.Now(), Kind: events.KindSystem, Agent: event.Agent, Text: fmt.Sprintf("%s connected", event.Agent)})
-			}
-		case "agent_start_failed", "agent_restart":
-			if event.Err != nil {
-				r.logger.Printf("%s %s failed: %v", event.Agent, event.Kind, event.Err)
-			}
-		case "agent_exit":
-			r.logger.Printf("%s exited (state=%s): %v", event.Agent, event.State, event.Err)
-			// A driver that refuses to run says why once, on its own output, and
-			// "exit status 1" alone leaves the operator guessing. Write the reason
-			// to the session log and repeat it in the interface, so the cause is
-			// where the failure is reported.
-			if reason := strings.TrimSpace(event.Output); reason != "" {
-				r.logger.Printf("%s output before exit:\n%s", event.Agent, indentBlock(reason))
-				// Addressed to Duo's own pane, which is the timeline: the failed
-				// agent's pane already shows the raw stream, and repeating it
-				// there would bury the reason under a second "ERROR:".
-				bus.Emit(events.Event{
-					Time:  time.Now(),
-					Kind:  events.KindError,
-					Agent: protocol.Duo,
-					Text:  fmt.Sprintf("%s exited (%s):\n%s", event.Agent, exitReason(event), reason),
-				})
-			}
-		}
-		bus.Emit(events.Event{Time: time.Now(), Kind: events.KindActivity, Agent: event.Agent})
-	})
-
-	for _, agentID := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
-		wt, ok := r.set.For(agentID)
-		dir, hasDir, err := r.set.AgentDir(agentID)
-		if err != nil {
-			return err
-		}
-		if !ok || wt.Path == "" || !hasDir {
-			return fmt.Errorf("session has no worktree for %s", agentID)
-		}
-		driverName := r.cfg.agentDriver(agentID)
-
-		// One lookup for every agent: a driver Duo ships in-process, or a plugin
-		// executable found on disk. The switch that used to be here is the thing
-		// this whole refactor removes — Core asked nothing of a driver and guessed
-		// from its name instead.
-		plugin, err := driver.Resolve(ctx, driverName, pluginEnv(r, agentID, host, port, token), func(err error) {
-			r.logger.Printf("%s: driver plugin: %v", agentID, err)
-			bus.Emit(events.Event{Time: time.Now(), Kind: events.KindError, Agent: protocol.Duo, Text: fmt.Sprintf("%s driver plugin: %v", agentID, err)})
-		})
-		if err != nil {
-			return fmt.Errorf("%s: %w", agentID, err)
-		}
-		if probe, err := plugin.Probe(ctx); err == nil && !probe.Available {
-			// Not fatal: the agent CLI may be a wrapper that only exists inside the
-			// agent's own worktree, and the failure is reported in context if it
-			// turns out to matter. The reason is always shown.
-			r.logger.Printf("%s: driver %s unavailable: %s", agentID, driverName, probe.Reason)
-		}
-
-		// The driver answers for itself now that it is resolved: the binary to run
-		// and the model to start on come from its manifest, not from Core's guess at
-		// what a driver of this name wants.
-		baseCommand, modelName, effort := r.cfg.resolveDriver(agentID, manifestOf(ctx, plugin))
-
-		session, err := agent.NewSession(ctx, agent.Config{
-			Agent:          agentID,
-			Mode:           r.mode.String(),
-			Dir:            dir,
-			RepositoryRoot: r.set.Repository,
-			ScopePath:      r.set.ScopePath,
-			Host:           host,
-			Port:           port,
-			Session:        r.sessionID,
-			Token:          token,
-			Plugin:         plugin,
-			PluginState:    r.driverState[agentID].State,
-			BaseCommand:    baseCommand,
-			Model:          modelName,
-			Thinking:       effort,
-			Notices:        r.collectNotice,
-		})
-		if err != nil {
-			return err
-		}
-		agents.Add(session)
-		coord.SetCurrentModel(agentID, modelName)
-		r.logger.Printf("%s: driver=%s model=%s worktree=%s cwd=%s sessionID=%s command=%s", agentID, session.DriverType(), modelName, wt.Path, dir, session.SessionID(), session.EffectiveCommand())
-	}
-	coord.SetAgents(agents)
-
-	_ = workspace.EnsureGitIgnore(r.set.Repository)
-	_ = workspace.SaveProjectConfig(r.set.Repository, r.cfg.agentDriver(protocol.Austin), r.cfg.agentDrivers, r.cfg.agentModels)
-
-	// Transcripts live in the main repository, never in an agent worktree, so
-	// they survive `duo clean` and stay where the user works.
-	transcripts, err := sessionstore.NewLogWriter(r.set.Repository, sessionstore.Transcript{
-		SessionID:  r.sessionID,
-		Mode:       string(r.state.Snapshot().Mode),
-		Repository: r.set.Repository,
-		Branch:     r.set.BaseBranch,
-		BaseCommit: r.set.BaseCommit,
-	})
-	if err != nil {
-		r.logger.Printf("session log: %v", err)
-	}
-	if transcripts != nil {
-		defer transcripts.Close()
-	}
-
-	if err := agents.StartAll(ctx); err != nil {
-		return err
-	}
-	// Checkpoint once the agents are up. An agent's identity is only known after its
-	// driver has prepared the launch, so the checkpoint written before startup cannot
-	// contain one — and this is the point at which the first real conversation exists.
-	// Without it, a session whose agents never reached the bridge would be recorded
-	// with no identity at all.
-	if err := r.store.Save(r.composeSnapshot(coord)); err != nil {
-		r.logger.Printf("checkpoint after startup: %v", err)
-	}
-	defer agents.StopAll()
-
-	if r.cfg.harnessEnabled {
-		monitor := harness.NewMonitor(r.cfg.harness, r.state, tracker, server, bus)
-		go monitor.Run(ctx)
-	}
-
-	app := tui.New(coord, r.state, tracker, r.ws, server, agents, bus, version.Version, r.tuiHistory, r.journal, transcripts)
+	app := tui.New(svc)
 	// Drivers are built before the interface exists, so any diagnostic one of them
 	// reported is shown now, in its own words.
-	app.Notices(r.takeNotices())
+	app.Notices(svc.Notices())
 	if err := app.Run(ctx); err != nil && ctx.Err() == nil {
 		log.Printf("Duo TUI: %v", err)
 	}
-	agents.StopAll()
-	// Release the drivers too: a plugin may own background work, such as a
-	// transcript observer, that must not outlive the session.
-	defer agents.CloseAll()
 
-	phase := r.state.Snapshot().Phase
-	r.journal.Record("session_stop", map[string]any{"phase": string(phase)})
-	r.logger.Printf("session %s stopped (phase %s)", r.sessionID, phase)
+	end := svc.Close()
 
 	what := "started"
-	if r.resume {
+	if cfg.resume {
 		what = "resumed"
 	}
-	fmt.Printf("\nDuo stopped. Session %s was preserved; resume it with `duo --resume %s`.\nWorktrees preserved in %s\n", what, r.sessionID, r.set.Root)
+	fmt.Printf("\nDuo stopped. Session %s was preserved; resume it with `duo --resume %s`.\nWorktrees preserved in %s\n", what, end.SessionID, svc.View().Worktrees.Root)
 	return nil
 }
 
-// exitReason describes a failed process in one clause, for a headline above the
-// driver's own output.
-func exitReason(event agent.LifecycleEvent) string {
-	if event.Err != nil {
-		return event.Err.Error()
+// reportDelivery prints the outcome of a session that finished without an
+// interface. The session reports the facts; the wording is the CLI's.
+func reportDelivery(outcome session.DeliveryOutcome) {
+	if outcome.Applied {
+		printDeliverySuccess(outcome)
+		return
 	}
-	return event.State.String()
-}
-
-// indentBlock keeps a multi-line driver message readable in the session log
-// without letting its later lines look like unrelated entries.
-func indentBlock(text string) string {
-	return "  " + strings.ReplaceAll(strings.TrimRight(text, "\n"), "\n", "\n  ")
-}
-
-func sessionToken() (string, error) {
-	b := make([]byte, 32)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
-}
-
-func bridgeAddress(listen string) (string, string) {
-	host, port, err := net.SplitHostPort(listen)
-	if err != nil {
-		return "127.0.0.1", "8765"
-	}
-	if host == "" || host == "0.0.0.0" || host == "::" {
-		host = "127.0.0.1"
-	}
-	return host, port
+	printDeliveryPending(outcome)
 }
 
 // printUsage is `duo --help`. The command lines come from internal/clidoc, the
@@ -672,15 +200,4 @@ func commandUsage(name string) string {
 		return command.Signature
 	}
 	return "duo " + name
-}
-
-// manifestOf reads a plugin's manifest, tolerating failure. NewSession describes the
-// plugin again and refuses to start an agent whose manifest is unusable, so a failure
-// here only means Core resolves nothing extra and the driver's own defaults apply.
-func manifestOf(ctx context.Context, plugin driver.Caller) *driver.Manifest {
-	manifest, err := plugin.Describe(ctx)
-	if err != nil {
-		return nil
-	}
-	return manifest
 }

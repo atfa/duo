@@ -14,9 +14,9 @@ import (
 
 	"github.com/atfa/duo/internal/driver"
 	"github.com/atfa/duo/internal/harness"
-	"github.com/atfa/duo/internal/models"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
+	"github.com/atfa/duo/internal/session"
 	"github.com/atfa/duo/internal/workspace"
 )
 
@@ -79,11 +79,10 @@ func (c config) agentCommand(agent protocol.AgentID) string {
 	return c.agentCommands[agent]
 }
 
+// agentDriver names the driver an agent should launch. The rule lives with the
+// session, so the CLI cannot drift from the frontend-neutral answer.
 func (c config) agentDriver(agent protocol.AgentID) string {
-	if drv, ok := c.agentDrivers[agent]; ok && drv != "" {
-		return drv
-	}
-	return defaultDriver
+	return session.AgentDriver(c.agentDrivers, agent)
 }
 
 // agentModel is what the operator asked for, which may be nothing. The driver's
@@ -108,30 +107,37 @@ func (c config) agentThinking(agent protocol.AgentID) string {
 // references, its default, or the binary it prefers, and reading any of them
 // earlier is what made Core carry a table of driver names.
 func (c config) resolveDriver(agent protocol.AgentID, manifest *driver.Manifest) (command, model, effort string) {
-	command = strings.TrimSpace(c.agentCommand(agent))
-	model = strings.TrimSpace(c.agentModel(agent))
-	effort = strings.TrimSpace(c.agentThinking(agent))
-	if manifest == nil {
-		return command, model, effort
+	return session.ResolveDriver(c.agentCommands, c.agentModels, c.agentThinkings, agent, manifest)
+}
+
+// sessionOptions translates the CLI's parsed configuration into the
+// frontend-neutral form a session starts from. This is the only place the two
+// vocabularies meet, so a second frontend fills the same struct from its own
+// settings instead of reimplementing any of it.
+func (c config) sessionOptions() session.Options {
+	return session.Options{
+		LaunchDir:           c.launchDir,
+		Repository:          c.repository,
+		Resume:              c.resume,
+		ResumeSession:       c.resumeSession,
+		Session:             c.session,
+		BaseRef:             c.baseRef,
+		WorktreeRoot:        c.worktreeRoot,
+		Mode:                c.mode,
+		ModeSource:          c.modeSource,
+		ModeRaw:             c.modeRaw,
+		ModeExplicit:        c.modeExplicit,
+		Listen:              c.listen,
+		HarnessEnabled:      c.harnessEnabled,
+		Harness:             c.harness,
+		AgentCommands:       c.agentCommands,
+		AgentDrivers:        c.agentDrivers,
+		AgentModels:         c.agentModels,
+		AgentThinkings:      c.agentThinkings,
+		AgentDriverExplicit: c.agentDriverExplicit,
+		TestCommand:         c.testCommand,
+		RegisterDrivers:     registerDrivers,
 	}
-	if command == "" {
-		command = strings.TrimSpace(manifest.Agent.DefaultCommand)
-	}
-	// A reference spelled for another driver is folded into this one's, because a
-	// model the agent has never heard of aborts it at startup rather than being
-	// ignored.
-	model = models.Apply(model, manifest.ModelReference)
-	// The other direction: a bare id left behind by a driver that takes bare ones is
-	// just as unusable here, and this one aborts rather than ignoring it. Dropping it
-	// lets the manifest's default stand, or nothing at all if the driver declares
-	// none — which is the same answer the agent would have given on its own.
-	if manifest.ModelReference == driver.ModelQualified && model != "" && !strings.Contains(model, "/") {
-		model = ""
-	}
-	if model == "" {
-		model = models.Default(manifest)
-	}
-	return command, model, effort
 }
 
 // configFile describes ~/.duo/config.json or .duo/config.json.
@@ -290,26 +296,7 @@ func resolveNewMode(parsed cliArgs, fileMode ...string) (project.Mode, string, e
 // operator error, while an ambient DUO_MODE is only a warning so an exported
 // environment can never break resume.
 func resumeMode(cfg config, persisted project.Mode, sessionID string, warn func(string)) (project.Mode, error) {
-	if cfg.modeExplicit {
-		mode, err := project.ParseMode(cfg.modeRaw)
-		if err != nil {
-			return "", err
-		}
-		if mode != persisted {
-			return "", fmt.Errorf("session %s is a %s session; mode is fixed per session, so --mode %s cannot be applied", sessionID, persisted, mode)
-		}
-		return persisted, nil
-	}
-	if raw := strings.TrimSpace(os.Getenv("DUO_MODE")); raw != "" {
-		mode, err := project.ParseMode(raw)
-		switch {
-		case err != nil:
-			warn(fmt.Sprintf("ignoring invalid DUO_MODE %q while resuming: %v", raw, err))
-		case mode != persisted:
-			warn(fmt.Sprintf("ignoring DUO_MODE=%s while resuming: session %s is a %s session", mode, sessionID, persisted))
-		}
-	}
-	return persisted, nil
+	return session.ResumeMode(cfg.modeRaw, cfg.modeExplicit, persisted, sessionID, os.Getenv("DUO_MODE"), warn)
 }
 
 func loadConfig(args []string) (config, error) {

@@ -3,9 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/atfa/duo/internal/clidoc"
 	"github.com/atfa/duo/internal/project"
@@ -108,7 +106,7 @@ func (a *App) helpLines(width int) []string {
 		"INTEGRATE: merge into Austin integration branch and final review.",
 		"DONE: final approved artifact has been delivered back to original repository.",
 	}
-	if a.state.Snapshot().EffectiveMode() == project.ModeFast {
+	if a.live.EffectiveMode() == project.ModeFast {
 		quickStart = []string{
 			"1. Type a task in the Duo composer and press Enter.",
 			"2. Austin drives the task in its private Git worktree.",
@@ -233,11 +231,8 @@ func (a *App) detailLines(width int) []string {
 	if width < 1 {
 		return nil
 	}
-	snap := a.state.Snapshot()
-	set := workspace.Set{}
-	if a.ws != nil {
-		set = a.ws.Set()
-	}
+	snap := a.live.Project
+	set := a.live.Worktrees
 	lines := []string{
 		"Session",
 		"  id:      " + set.Session,
@@ -253,8 +248,8 @@ func (a *App) detailLines(width int) []string {
 	}
 	if snap.EffectiveMode() == project.ModeFast {
 		lines = append(lines, "Verification", "  "+snap.Verification.Label())
-		if a.coord != nil && a.coord.TestCommand() != "" {
-			lines = append(lines, "  test-gate: "+a.coord.TestCommand())
+		if a.live.TestCommand != "" {
+			lines = append(lines, "  test-gate: "+a.live.TestCommand)
 		}
 		if head := strings.TrimSpace(snap.Verification.Head); head != "" {
 			lines = append(lines, "  head: "+head)
@@ -279,7 +274,7 @@ func (a *App) detailLines(width int) []string {
 
 	lines = append(lines, "", "Changes (Austin vs base)")
 	changes := a.cachedChanges
-	if changes == nil && a.ws != nil {
+	if changes == nil {
 		a.refreshChanges()
 		changes = a.cachedChanges
 	}
@@ -299,63 +294,17 @@ func (a *App) detailLines(width int) []string {
 }
 
 func (a *App) refreshChanges() {
-	if a.ws == nil {
+	if a.svc == nil {
 		a.cachedChanges = nil
 		return
 	}
-	set := a.ws.Set()
-	if set.Austin.Path == "" {
+	if set := a.live.Worktrees; set.Austin.Path == "" {
 		a.cachedChanges = nil
 		return
 	}
-	base := set.BaseCommit
-	if base == "" {
-		base = set.BaseBranch
-	}
-	a.cachedChanges = gitChanges(set.Austin.Path, base)
-}
-
-func gitChanges(dir, base string) []string {
-	if dir == "" {
-		return nil
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	var lines []string
-	args := []string{"-C", dir, "diff", "--stat"}
-	if base != "" {
-		args = append(args, base)
-	}
-	cmd := exec.CommandContext(ctx, "git", args...)
-	if out, err := cmd.Output(); err == nil {
-		if trimmed := strings.TrimSpace(string(out)); trimmed != "" {
-			lines = append(lines, strings.Split(trimmed, "\n")...)
-		}
-	}
-
-	ctx2, cancel2 := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel2()
-	cmd2 := exec.CommandContext(ctx2, "git", "-C", dir, "status", "--porcelain")
-	if out2, err := cmd2.Output(); err == nil {
-		var untracked []string
-		for _, raw := range strings.Split(string(out2), "\n") {
-			line := strings.TrimRight(raw, "\r")
-			if strings.HasPrefix(line, "?? ") {
-				untracked = append(untracked, strings.TrimPrefix(line, "?? "))
-			}
-		}
-		if len(untracked) > 0 {
-			if len(lines) > 0 {
-				lines = append(lines, "")
-			}
-			lines = append(lines, "Untracked:")
-			for _, u := range untracked {
-				lines = append(lines, "  ? "+u)
-			}
-		}
-	}
-	return lines
+	// Reading the worktree runs git, so it belongs to the session and not to a
+	// paint. The detail view keeps its own cache of the result.
+	a.cachedChanges = a.svc.Changes(context.Background())
 }
 
 func worktreeLine(set workspace.Set, agent protocol.AgentID) string {

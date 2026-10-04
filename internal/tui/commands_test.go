@@ -5,16 +5,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/atfa/duo/internal/events"
-	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/project"
 )
 
 func newTestApp() *App {
-	bus := events.NewBus()
-	state := project.NewStateFor(project.ModeFast)
-	tracker := harness.NewTracker()
-	app := New(nil, state, tracker, nil, nil, nil, bus, "test", nil, nil, nil)
+	app := New(&fakeSession{})
+	app.setProject(project.NewStateFor(project.ModeFast))
 	app.width = 80
 	app.height = 24
 	return app

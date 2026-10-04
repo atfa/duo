@@ -156,7 +156,7 @@ func TestNewRestoresPaneHistoryWithoutRewritingIt(t *testing.T) {
 		{Pane: "Austin", Text: "previous output", Error: true},
 		{Pane: "Duo", Text: "previous status"},
 	}
-	a := New(nil, nil, nil, nil, nil, nil, nil, "test", history, nil, nil)
+	a := newAppWithHistory(history)
 	if len(a.austin) != 1 || a.austin[0].text != "previous output" || !a.austin[0].error {
 		t.Fatalf("Austin history = %+v", a.austin)
 	}

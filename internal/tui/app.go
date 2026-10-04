@@ -16,23 +16,19 @@ import (
 	"time"
 
 	"github.com/atfa/duo/internal/agent"
-	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
+	"github.com/atfa/duo/internal/session"
 	"github.com/atfa/duo/internal/terminal"
-	"github.com/atfa/duo/internal/workspace"
 )
 
 // startupMessage announces the session mode, because the two modes ask for very
 // different things from the human and from the agents. It also names the
 // repository and session so the target of a run is visible without opening Help.
 func (a *App) startupMessage() string {
-	set := workspace.Set{}
-	if a.ws != nil {
-		set = a.ws.Set()
-	}
+	set := a.live.Worktrees
 	where := fmt.Sprintf("\nRepository: %s (branch %s) · Session: %s", set.Repository, set.BaseBranch, set.Session)
-	if a.state.Snapshot().EffectiveMode() == project.ModeFast {
+	if a.live.EffectiveMode() == project.ModeFast {
 		return "Duo " + a.version + " ready (FAST mode). Type a task and press Enter; Austin drives while Tony independently verifies before Duo delivers the result." + where
 	}
 	return "Duo " + a.version + " ready (GOAL mode). Type a task and press Enter; Austin will wake Tony when collaboration is needed." + where
@@ -62,10 +58,7 @@ func (a *App) announceRunningAgents() {
 // manifest means Duo knows nothing about the driver, and treating that as "speaks
 // for itself" would leave the agent silent rather than mislabelled.
 func (a *App) selfReports(id protocol.AgentID) bool {
-	if a.agents == nil {
-		return true
-	}
-	man := a.agents.ManifestFor(id)
+	man := a.live.Agent(id).Manifest
 	if man == nil {
 		return true
 	}
@@ -110,8 +103,12 @@ func (a *App) Run(ctx context.Context) error {
 	winch := make(chan os.Signal, 1)
 	signal.Notify(winch, syscall.SIGWINCH)
 	defer signal.Stop(winch)
-	eventCh, cancelSub := a.bus.Subscribe(256)
+	sub, cancelSub := a.svc.Subscribe(256)
 	defer cancelSub()
+	eventCh := sub.Events
+	if len(sub.View.Worktrees.Repository) > 0 || sub.View.SessionID != "" {
+		a.live = sub.View
+	}
 
 	inputCh := make(chan byte, 256)
 	go readBytes(tty.File, inputCh)
@@ -132,6 +129,7 @@ func (a *App) Run(ctx context.Context) error {
 			if !ok {
 				return nil
 			}
+			a.refreshView()
 			a.route(ev)
 			a.markDirty()
 		case b, ok := <-inputCh:
@@ -141,9 +139,7 @@ func (a *App) Run(ctx context.Context) error {
 			if a.native != "" {
 				detach, forward := a.nativeDetach(b)
 				if forward {
-					if s, ok := a.agents.Session(a.native); ok {
-						_ = s.Write([]byte{b})
-					}
+					_ = a.svc.Write(a.native, []byte{b})
 				}
 				if detach {
 					a.leaveNative()
@@ -268,11 +264,10 @@ func (a *App) applyAction(ctx context.Context, action inputAction) bool {
 			a.markDirty()
 		}
 	case actionRestart:
-		if err := a.agents.Restart(ctx, action.agent); err != nil {
+		if err := a.svc.Do(ctx, session.RestartAgent{Agent: action.agent}); err != nil {
 			a.setStatus(err.Error(), true)
 			a.addError(protocol.Duo, err.Error())
 		} else {
-			a.tracker.Reset(action.agent)
 			a.setStatus(string(action.agent)+" restarted", false)
 		}
 		a.markDirty()
@@ -288,39 +283,24 @@ func (a *App) applyAction(ctx context.Context, action inputAction) bool {
 		a.applySelectedModel(ctx, true)
 		a.markDirty()
 	case actionCycleThinking:
-		if err := a.coord.CycleThinking(ctx, a.modelTarget); err != nil {
+		// The whole cycle — advance the level, apply it to the driver, restart the
+		// agent when its driver cannot switch effort live — belongs to the session.
+		// The interface only reports what resulted.
+		if err := a.svc.Do(ctx, session.CycleThinking{Agent: a.modelTarget}); err != nil {
 			a.setStatus(err.Error(), true)
-		} else {
-			thinking := a.coord.Thinking(a.modelTarget)
-			if thinking == "" {
-				thinking = "unknown"
-			}
-			if a.agents != nil {
-				if d, ok := a.agents.Driver(a.modelTarget); ok {
-					d.SetEffort(thinking)
-					if !d.Capabilities().LiveThinkingSwitch {
-						// Without a live switch the effort only reaches the agent as
-						// a startup flag, and RestartRunning stops before it starts,
-						// so a failure here leaves the agent dead. Report it rather
-						// than claiming the new level took effect.
-						if err := d.RestartRunning(ctx); err != nil {
-							// Report the failure and skip the success line;
-							// returning true here would quit the TUI. The level
-							// is recorded only once the agent has it, so the
-							// picker header cannot advertise one it never got.
-							a.setStatus(fmt.Sprintf("%s thinking: %s failed: %v", a.modelTarget, thinking, err), true)
-							a.markDirty()
-							return false
-						}
-					}
-				}
-			}
-			if a.currentThinking == nil {
-				a.currentThinking = make(map[protocol.AgentID]string)
-			}
-			a.currentThinking[a.modelTarget] = thinking
-			a.setStatus(fmt.Sprintf("%s thinking: %s", a.modelTarget, thinking), false)
+			a.markDirty()
+			return false
 		}
+		a.refreshView()
+		thinking := a.live.Agent(a.modelTarget).Thinking
+		if thinking == "" {
+			thinking = "unknown"
+		}
+		if a.currentThinking == nil {
+			a.currentThinking = make(map[protocol.AgentID]string)
+		}
+		a.currentThinking[a.modelTarget] = thinking
+		a.setStatus(fmt.Sprintf("%s thinking: %s", a.modelTarget, thinking), false)
 		a.markDirty()
 	}
 	return false
@@ -379,8 +359,8 @@ func (a *App) resize() {
 	w, h := a.tty.Size()
 	a.width, a.height = w, h
 	a.clampOffsets()
-	if err := a.agents.ResizeAll(w, h); err != nil {
-		a.bus.Emit(events.Event{Kind: events.KindError, Agent: protocol.Duo, Text: err.Error()})
+	if err := a.svc.Resize(w, h); err != nil {
+		a.addError(protocol.Duo, err.Error())
 	}
 	a.requestFullClear()
 }
@@ -388,7 +368,7 @@ func (a *App) resize() {
 func (a *App) syncSize() {
 	w, h := a.tty.Size()
 	a.width, a.height = w, h
-	if err := a.agents.ResizeAll(w, h); err != nil {
+	if err := a.svc.Resize(w, h); err != nil {
 		a.setStatus(err.Error(), true)
 	}
 }
@@ -407,17 +387,19 @@ func readBytes(r io.Reader, out chan<- byte) {
 	}
 }
 
-func (a *App) enterNative(agent protocol.AgentID) error {
-	s, ok := a.agents.Session(agent)
-	if !ok || !s.Running() {
-		return fmt.Errorf("%s agent session is not running", agent)
+func (a *App) enterNative(target protocol.AgentID) error {
+	if a.live.ProcessState(target) != agent.ProcessRunning {
+		return fmt.Errorf("%s agent session is not running", target)
 	}
 	a.syncSize()
-	a.native = agent
+	a.native = target
 	a.nativeDetachBuf = nil
-	a.tracker.SetHumanAttached(agent, true)
 	_, _ = a.tty.File.WriteString(terminal.MouseOff + terminal.BracketedPasteOff + terminal.ShowCursor + terminal.ExitAltScreen + terminal.ClearHome)
-	recent := s.Attach(a.tty.File)
+	recent, err := a.svc.Attach(target, a.tty.File)
+	if err != nil {
+		a.native = ""
+		return err
+	}
 	if len(recent) > 0 {
 		_, _ = a.tty.File.Write(recent)
 	}
@@ -428,10 +410,7 @@ func (a *App) leaveNative() {
 	if a.native == "" {
 		return
 	}
-	if s, ok := a.agents.Session(a.native); ok {
-		s.Detach()
-	}
-	a.tracker.SetHumanAttached(a.native, false)
+	a.svc.Detach(a.native)
 	a.native = ""
 	a.syncSize()
 	a.nativeDetachBuf = nil

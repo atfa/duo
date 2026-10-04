@@ -6,25 +6,26 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atfa/duo/internal/agent"
 	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
+	"github.com/atfa/duo/internal/session"
 	"github.com/atfa/duo/internal/terminal"
-	"github.com/atfa/duo/internal/transport"
 	"github.com/atfa/duo/internal/workspace"
 )
 
 func testApp(w, h int) *App {
 	app := &App{
-		state:   project.NewState(),
-		tracker: harness.NewTracker(),
-		server:  transport.NewServer("127.0.0.1:0", "session", "token"),
-		agents:  agent.NewManager(),
+		svc: &fakeSession{},
+		live: session.View{
+			Version: "v0.4.6",
+			Project: project.NewState().Snapshot(),
+		},
 		width:   w,
 		height:  h,
 		version: "v0.4.6",
 	}
+	app.live.Mode = app.live.Project.EffectiveMode()
 	app.renderer = newRenderer(frameInterval, nil, app.buildFrame)
 	return app
 }
@@ -263,7 +264,7 @@ func TestIdleSpinnerDoesNotRepaint(t *testing.T) {
 		t.Fatalf("idle tick mutated renderer: frame=%d dirty=%v", app.frame, app.renderer.dirty)
 	}
 
-	app.tracker.Handle(protocol.Austin, protocol.ActivityAgentStart)
+	app.setRuntime(protocol.Austin, harness.AgentRuntime{Busy: true})
 	if !app.spinnerActive() {
 		t.Fatal("busy agent should animate")
 	}
@@ -385,7 +386,7 @@ func (s stubWorkspace) Set() workspace.Set { return s.set }
 func TestRepoTitleReplacesPaneHeaders(t *testing.T) {
 	a := testApp(100, 30)
 	a.timeline = true
-	a.ws = stubWorkspace{set: workspace.Set{Repository: "/tmp/duo-repo"}}
+	a.live.Worktrees = workspace.Set{Repository: "/tmp/duo-repo"}
 
 	lines := visibleLines(a.buildFrame(renderNormal))
 	top := lines[0]
@@ -422,7 +423,7 @@ func TestTopRowBadgesModeAndTintsFrameByMode(t *testing.T) {
 	for _, timeline := range []bool{false, true} {
 		a := testApp(100, 30)
 		a.timeline = timeline
-		a.ws = stubWorkspace{set: workspace.Set{Repository: "/tmp/duo-repo"}}
+		a.live.Worktrees = workspace.Set{Repository: "/tmp/duo-repo"}
 
 		goal := a.buildFrame(renderNormal)
 		if !strings.Contains(goal, ansiTitleGoal+" [GOAL]") {
@@ -435,7 +436,7 @@ func TestTopRowBadgesModeAndTintsFrameByMode(t *testing.T) {
 			t.Fatalf("timeline=%v Goal frame still uses the cyan border", timeline)
 		}
 
-		a.state = project.NewStateFor(project.ModeFast)
+		a.setProject(project.NewStateFor(project.ModeFast))
 		fast := a.buildFrame(renderNormal)
 		if !strings.Contains(fast, ansiTitleFast+" [FAST]") {
 			t.Fatalf("timeline=%v Fast frame has no bold [FAST] badge", timeline)
@@ -454,7 +455,7 @@ func TestTopRowBadgesModeAndTintsFrameByMode(t *testing.T) {
 func TestTopRowClipsRepositoryBeforeBadge(t *testing.T) {
 	a := testApp(70, 24)
 	a.timeline = true
-	a.ws = stubWorkspace{set: workspace.Set{Repository: "/a/very/long/repository/path/that/will/not/fit"}}
+	a.live.Worktrees = workspace.Set{Repository: "/a/very/long/repository/path/that/will/not/fit"}
 
 	row := visibleLines(a.buildFrame(renderNormal))[0]
 	if !strings.Contains(row, "[GOAL]") {

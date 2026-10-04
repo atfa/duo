@@ -196,10 +196,11 @@ func TestMarkdownLinksEmitOSC8(t *testing.T) {
 // C4/G1: the session overview carries the full state the status row truncates.
 func TestDetailViewShowsFullSessionState(t *testing.T) {
 	a := testApp(100, 30)
-	a.state = project.NewStateFor(project.ModeFast)
-	if _, _, err := a.state.SetReady(protocol.Austin, true, "work complete", "abc123"); err != nil {
+	state := project.NewStateFor(project.ModeFast)
+	if _, _, err := state.SetReady(protocol.Austin, true, "work complete", "abc123"); err != nil {
 		t.Fatal(err)
 	}
+	a.setProject(state)
 	joined := strings.Join(a.detailLines(90), "\n")
 	for _, want := range []string{"Session", "Worktrees", "Verification", "head: abc123", "Delivery"} {
 		if !strings.Contains(joined, want) {

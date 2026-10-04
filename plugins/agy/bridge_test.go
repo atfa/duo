@@ -24,13 +24,13 @@ type recordHandler struct {
 func (h *recordHandler) OnConnect(_ context.Context, c *transport.Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.connects = append(h.connects, c.Agent)
+	h.connects = append(h.connects, c.Identity())
 }
 
 func (h *recordHandler) OnDisconnect(c *transport.Client) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.disconnects = append(h.disconnects, c.Agent)
+	h.disconnects = append(h.disconnects, c.Identity())
 }
 
 func (h *recordHandler) OnMessage(_ context.Context, _ *transport.Client, m protocol.Message) {

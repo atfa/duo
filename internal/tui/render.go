@@ -184,7 +184,7 @@ func (a *App) writeTimelineLayout(b *strings.Builder, w, h int) {
 // writeFrameTail draws the mode/phase status rows, the transient status line,
 // the composer and the footer, which the split and timeline layouts share.
 func (a *App) writeFrameTail(b *strings.Builder, w int, composer composerLayout) {
-	snap := a.state.Snapshot()
+	snap := a.live.Project
 	var status, second string
 	if snap.EffectiveMode() == project.ModeFast {
 		// Fast has no shared plan and no sign-off: show the workflow roles and the
@@ -240,10 +240,8 @@ func (a *App) writeFrameTail(b *strings.Builder, w int, composer composerLayout)
 // column and break the ┬ divider below.
 func (a *App) repoTitle(width, divider int) string {
 	title := " Duo "
-	if a.ws != nil {
-		if dir := strings.TrimSpace(a.ws.Set().Repository); dir != "" {
-			title = " " + dir + " "
-		}
+	if dir := strings.TrimSpace(a.live.Worktrees.Repository); dir != "" {
+		title = " " + dir + " "
 	}
 	if a.timeline && a.duoOffset > 0 {
 		mark := fmt.Sprintf("↑%d", a.duoOffset)
@@ -252,7 +250,7 @@ func (a *App) repoTitle(width, divider int) string {
 		}
 		title = " " + mark + title
 	}
-	title = " [" + a.state.Mode().Display() + "]" + title
+	title = " [" + a.live.Mode.Display() + "]" + title
 	if divider > 0 && divider < width {
 		return fit(title, divider, "─") + "┬" + strings.Repeat("─", width-divider-1)
 	}
@@ -263,16 +261,17 @@ func (a *App) repoTitle(width, divider int) string {
 // cyan frame it has always had and Goal is magenta, so the mode is obvious from
 // the colours alone, without reading the status row.
 func (a *App) frameColor() string {
-	if a.state.Mode() == project.ModeFast {
+	if a.live.Mode == project.ModeFast {
 		return ansiBorderFast
+	} else {
+		return ansiBorderGoal
 	}
-	return ansiBorderGoal
 }
 
 // frameTitle is the bold top-row hue: the mode badge is painted with it, so the
 // mode is the first bold thing the operator reads.
 func (a *App) frameTitle() string {
-	if a.state.Mode() == project.ModeFast {
+	if a.live.Mode == project.ModeFast {
 		return ansiTitleFast
 	}
 	return ansiTitleGoal
@@ -281,10 +280,10 @@ func (a *App) frameTitle() string {
 // deliverySummary reports the durable hand-off state so it stays visible in the
 // status area instead of flashing by as a system log line.
 func (a *App) deliverySummary() string {
-	if a.coord == nil || a.ws == nil {
+	if a.svc == nil {
 		return "Delivery: unknown"
 	}
-	d := a.coord.CurrentDelivery()
+	d := a.live.Delivery
 	switch {
 	case d.Applied():
 		return "Delivery: applied " + shortHead(d.AppliedHead)
@@ -373,10 +372,8 @@ func (a *App) paintPaneEntry(line paneLine, width int, agent protocol.AgentID, r
 }
 
 func (a *App) processState(id protocol.AgentID) agent.ProcessState {
-	if a.agents != nil {
-		if s, ok := a.agents.Session(id); ok && s != nil {
-			return s.State()
-		}
+	if av := a.live.Agent(id); av.Present {
+		return av.Process
 	}
 	return agent.ProcessFailed
 }

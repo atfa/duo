@@ -6,20 +6,17 @@ import (
 	"testing"
 
 	"github.com/atfa/duo/internal/agent"
-	"github.com/atfa/duo/internal/coordinator"
 	"github.com/atfa/duo/internal/driver"
 	"github.com/atfa/duo/internal/events"
-	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/models"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
+	"github.com/atfa/duo/internal/session"
 )
 
 func pickerFixture() *App {
-	return &App{
-		// The picker frame is tinted by the session mode, so the fixture needs
-		// the state machine the real App always carries.
-		state:       project.NewStateFor(project.ModeFast),
+	a := &App{
+		svc:         &fakeSession{},
 		view:        viewModel,
 		modelTarget: protocol.Austin,
 		models: []models.Model{
@@ -28,6 +25,10 @@ func pickerFixture() *App {
 			{Provider: "workbuddy", ID: "glm-5"},
 		},
 	}
+	// The picker frame is tinted by the session mode, so the fixture needs the
+	// workflow state the real App always carries.
+	a.setProject(project.NewStateFor(project.ModeFast))
+	return a
 }
 
 func TestModelFilterNarrowsAndClampsCursor(t *testing.T) {
@@ -109,39 +110,31 @@ func TestModelRowMarksCursorAndCurrentSeparately(t *testing.T) {
 // opencode only accepts provider/model as --model and aborts on a bare id, so
 // the launch flag must receive the provider-qualified reference. agy strips any
 // provider prefix itself, and pi takes the model over the bridge.
-func TestApplySelectedModelPassesQualifiedReferenceToDriver(t *testing.T) {
+// The interface's job is to ask for the switch. Applying it to a running driver —
+// including the restart a CLI-only driver needs — is the session's, and is covered
+// there. What this pins is that the picker sends the provider-qualified reference
+// the user actually selected.
+func TestApplySelectedModelIssuesTheSelectedReference(t *testing.T) {
 	a := pickerFixture()
 	a.width, a.height = 80, 24
-	bus := events.NewBus()
-	state := project.NewStateFor(project.ModeFast)
-	a.coord = coordinator.New(nil, state, harness.NewTracker(), nil, bus)
-	eventsCh, unsub := bus.Subscribe(20)
-	defer unsub()
-	// The App is single-goroutine state: production routes events on the event
-	// loop, so the test drains them the same way instead of racing the apply.
-	drain := func() {
-		for {
-			select {
-			case e := <-eventsCh:
-				a.route(e)
-			default:
-				return
-			}
-		}
-	}
-	drv := &modelRecordingDriver{agentID: protocol.Austin, driverType: "opencode"}
-	mgr := agent.NewManager()
-	mgr.Add(drv)
-	a.agents = mgr
+	fake := &fakeSession{}
+	a.svc = fake
 
 	// The cursor is on cline/anthropic/claude-opus.
 	a.applySelectedModel(context.Background(), false)
-	drain()
-	if drv.model != "cline/anthropic/claude-opus" {
-		t.Fatalf("driver model = %q, want the provider-qualified reference", drv.model)
+
+	if len(fake.commands) != 1 {
+		t.Fatalf("commands = %+v, want exactly one", fake.commands)
 	}
-	if drv.restarts != 1 {
-		t.Fatalf("restarts = %d, want the CLI-only driver restarted once", drv.restarts)
+	cmd, ok := fake.commands[0].(session.SetModel)
+	if !ok {
+		t.Fatalf("command = %T, want session.SetModel", fake.commands[0])
+	}
+	if cmd.Provider != "cline" || cmd.Model != "anthropic/claude-opus" {
+		t.Fatalf("SetModel = %+v, want cline/anthropic/claude-opus", cmd)
+	}
+	if got := a.currentModel[protocol.Austin]; got != "cline/anthropic/claude-opus" {
+		t.Fatalf("currentModel = %q, want the provider-qualified reference", got)
 	}
 }
 
@@ -160,6 +153,7 @@ type modelRecordingDriver struct {
 
 func (d *modelRecordingDriver) Agent() protocol.AgentID { return d.agentID }
 func (d *modelRecordingDriver) DriverType() string      { return d.driverType }
+func (d *modelRecordingDriver) Model() string           { return d.model }
 func (d *modelRecordingDriver) Manifest() *driver.Manifest {
 	ref := d.reference
 	if ref == "" {
@@ -229,9 +223,8 @@ func TestRouteModelEventUpdatesPickerStateWithoutPaneNoise(t *testing.T) {
 // references gets bare treatment, and one calling itself "agy" while declaring
 // qualified gets joined. This is the name-guessing the whole refactor removes.
 func TestModelReferenceFollowsTheManifestNotTheName(t *testing.T) {
-	mgr := agent.NewManager()
-	mgr.Add(&modelRecordingDriver{agentID: protocol.Tony, driverType: "pi", reference: driver.ModelBare})
-	a := &App{agents: mgr}
+	a := pickerFixture()
+	a.setDriver(protocol.Tony, &modelRecordingDriver{agentID: protocol.Tony, driverType: "pi", reference: driver.ModelBare})
 
 	a.route(events.Event{Kind: events.KindModel, Agent: protocol.Tony, Provider: "cline", Model: "x/y"})
 	if got := a.currentModel[protocol.Tony]; got != "x/y" {
@@ -242,9 +235,8 @@ func TestModelReferenceFollowsTheManifestNotTheName(t *testing.T) {
 		t.Fatalf("modelForAgent = %q, want the bare id model-x", got)
 	}
 
-	mgr2 := agent.NewManager()
-	mgr2.Add(&modelRecordingDriver{agentID: protocol.Austin, driverType: "agy", reference: driver.ModelQualified})
-	b := &App{agents: mgr2}
+	b := pickerFixture()
+	b.setDriver(protocol.Austin, &modelRecordingDriver{agentID: protocol.Austin, driverType: "agy", reference: driver.ModelQualified})
 	b.route(events.Event{Kind: events.KindModel, Agent: protocol.Austin, Provider: "cline", Model: "x/y"})
 	if got := b.currentModel[protocol.Austin]; got != "cline/x/y" {
 		t.Fatalf("qualified-declared driver left the reference unjoined: %q", got)
@@ -288,9 +280,7 @@ func TestWriteModelShowsLoadingDriverName(t *testing.T) {
 		t.Errorf("expected default pi driver loading message, got:\n%s", b.String())
 	}
 
-	mgr := agent.NewManager()
-	mgr.Add(newPreviewSession(t, "agy", protocol.Austin, ""))
-	a.agents = mgr
+	a.setDriver(protocol.Austin, newPreviewSession(t, "agy", protocol.Austin, ""))
 	b.Reset()
 	a.writeModel(&b, a.width, a.height)
 	if !strings.Contains(b.String(), "Loading models from agy…") {
@@ -302,28 +292,12 @@ func TestApplySelectedModelAndCycleThinkingOffline(t *testing.T) {
 	ctx := context.Background()
 	a := pickerFixture()
 	a.width, a.height = 80, 24
-	bus := events.NewBus()
-	state := project.NewStateFor(project.ModeFast)
-	a.coord = coordinator.New(nil, state, harness.NewTracker(), nil, bus)
-	eventsCh, unsub := bus.Subscribe(20)
-	defer unsub()
-	// The App is single-goroutine state: production routes events on the event
-	// loop, so the test drains them the same way instead of racing the apply.
-	drain := func() {
-		for {
-			select {
-			case e := <-eventsCh:
-				a.route(e)
-			default:
-				return
-			}
-		}
-	}
+	fake := &fakeSession{}
+	a.svc = fake
 
 	// Cursor is on index 0: cline/anthropic/claude-opus
 	// 1. Space applies and keeps picker open
 	a.applySelectedModel(ctx, true)
-	drain()
 	if a.view != viewModel {
 		t.Fatalf("picker closed on space, view = %v", a.view)
 	}
@@ -338,9 +312,14 @@ func TestApplySelectedModelAndCycleThinkingOffline(t *testing.T) {
 		t.Errorf("picker frame missing status on space:\n%s", b.String())
 	}
 
-	// 2. Shift+Tab cycles thinking
+	// 2. Shift+Tab cycles thinking. The new level is whatever the session reports
+	// back through its View, so the fixture installs that before the call.
+	a.live.Agents = map[protocol.AgentID]session.AgentView{protocol.Austin: {Present: true, Thinking: "low"}}
+	fake.view = a.live
 	a.applyAction(ctx, inputAction{kind: actionCycleThinking})
-	drain()
+	if !fake.issued("cycle_thinking") {
+		t.Fatal("cycle thinking never reached the session")
+	}
 	if a.currentThinking[protocol.Austin] != "low" {
 		t.Fatalf("currentThinking = %q, want low", a.currentThinking[protocol.Austin])
 	}
@@ -353,7 +332,6 @@ func TestApplySelectedModelAndCycleThinkingOffline(t *testing.T) {
 	// 3. Enter applies and closes
 	a.moveModelCursor(1) // cline/deepseek/flash
 	a.applySelectedModel(ctx, false)
-	drain()
 	if a.view != viewMain {
 		t.Fatalf("picker did not close on enter, view = %v", a.view)
 	}

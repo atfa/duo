@@ -26,7 +26,7 @@ func TestFrameModeBadgeAndBorderColour(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			a := testApp(100, 30)
-			a.state = project.NewStateFor(tc.mode)
+			a.setProject(project.NewStateFor(tc.mode))
 
 			frame := a.buildFrame(renderNormal)
 			if !strings.Contains(frame, tc.titleCode+" "+tc.badge) {
@@ -58,9 +58,9 @@ func TestFrameModeBadgeAndBorderColour(t *testing.T) {
 // colour, so the mode is visible at a glance.
 func TestFrameBorderColourDiffersByMode(t *testing.T) {
 	fast := testApp(100, 30)
-	fast.state = project.NewStateFor(project.ModeFast)
+	fast.setProject(project.NewStateFor(project.ModeFast))
 	goal := testApp(100, 30)
-	goal.state = project.NewStateFor(project.ModeGoal)
+	goal.setProject(project.NewStateFor(project.ModeGoal))
 
 	fastFrame := fast.buildFrame(renderNormal)
 	goalFrame := goal.buildFrame(renderNormal)

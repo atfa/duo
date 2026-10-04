@@ -62,14 +62,14 @@ func (a *App) writePreview(b *strings.Builder, l layout) {
 // a human whether a long turn is still moving or stuck. A narrow half drops the
 // turn age and then the state rather than letting header() clip them mid-word.
 func (a *App) driverName(agent protocol.AgentID) string {
-	if a.agents != nil {
-		return a.agents.DriverTypeFor(agent)
+	if d := a.live.Agent(agent).Driver; d != "" {
+		return d
 	}
 	return "pi"
 }
 
 func (a *App) isConnected(id protocol.AgentID) bool {
-	if a.server != nil && a.server.IsConnected(id) {
+	if a.live.Connected(id) {
 		return true
 	}
 	// A driver that reports itself over the bridge counts as present only when
@@ -81,7 +81,7 @@ func (a *App) isConnected(id protocol.AgentID) bool {
 }
 
 func (a *App) previewHeader(agent protocol.AgentID, width int) string {
-	rt := a.tracker.Snapshot(agent)
+	rt := a.live.Runtime(agent)
 	state := agentState(a.isConnected(agent), rt, a.frame, a.processState(agent))
 	available := width - displayWidth("[↗] ")
 	drv := a.driverName(agent)
@@ -191,7 +191,7 @@ func (a *App) previewBody(agent protocol.AgentID, width, rows int) []string {
 	if rows < 1 {
 		return nil
 	}
-	rt := a.tracker.Snapshot(agent)
+	rt := a.live.Runtime(agent)
 	out := []string{a.previewNow(agent, rt)}
 	remaining := rows - 1
 
