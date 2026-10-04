@@ -251,8 +251,8 @@ Two notes specific to `opencode`:
 Duo runs agents with tool calls auto-approved (`--auto` for opencode,
 `--dangerously-skip-permissions` for agy) because they work unattended in their
 own isolated worktree. `duo plugins` lists the built-in drivers plus any
-`duo-driver-<name>` / `duo-<name>` executables found in `~/.duo/plugins/` or on
-`PATH`.
+`duo-plugin-<name>` executable (or its legacy `duo-driver-<name>` / `duo-<name>`
+spellings) found in `~/.duo/plugins/` or on `PATH`.
 
 The opencode bridge is installed by the install scripts to
 `~/.config/opencode/plugin/duo/`. Restart any running opencode processes after
@@ -335,7 +335,7 @@ when the driver changes, since its id means nothing to the new CLI. Because
 
 ~/.duo/config.json  global settings you can edit
 ~/.duo/history      composer task history (↑/↓ recall)
-~/.duo/plugins/     optional `duo-driver-<name>` / `duo-<name>` executables
+~/.duo/plugins/     optional `duo-plugin-<name>` executables
 ```
 
 Session directories are created owner-only and describe your project's state; see [SECURITY.md](./SECURITY.md).
@@ -424,7 +424,7 @@ duo logs <repository>       # list another repository's transcripts
 Cleaning a session removes its Git worktrees (`git worktree remove --force`), prunes the worktree registry, deletes temporary branches (`duo/<session>/*`), and removes the session snapshot directory. Any session currently locked by an active Duo process is safely skipped.
 
 
-The remaining commands do not touch sessions: `duo plugins` lists the built-in drivers plus every discovered external plugin, [`duo mcp-server`](#mcp-server-duo-mcp-server) serves the Duo tools over MCP, and `duo version` (`--version`) and `duo help` (`-h`, `--help`) print the version and full usage.
+The remaining commands do not touch sessions: `duo plugins` lists the built-in drivers plus every discovered external plugin, `duo plugin test [<path…>] [--all] [--verbose]` checks one or every driver against the [Driver Plugin Protocol](./docs/driver-plugin-protocol.md), [`duo mcp-server`](#mcp-server-duo-mcp-server) serves the Duo tools over MCP, and `duo version` (`--version`) and `duo help` (`-h`, `--help`) print the version and full usage.
 
 ## Limits that affect use
 

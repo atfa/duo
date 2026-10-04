@@ -181,7 +181,7 @@ func (a *App) helpLines(width int) []string {
 			"Scope is a default working directory, not a filesystem sandbox.",
 		}},
 		{"Agent Status", []string{
-			"The main view is one conversation timeline: Austin's messages on the left, Tony's on the right, under a top row that leads with the workflow mode — `[FAST]` or `[GOAL]` in bold — and then names the Git repository Duo resolved. The frame lines are tinted by mode, cyan for Fast and magenta for Goal. Every message header names a direction — for example `Austin → Human`, `Austin → Tony` or `Duo → Tony` — in the speaker's own colour, with messages addressed to the human highlighted in bold. Each agent's connection, process and working state, with the animated spinner and the native-Pi attach button, live in that agent's work preview header; Duo phase, plan, and transient feedback stay below the timeline.",
+			"The main view is one conversation timeline: Austin's messages on the left, Tony's on the right, under a top row that leads with the workflow mode — `[FAST]` or `[GOAL]` in bold — and then names the Git repository Duo resolved. The frame lines are tinted by mode, cyan for Fast and magenta for Goal. Every message header names a direction — for example `Austin → Human`, `Austin → Tony` or `Duo → Tony` — in the speaker's own colour, with messages addressed to the human highlighted in bold. Each agent's connection, process and working state, with the animated spinner and the attach button, live in that agent's work preview header; Duo phase, plan, and transient feedback stay below the timeline.",
 		}},
 	}
 	var out []string

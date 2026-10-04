@@ -85,7 +85,7 @@ PLAN → EXECUTE → REVIEW → INTEGRATE → DONE
 
 两种模式里，阶段都是**checkpoint，不是行为牢笼**：Duo 不会阻止 Agent 提前读代码或提前 Review；阶段只决定"推进需要哪些证据"。
 
-`DONE` 是**这一轮的终点，不是整个会话的终点**。在 Duo composer 里再提交一个任务会为新一轮重新打开会话——Fast 回到 `RUNNING`，Goal 回到 `PLAN`——并清掉上一轮已完成的交付 checkpoint，让后续任务可以重新验证、独立交付。而通过 `Ctrl+A` / `Ctrl+T` 直接进入某个 Agent 自己的会话则**故意不这么做**：那条路径绕过 Duo，阶段保持不变。
+`DONE` 是**这一轮的终点，不是整个会话的终点**。在 Duo composer 里再提交一个任务会为新一轮重新打开会话——Fast 回到 `RUNNING`，Goal 回到 `PLAN`——并清掉上一轮已完成的交付 checkpoint，让后续任务可以重新验证、独立交付。而通过 `Ctrl+A` / `Ctrl+T` 直接进入某个 Agent 自己的会话则绕过 Duo，不经过 composer；但在 Fast 模式下这条路依然可恢复：Austin 在那里提交了新代码并请求验证时，Duo 会基于新的 HEAD 开启新一轮，而不是拒绝该请求。若重复请求仍然指向已交付的那个 HEAD，则会被拒绝，避免误发把已交付的会话重新打开。
 
 任何模式下，一轮走到 `DONE`，Duo 都会请 Austin 给你做一次总结：过程实际是怎么走的，以及仓库现在多了什么。Austin 用普通消息回答，因此这份总结在时间线里显示为 `Austin → Human`，和发给你自己的消息一样加粗。每轮只请求一次；下一轮会为自己的交付再总结一次。
 
@@ -252,7 +252,7 @@ duo --austin-driver opencode --tony-driver pi
 Duo 以自动批准工具调用的方式运行 Agent（opencode 用 `--auto`，agy 用
 `--dangerously-skip-permissions`），因为它们要在各自隔离的 worktree 中无人值守地工作。
 `duo plugins` 会列出内置 driver，以及在 `~/.duo/plugins/` 或 `PATH` 中发现的
-`duo-driver-<name>` / `duo-<name>` 可执行文件。
+`duo-plugin-<name>` 可执行文件（旧拼写 `duo-driver-<name>` / `duo-<name>` 同样被接受）。
 
 opencode bridge 由安装脚本部署到 `~/.config/opencode/plugin/duo/`。
 安装后请重启所有正在运行的 opencode 进程。
@@ -331,7 +331,7 @@ driver，切换 driver 时它会被丢弃——那个 id 对新的 CLI 没有意
 
 ~/.duo/config.json  你可以编辑的全局配置
 ~/.duo/history      composer 历史任务（用 ↑/↓ 回溯）
-~/.duo/plugins/     可选的 `duo-driver-<name>` / `duo-<name>` 可执行文件
+~/.duo/plugins/     可选的 `duo-plugin-<name>` 可执行文件
 ```
 
 会话目录以仅属主权限创建，并记录项目状态，详见 [SECURITY.md](./SECURITY.md)。
@@ -419,7 +419,7 @@ duo logs <repository>       # 列出另一个仓库的会话记录
 
 `duo clean` 默认就会清理本仓库全部已完成（DONE）的会话，因此 `--all` 目前不改变任何行为；真正把未完成会话也纳入的是 `--force`。`duo sessions` 接受 `-a`（`--all`）；`duo clean` 另外接受 `-f`（`--force`）与 `-n`（`--dry-run`）；`duo apply` 还接受 `--session <id>` / `-s <id>`。`duo plugin` 与 `duo mcp` 分别是 `duo plugins` 与 `duo mcp-server` 的别名。每个命令都支持自己的 `--help`（例如 `duo clean --help`）；在仓库目录里执行 `duo <repository> --help` 同样会打印完整用法。
 
-其余命令不涉及会话：`duo plugins` 列出内置 driver 与所有已发现的外部插件，[`duo mcp-server`](#mcp-服务duo-mcp-server) 通过 MCP 提供 Duo 工具，`duo version`（`--version`）与 `duo help`（`-h`、`--help`）分别打印版本号与完整用法。
+其余命令不涉及会话：`duo plugins` 列出内置 driver 与所有已发现的外部插件，`duo plugin test [<path…>] [--all] [--verbose]` 按 [Driver 插件协议](./docs/driver-plugin-protocol.md) 检查单个或全部 driver，[`duo mcp-server`](#mcp-服务duo-mcp-server) 通过 MCP 提供 Duo 工具，`duo version`（`--version`）与 `duo help`（`-h`、`--help`）分别打印版本号与完整用法。
 
 ## 使用边界
 

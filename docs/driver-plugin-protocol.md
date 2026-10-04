@@ -58,15 +58,19 @@ side of the boundary. Core sees only the capabilities you declare.
 
 ## Discovery
 
-Core finds plugins by executable name. For a driver called `codex` it looks for, in
-order:
+Core finds plugins by executable name. For a driver called `codex` it looks in
+`~/.duo/plugins/` first, then anywhere on `$PATH`, trying the accepted spellings in
+this order within each of those two places:
 
-1. `duo-plugin-codex` in `~/.duo/plugins/`
-2. `duo-plugin-codex` anywhere on `$PATH`
-3. `duo-driver-codex`, then `duo-codex`, in the same two places
+1. `duo-plugin-codex`
+2. `duo-driver-codex`
+3. `duo-codex`
 
 `duo-plugin-<name>` is canonical. The other two spellings exist so a plugin written
-against Duo 0.9 keeps working without a reinstall.
+against Duo 0.9 keeps working without a reinstall. A `duo-<name>` executable is only
+ever an accepted *name*: if it is one of the pre-plugin launch shims it launches an
+agent and speaks no protocol, so Core ignores it and falls back to the driver it
+ships in-process.
 
 `~/.duo/plugins/` is searched before `$PATH`, so a plugin you are working on shadows
 a released one. That is deliberate: you can develop a plugin without uninstalling
@@ -478,6 +482,8 @@ Reply with an error, not an exit:
 | `unavailable` | the agent is temporarily unusable. Include what to do about it. |
 | `internal` | your bug. Say what went wrong. |
 | `protocol_mismatch` | Core spoke another protocol version. |
+| `timeout` | the method ran out of time rather than failing. A timeout and a bug need different responses from Core, so it will not treat them as the same. |
+| `unknown_method` | the request named a method this protocol does not define. Core will not call one, so seeing it means the two ends disagree. |
 
 Core distinguishes `unsupported` from a crash, because one means a capability check
 was wrong and the other means a plugin is broken.

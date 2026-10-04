@@ -144,7 +144,7 @@ No prompt echo, no spurious harness nudge and no stall appeared in any of these 
   - Added support for external driver plugins following the `duo-driver-<name>` and `duo-<name>` naming conventions in `~/.duo/plugins/` and `$PATH`.
   - Added standalone `duo-pi` and `duo-agy` binaries.
   - New `duo plugins` command lists built-in drivers (`pi`, `agy`) and discovered external plugins with executable paths and readiness status.
-  - Per-agent driver selection via CLI (`--austin-driver`, `--tony-driver`, `--driver`) and `agents.austin.driver` / `agents.tony.driver` in `.duo/config.json`. Corrected in v0.8.2: this entry previously also named `DUO_AUSTIN_DRIVER` and `DUO_TONY_DRIVER`, which were documented but never read. `DUO_DRIVER` sets both agents.
+  - Per-agent driver selection via CLI (`--austin-driver`, `--tony-driver`, `--driver`) and `agents.austin.driver` / `agents.tony.driver` in `.duo/config.json`. There is no per-agent environment variable: `DUO_DRIVER` sets both agents.
 - Multi-driver TUI Experience:
   - Work preview headers for Austin and Tony now prominently indicate the active driver, e.g. `Austin preview (agy) · working · 5s` or `Tony preview (pi) · idle`.
   - The model picker (`Ctrl+M`) displays dynamic, driver-accurate loading status (" Loading models from <driver>…") matching the target agent's driver.

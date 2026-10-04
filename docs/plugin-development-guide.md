@@ -69,7 +69,8 @@ first link at the top.
 ### Pick a name
 
 Your driver name is `<name>`, and your executable must be `duo-plugin-<name>`.
-`codex`, `claude`, `qoder` are all fine. `duo` and `duo-mcp-server` are reserved.
+`codex`, `claude`, `qoder` are all fine. `duo`, `duo-mcp-server` and `duo-plugin-test`
+are reserved.
 
 ### Pick a language
 
@@ -311,8 +312,8 @@ id. This is the generic replacement for hard-coded paths.
 `notices` are operator-facing diagnostics discovered *while preparing this launch*.
 They belong here rather than in `describe` because they are a property of the
 machine right now: a helper tool may be installed between the two calls, and a static
-string would be a claim Duo cannot keep true. Both shipped drivers report a missing
-helper this way.
+string would be a claim Duo cannot keep true. The `agy` driver reports a missing
+`sqlite3` this way.
 
 ## Step 4: add an Agent Adapter, if your agent has an API
 
@@ -366,8 +367,8 @@ picker.
 ]}
 ```
 
-This is where the code Duo used to own comes from. Ask your agent for its catalog,
-parse whatever it prints, and return this shape. An empty catalog is an error, not an
+This is where your agent's own catalog becomes Duo's. Ask your agent for it, parse
+whatever it prints, and return this shape. An empty catalog is an error, not an
 empty picker — the user needs to be told the CLI failed rather than shown a blank
 list.
 
@@ -460,6 +461,15 @@ You can also do this by hand in one line, and it is worth doing before anything 
 echo '{"protocol":1,"id":1,"method":"describe"}' | ./duo-plugin-example
 ```
 
+**Then let Duo check it.** `duo plugin test` runs the shared conformance suite
+against your executable and prints one line per check, so you do not have to
+reproduce Duo's own expectations by hand:
+
+```sh
+duo plugin test ./duo-plugin-example -v
+duo plugin test --all      # every driver this Duo can see
+```
+
 **Then run it for real.** In a scratch repository:
 
 ```sh
@@ -509,24 +519,6 @@ distribution story.
 ## The mistakes that have actually shipped
 
 Every one of these is in Duo's own history, and every one was silent.
-
-Before implementation, establish a baseline: run the reference plugin contract,
-build `cmd/duo-plugin-example`, and run `duo plugin test` against that binary. Find
-the `Handler` and manifest types by name in `internal/driver`; line numbers drift.
-For a new driver, keep the sequence small: `describe`, `probe`, `prepare`, learned
-state if needed, optional model/thinking methods, then an Agent Adapter only when
-the agent exposes a usable API. Run `duo plugin test <binary> -v` and inspect its
-individual checks.
-
-One environment-dependent trap deserves a separate rule: a model-catalog test must
-distinguish a broken plugin from a CLI that is absent or unauthenticated. Probe the
-CLI directly and skip only when that CLI cannot enumerate models; never use the
-plugin's own failing `Models()` result to justify skipping its test.
-
-For a release-quality check, run `gofmt -l .`, `go build ./...`, `go vet ./...`,
-`go test ./... -count=1`, then build and contract-test the plugin binary. For a
-non-trivial state or catalog behavior, deliberately break that behavior once and
-confirm the relevant check fails.
 
 **Declaring a capability whose method is missing.** A method with a subtly different
 signature compiles, passes every unit test, and answers `unsupported` at runtime. The
