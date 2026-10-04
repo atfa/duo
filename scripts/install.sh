@@ -9,26 +9,19 @@ mkdir -p "$BIN_DIR"
 "$ROOT/scripts/install-opencode-extension.sh"
 cd "$ROOT"
 go test ./...
-go build -o "$BIN_DIR/duo" ./cmd/duo
-go build -o "$BIN_DIR/duo-pi" ./cmd/duo-pi
-go build -o "$BIN_DIR/duo-agy" ./cmd/duo-agy
-go build -o "$BIN_DIR/duo-opencode" ./cmd/duo-opencode
-
-# Driver plugins. Duo falls back to running these same drivers in-process when no
-# plugin is installed, but `duo plugins` should list what is actually available.
-go build -o "$BIN_DIR/duo-plugin-pi" ./cmd/duo-plugin-pi
-go build -o "$BIN_DIR/duo-plugin-agy" ./cmd/duo-plugin-agy
-go build -o "$BIN_DIR/duo-plugin-opencode" ./cmd/duo-plugin-opencode
-go build -o "$BIN_DIR/duo-plugin-example" ./cmd/duo-plugin-example
+# Every command under cmd/ ships, so adding a driver needs no edit here. Each
+# binary is named after its own directory, which is exactly the name the registry
+# looks for on PATH, so the build output and `duo plugins` cannot disagree about
+# what a driver is called.
+for pkg in $(go list ./cmd/...); do
+  go build -o "$BIN_DIR/$(basename "$pkg")" "$pkg"
+done
 
 echo
 echo "Installed Duo binaries to $BIN_DIR:"
-echo "  duo                    the coordinator, TUI and bridge"
-echo "  duo-pi duo-agy duo-opencode"
-echo "                         launch shims kept for DUO_PI_COMMAND compatibility"
-echo "  duo-plugin-pi          Pi Driver Plugin (Duo Driver Plugin Protocol v1)"
-echo "  duo-plugin-agy         agy Driver Plugin (owns its own bridge endpoint)"
-echo "  duo-plugin-opencode    opencode Driver Plugin"
-echo "  duo-plugin-example     reference plugin, used by the contract tests"
+echo "  duo        the coordinator, TUI and bridge"
+echo "  duo-*      one launch shim and plugin executable per driver"
+echo "Run 'duo plugins' to list the drivers that are installed, and"
+echo "'duo plugin test --all' to check each one against the protocol."
 echo "Ensure $BIN_DIR is in PATH, then run:"
 echo "  cd /path/to/git/repo && duo"

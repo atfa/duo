@@ -31,13 +31,14 @@ extension_dir="${HOME}/.pi/agent/extensions/duo"
 opencode_plugin_dir="${HOME}/.config/opencode/plugin"
 mkdir -p "$bin_dir" "$(dirname "$extension_dir")" "$opencode_plugin_dir"
 install -m 0755 "$tmp/duo" "$bin_dir/duo"
-[ -f "$tmp/duo-pi" ] && install -m 0755 "$tmp/duo-pi" "$bin_dir/duo-pi"
-[ -f "$tmp/duo-agy" ] && install -m 0755 "$tmp/duo-agy" "$bin_dir/duo-agy"
-[ -f "$tmp/duo-opencode" ] && install -m 0755 "$tmp/duo-opencode" "$bin_dir/duo-opencode"
-[ -f "$tmp/duo-plugin-pi" ] && install -m 0755 "$tmp/duo-plugin-pi" "$bin_dir/duo-plugin-pi"
-[ -f "$tmp/duo-plugin-agy" ] && install -m 0755 "$tmp/duo-plugin-agy" "$bin_dir/duo-plugin-agy"
-[ -f "$tmp/duo-plugin-opencode" ] && install -m 0755 "$tmp/duo-plugin-opencode" "$bin_dir/duo-plugin-opencode"
-[ -f "$tmp/duo-plugin-example" ] && install -m 0755 "$tmp/duo-plugin-example" "$bin_dir/duo-plugin-example"
+# Everything else in the archive is a per-driver launch shim or plugin executable.
+# Installing whatever the release actually contains is what keeps this script from
+# becoming another list of drivers to remember. `duo.tar.gz` sits alongside these
+# but does not match the `duo-*` prefix, and directories are skipped.
+for binary in "$tmp"/duo-*; do
+  [ -f "$binary" ] || continue
+  install -m 0755 "$binary" "$bin_dir/$(basename "$binary")"
+done
 rm -rf "$extension_dir"
 cp -R "$tmp/pi-extension" "$extension_dir"
 

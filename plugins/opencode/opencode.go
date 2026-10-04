@@ -147,14 +147,12 @@ func (*Plugin) Describe() (*driver.Manifest, error) {
 			Thinking:           true,
 			LiveModelSwitch:    false,
 			LiveThinkingSwitch: false,
-			Activity:           true,
 			ContextUsage:       true,
 			TokenRate:          true,
 			// opencode-extension connects from inside the opencode process and
 			// injects through client.session.promptAsync, so its endpoint does
 			// receive prompts mid-turn.
 			Bridge:       driver.BridgeAgent,
-			MCP:          true,
 			PTYFallback:  true,
 			LiveSteering: true,
 			// opencode only creates a session once the human or the agent sends
@@ -162,6 +160,10 @@ func (*Plugin) Describe() (*driver.Manifest, error) {
 			// connection at process start.
 			SelfReports: false,
 		},
+		// The extension reports every turn over the bridge, and the launch command
+		// below points opencode at Duo's MCP server.
+		Activity: true,
+		MCP:      true,
 	}, nil
 }
 

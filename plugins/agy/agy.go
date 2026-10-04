@@ -121,7 +121,6 @@ func (p *Plugin) Describe() (*driver.Manifest, error) {
 			// flags, so Core restarts the process to apply them.
 			LiveModelSwitch:    false,
 			LiveThinkingSwitch: false,
-			Activity:           true,
 			ContextUsage:       true,
 			TokenRate:          true,
 			// This plugin process holds the bridge endpoint, because agy has no
@@ -130,13 +129,16 @@ func (p *Plugin) Describe() (*driver.Manifest, error) {
 			// which is why liveSteering is false: Core delivers prompts to the
 			// terminal, exactly as it did before.
 			Bridge:       driver.BridgePlugin,
-			MCP:          true,
 			PTYFallback:  true,
 			LiveSteering: false,
 			// The endpoint cannot attach until agy has told us which conversation
 			// it opened, so Core announces the connection at process start.
 			SelfReports: false,
 		},
+		// The watcher reports agy's turns over the bridge, and the launch command
+		// below points agy at Duo's MCP server.
+		Activity: true,
+		MCP:      true,
 	}, nil
 }
 

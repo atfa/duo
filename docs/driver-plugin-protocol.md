@@ -283,11 +283,9 @@ agent-owned bridge.
   "thinking": true,
   "liveModelSwitch": false,
   "liveThinkingSwitch": false,
-  "activity": true,
   "contextUsage": true,
   "tokenRate": false,
   "bridge": "agent",
-  "mcp": true,
   "ptyFallback": true,
   "liveSteering": true,
   "selfReports": false
@@ -301,14 +299,35 @@ agent-owned bridge.
 | `thinking` | Core offers a thinking picker and calls `thinking`. |
 | `liveModelSwitch` | when false, Core restarts the agent to apply a new model. When true, Core does not restart. |
 | `liveThinkingSwitch` | the same, for reasoning effort. |
-| `activity` | Core expects activity over the bridge rather than inferring it from a file. |
-| `contextUsage` | Core shows a context-window figure. |
-| `tokenRate` | Core shows an output-rate estimate. |
+| `contextUsage` | Core shows the context-window figure you send, and ignores the numbers you send when this is false. |
+| `tokenRate` | the same, for an output-rate estimate. |
 | `bridge` | who holds Duo's one bridge endpoint. See below. |
-| `mcp` | your Agent Adapter can serve Duo's coordination tools over MCP. |
 | `ptyFallback` | Core may deliver a prompt by writing to the agent's terminal when no bridge can take it. |
 | `liveSteering` | a peer message reaches the agent **mid-turn**, rather than being queued until it finishes. |
 | `selfReports` | your bridge attaches the moment the agent process starts, so Core does not announce the connection itself. Set false when your endpoint cannot attach until the agent has something to say. |
+
+The rule above is enforced, not just stated: a field that Core does not branch on
+cannot stay in this table. `TestEveryCapabilityIsBranchedOn` in
+`internal/driver/decoupling_test.go` reads this struct and fails if any field is
+never read by Core, so a new field has to earn its place here.
+
+### Descriptive manifest fields
+
+Two facts about a driver are worth recording but are not capabilities, because Core
+handles them the same way for every driver and has nothing to decide. They sit on
+the manifest rather than in `capabilities`, where a promise Core relies on lives:
+
+```json
+{ "name": "myagent", "activity": true, "mcp": true }
+```
+
+| field | what it records |
+|---|---|
+| `activity` | your Agent Adapter reports activity over Duo's bridge rather than leaving Core to infer it from a file. Core handles those messages identically for every driver, so it reads this for nobody. |
+| `mcp` | your launch command wires Duo's coordination tools into the agent over MCP. The launch command is what makes them reachable, and it arrives in `prepare`, so Core reads this for nobody. |
+
+Both default to false, so omitting them is fine. Declaring one costs nothing and
+buys nothing; leaving it out changes nothing either.
 
 `liveModelSwitch` and `liveThinkingSwitch` are the two most commonly got wrong.
 Declaring `liveModelSwitch: true` when your agent only takes a model as a startup

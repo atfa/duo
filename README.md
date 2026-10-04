@@ -33,7 +33,7 @@ Requirements:
 
 ## Install
 
-**Released binaries** (macOS/Linux, amd64/arm64; installs `~/.local/bin/duo`, the per-driver bridges `duo-pi` / `duo-agy` / `duo-opencode`, the Pi bridge and the opencode plugin):
+**Released binaries** (macOS/Linux, amd64/arm64; installs `~/.local/bin/duo` plus one launch shim and plugin executable per driver, along with the agent-side bridges):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash

@@ -249,7 +249,12 @@ func TestPreviewHeaderShowsContextAndLiveTokenRate(t *testing.T) {
 				a.tracker.Handle(tc.agent, protocol.ActivityProviderStart)
 			}
 			a.tracker.Handle(tc.agent, protocol.ActivityStream)
-			a.tracker.UpdateUsage(tc.agent, tc.tokens, tc.window, tc.speed)
+			if tc.window > 0 {
+				a.tracker.UpdateContext(tc.agent, tc.tokens, tc.window)
+			}
+			if tc.speed > 0 {
+				a.tracker.UpdateRate(tc.agent, tc.speed)
+			}
 			header := a.previewHeader(tc.agent, 120)
 			if !strings.Contains(header, tc.wantCtx) || !strings.Contains(header, tc.wantSpd) {
 				t.Fatalf("%s header = %q, want %q and %q", tc.driver, header, tc.wantCtx, tc.wantSpd)

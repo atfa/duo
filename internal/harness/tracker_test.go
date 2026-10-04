@@ -57,7 +57,8 @@ func TestTrackerUsageTracksContextAndClearsInactiveSpeed(t *testing.T) {
 	tr := NewTracker()
 	agent := protocol.Austin
 	tr.Handle(agent, protocol.ActivityProviderStart)
-	tr.UpdateUsage(agent, 45000, 200000, 32.5)
+	tr.UpdateContext(agent, 45000, 200000)
+	tr.UpdateRate(agent, 32.5)
 
 	rt := tr.Snapshot(agent)
 	if rt.ContextTokens != 45000 || rt.ContextWindow != 200000 {

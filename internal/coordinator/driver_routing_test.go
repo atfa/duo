@@ -61,7 +61,7 @@ func steeringOnly() driver.Capabilities {
 func observedFromOutside() driver.Capabilities {
 	return driver.Capabilities{
 		Resume: driver.ResumeServer, Bridge: driver.BridgePlugin,
-		Activity: true, PTYFallback: true, SelfReports: false,
+		PTYFallback: true, SelfReports: false,
 	}
 }
 

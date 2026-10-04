@@ -103,15 +103,15 @@ Start here, and add the rest as you implement it:
     "thinking": false,
     "liveModelSwitch": false,
     "liveThinkingSwitch": false,
-    "activity": false,
     "contextUsage": false,
     "tokenRate": false,
     "bridge": "none",
-    "mcp": false,
     "ptyFallback": true,
     "liveSteering": false,
     "selfReports": false
-  }
+  },
+  "activity": false,
+  "mcp": false
 }
 ```
 
@@ -349,11 +349,20 @@ each other in a loop and the agent will appear to connect and drop repeatedly.
 | `liveModelSwitch: true` | a new model applies without a restart | the model silently does not change |
 | `liveThinkingSwitch: true` | same for reasoning effort | same |
 | `selfReports: true` | Duo trusts your adapter to announce itself | the agent appears missing when it is working |
-| `activity: true` | your adapter reports what the agent is doing | Duo shows nothing but a terminal |
-| `contextUsage`, `tokenRate` | Duo shows those figures | — |
+| `contextUsage: true` | Duo shows the context figure you send | Duo ignores the numbers you send |
+| `tokenRate: true` | Duo shows the rate you estimate | Duo ignores the rate you send |
 
 `liveSteering` and the two `live*Switch` flags are the ones that cause silent
 failures. Claim them only once you handle the corresponding message.
+
+**`activity` and `mcp` are not capabilities.** They sit on the manifest next to
+`capabilities`, because Duo does the same thing for every driver either way and
+never branches on them: `activity` records that your adapter reports what the agent
+is doing over the bridge, and `mcp` records that your launch command wires Duo's
+coordination tools in. Both are optional, both default to false, and both are safe
+to declare even if untrue. A field inside `capabilities` is a promise Duo acts on,
+so nothing that Duo ignores belongs there — see
+[the protocol's capability table](driver-plugin-protocol.md#capabilities-and-the-one-rule-about-them).
 
 ## Step 5: models and thinking
 

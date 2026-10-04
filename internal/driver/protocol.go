@@ -128,6 +128,10 @@ func (e *RPCError) Error() string {
 // Capabilities is everything Core is allowed to branch on. Every field is
 // declared by the plugin: Core has no other source for driver behaviour, so a
 // new agent that fills this in correctly needs no change to Core.
+//
+// Every field here must change something Core does. A fact about a driver that
+// Core cannot act on is descriptive metadata and belongs on Manifest, where
+// claiming it cannot be mistaken for a promise Core relies on.
 type Capabilities struct {
 	// Resume is ResumeClient, ResumeServer or ResumeNone.
 	Resume string `json:"resume"`
@@ -140,19 +144,17 @@ type Capabilities struct {
 	LiveModelSwitch bool `json:"liveModelSwitch"`
 	// LiveThinkingSwitch reports the same for reasoning effort.
 	LiveThinkingSwitch bool `json:"liveThinkingSwitch"`
-	// Activity reports that the plugin's Agent Adapter emits activity over
-	// Duo's bridge, so Core never has to observe an external file.
-	Activity bool `json:"activity"`
-	// ContextUsage reports that the agent reports context-window usage.
+	// ContextUsage reports that the agent reports context-window usage. When
+	// true Core shows the figure the plugin sends; when false the numbers it
+	// sends are ignored rather than shown as something the operator cannot trust.
 	ContextUsage bool `json:"contextUsage"`
-	// TokenRate reports that the plugin estimates streamed output rate.
+	// TokenRate reports that the plugin estimates streamed output rate, on the
+	// same terms as ContextUsage.
 	TokenRate bool `json:"tokenRate"`
 	// Bridge declares who owns this driver's single bridge endpoint:
 	// BridgeNone, BridgeAgent or BridgePlugin. It decides downstream delivery:
 	// only BridgeAgent's endpoint can receive an injected prompt.
 	Bridge string `json:"bridge"`
-	// MCP reports that the plugin can serve Duo's coordination tools over MCP.
-	MCP bool `json:"mcp"`
 	// PTYFallback reports that Core may deliver prompts by writing to the
 	// agent's terminal when no bridge is attached.
 	PTYFallback bool `json:"ptyFallback"`
@@ -189,6 +191,17 @@ type Manifest struct {
 	// reported provider and id back into the single reference the picker shows.
 	ModelReference string       `json:"modelReference"`
 	Capabilities   Capabilities `json:"capabilities"`
+	// Activity reports that the plugin's Agent Adapter emits activity over
+	// Duo's bridge as ordinary activity messages, so Core never has to observe
+	// an external file. It is descriptive: Core handles those messages for
+	// every driver identically, so there is nothing here for it to decide, and
+	// a plugin is free to declare it while sending none.
+	Activity bool `json:"activity,omitempty"`
+	// MCP reports that the plugin's launch command wires Duo's coordination
+	// tools into the agent over MCP. It is descriptive for the same reason:
+	// the launch command is what makes the tools reachable, and it arrives in
+	// LaunchPlan rather than here.
+	MCP bool `json:"mcp,omitempty"`
 	// Notices are operator-facing diagnostics this driver needs, such as a
 	// missing helper tool. Core shows them verbatim instead of hard-coding
 	// per-driver warnings.

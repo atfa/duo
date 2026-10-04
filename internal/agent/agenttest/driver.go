@@ -24,6 +24,10 @@ type Spec struct {
 	Name string
 	// Capabilities are what Core branches on.
 	Capabilities driver.Capabilities
+	// Activity and MCP are the manifest's descriptive fields, carried through so a
+	// test can assert on the manifest a stub describes itself with.
+	Activity bool
+	MCP      bool
 	// Command is the launch command prepare returns. Empty means "use whatever the
 	// operator configured, or the driver name", which is what a real plugin does.
 	Command string
@@ -79,11 +83,12 @@ func New(name string) *Driver {
 			Models:       true,
 			Thinking:     true,
 			Bridge:       driver.BridgeAgent,
-			MCP:          true,
 			PTYFallback:  true,
 			LiveSteering: true,
 			SelfReports:  true,
 		},
+		Activity:  true,
+		MCP:       true,
 		Available: true,
 	}}
 }
@@ -145,6 +150,8 @@ func (d *Driver) Describe() (*driver.Manifest, error) {
 		Agent:          driver.AgentInfo{CLI: d.spec.Name, DefaultCommand: d.spec.command()},
 		ModelReference: driver.ModelQualified,
 		Capabilities:   d.spec.Capabilities,
+		Activity:       d.spec.Activity,
+		MCP:            d.spec.MCP,
 	}, nil
 }
 

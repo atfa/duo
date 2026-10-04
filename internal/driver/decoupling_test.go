@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -157,10 +158,15 @@ func TestShippedDriversAreWiredInAtOneSite(t *testing.T) {
 // `duo plugins`. Matching adjacent pairs rather than the whole list keeps the
 // guard independent of the order the names happen to be written in, and still
 // catches an enumeration of more drivers than Core knows about.
+//
+// The install and release scripts are covered too: they used to build and install
+// a named binary per driver, which put a fourth driver's name back into the edit
+// set even though the behaviour was gone from Core. They now derive the list from
+// `go list ./cmd/...`.
 func TestCoreDoesNotEnumerateShippedDrivers(t *testing.T) {
 	names := shippedDrivers(t)
 	separators := []string{"|", ", ", " or ", ", and "}
-	files := coreFiles(t)
+	files := append(coreFiles(t), packagingFiles(t)...)
 	for i, first := range names {
 		for j, second := range names {
 			if i == j {
@@ -172,6 +178,100 @@ func TestCoreDoesNotEnumerateShippedDrivers(t *testing.T) {
 					if strings.Contains(source(t, file), pair) {
 						t.Errorf("%s spells out shipped drivers as %q; name the flag and point at `duo plugins` instead, so a new driver needs no edit here", file, pair)
 					}
+				}
+			}
+		}
+	}
+}
+
+// packagingFiles are the scripts that decide which binaries ship. They are not
+// Core, but they were a place a new driver had to be written down.
+func packagingFiles(t *testing.T) []string {
+	t.Helper()
+	root := repoRoot(t)
+	var out []string
+	for _, pattern := range []string{"scripts/*.sh", ".github/workflows/*.yml"} {
+		matches, err := filepath.Glob(filepath.Join(root, filepath.FromSlash(pattern)))
+		if err != nil {
+			t.Fatalf("glob %s: %v", pattern, err)
+		}
+		for _, match := range matches {
+			rel, err := filepath.Rel(root, match)
+			if err != nil {
+				t.Fatalf("rel %s: %v", match, err)
+			}
+			out = append(out, filepath.ToSlash(rel))
+		}
+	}
+	if len(out) == 0 {
+		t.Fatal("found no install or release scripts; the glob is broken")
+	}
+	return out
+}
+
+// TestEveryCapabilityIsBranchedOn makes the protocol's one rule about
+// capabilities enforceable rather than aspirational.
+//
+// `activity`, `contextUsage`, `tokenRate` and `mcp` all sat in Capabilities for
+// months while Core read none of them, so a plugin author following the guide was
+// told a promise Duo did not keep. Prose did not stop it; this does. A field added
+// here has to be read by Core or this test fails, which is the review that
+// catches the next one.
+//
+// How it reads: a field counts as read when some Core file both talks about a
+// capabilities value and qualifies that field's name. That is deliberately loose
+// about *how* the field is used, so it cannot prove a branch rather than a mention
+// — what it proves, reliably, is that a field nobody looks at cannot pass.
+func TestEveryCapabilityIsBranchedOn(t *testing.T) {
+	var fields []string
+	caps := reflect.TypeOf(Capabilities{})
+	for i := 0; i < caps.NumField(); i++ {
+		fields = append(fields, caps.Field(i).Name)
+	}
+	if len(fields) == 0 {
+		t.Fatal("Capabilities has no fields; the reflection below is broken")
+	}
+
+	type coreFile struct{ name, text string }
+	var files []coreFile
+	for _, file := range coreFiles(t) {
+		files = append(files, coreFile{file, source(t, file)})
+	}
+
+	for _, field := range fields {
+		read := false
+		for _, file := range files {
+			if mentionsCapabilities(file.text) && strings.Contains(file.text, "."+field) {
+				read = true
+				break
+			}
+		}
+		if !read {
+			t.Errorf("Capabilities.%s is declared but no Core file reads it; a capability Core never branches on is a promise Duo does not keep, so either branch on it or move it to the manifest as descriptive metadata", field)
+		}
+	}
+}
+
+func mentionsCapabilities(text string) bool {
+	return strings.Contains(strings.ToLower(text), "capabilit")
+}
+
+// TestPackagingDoesNotNameDriverBinaries closes the gap the prose guard above
+// cannot: a build list writes paths, not sentences. `./cmd/duo-plugin-pi
+// ./cmd/duo-plugin-agy` names two drivers without ever spelling "pi, agy", so
+// matching prose separators misses it entirely — which is exactly how the install
+// and release scripts kept a per-driver edit set after Core stopped needing one.
+//
+// These tokens cannot appear in a script by accident: a script that writes
+// duo-pi or duo-plugin-pi is naming a driver's binary. Both scripts now derive the
+// list from `go list ./cmd/...`, so a new driver ships without being written down.
+func TestPackagingDoesNotNameDriverBinaries(t *testing.T) {
+	files := packagingFiles(t)
+	for _, name := range shippedDrivers(t) {
+		for _, token := range []string{"duo-" + name, "duo-plugin-" + name} {
+			for _, file := range files {
+				if strings.Contains(source(t, file), token) {
+					t.Errorf("%s names the %s binary as %q; derive the binaries from `go list ./cmd/...` so a new driver needs no edit here", file, name, token)
 				}
 			}
 		}

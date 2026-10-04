@@ -199,8 +199,11 @@ func TestManifestDeclaresAgyBehaviour(t *testing.T) {
 	if caps.SelfReports {
 		t.Error("the endpoint attaches only after agy reports a conversation, so Core must announce it")
 	}
-	if !caps.Activity || !caps.PTYFallback {
-		t.Error("agy reports activity through this plugin and receives prompts at the PTY")
+	if !caps.PTYFallback {
+		t.Error("agy receives prompts at the PTY")
+	}
+	if !man.Activity {
+		t.Error("agy reports activity through this plugin")
 	}
 }
 

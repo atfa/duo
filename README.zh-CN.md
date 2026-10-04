@@ -35,7 +35,7 @@ duo --mode goal  # 完整协商式工作流
 
 ## 安装
 
-**发布版二进制**（macOS/Linux，amd64/arm64；安装 `~/.local/bin/duo`、各 driver 对应的 `duo-pi` / `duo-agy` / `duo-opencode`、Pi bridge 与 opencode 插件）：
+**发布版二进制**（macOS/Linux，amd64/arm64；安装 `~/.local/bin/duo`、每个 driver 对应的一个启动 shim 与插件可执行文件，以及 Agent 侧 bridge）：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash

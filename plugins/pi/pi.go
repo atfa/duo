@@ -59,18 +59,20 @@ func (Plugin) Describe() (*driver.Manifest, error) {
 			Thinking:           true,
 			LiveModelSwitch:    true,
 			LiveThinkingSwitch: true,
-			Activity:           true,
 			ContextUsage:       true,
 			TokenRate:          true,
 			// pi-extension connects from inside the Pi process, so its endpoint can
 			// receive an injected prompt.
 			Bridge:       driver.BridgeAgent,
-			MCP:          true,
 			PTYFallback:  true,
 			LiveSteering: true,
 			// It connects on session_start, which is as early as it can.
 			SelfReports: true,
 		},
+		// The extension reports every turn over the bridge, and the launch command
+		// below points Pi at Duo's MCP server.
+		Activity: true,
+		MCP:      true,
 	}, nil
 }
 

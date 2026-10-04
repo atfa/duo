@@ -48,15 +48,15 @@ func (plugin) Describe() (*driver.Manifest, error) {
 			Thinking:           true,
 			LiveModelSwitch:    true,
 			LiveThinkingSwitch: true,
-			Activity:           true,
 			ContextUsage:       true,
 			TokenRate:          true,
 			Bridge:             driver.BridgeAgent,
-			MCP:                true,
 			PTYFallback:        true,
 			LiveSteering:       true,
 			SelfReports:        true,
 		},
+		Activity: true,
+		MCP:      true,
 	}, nil
 }
 

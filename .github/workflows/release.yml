@@ -18,7 +18,7 @@ jobs:
           go-version: stable
       - run: go test ./...
       - run: go vet ./...
-      - run: CGO_ENABLED=0 go build ./cmd/duo ./cmd/duo-pi ./cmd/duo-agy ./cmd/duo-opencode ./cmd/duo-plugin-pi ./cmd/duo-plugin-agy ./cmd/duo-plugin-opencode ./cmd/duo-plugin-example
+      - run: CGO_ENABLED=0 go build ./cmd/...
 
   build:
     needs: test
@@ -38,14 +38,13 @@ jobs:
           TARGET_ARCH: ${{ matrix.arch }}
         run: |
           mkdir -p dist/package
-          CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" go build -trimpath -ldflags="-s -w" -o dist/package/duo ./cmd/duo
-          CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" go build -trimpath -ldflags="-s -w" -o dist/package/duo-pi ./cmd/duo-pi
-          CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" go build -trimpath -ldflags="-s -w" -o dist/package/duo-agy ./cmd/duo-agy
-          CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" go build -trimpath -ldflags="-s -w" -o dist/package/duo-opencode ./cmd/duo-opencode
-          CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" go build -trimpath -ldflags="-s -w" -o dist/package/duo-plugin-pi ./cmd/duo-plugin-pi
-          CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" go build -trimpath -ldflags="-s -w" -o dist/package/duo-plugin-agy ./cmd/duo-plugin-agy
-          CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" go build -trimpath -ldflags="-s -w" -o dist/package/duo-plugin-opencode ./cmd/duo-plugin-opencode
-          CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" go build -trimpath -ldflags="-s -w" -o dist/package/duo-plugin-example ./cmd/duo-plugin-example
+          # One binary per command, named after its directory. Deriving the list
+          # keeps a new driver out of this file's edit set.
+          for pkg in $(go list ./cmd/...); do
+            name="$(basename "$pkg")"
+            CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" \
+              go build -trimpath -ldflags="-s -w" -o "dist/package/$name" "$pkg"
+          done
           cp -R pi-extension dist/package/pi-extension
           mkdir -p dist/package/opencode-extension
           cp opencode-extension/*.ts dist/package/opencode-extension/

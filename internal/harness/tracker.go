@@ -193,18 +193,29 @@ func (rt *AgentRuntime) recordToolLocked(tool, detail string, ok bool) {
 	}
 }
 
-// UpdateUsage records optional token metrics reported by a driver's bridge.
-func (t *Tracker) UpdateUsage(agent protocol.AgentID, tokens, window int, tokensPerSecond float64) {
+// UpdateContext records the context-window usage a driver reported over its
+// bridge. A window of zero means the driver has no figure to give.
+func (t *Tracker) UpdateContext(agent protocol.AgentID, tokens, window int) {
+	if window <= 0 || tokens < 0 {
+		return
+	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	rt := t.ensureLocked(agent)
-	if window > 0 && tokens >= 0 {
-		rt.ContextTokens, rt.ContextWindow = tokens, window
+	rt.ContextTokens, rt.ContextWindow = tokens, window
+}
+
+// UpdateRate records the output rate a driver estimated from its own stream. A
+// non-positive rate means there is nothing to show.
+func (t *Tracker) UpdateRate(agent protocol.AgentID, tokensPerSecond float64) {
+	if tokensPerSecond <= 0 {
+		return
 	}
-	if tokensPerSecond > 0 {
-		rt.TokensPerSecond = tokensPerSecond
-		rt.TokenSpeedAt = time.Now()
-	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	rt := t.ensureLocked(agent)
+	rt.TokensPerSecond = tokensPerSecond
+	rt.TokenSpeedAt = time.Now()
 }
 
 // NoteError keeps an agent's most recent failure visible in the preview until

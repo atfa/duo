@@ -585,7 +585,17 @@ func (c *Coordinator) OnMessage(ctx context.Context, client *transport.Client, m
 func (c *Coordinator) handleActivity(agent protocol.AgentID, message protocol.Message) {
 	c.tracker.Handle(agent, message.Activity)
 	c.tracker.Note(agent, message.Activity, message.Tool, message.Detail)
-	c.tracker.UpdateUsage(agent, message.ContextTokens, message.ContextWindow, message.TokensPerSecond)
+	// Each figure is gated on the capability that promises it. A driver that
+	// reports context usage it cannot maintain, or a rate it computed from
+	// something other than its own output, would otherwise put a number on
+	// screen that the operator has no way to distrust.
+	caps := c.capabilities(agent)
+	if caps.ContextUsage {
+		c.tracker.UpdateContext(agent, message.ContextTokens, message.ContextWindow)
+	}
+	if caps.TokenRate {
+		c.tracker.UpdateRate(agent, message.TokensPerSecond)
+	}
 	if message.Activity == protocol.ActivityAgentStart {
 		c.project.MarkStarted()
 	}
