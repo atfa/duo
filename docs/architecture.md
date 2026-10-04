@@ -33,7 +33,8 @@ Everything else should remain flexible enough for the models to collaborate natu
 | `internal/recovery`, `internal/sessionstore` | Snapshot reconciliation, journal, transcript replay and session lock | Revoke unverifiable approvals before agents start; never discard user files or rewrite user history. |
 | `internal/delivery` | Read-only safety decision and final handoff | Move only the recorded branch by a provably safe fast-forward; otherwise refuse without changing the checkout. |
 | `internal/harness`, `internal/events` | Runtime activity tracking, nudges and event fan-out | Harness observes runtime state; events are non-blocking and do not become project state. |
-| `internal/tui` | Input, rendering, help and timeline | A projection of project state, never another source of truth. |
+| `internal/session` | The composition root, session lock, agent bridge, lifecycle observer and delivery handoff, behind `Options`, `View`, `Command` and `Subscribe` | Every frontend drives a session only through this seam; a frontend that re-implements part of it will disagree with the others. |
+| `internal/tui` | Input, rendering, help and timeline | A projection of project state, never another source of truth. It depends on the `session.Session` interface and holds no core handle; a parser check in the package enforces both. |
 | `pi-extension/`, `opencode-extension/` | Agent-side tool, activity and prompt adapters | Keep the adapter thin; Go Core remains responsible for shared state and authorization. |
 
 The Driver Plugin Protocol is specified in [driver-plugin-protocol.md](driver-plugin-protocol.md),
@@ -106,6 +107,54 @@ So the boundary is not "Duo never moves your branch". It is: **Duo only ever mov
 This integration strategy is fixed: Austin is the integration worktree in Goal, and
 Fast delivers Austin's verified commit directly.
 
+## Driving a session from a frontend
+
+A frontend that is not `cmd/duo` — a GUI, an editor plugin, a test — drives one Duo
+session through `internal/session` and implements nothing about a session itself.
+`session.Options` is the whole of a session's configuration and names no flag,
+terminal or environment variable. `session.Service` owns the composition root, the
+session lock, the agent bridge, the lifecycle observer and the delivery handoff
+that used to live in `cmd/duo`. `cmd/duo` builds `Options` from its flags and then
+only renders.
+
+The seam is three things:
+
+- **`View()`** returns a projection of the workflow to render. It is a value copy:
+slices and the driver manifest are cloned, so a renderer cannot reach back into the
+session through it. It deliberately does not say what the working tree changed —
+that costs a `git` invocation, and a renderer must not run one per frame — so
+`Changes(ctx)` answers that separately and the detail view caches it.
+- **`Do(ctx, Command)`** performs the five human verbs: submit a task, escalate to
+Goal, set a model, cycle thinking, restart an agent. It is bounded on purpose — one
+command in, one result out — so it is safe to call from a UI event loop;
+`SubmitTask` returns when the task is accepted, not when the agent finishes.
+- **`Subscribe(buffer)`** returns the current `View` *and then* the event stream, so
+a frontend that connects late renders correct state without a replay protocol.
+
+Two things are deliberately not commands.
+
+The **gate verbs** — `SetPlan`, `SetReady`, `SetVerification` — are authorized by
+agent identity alone. Exposing them on the human seam would let a frontend
+fabricate a peer's approval, and `Do` would have to re-derive an authorization it
+cannot see. They stay where the identity is: `internal/transport` fills a client's
+identity once, in the validated `MsgHello` branch, into an unexported field read
+through `Identity()`. No code outside the transport and the coordinator can name an
+agent's identity, so a forged approval is a compile error rather than a check that
+someone has to remember to write.
+
+**`Attach`/`Detach`/`Write`/`Resize`** move a live agent byte stream. A stream is
+not serializable, so it is a method rather than a command, and a frontend that is
+not in this process has to carry it as a stream rather than as a message.
+
+### Event delivery is best-effort
+
+`events.Bus.Emit` drops an event for a subscriber whose buffer is full. The bus is
+not changing: a blocking emit would let one stalled renderer stop both agents.
+There is therefore a window in which a frontend can miss an event and cannot tell
+that it did. `Subscribe` narrows the window — its `View` is composed at
+subscription time — but a frontend that needs the history rather than the current
+state must read `History()` and the journal, not the stream.
+
 ## Current constraints
 
 - The topology has two fixed roles, Austin and Tony. Fast can escalate to Goal, but
@@ -117,3 +166,12 @@ Fast delivers Austin's verified commit directly.
   the final commit for a human-managed merge.
 - The bridge uses a random token on a localhost TCP endpoint. It is not designed
   for remote or untrusted networks; see [SECURITY.md](../SECURITY.md).
+- `Coordinator.SetAgents` is called before `agents.StartAll`, so the window in which
+  it races `IsAgentConnected` and the capability lookup is not reachable in the
+  current startup order. This is recorded rather than fixed: closing it means
+  reordering startup, which is a larger change than the race is worth while the
+  order holds. A frontend that starts agents itself must keep that order.
+- `Do` runs the operator's configured test command for a gate request, and that
+  command is unbounded in principle (the coordinator applies a three-minute
+  timeout). Treat `--test-command` as input from whoever owns the repository, not
+  as untrusted input from the wire.
