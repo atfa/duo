@@ -161,7 +161,7 @@ func (a *App) helpLines(width int) []string {
 		{"Native session", []string{
 			"Ctrl+A → Austin; Ctrl+T → Tony. This bypasses Duo: no task is routed through it, so the phase machine is untouched while you are attached.",
 			"In Fast mode a commit made during an attach is still deliverable: when Austin asks for verification of a new HEAD, Duo reopens the round on it. A request naming the already-delivered HEAD is rejected.",
-			"While attached, the agent's own commands and key bindings are handled by the agent, not by Duo — whatever CLI it runs (pi, agy or opencode).",
+			"While attached, the agent's own commands and key bindings are handled by the agent, not by Duo — whatever CLI it runs, shipped or installed as a plugin.",
 			"Return to Duo with Ctrl+], Ctrl+\\ or Ctrl+】.",
 		}},
 		{"Command Line", helpCommandLineLines()},

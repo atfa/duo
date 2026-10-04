@@ -40,7 +40,7 @@ func (c Command) Is(token string) bool {
 var commands = []Command{
 	{
 		Name:      "duo",
-		Signature: "duo [repository] [--mode fast|goal|-m] [--test-cmd <cmd>] [--agent|--driver pi|agy|opencode] [--resume [id]|-r] [--austin-driver <driver>] [--tony-driver <driver>] (aliases: --austin-agent, --tony-agent)",
+		Signature: "duo [repository] [--mode fast|goal|-m] [--test-cmd <cmd>] [--agent|--driver <driver>] [--resume [id]|-r] [--austin-driver <driver>] [--tony-driver <driver>] (aliases: --austin-agent, --tony-agent)",
 		Summary:   "start a new session (Fast by default: Austin drives, Tony verifies)",
 	},
 	{

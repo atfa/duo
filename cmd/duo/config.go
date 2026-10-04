@@ -221,7 +221,7 @@ func parseArgs(args []string) (cliArgs, error) {
 			out.testCommand = strings.TrimSpace(strings.TrimPrefix(arg, "--test-cmd="))
 		case arg == "--agent" || arg == "--driver":
 			if i+1 >= len(args) {
-				return out, fmt.Errorf("%s requires a value (pi, agy or opencode)", arg)
+				return out, fmt.Errorf("%s requires a value (a driver name; `duo plugins` lists them)", arg)
 			}
 			out.driver = strings.TrimSpace(args[i+1])
 			i++
