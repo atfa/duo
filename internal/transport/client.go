@@ -11,11 +11,20 @@ import (
 )
 
 type Client struct {
-	Agent      protocol.AgentID
-	ClientType string
+	agent      protocol.AgentID
+	clientType string
 	conn       net.Conn
 	mu         sync.Mutex
 }
+
+// Identity is the agent this client authenticated as.
+//
+// It is set exactly once, by the transport's validated MsgHello handshake, and it
+// is deliberately not an exported field: there is no constructor and no setter
+// outside this package, so no code outside transport can fabricate an agent's
+// identity and speak with its authority. Only an agent's live, authenticated
+// socket can produce a Client at all.
+func (c *Client) Identity() protocol.AgentID { return c.agent }
 
 func newClient(conn net.Conn) *Client {
 	return &Client{conn: conn}

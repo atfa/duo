@@ -478,14 +478,22 @@ func (c *Coordinator) reopenFinishedSession() {
 func (c *Coordinator) StatusText(ctx context.Context) string { return c.statusText(ctx) }
 
 func (c *Coordinator) OnConnect(ctx context.Context, client *transport.Client) {
-	c.tracker.Touch(client.Agent)
-	c.recordEvent("bridge_connect", map[string]any{"agent": string(client.Agent)})
+	c.onConnect(ctx, client.Identity())
+}
+
+// onConnect applies a bridge connection for an agent whose identity the transport
+// has already authenticated. It is separate from OnConnect so the routing decision
+// can be exercised without a socket, and so no caller can pass an identity the
+// transport has not vouched for.
+func (c *Coordinator) onConnect(ctx context.Context, agent protocol.AgentID) {
+	c.tracker.Touch(agent)
+	c.recordEvent("bridge_connect", map[string]any{"agent": string(agent)})
 	// Drivers that cannot announce themselves over the bridge already said so when
 	// their process started, so repeating it here would report one agent twice.
-	if !c.announcedOnStart(client.Agent) {
-		c.emit(events.KindSystem, client.Agent, "", fmt.Sprintf("%s connected", client.Agent))
+	if !c.announcedOnStart(agent) {
+		c.emit(events.KindSystem, agent, "", fmt.Sprintf("%s connected", agent))
 	}
-	c.wakeResumedAgent(ctx, client.Agent)
+	c.wakeResumedAgent(ctx, agent)
 }
 
 // announcedOnStart reports whether Duo already announced this agent when its
@@ -532,24 +540,24 @@ func (c *Coordinator) wakeResumedAgent(ctx context.Context, agent protocol.Agent
 }
 
 func (c *Coordinator) OnDisconnect(client *transport.Client) {
-	c.tracker.Reset(client.Agent)
-	c.recordEvent("bridge_disconnect", map[string]any{"agent": string(client.Agent)})
-	c.emit(events.KindSystem, client.Agent, "", fmt.Sprintf("%s disconnected", client.Agent))
+	c.tracker.Reset(client.Identity())
+	c.recordEvent("bridge_disconnect", map[string]any{"agent": string(client.Identity())})
+	c.emit(events.KindSystem, client.Identity(), "", fmt.Sprintf("%s disconnected", client.Identity()))
 }
 
 func (c *Coordinator) OnMessage(ctx context.Context, client *transport.Client, message protocol.Message) {
 	switch message.Type {
 	case protocol.MsgTest:
-		c.emit(events.KindSystem, client.Agent, "", "TEST: "+message.Text)
+		c.emit(events.KindSystem, client.Identity(), "", "TEST: "+message.Text)
 
 	case protocol.MsgActivity:
-		c.handleActivity(client.Agent, message)
+		c.handleActivity(client.Identity(), message)
 
 	case protocol.MsgAssistantMessage:
-		c.handleAssistant(client.Agent, message)
+		c.handleAssistant(client.Identity(), message)
 
 	case protocol.MsgAgentError:
-		c.handleAgentError(client.Agent, message)
+		c.handleAgentError(client.Identity(), message)
 
 	case protocol.MsgPeerMessage:
 		c.handlePeerMessage(ctx, client, message)
@@ -570,10 +578,10 @@ func (c *Coordinator) OnMessage(ctx context.Context, client *transport.Client, m
 		c.handleGetStatus(ctx, client, message)
 
 	case protocol.MsgModelState:
-		c.handleModelState(client.Agent, message)
+		c.handleModelState(client.Identity(), message)
 
 	case protocol.MsgThinkingState:
-		c.handleThinkingState(client.Agent, message)
+		c.handleThinkingState(client.Identity(), message)
 
 	default:
 		if message.RequestID != "" {
@@ -827,7 +835,7 @@ func (c *Coordinator) handleAgentError(agent protocol.AgentID, message protocol.
 }
 
 func (c *Coordinator) handlePeerMessage(ctx context.Context, client *transport.Client, message protocol.Message) {
-	from := client.Agent
+	from := client.Identity()
 	to := protocol.PeerOf(from)
 	if strings.TrimSpace(message.Text) == "" {
 		_ = c.respond(ctx, client, message.RequestID, false, "peer message is empty", "")
@@ -858,29 +866,29 @@ func (c *Coordinator) handlePeerMessage(ctx context.Context, client *transport.C
 }
 
 func (c *Coordinator) handleSetPlan(ctx context.Context, client *transport.Client, message protocol.Message) {
-	snap, err := c.project.SetPlan(client.Agent, message.Plan)
+	snap, err := c.project.SetPlan(client.Identity(), message.Plan)
 	if err != nil {
 		_ = c.respond(ctx, client, message.RequestID, false, err.Error(), c.statusText(ctx))
 		return
 	}
 
-	c.tracker.Touch(client.Agent)
+	c.tracker.Touch(client.Identity())
 	c.recordEvent("plan_updated", map[string]any{
-		"agent":       string(client.Agent),
+		"agent":       string(client.Identity()),
 		"planVersion": snap.PlanVersion,
 	})
-	c.emit(events.KindSystem, client.Agent, "", fmt.Sprintf("updated shared plan → v%d; both signatures reset", snap.PlanVersion))
+	c.emit(events.KindSystem, client.Identity(), "", fmt.Sprintf("updated shared plan → v%d; both signatures reset", snap.PlanVersion))
 	_ = c.respond(ctx, client, message.RequestID, true,
 		fmt.Sprintf("Shared plan updated to v%d. Both signatures were reset.", snap.PlanVersion), c.statusText(ctx))
 
-	peer := protocol.PeerOf(client.Agent)
+	peer := protocol.PeerOf(client.Identity())
 	if peer == "" {
 		return
 	}
 
 	notice := fmt.Sprintf(
 		"[Duo plan update]\n%s updated the shared plan to v%d.\n\n%s\n\nReview this exact version. Discuss concerns with duo_send. If you approve it, call duo_set_status with ready=true. Updating the plan again invalidates both signatures. Exploratory edits in your own worktree are allowed during PLAN, but they remain provisional until the plan is jointly approved.",
-		client.Agent, snap.PlanVersion, snap.Plan,
+		client.Identity(), snap.PlanVersion, snap.Plan,
 	)
 	_ = c.sendToAgent(ctx, peer, protocol.Message{
 		Version:   1,
@@ -927,33 +935,33 @@ func (c *Coordinator) handleSetStatus(ctx context.Context, client *transport.Cli
 			return
 		}
 		var err error
-		evidence, err = c.evidenceForReady(ctx, client.Agent, snapBefore.Phase, snapBefore)
+		evidence, err = c.evidenceForReady(ctx, client.Identity(), snapBefore.Phase, snapBefore)
 		if err != nil {
 			_ = c.respond(ctx, client, message.RequestID, false, err.Error(), c.statusText(ctx))
 			return
 		}
 	}
 
-	snap, tr, err := c.project.SetReady(client.Agent, *message.Ready, message.Note, evidence)
+	snap, tr, err := c.project.SetReady(client.Identity(), *message.Ready, message.Note, evidence)
 	if err != nil {
 		_ = c.respond(ctx, client, message.RequestID, false, err.Error(), c.statusText(ctx))
 		return
 	}
 
-	c.tracker.Touch(client.Agent)
-	peer := protocol.PeerOf(client.Agent)
+	c.tracker.Touch(client.Identity())
+	peer := protocol.PeerOf(client.Identity())
 
 	// A signature is an assertion about a specific artifact in a specific phase;
 	// record exactly what was signed so the journal can be audited.
 	if *message.Ready {
 		c.recordEvent("signature", map[string]any{
-			"agent":    string(client.Agent),
+			"agent":    string(client.Identity()),
 			"phase":    string(snap.Phase),
 			"evidence": evidence,
 		})
 	} else {
 		c.recordEvent("signature_revoked", map[string]any{
-			"agent": string(client.Agent),
+			"agent": string(client.Identity()),
 			"phase": string(snap.Phase),
 			"note":  message.Note,
 		})
@@ -962,7 +970,7 @@ func (c *Coordinator) handleSetStatus(ctx context.Context, client *transport.Cli
 	if tr.ReadyForDelivery {
 		if c.TestCommand() != "" && c.workspace != nil {
 			if testErr := c.runTestGate(ctx); testErr != nil {
-				c.project.RevokeReady(client.Agent, "automated test gate failed")
+				c.project.RevokeReady(client.Identity(), "automated test gate failed")
 				c.recordEvent("test_gate_failed", map[string]any{"command": c.TestCommand(), "error": testErr.Error()})
 				c.emit(events.KindSystem, protocol.Duo, "", fmt.Sprintf("automated test gate failed on INTEGRATE: %v", testErr))
 				_ = c.respond(ctx, client, message.RequestID, false,
@@ -999,10 +1007,10 @@ func (c *Coordinator) handleSetStatus(ctx context.Context, client *transport.Cli
 
 	if *message.Ready {
 		_ = c.respond(ctx, client, message.RequestID, true,
-			fmt.Sprintf("%s signed %s. Waiting for %s.", client.Agent, snap.Phase, peer), c.statusText(ctx))
+			fmt.Sprintf("%s signed %s. Waiting for %s.", client.Identity(), snap.Phase, peer), c.statusText(ctx))
 	} else {
 		_ = c.respond(ctx, client, message.RequestID, true,
-			fmt.Sprintf("%s marked %s as not ready.", client.Agent, snap.Phase), c.statusText(ctx))
+			fmt.Sprintf("%s marked %s as not ready.", client.Identity(), snap.Phase), c.statusText(ctx))
 	}
 
 	if peer == "" {
@@ -1013,12 +1021,12 @@ func (c *Coordinator) handleSetStatus(ctx context.Context, client *transport.Cli
 	if *message.Ready {
 		notice = fmt.Sprintf(
 			"[Duo status]\n%s has signed %s. Your current status is ready=%v. If your work for this phase is genuinely complete and no unresolved issue remains, call duo_set_status with ready=true. Otherwise continue working or discuss via duo_send.",
-			client.Agent, snap.Phase, snap.Ready[peer],
+			client.Identity(), snap.Phase, snap.Ready[peer],
 		)
 	} else {
 		notice = fmt.Sprintf(
 			"[Duo status]\n%s revoked readiness for %s%s. Continue collaboration until the issue is resolved.",
-			client.Agent, snap.Phase, noteSuffix(message.Note),
+			client.Identity(), snap.Phase, noteSuffix(message.Note),
 		)
 	}
 	_ = c.sendToAgent(ctx, peer, protocol.Message{
@@ -1048,7 +1056,7 @@ func (c *Coordinator) handleFastSetStatus(ctx context.Context, client *transport
 		}
 		snap = c.project.Snapshot()
 	}
-	if client.Agent != protocol.Austin {
+	if client.Identity() != protocol.Austin {
 		_ = c.respond(ctx, client, message.RequestID, false,
 			"Fast mode has no phase sign-off. Tony reports an independent verdict with duo_set_verification once Austin requests verification.", c.statusText(ctx))
 		return
@@ -1083,12 +1091,12 @@ func (c *Coordinator) handleFastSetStatus(ctx context.Context, client *transport
 		}
 	}
 
-	snap, tr, err := c.project.SetReady(client.Agent, *message.Ready, message.Note, evidence)
+	snap, tr, err := c.project.SetReady(client.Identity(), *message.Ready, message.Note, evidence)
 	if err != nil {
 		_ = c.respond(ctx, client, message.RequestID, false, err.Error(), c.statusText(ctx))
 		return
 	}
-	c.tracker.Touch(client.Agent)
+	c.tracker.Touch(client.Identity())
 
 	if !*message.Ready {
 		c.recordEvent("completion_withdrawn", map[string]any{"phase": string(snap.Phase)})
@@ -1122,7 +1130,7 @@ func (c *Coordinator) handleFastSetStatus(ctx context.Context, client *transport
 // names the delivered HEAD is a duplicate of the finished round and stays
 // rejected, so a stray resend can never undo a delivery.
 func (c *Coordinator) reopenFastRoundForNewWork(ctx context.Context, client *transport.Client, message protocol.Message) bool {
-	if message.Ready == nil || !*message.Ready || client.Agent != protocol.Austin {
+	if message.Ready == nil || !*message.Ready || client.Identity() != protocol.Austin {
 		return false
 	}
 	delivered := strings.TrimSpace(c.project.Snapshot().Verification.Head)
@@ -1146,7 +1154,7 @@ func (c *Coordinator) handleSetVerification(ctx context.Context, client *transpo
 			"structured verification is only used in Fast mode", c.statusText(ctx))
 		return
 	}
-	if client.Agent != protocol.Tony {
+	if client.Identity() != protocol.Tony {
 		_ = c.respond(ctx, client, message.RequestID, false,
 			"only Tony reports Fast-mode verification", c.statusText(ctx))
 		return
@@ -1193,7 +1201,7 @@ func (c *Coordinator) handleSetVerification(ctx context.Context, client *transpo
 		return
 	}
 
-	snap, tr, err := c.project.SetVerification(client.Agent, result, message.Note, target)
+	snap, tr, err := c.project.SetVerification(client.Identity(), result, message.Note, target)
 	if err != nil {
 		_ = c.respond(ctx, client, message.RequestID, false, err.Error(), c.statusText(ctx))
 		return
@@ -1633,7 +1641,7 @@ func (c *Coordinator) clearIntegrationConflict(ctx context.Context) {
 }
 
 func (c *Coordinator) handleGetStatus(ctx context.Context, client *transport.Client, message protocol.Message) {
-	c.tracker.Touch(client.Agent)
+	c.tracker.Touch(client.Identity())
 	_ = c.respond(ctx, client, message.RequestID, true, "Current Duo state.", c.statusText(ctx))
 }
 

@@ -95,7 +95,7 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	defer func() {
 		current := s.unregister(client)
 		_ = client.Close()
-		if s.handler != nil && current && client.ClientType != "mcp" {
+		if s.handler != nil && current && client.clientType != "mcp" {
 			s.handler.OnDisconnect(client)
 		}
 	}()
@@ -127,8 +127,8 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 				log.Printf("rejecting unauthorized Duo hello from %s", conn.RemoteAddr())
 				return
 			}
-			client.Agent = agent
-			client.ClientType = message.ClientType
+			client.agent = agent
+			client.clientType = message.ClientType
 			if message.ClientType != "mcp" {
 				s.register(client)
 				if s.handler != nil {
@@ -138,13 +138,13 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 			continue
 		}
 
-		if client.Agent == "" {
+		if client.agent == "" {
 			log.Printf("ignoring message before hello from %s", conn.RemoteAddr())
 			continue
 		}
 
 		if message.Agent == "" {
-			message.Agent = client.Agent
+			message.Agent = client.agent
 		} else {
 			message.Agent = protocol.CanonicalAgent(string(message.Agent))
 		}
@@ -154,7 +154,7 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	}
 
 	if err := scanner.Err(); err != nil && ctx.Err() == nil {
-		log.Printf("connection error (%s): %v", client.Agent, err)
+		log.Printf("connection error (%s): %v", client.agent, err)
 	}
 }
 
@@ -162,22 +162,22 @@ func (s *Server) register(client *Client) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if old := s.clients[client.Agent]; old != nil && old != client {
+	if old := s.clients[client.agent]; old != nil && old != client {
 		_ = old.Close()
 	}
-	s.clients[client.Agent] = client
+	s.clients[client.agent] = client
 }
 
 func (s *Server) unregister(client *Client) bool {
-	if client.Agent == "" {
+	if client.agent == "" {
 		return false
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.clients[client.Agent] == client {
-		delete(s.clients, client.Agent)
+	if s.clients[client.agent] == client {
+		delete(s.clients, client.agent)
 		return true
 	}
 	return false

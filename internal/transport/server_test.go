@@ -12,7 +12,7 @@ import (
 
 type testHandler struct{ connected chan protocol.AgentID }
 
-func (h *testHandler) OnConnect(_ context.Context, client *Client)        { h.connected <- client.Agent }
+func (h *testHandler) OnConnect(_ context.Context, client *Client)        { h.connected <- client.Identity() }
 func (*testHandler) OnDisconnect(*Client)                                 {}
 func (*testHandler) OnMessage(context.Context, *Client, protocol.Message) {}
 
@@ -78,10 +78,10 @@ type mcpTestHandler struct {
 }
 
 func (h *mcpTestHandler) OnConnect(_ context.Context, client *Client) {
-	h.connected <- client.Agent
+	h.connected <- client.Identity()
 }
 func (h *mcpTestHandler) OnDisconnect(client *Client) {
-	h.disconnected <- client.Agent
+	h.disconnected <- client.Identity()
 }
 func (h *mcpTestHandler) OnMessage(_ context.Context, _ *Client, msg protocol.Message) {
 	h.messages <- msg
@@ -130,7 +130,7 @@ func TestServerIgnoresMCPClientRegistrationAndDisconnect(t *testing.T) {
 		t.Fatal("s.IsConnected(protocol.Austin) = true for MCP client, want false")
 	}
 
-	// 2. Tool message from MCP client should still carry client.Agent
+	// 2. Tool message from MCP client should still carry client.Identity()
 	toolMsg := protocol.Message{
 		Version:   1,
 		Type:      protocol.MsgGetStatus,

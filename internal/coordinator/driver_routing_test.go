@@ -397,7 +397,9 @@ func TestLateBridgeIsNotAnnouncedTwice(t *testing.T) {
 	if !eager.Capabilities().SelfReports {
 		t.Fatal("a driver whose bridge attaches on launch must claim it does")
 	}
-	coord.OnConnect(context.Background(), &transport.Client{Agent: protocol.Tony})
+	// The connection is driven below the transport client: identity can only be
+	// produced by the bridge handshake, so a test may not fabricate one.
+	coord.onConnect(context.Background(), protocol.Tony)
 
 	var texts []string
 	for {
