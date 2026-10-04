@@ -176,7 +176,7 @@ same socket, and `internal/mcp` implements them:
 These six are the whole set today, and they are the same tools Duo exposes over MCP,
 so an adapter can serve them either way.
 
-Set `capabilities.mcp` only if your adapter really serves these. An agent that
+Set `mcp` on your manifest only if your adapter really serves these. An agent that
 cannot call them has no coordination tools, and Duo says so plainly.
 
 ## Outside a Duo session

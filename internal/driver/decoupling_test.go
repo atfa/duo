@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -276,4 +277,59 @@ func TestPackagingDoesNotNameDriverBinaries(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestDocsDoNotNameACapabilityThatMoved catches the doc half of a field move.
+//
+// `activity` and `mcp` moved out of Capabilities onto the manifest root, and
+// docs/duo-bridge-protocol.md kept telling adapter authors to set
+// `capabilities.mcp` — a path that no longer exists. Prose review found it only
+// because a verifier read the sentence; nothing in the build noticed. The pattern
+// is specific enough to be worth checking mechanically: any `capabilities.<key>`
+// in the docs must name a key Capabilities still has.
+//
+// CHANGELOG.md is excluded on purpose: it is the record of what changed, so it has
+// to be able to name a path that no longer exists.
+func TestDocsDoNotNameACapabilityThatMoved(t *testing.T) {
+	capabilityKeys := jsonKeys(Capabilities{})
+	moved := map[string]bool{}
+	for key := range jsonKeys(Manifest{}) {
+		if !capabilityKeys[key] {
+			moved[key] = true
+		}
+	}
+	if len(moved) == 0 {
+		t.Fatal("every manifest key is still a capability; the moved-key set is empty, so this guard cannot fire")
+	}
+
+	pattern := regexp.MustCompile(`capabilities\.([a-zA-Z][a-zA-Z0-9]*)`)
+	root := repoRoot(t)
+	docs, err := filepath.Glob(filepath.Join(root, "docs", "*.md"))
+	if err != nil || len(docs) == 0 {
+		t.Fatalf("found no docs to check: %v", err)
+	}
+	for _, doc := range docs {
+		rel, err := filepath.Rel(root, doc)
+		if err != nil {
+			t.Fatalf("rel %s: %v", doc, err)
+		}
+		for _, match := range pattern.FindAllStringSubmatch(source(t, filepath.ToSlash(rel)), -1) {
+			if moved[match[1]] {
+				t.Errorf("%s says capabilities.%s, but that is not a capability: it moved to the manifest root as descriptive metadata; a reader following this would set a field Core ignores", filepath.ToSlash(rel), match[1])
+			}
+		}
+	}
+}
+
+// jsonKeys are the wire names a struct declares, which is what the docs name.
+func jsonKeys(v any) map[string]bool {
+	keys := map[string]bool{}
+	t := reflect.TypeOf(v)
+	for i := 0; i < t.NumField(); i++ {
+		tag, _, _ := strings.Cut(t.Field(i).Tag.Get("json"), ",")
+		if tag != "" && tag != "-" {
+			keys[tag] = true
+		}
+	}
+	return keys
 }

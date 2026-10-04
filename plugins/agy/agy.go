@@ -3,8 +3,8 @@
 // Agy has no extension API, so this package is both halves of the plugin at once:
 // the Host Adapter that answers the protocol (see Describe/Prepare below) and the
 // Agent Adapter that observes the agent (see watcher.go). Neither half is visible
-// to Core beyond two capabilities: agy reports activity, and its bridge endpoint
-// belongs to the plugin rather than to the agent process.
+// to Core beyond a few declarations: agy reports activity over the bridge, and
+// its bridge endpoint belongs to the plugin rather than to the agent process.
 package agy
 
 import (
