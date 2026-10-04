@@ -42,6 +42,11 @@ var liveNames = map[string][]string{
 	"github.com/atfa/duo/internal/agent":     {"Manager", "NewManager", "NewSession", "Session"},
 	"github.com/atfa/duo/internal/harness":   {"NewTracker", "Tracker"},
 	"github.com/atfa/duo/internal/session":   {"Service", "New"},
+	// The interface imports project and sessionstore for the mode constants and for
+	// TUIEntry, which are values. Building a second project.State, or opening a
+	// session store, is the invariant this whole boundary exists to keep.
+	"github.com/atfa/duo/internal/project":      {"State", "NewState", "NewStateFor"},
+	"github.com/atfa/duo/internal/sessionstore": {"Store", "New", "Open", "NewLogWriter", "LogWriter", "Logger", "EventLog", "Lock"},
 }
 
 // source is one parsed file together with the local name it gave each import, so a

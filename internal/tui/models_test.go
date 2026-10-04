@@ -144,11 +144,7 @@ type modelRecordingDriver struct {
 	driverType string
 	// reference overrides the declared model reference; empty means qualified.
 	reference string
-	// liveModelSwitch declares that a running session picks the model up over
-	// the bridge, so applying one needs no restart.
-	liveModelSwitch bool
-	model           string
-	restarts        int
+	model     string
 }
 
 func (d *modelRecordingDriver) Agent() protocol.AgentID { return d.agentID }
@@ -163,21 +159,23 @@ func (d *modelRecordingDriver) Manifest() *driver.Manifest {
 		Protocol:       driver.ProtocolVersion,
 		Name:           d.driverType,
 		ModelReference: ref,
-		Capabilities: driver.Capabilities{
-			Resume: driver.ResumeServer, Bridge: driver.BridgeAgent,
-			PTYFallback: true, LiveModelSwitch: d.liveModelSwitch,
-		},
+		Capabilities:   d.Capabilities(),
 	}
 }
-func (d *modelRecordingDriver) Capabilities() driver.Capabilities  { return d.Manifest().Capabilities }
+func (d *modelRecordingDriver) Capabilities() driver.Capabilities {
+	return driver.Capabilities{
+		Resume: driver.ResumeServer, Bridge: driver.BridgeAgent, PTYFallback: true,
+	}
+}
 func (d *modelRecordingDriver) State() agent.ProcessState          { return agent.ProcessExited }
 func (d *modelRecordingDriver) Running() bool                      { return false }
 func (d *modelRecordingDriver) SetModel(model string)              { d.model = model }
 func (d *modelRecordingDriver) SetOnExit(fn func(agent.ExitEvent)) {}
-func (d *modelRecordingDriver) RestartRunning(ctx context.Context) error {
-	d.restarts++
-	return nil
-}
+
+// RestartRunning is a no-op. Whether a model switch bounces the process is the
+// session's decision now and is asserted in internal/session; this fake exists only
+// for the manifest the interface reads.
+func (d *modelRecordingDriver) RestartRunning(context.Context) error { return nil }
 
 func TestCtrlMIsDistinctFromEnter(t *testing.T) {
 	// The m key with Ctrl, in both encodings Duo enables, must not look like Enter.
