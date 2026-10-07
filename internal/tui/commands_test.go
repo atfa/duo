@@ -273,8 +273,16 @@ func TestCopyAustinLatestToHuman(t *testing.T) {
 
 	// Nothing addressed to the human yet: Ctrl+X must say so, not copy nothing.
 	app.applyAction(ctx, app.handleKey("ctrl-x"))
-	if !app.statusError || !strings.Contains(app.status, "no Austin message") {
+	if app.statusError || !strings.Contains(app.status, "no Austin message") {
 		t.Fatalf("empty copy status = %q (err=%t)", app.status, app.statusError)
+	}
+
+	// Substitute the host clipboard so the test records the copy instead of
+	// replacing whatever the developer has on their real clipboard.
+	var copied string
+	app.clipboardExec = func(text string) error {
+		copied = text
+		return nil
 	}
 
 	human := directionLabel(protocol.Austin, "")
@@ -294,6 +302,9 @@ func TestCopyAustinLatestToHuman(t *testing.T) {
 	}
 	if app.statusError || app.status != "copied Austin's latest message" {
 		t.Fatalf("copy status = %q (err=%t)", app.status, app.statusError)
+	}
+	if copied != "latest report\nsecond line" {
+		t.Fatalf("clipboard got %q, want the latest human-directed message", copied)
 	}
 
 	// Ctrl+X is routed as a raw byte and in the enhanced encodings Duo enables.

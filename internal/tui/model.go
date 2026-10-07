@@ -51,6 +51,11 @@ type App struct {
 
 	tty *terminal.TTY
 
+	// clipboardExec, when set, substitutes the host clipboard command so a test
+	// can record a copy without touching the developer's real clipboard. It is
+	// nil in production, where nativeClipboardWrite runs the host tool.
+	clipboardExec func(string) error
+
 	renderer *renderer
 
 	width       int

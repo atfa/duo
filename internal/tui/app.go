@@ -315,7 +315,7 @@ func (a *App) applyAction(ctx context.Context, action inputAction) bool {
 func (a *App) copyAustinLatest() {
 	text, ok := a.lastAustinToHuman()
 	if !ok {
-		a.setStatus("no Austin message to the human yet", true)
+		a.setStatus("no Austin message to the human yet", false)
 		return
 	}
 	if err := a.copyClipboard(text); err != nil {
@@ -325,39 +325,51 @@ func (a *App) copyAustinLatest() {
 	a.setStatus("copied Austin's latest message", false)
 }
 
+// copyClipboard writes text through OSC 52 and the host's native clipboard
+// tool, so a copy survives both an SSH session and a local desktop.
 func (a *App) copyClipboard(text string) error {
 	var osc52Err error
 	if a.tty != nil && a.tty.File != nil {
 		_, osc52Err = a.tty.File.WriteString(osc52Sequence(text))
 	}
 
-	var sysErr error
-	switch runtime.GOOS {
-	case "darwin":
-		cmd := exec.Command("pbcopy")
-		cmd.Stdin = bytes.NewBufferString(text)
-		sysErr = cmd.Run()
-	case "linux":
-		if os.Getenv("WAYLAND_DISPLAY") != "" {
-			cmd := exec.Command("wl-copy")
-			cmd.Stdin = bytes.NewBufferString(text)
-			sysErr = cmd.Run()
-		} else {
-			cmd := exec.Command("xclip", "-selection", "clipboard")
-			cmd.Stdin = bytes.NewBufferString(text)
-			sysErr = cmd.Run()
-			if sysErr != nil {
-				cmd2 := exec.Command("xsel", "--clipboard", "--input")
-				cmd2.Stdin = bytes.NewBufferString(text)
-				sysErr = cmd2.Run()
-			}
-		}
+	write := a.clipboardExec
+	if write == nil {
+		write = nativeClipboardWrite
 	}
+	sysErr := write(text)
 
 	if osc52Err == nil || sysErr == nil {
 		return nil
 	}
 	return sysErr
+}
+
+// nativeClipboardWrite runs the host clipboard command. It is reached through
+// App.clipboardExec so a test can record the copied text instead of replacing
+// whatever the developer has on their real clipboard.
+func nativeClipboardWrite(text string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		cmd := exec.Command("pbcopy")
+		cmd.Stdin = bytes.NewBufferString(text)
+		return cmd.Run()
+	case "linux":
+		if os.Getenv("WAYLAND_DISPLAY") != "" {
+			cmd := exec.Command("wl-copy")
+			cmd.Stdin = bytes.NewBufferString(text)
+			return cmd.Run()
+		}
+		cmd := exec.Command("xclip", "-selection", "clipboard")
+		cmd.Stdin = bytes.NewBufferString(text)
+		if err := cmd.Run(); err == nil {
+			return nil
+		}
+		cmd2 := exec.Command("xsel", "--clipboard", "--input")
+		cmd2.Stdin = bytes.NewBufferString(text)
+		return cmd2.Run()
+	}
+	return nil
 }
 
 func osc52Sequence(text string) string {
