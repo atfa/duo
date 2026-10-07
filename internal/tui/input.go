@@ -43,6 +43,7 @@ const (
 	actionSelectStart
 	actionSelectMove
 	actionSelectEnd
+	actionCopyAustin
 )
 
 type inputAction struct {
@@ -158,6 +159,8 @@ func keyForByte(b byte) string {
 		return "ctrl-k"
 	case 23:
 		return "ctrl-w"
+	case 24:
+		return "ctrl-x"
 	case 13:
 		return "enter"
 	case 9:
@@ -257,6 +260,8 @@ func decodeModifiedKey(seq string) string {
 		return "ctrl-k"
 	case 23, 119:
 		return "ctrl-w"
+	case 24, 120:
+		return "ctrl-x"
 	case 109:
 		// Ctrl+M (the m key, not Return) is reported as codepoint 109 by
 		// modifyOtherKeys/CSI-u terminals. Terminals without that support send
@@ -326,6 +331,8 @@ func (a *App) handleKey(key string) inputAction {
 		return inputAction{kind: actionCycleThinking}
 	case "ctrl-g":
 		return inputAction{kind: actionToggleTimestamps}
+	case "ctrl-x":
+		return inputAction{kind: actionCopyAustin}
 	case "page-up":
 		rows := a.layout().content
 		delta := maxInt(1, rows/2)

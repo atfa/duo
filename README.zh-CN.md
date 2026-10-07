@@ -127,6 +127,7 @@ Duo 的主界面是一条会话 **时间线**：单一时间顺序的消息流�
 | `Ctrl+M` / `Alt+M` | 打开 Austin 或 Tony 的模型选择器 |
 | `Ctrl+O` | 切换会话总览：worktree、验证或 Plan、交付状态与 Git 变更 diffstat |
 | `Ctrl+G` | 切换消息时间戳 |
+| `Ctrl+X` | 复制 Austin 最新发给人类的消息到剪贴板 |
 | `Shift+Tab` | 循环切换目标 Agent 的思考强度 |
 | `Ctrl+Q` | 退出 Duo 并保留 session |
 | `←` / `→` | 移动 composer 光标 |
@@ -158,6 +159,7 @@ composer 支持多行，一次最多显示四行。原生接管是全屏接管�
 | `/overview` | 切换会话总览与 Git 变更统计详情（等同于 `Ctrl+O`） |
 | `/preview` | 展开或折叠 Agent 工作预览带（等同于 `Ctrl+P`） |
 | `/timestamps` | 切换时间线消息时间戳显示（等同于 `Ctrl+G`） |
+| `/copy` | 复制 Austin 最新发给人类的消息到剪贴板（等同于 `Ctrl+X`） |
 | `/help` | 打开 Duo 交互式帮助大屏（等同于 `Ctrl+/`） |
 | `/status` | 打印当前权威的模式、阶段与 worktree 状态 |
 | `/clear` | composer 里只有这条命令本身，因此已经是空的；Duo 会强制整屏重绘并给出提示 |

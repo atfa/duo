@@ -123,6 +123,7 @@ A build can take a long time, and the timeline only changes when an agent finish
 | `Ctrl+M` / `Alt+M` | Open the model picker for Austin or Tony |
 | `Ctrl+O` | Toggle session overview: worktrees, verification or Plan, delivery state, and Git changes diffstat |
 | `Ctrl+G` | Toggle message timestamps |
+| `Ctrl+X` | Copy Austin's latest message to the human to the clipboard |
 | `Shift+Tab` | Cycle the target agent's thinking level |
 | `Ctrl+Q` | Quit Duo and preserve the session |
 | `←` / `→` | Move the composer cursor |
@@ -154,6 +155,7 @@ Typing `/` in the composer opens an interactive command palette showing availabl
 | `/overview` | Toggle the session overview and git diffstat (`Ctrl+O`) |
 | `/preview` | Toggle the agent work preview band (`Ctrl+P`) |
 | `/timestamps` | Toggle timeline message timestamps (`Ctrl+G`) |
+| `/copy` | Copy Austin's latest message to the human to the clipboard (`Ctrl+X`) |
 | `/help` | Open the full Duo interactive help screen (`Ctrl+/`) |
 | `/status` | Show authoritative session mode, phase, and worktree info |
 | `/clear` | The composer only holds this command, so it is already empty; Duo forces a full redraw and says so |

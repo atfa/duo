@@ -263,6 +263,9 @@ func (a *App) applyAction(ctx context.Context, action inputAction) bool {
 			a.selection = paneSelection{}
 			a.markDirty()
 		}
+	case actionCopyAustin:
+		a.copyAustinLatest()
+		a.markDirty()
 	case actionRestart:
 		if err := a.svc.Do(ctx, session.RestartAgent{Agent: action.agent}); err != nil {
 			a.setStatus(err.Error(), true)
@@ -304,6 +307,22 @@ func (a *App) applyAction(ctx context.Context, action inputAction) bool {
 		a.markDirty()
 	}
 	return false
+}
+
+// copyAustinLatest puts Austin's most recent message to the human on the
+// clipboard and reports the outcome in the status row, so the copy is never
+// silent.
+func (a *App) copyAustinLatest() {
+	text, ok := a.lastAustinToHuman()
+	if !ok {
+		a.setStatus("no Austin message to the human yet", true)
+		return
+	}
+	if err := a.copyClipboard(text); err != nil {
+		a.setStatus("copy failed: "+err.Error(), true)
+		return
+	}
+	a.setStatus("copied Austin's latest message", false)
 }
 
 func (a *App) copyClipboard(text string) error {

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/atfa/duo/internal/project"
+	"github.com/atfa/duo/internal/protocol"
 )
 
 func newTestApp() *App {
@@ -263,5 +264,53 @@ func TestRunSlashCommand(t *testing.T) {
 	}
 	if !app.statusError || !strings.Contains(app.status, "unknown command") {
 		t.Fatalf("status = %q (err=%t), want unknown command error", app.status, app.statusError)
+	}
+}
+
+func TestCopyAustinLatestToHuman(t *testing.T) {
+	ctx := context.Background()
+	app := newTestApp()
+
+	// Nothing addressed to the human yet: Ctrl+X must say so, not copy nothing.
+	app.applyAction(ctx, app.handleKey("ctrl-x"))
+	if !app.statusError || !strings.Contains(app.status, "no Austin message") {
+		t.Fatalf("empty copy status = %q (err=%t)", app.status, app.statusError)
+	}
+
+	human := directionLabel(protocol.Austin, "")
+	app.addLabeled(protocol.Austin, human, "first report", false, false)
+	app.addLabeled(protocol.Austin, directionLabel(protocol.Austin, protocol.Tony), "peer note", false, false)
+	app.addLabeled(protocol.Austin, human, "latest report\nsecond line", false, false)
+
+	// The picked message is the latest human-directed one, unwrapped and raw,
+	// with peer traffic skipped.
+	if text, ok := app.lastAustinToHuman(); !ok || text != "latest report\nsecond line" {
+		t.Fatalf("lastAustinToHuman() = %q, %t", text, ok)
+	}
+
+	// /copy runs the same action and confirms the copy in the status row.
+	if !app.runSlashCommand(ctx, "/copy") {
+		t.Fatal("/copy not handled")
+	}
+	if app.statusError || app.status != "copied Austin's latest message" {
+		t.Fatalf("copy status = %q (err=%t)", app.status, app.statusError)
+	}
+
+	// Ctrl+X is routed as a raw byte and in the enhanced encodings Duo enables.
+	if act := app.handleByte(24); act.kind != actionCopyAustin {
+		t.Fatalf("handleByte(0x18) = %v, want actionCopyAustin", act.kind)
+	}
+	if act := app.handleKey("ctrl-x"); act.kind != actionCopyAustin {
+		t.Fatalf("handleKey(ctrl-x) = %v, want actionCopyAustin", act.kind)
+	}
+	for _, seq := range []string{"\x1b[120;5u", "\x1b[27;5;120~"} {
+		a := testApp(80, 24)
+		var act inputAction
+		for _, b := range []byte(seq) {
+			act = a.handleByte(b)
+		}
+		if act.kind != actionCopyAustin {
+			t.Fatalf("%q = %v, want actionCopyAustin", seq, act.kind)
+		}
 	}
 }

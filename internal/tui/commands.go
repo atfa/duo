@@ -19,6 +19,7 @@ var slashCommandList = []slashCmd{
 	{Name: "/escalate", Args: "[reason]", Description: "平滑升级至 Goal 模式 · Escalate to Goal mode", NeedsArgs: true},
 	{Name: "/mode", Args: "[fast|goal]", Description: "报告或升级会话模式 · Report or escalate session mode", NeedsArgs: true},
 	{Name: "/model", Args: "", Description: "选择模型与思考级别 · Model & thinking picker (Ctrl+M)", NeedsArgs: false},
+	{Name: "/copy", Args: "", Description: "复制 Austin 最新消息 · Copy Austin's latest message (Ctrl+X)", NeedsArgs: false},
 	{Name: "/overview", Args: "", Description: "查看会话概览与变更统计 · Session overview & diffstat (Ctrl+O)", NeedsArgs: false},
 	{Name: "/preview", Args: "", Description: "切换工作轨迹预览栏 · Toggle work preview (Ctrl+P)", NeedsArgs: false},
 	{Name: "/timestamps", Args: "", Description: "切换消息时间戳 · Toggle timestamps (Ctrl+G)", NeedsArgs: false},
@@ -176,6 +177,9 @@ func (a *App) runSlashCommand(ctx context.Context, text string) bool {
 		return true
 	case "/model":
 		a.openModelPicker()
+		return true
+	case "/copy":
+		a.applyAction(ctx, inputAction{kind: actionCopyAustin})
 		return true
 	case "/preview":
 		a.hidePreview = !a.hidePreview

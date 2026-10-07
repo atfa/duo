@@ -285,6 +285,25 @@ func (a *App) route(event events.Event) {
 	}
 }
 
+// lastAustinToHuman returns the text of the most recent message Austin addressed
+// to the human, in arrival order. Peer traffic to Tony and entries with no text
+// are skipped, so Ctrl+X always yields the message the human last received from
+// Austin.
+func (a *App) lastAustinToHuman() (string, bool) {
+	human := directionLabel(protocol.Austin, "")
+	for i := len(a.austin) - 1; i >= 0; i-- {
+		e := a.austin[i]
+		if e.label != human && e.label != "" {
+			continue
+		}
+		if strings.TrimSpace(e.text) == "" {
+			continue
+		}
+		return e.text, true
+	}
+	return "", false
+}
+
 // directionLabel renders a timeline header as a directed message: the speaker
 // and its target. A peer names the target; without one the message is addressed
 // to the human, so a header is never a bare agent name.
