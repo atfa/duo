@@ -129,7 +129,7 @@ Duo 的主界面是一条会话 **时间线**：单一时间顺序的消息流�
 | `Ctrl+G` | 切换消息时间戳 |
 | `Ctrl+X` | 复制 Austin 最新发给人类的消息到剪贴板 |
 | `Shift+Tab` | 循环切换目标 Agent 的思考强度 |
-| `Ctrl+Q` | 退出 Duo 并保留 session |
+| `Ctrl+Q` / `Ctrl+D` | 退出 Duo 并保留 session |
 | `←` / `→` | 移动 composer 光标 |
 | `Alt+←` / `Alt+→` | 按词移动 composer 光标 |
 | `↑` / `↓` | 在 composer 各行间移动；在首行/末行时改为回溯历史任务 |

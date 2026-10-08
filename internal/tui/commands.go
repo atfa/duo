@@ -26,7 +26,7 @@ var slashCommandList = []slashCmd{
 	{Name: "/help", Args: "", Description: "查看帮助与协作流程 · Help & workflow guide (Ctrl+/)", NeedsArgs: false},
 	{Name: "/status", Args: "", Description: "查看当前会话状态 · Show session status", NeedsArgs: false},
 	{Name: "/clear", Args: "", Description: "清空输入框并重绘屏幕 · Clear input & redraw screen", NeedsArgs: false},
-	{Name: "/quit", Args: "", Description: "退出 Duo 并保留当前会话 · Quit Duo (Ctrl+Q)", NeedsArgs: false},
+	{Name: "/quit", Args: "", Description: "退出 Duo 并保留当前会话 · Quit Duo (Ctrl+Q / Ctrl+D)", NeedsArgs: false},
 }
 
 // slashPrefix returns the slash command prefix being typed if input is currently

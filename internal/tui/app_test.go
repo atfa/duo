@@ -339,6 +339,27 @@ func TestEnhancedGlobalShortcuts(t *testing.T) {
 	}
 }
 
+// TestCtrlDQuitsLikeCtrlQ pins the new alias to the same action as Ctrl+Q: the
+// bare EOF byte, both enhanced encodings, and every view the shortcut can fire
+// from (it is checked before the view dispatch, so overlays must not swallow it).
+func TestCtrlDQuitsLikeCtrlQ(t *testing.T) {
+	encodings := []string{"\x04", "\x1b[100;5u", "\x1b[27;5;100~"}
+	views := []viewMode{viewMain, viewHelp, viewDetail, viewModel}
+	for _, view := range views {
+		for _, sequence := range encodings {
+			a := testApp(80, 24)
+			a.view = view
+			var action inputAction
+			for _, b := range []byte(sequence) {
+				action = a.handleByte(b)
+			}
+			if action.kind != actionQuit {
+				t.Errorf("view %v: %q kind = %v, want actionQuit", view, sequence, action.kind)
+			}
+		}
+	}
+}
+
 func actionKey(action inputAction) string {
 	switch action.kind {
 	case actionAttach:

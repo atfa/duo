@@ -137,6 +137,8 @@ func keyForByte(b byte) string {
 	switch b {
 	case 1:
 		return "ctrl-a"
+	case 4:
+		return "ctrl-d"
 	case 20:
 		return "ctrl-t"
 	case 18:
@@ -238,6 +240,8 @@ func decodeModifiedKey(seq string) string {
 	switch n {
 	case 1, 97:
 		return "ctrl-a"
+	case 4, 100:
+		return "ctrl-d"
 	case 17, 113:
 		return "ctrl-q"
 	case 18, 114:
@@ -274,7 +278,7 @@ func decodeModifiedKey(seq string) string {
 }
 
 func (a *App) handleKey(key string) inputAction {
-	if key == "ctrl-q" {
+	if key == "ctrl-q" || key == "ctrl-d" {
 		return inputAction{kind: actionQuit}
 	}
 	if a.view == viewModel {

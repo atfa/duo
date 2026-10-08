@@ -334,7 +334,7 @@ func TestMainStatusComposerAndFooter(t *testing.T) {
 	if strings.Contains(frame, "Duo → Austin > (Tony restarted)") {
 		t.Fatal("status was rendered as composer input")
 	}
-	if !strings.Contains(frame, "Enter Send · Ctrl/Shift+Enter Newline · Ctrl+A/T Native · Ctrl+/ Help · Ctrl+Q Quit") {
+	if !strings.Contains(frame, "Enter Send · Ctrl/Shift+Enter Newline · Ctrl+A/T Native · Ctrl+/ Help · Ctrl+Q/D Quit") {
 		t.Fatal("minimal footer is missing")
 	}
 }

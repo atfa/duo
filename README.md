@@ -125,7 +125,7 @@ A build can take a long time, and the timeline only changes when an agent finish
 | `Ctrl+G` | Toggle message timestamps |
 | `Ctrl+X` | Copy Austin's latest message to the human to the clipboard |
 | `Shift+Tab` | Cycle the target agent's thinking level |
-| `Ctrl+Q` | Quit Duo and preserve the session |
+| `Ctrl+Q` / `Ctrl+D` | Quit Duo and preserve the session |
 | `←` / `→` | Move the composer cursor |
 | `Alt+←` / `Alt+→` | Move the composer cursor by word |
 | `↑` / `↓` | Move between composer lines; recall task history at the first/last line |

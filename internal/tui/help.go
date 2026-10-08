@@ -46,7 +46,7 @@ var keyBindings = []keyBinding{
 	{[]string{"ctrl-p"}, "Ctrl+P", "", "Toggle the Austin/Tony work preview: current tool and arguments, last error, and the text being streamed"},
 	{[]string{"ctrl-g"}, "Ctrl+G", "", "Toggle message timestamps"},
 	{[]string{"ctrl-x"}, "Ctrl+X", "", "Copy Austin's latest message to the human to the clipboard"},
-	{[]string{"ctrl-q"}, "Ctrl+Q", "Ctrl+Q Quit", "Quit Duo and preserve session"},
+	{[]string{"ctrl-q", "ctrl-d"}, "Ctrl+Q / Ctrl+D", "Ctrl+Q/D Quit", "Quit Duo and preserve session"},
 	{[]string{"tab"}, "Tab", "", "Autocomplete the highlighted slash command; switch agent inside the model picker"},
 	{[]string{"esc"}, "Esc", "", "Dismiss the slash menu, close the model picker, or leave Help and the session overview"},
 	{[]string{"left", "right"}, "← / →", "", "Move the composer cursor"},
@@ -201,7 +201,7 @@ func helpKeyboardLines() []string {
 	for _, binding := range keyBindings {
 		lines = append(lines, "  "+binding.Keys+strings.Repeat(" ", maxInt(12-displayWidth(binding.Keys), 1))+binding.Description)
 	}
-	return append(lines, "", "Help navigation:", "  ↑ / k        Scroll up", "  ↓ / j        Scroll down", "  PgUp         Previous page", "  PgDn         Next page", "  Home / g     Top", "  End / G      Bottom", "  Esc          Close Help", "  Ctrl+/       Close Help", "  Ctrl+Q       Quit Duo")
+	return append(lines, "", "Help navigation:", "  ↑ / k        Scroll up", "  ↓ / j        Scroll down", "  PgUp         Previous page", "  PgDn         Next page", "  Home / g     Top", "  End / G      Bottom", "  Esc          Close Help", "  Ctrl+/       Close Help", "  Ctrl+Q/D     Quit Duo")
 }
 
 func helpModelPickerLines() []string {

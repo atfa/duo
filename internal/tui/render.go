@@ -448,7 +448,7 @@ func (a *App) writeHelp(b *strings.Builder, w, _ int) {
 	if len(lines) == 0 {
 		first, last = 0, 0
 	}
-	foot := fmt.Sprintf(" Lines %d–%d / %d · ↑↓/jk scroll · PgUp/PgDn · Esc close · Ctrl+Q quit ", first, last, len(lines))
+	foot := fmt.Sprintf(" Lines %d–%d / %d · ↑↓/jk scroll · PgUp/PgDn · Esc close · Ctrl+Q/D quit ", first, last, len(lines))
 	b.WriteString(paint(a.frameColor(), "└") + paint(ansiHint, fit(foot, contentWidth, "─")) + paint(a.frameColor(), "┘"))
 }
 
