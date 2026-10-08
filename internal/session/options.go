@@ -30,6 +30,7 @@ type Options struct {
 	WorktreeRoot string
 	Mode         project.Mode
 	ModeSource   string
+	Language     string
 
 	// Resume reloads a persisted session instead of creating one. ResumeSession
 	// names it; empty means "the single unfinished session".

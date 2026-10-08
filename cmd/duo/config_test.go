@@ -73,7 +73,7 @@ func TestSetFromLegacySnapshotUsesRootScope(t *testing.T) {
 	}
 }
 
-func TestParseResumeArgs(t *testing.T) {
+func TestParseNewSessionArgs(t *testing.T) {
 	cases := []struct {
 		name      string
 		args      []string
@@ -83,15 +83,6 @@ func TestParseResumeArgs(t *testing.T) {
 	}{
 		{name: "plain", args: nil, resume: false},
 		{name: "repo only", args: []string{"/tmp/repo"}, repo: "/tmp/repo"},
-		{name: "resume latest", args: []string{"--resume"}, resume: true},
-		{name: "resume latest with repo", args: []string{"/tmp/repo", "--resume"}, repo: "/tmp/repo", resume: true},
-		{name: "resume id", args: []string{"--resume", "20260101-000000-abcdef01"}, resume: true, sessionID: "20260101-000000-abcdef01"},
-		{name: "resume equals", args: []string{"--resume=abc"}, resume: true, sessionID: "abc"},
-		{name: "short resume", args: []string{"-r", "abc"}, resume: true, sessionID: "abc"},
-		{name: "resume subcommand latest", args: []string{"resume"}, resume: true},
-		{name: "resume subcommand with id", args: []string{"resume", "20260101-000000-abcdef01"}, resume: true, sessionID: "20260101-000000-abcdef01"},
-		{name: "resume subcommand with repo and id", args: []string{"/tmp/repo", "resume", "abc"}, repo: "/tmp/repo", resume: true, sessionID: "abc"},
-		{name: "resume subcommand followed by repo", args: []string{"resume", "/tmp/repo"}, repo: "/tmp/repo", resume: true},
 	}
 
 	for _, tc := range cases {
@@ -108,9 +99,87 @@ func TestParseResumeArgs(t *testing.T) {
 	}
 }
 
+func TestParseResumeCommandArgs(t *testing.T) {
+	for _, tc := range []struct{ args, wantID []string }{
+		{nil, nil},
+		{[]string{"session-1"}, []string{"session-1"}},
+	} {
+		got, err := parseResumeArgs(tc.args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := ""
+		if len(tc.wantID) != 0 {
+			want = tc.wantID[0]
+		}
+		if !got.resume || got.repository != "" || got.sessionID != want {
+			t.Fatalf("parseResumeArgs(%v) = %+v, want resume with id %q", tc.args, got, want)
+		}
+	}
+	if _, err := parseArgs([]string{"--resume"}); err == nil {
+		t.Fatal("root parser accepted the removed --resume flag")
+	}
+	for _, flag := range []string{"--driver", "--austin-agent", "--tony-agent"} {
+		if _, err := parseArgs([]string{flag, "pi"}); err == nil {
+			t.Errorf("root parser accepted removed alias %s", flag)
+		}
+	}
+}
+
 func TestParseResumeArgsRejectsUnknownFlag(t *testing.T) {
 	if _, err := parseArgs([]string{"--nope"}); err == nil {
 		t.Fatal("expected an error for an unknown flag")
+	}
+}
+
+func TestParseShortOptionEqualsForms(t *testing.T) {
+	got, err := parseArgs([]string{"-m=goal", "-l=zh", "-t=go test ./...", "-a=codex", "-A=pi", "-T=opencode"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.mode != "goal" || got.language != "zh" || got.testCommand != "go test ./..." || got.driver != "codex" || got.austinDriver != "pi" || got.tonyDriver != "opencode" {
+		t.Fatalf("short equals options parsed as %+v", got)
+	}
+}
+
+func TestLanguagePrecedenceAndValidation(t *testing.T) {
+	for _, tc := range []struct{ cli, file, want string }{{"", "", "en"}, {"", "zh", "zh"}, {"en", "zh", "en"}} {
+		got, err := resolveLanguage(tc.cli, tc.file)
+		if err != nil || got != tc.want {
+			t.Fatalf("resolveLanguage(%q, %q) = %q, %v; want %q", tc.cli, tc.file, got, err, tc.want)
+		}
+	}
+	if _, err := resolveLanguage("fr", "zh"); err == nil {
+		t.Fatal("unsupported CLI language accepted")
+	}
+	parsed, err := parseArgs([]string{"--language", "zh"})
+	if err != nil || parsed.language != "zh" {
+		t.Fatalf("--language parsed as %+v, %v", parsed, err)
+	}
+}
+
+func TestLoadConfigLanguageFromProjectFileAndCLIOverride(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.Mkdir(filepath.Join(repo, ".duo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".duo", "config.json"), []byte(`{"language":"zh"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DUO_REPO", "")
+	fromFile, err := loadConfig([]string{repo})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fromFile.language != "zh" {
+		t.Fatalf("config language = %q, want zh", fromFile.language)
+	}
+	overridden, err := loadConfig([]string{repo, "--language", "en"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if overridden.language != "en" {
+		t.Fatalf("CLI language = %q, want en", overridden.language)
 	}
 }
 
@@ -123,7 +192,7 @@ func TestResumeAddsHarnessGrace(t *testing.T) {
 		t.Fatalf("fresh session should not have a recovery grace, got %s", fresh.harness.RecoveryGrace)
 	}
 
-	resumed, err := loadConfig([]string{"--resume"})
+	resumed, err := loadResumeConfig(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -435,16 +504,16 @@ func TestDriverConfigurationResolution(t *testing.T) {
 		t.Fatalf("tony default driver = %q, want pi", d)
 	}
 
-	// 2. Global --driver / --agent flag
-	cfg, err = loadConfig([]string{"--driver", "agy"})
+	// 2. Global --agent flag
+	cfg, err = loadConfig([]string{"--agent", "agy"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if d := cfg.agentDriver(protocol.Austin); d != "agy" {
-		t.Fatalf("austin driver with --driver agy = %q, want agy", d)
+		t.Fatalf("austin driver with --agent agy = %q, want agy", d)
 	}
 	if d := cfg.agentDriver(protocol.Tony); d != "agy" {
-		t.Fatalf("tony driver with --driver agy = %q, want agy", d)
+		t.Fatalf("tony driver with --agent agy = %q, want agy", d)
 	}
 
 	// 3. Heterogeneous pairing via CLI flags
@@ -460,7 +529,7 @@ func TestDriverConfigurationResolution(t *testing.T) {
 	}
 
 	// 4. The binary for a driver comes from that driver's own manifest
-	cfg, err = loadConfig([]string{"--austin-agent=agy"})
+	cfg, err = loadConfig([]string{"--austin-driver=agy"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -521,7 +590,7 @@ func TestDriverAndModelProjectConfigAndDefault(t *testing.T) {
 
 	// 1. Nothing is chosen for the operator: an empty model means the driver decides,
 	// and what it decides is whatever its manifest declares.
-	cfg, err := loadConfig([]string{"--driver", "agy", tempDir})
+	cfg, err := loadConfig([]string{"--agent", "agy", tempDir})
 	if err != nil {
 		t.Fatal(err)
 	}

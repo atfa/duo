@@ -185,8 +185,8 @@ Help 是一个完整的大屏视图，用 `↑`/`k`、`↓`/`j`、`PgUp`、`PgDn
 
 | 变量 | 默认值 | 含义 |
 |---|---|---|
-| `DUO_MODE` | `fast` | 会话模式：`fast` 或 `goal`。命令行 `--mode`/`-m` 优先；`--resume` 保持持久化的模式。 |
-| `DUO_TEST_COMMAND` | （无） | 自动化测试门禁命令，在验证/交付前确定性执行（命令行 `--test-cmd` 优先）。 |
+| `DUO_MODE` | `fast` | 会话模式：`fast` 或 `goal`。命令行 `--mode`/`-m` 优先；`duo resume` 保持持久化的模式。 |
+| `DUO_TEST_COMMAND` | （无） | 自动化测试门禁命令，在验证/交付前确定性执行（命令行 `--test-cmd`/`-t` 优先）。 |
 | `DUO_REPO` | 当前目录 | 启动时针对的仓库或子目录。命令行路径参数优先。 |
 | `DUO_SESSION` | 时间戳 + 随机 hex | 会话 id，格式 `YYYYMMDD-HHMMSS-xxxxxxxx`。 |
 | `DUO_WORKTREE_ROOT` | `~/.duo/worktrees/<repo>-<hash>/<session>` | 创建 Austin/Tony worktree 的位置。 |
@@ -198,7 +198,7 @@ Help 是一个完整的大屏视图，用 `↑`/`k`、`↓`/`j`、`PgUp`、`PgDn
 | `DUO_HARNESS_IDLE_SECONDS` | `15` | 静默多久算 idle。 |
 | `DUO_HARNESS_STALL_SECONDS` | `300` | 多久没有进展算 stall。 |
 | `DUO_HARNESS_COOLDOWN_SECONDS` | `30` | 两次 harness 提醒之间的最小间隔。 |
-| `DUO_HARNESS_RESUME_GRACE_SECONDS` | `45` | `--resume` 之后的额外宽限期，避免把重连误判成 stall。 |
+| `DUO_HARNESS_RESUME_GRACE_SECONDS` | `45` | `duo resume` 之后的额外宽限期，避免把重连误判成 stall。 |
 | `DUO_HISTORY_FILE` | `~/.duo/history` | composer 历史任务记录，用 `↑`/`↓` 回溯。 |
 
 启动非默认 Pi 命令：
@@ -221,8 +221,7 @@ Duo 可以驱动你安装的任意一种 Agent CLI。三者使用同一套 Duo �
 | `agy` | `--agent agy` | Google Antigravity CLI。Duo 观测对话并把消息写进 PTY。Token 用量显示需要 `PATH` 上的 `sqlite3`。 |
 | `opencode` | `--agent opencode` | opencode 插件通过本地 socket 回连，与 Pi bridge 同一机制。 |
 
-`--driver` 是 `--agent` 的别名，`--austin-agent` / `--tony-agent` 则是
-`--austin-driver` / `--tony-driver` 的别名。单 Agent 的 driver 没有对应环境变量：
+单 Agent 的 driver 没有对应环境变量：
 `DUO_DRIVER` 同时作用于两个 Agent；要分别指定，请用 `--austin-driver` /
 `--tony-driver`，或在 `.duo/config.json` 里写 `agents.austin.driver` /
 `agents.tony.driver`。
@@ -247,7 +246,7 @@ duo --austin-driver opencode --tony-driver pi
 
 - **会话身份是探测得到的，而不是指定的。** opencode 的 session id 由服务端分配，
   因此首次运行时 Duo 让 opencode 自己生成一个，从 bridge 读到后随会话持久化。
-  之后每次运行（包括崩溃后 `--resume`）都会带上 `--session <id>`，让 Agent 保留上下文。
+  之后每次运行（包括崩溃后 `duo resume`）都会带上 `--session <id>`，让 Agent 保留上下文。
 - **模型由你决定。** Duo 不会为 opencode 注入默认模型，而是沿用你的 opencode 配置
   或模型目录解析出的结果；配置了思考强度时通过 `--variant` 传递。
 
@@ -267,12 +266,12 @@ Duo 工具，并把调用转发给当前会话的 bridge：
 
 ```bash
 duo mcp-server --agent austin --session <session-id> --token <token> --port <port>
-duo mcp-server --agent tony --export-config   # 打印 MCP 客户端配置 JSON
+duo mcp-server config --agent tony            # 打印 MCP 客户端配置 JSON
 ```
 
 连接参数默认取自 `DUO_AGENT`、`DUO_SESSION`、`DUO_TOKEN`、`DUO_HOST` 与
 `DUO_PORT`——Duo 启动 Agent 时会设置它们，因此在会话内部启动的客户端无需任何参数。
-`duo mcp` 是别名；`--export-config` 只打印可直接粘贴的 `mcpServers` 配置，不启动服务。
+`duo mcp-server config` 只打印可直接粘贴的 `mcpServers` 配置，不启动服务。
 
 ### 配置文件
 
@@ -281,6 +280,7 @@ duo mcp-server --agent tony --export-config   # 打印 MCP 客户端配置 JSON
 ```json
 {
   "mode": "fast",
+  "language": "zh",
   "testCommand": "go test ./...",
   "driver": "pi",
   "piCommand": "pi",
@@ -305,12 +305,14 @@ duo mcp-server --agent tony --export-config   # 打印 MCP 客户端配置 JSON
 }
 ```
 
+可用 `language` 设置 Duo 内置消息语言（`zh` 或 `en`），默认是 `en`。命令行 `duo --language zh`（或 `duo -l zh`） 会覆盖配置文件；此设置会影响 Duo 发给 Austin、Tony 和用户的内置消息，不会翻译 TUI 标签。
+
 `agents.<name>.command` 只覆盖这一个 Agent 的启动命令，`agents.<name>.driver`
 只覆盖它自己的 driver；顶层的 `driver` 与 `piCommand` 则是两个 Agent 的共同默认。
 除非命令里已经带了这些参数，Duo 会自行追加 `--model` 以及思考强度参数
 （opencode 用 `--variant`）。
 
-优先级顺序：显式命令行参数（`--mode`, `--test-cmd`, `--agent`/`--austin-driver`/`--tony-driver`）> 环境变量（`DUO_*`）> 仓库 `.duo/config.json` > 全局 `~/.duo/config.json` > 内置默认值。
+优先级顺序：显式命令行参数（`--mode`/`-m`, `--language`/`-l`, `--test-cmd`/`-t`, `--agent`/`-a`, `--austin-driver`/`-A`, `--tony-driver`/`-T`）> 环境变量（`DUO_*`）> 仓库 `.duo/config.json` > 全局 `~/.duo/config.json` > 内置默认值。
 
 Duo 也会**写入**项目级 `.duo/config.json`：每次启动都把各 Agent 当前生效的 driver
 与模型记录进去，因此在选择器里选过的模型下次运行仍然有效。若某个模型属于上一个
@@ -354,16 +356,13 @@ Scope 是**默认工作目录，不是文件系统沙箱**。任务确实需要�
 ## 崩溃后恢复
 
 ```bash
-duo --resume              # 恢复本仓库未完成的那个会话
-duo -r                    # 同上
-duo resume                # 同上（也接受这个裸词）
-duo --resume <id>         # 恢复指定会话
-duo --resume=<id>         # 同上
+duo resume                # 恢复本仓库未完成的会话
+duo resume <id>           # 恢复指定会话
 ```
 
-裸 `duo` 永远启动一个**新**会话，并拒绝覆盖未完成的会话。`--resume` 在恰好只有一个未完成会话时自动选中它；有多个时要求你给 id，而不是猜。
+裸 `duo` 永远启动一个**新**会话，并拒绝覆盖未完成的会话。`duo resume` 在恰好只有一个未完成会话时自动选中它；有多个时要求你给 id，而不是猜。
 
-Resume 会读回持久化快照，**拿 Git 验证它**，并在启动任何进程之前撤销所有已无法证明的签字或验证。模式随会话持久化：`--resume` 保持它，没有记录 mode 的旧会话按 Goal 恢复，且 `DUO_MODE` 在 resume 时被忽略（显式传入冲突的 `--mode` 会报错）。对账后的状态会在 Agent 启动前先写回，因此启动过程中崩溃不会复活被撤销的批准、也不会重放一次 merge。每个重连的 Agent 会收到一条与模式和阶段对应的唤醒消息；重复重连不会重复投递。每个 pane 最近的 200 条输出会被回放进 TUI，所以恢复后的会话一开始就能看到之前的对话。
+Resume 会读回持久化快照，**拿 Git 验证它**，并在启动任何进程之前撤销所有已无法证明的签字或验证。模式随会话持久化：`duo resume` 保持它，没有记录 mode 的旧会话按 Goal 恢复，且 `DUO_MODE` 在 resume 时被忽略（显式传入冲突的 `--mode` 会报错）。对账后的状态会在 Agent 启动前先写回，因此启动过程中崩溃不会复活被撤销的批准、也不会重放一次 merge。每个重连的 Agent 会收到一条与模式和阶段对应的唤醒消息；重复重连不会重复投递。每个 pane 最近的 200 条输出会被回放进 TUI，所以恢复后的会话一开始就能看到之前的对话。
 
 恢复刻意保守：当它无法证明某个批准仍然成立时，宁可撤销也不轻信。所以崩溃后请预期要重新签一次，而不是静默放行。
 
@@ -393,9 +392,6 @@ duo apply
 ```bash
 duo apply                    # 重试本仓库的待交付
 duo apply <session-id>       # 重试指定会话
-duo apply --session <id>     # 同上
-duo apply -s <id>            # 同上
-duo apply --session=<id>     # 同上
 ```
 
 `duo apply` 从不启动 Agent，并复用同一套安全规则——它不会强行推进一个被阻塞的交付。
@@ -419,13 +415,13 @@ duo logs <repository>       # 列出另一个仓库的会话记录
 
 清理会话会自动安全移除对应的 Git 工作树（`git worktree remove --force`）、执行 `git worktree prune` 修剪、删除临时分支（`duo/<session>/*`），并删除对应的会话快照目录。正在被另一个运行中的 Duo 进程持有的会话会被 `flock` 锁保护，自动予以跳过。
 
-`duo clean` 默认就会清理本仓库全部已完成（DONE）的会话，因此 `--all` 目前不改变任何行为；真正把未完成会话也纳入的是 `--force`。`duo sessions` 接受 `-a`（`--all`）；`duo clean` 另外接受 `-f`（`--force`）与 `-n`（`--dry-run`）；`duo apply` 还接受 `--session <id>` / `-s <id>`。`duo plugin` 与 `duo mcp` 分别是 `duo plugins` 与 `duo mcp-server` 的别名。每个命令都支持自己的 `--help`（例如 `duo clean --help`）；在仓库目录里执行 `duo <repository> --help` 同样会打印完整用法。
+`duo clean` 默认就会清理本仓库全部已完成（DONE）的会话，因此 `--all` 目前不改变任何行为；真正把未完成会话也纳入的是 `--force`。`duo sessions` 接受 `-a`（`--all`）；`duo clean` 另外接受 `-f`（`--force`）与 `-n`（`--dry-run`）；`duo apply <session-id>` 可指定会话。每个命令都支持自己的 `--help`（例如 `duo clean --help`）；在仓库目录里执行 `duo <repository> --help` 同样会打印完整用法。
 
-其余命令不涉及会话：`duo plugins` 列出内置 driver 与所有已发现的外部插件，`duo plugin test [<path…>] [--all] [--verbose]` 按 [Driver 插件协议](./docs/driver-plugin-protocol.md) 检查单个或全部 driver，[`duo mcp-server`](#mcp-服务duo-mcp-server) 通过 MCP 提供 Duo 工具，`duo version`（`--version`）与 `duo help`（`-h`、`--help`）分别打印版本号与完整用法。
+其余命令不涉及会话：`duo plugins` 列出内置 driver 与所有已发现的外部插件，`duo plugins test [<path…>] [--all] [--verbose]` 按 [Driver 插件协议](./docs/driver-plugin-protocol.md) 检查单个或全部 driver，[`duo mcp-server`](#mcp-服务duo-mcp-server) 通过 MCP 提供 Duo 工具，`duo version`（`--version`）与 `duo help`（`-h`、`--help`）分别打印版本号与完整用法。
 
 ## 使用边界
 
-Duo 固定使用 Austin 与 Tony 两个角色。Fast 可以升级为 Goal，但不能降回 Fast。崩溃恢复不会重建 Agent 的推理过程；Duo Core 自身崩溃后需手动运行 `duo --resume`。会话绑定本机和仓库路径，辅助脚本面向 macOS/Linux。交付安全边界与本地 TCP 信任模型见[架构说明](./docs/architecture.md)和 [SECURITY.md](./SECURITY.md)。
+Duo 固定使用 Austin 与 Tony 两个角色。Fast 可以升级为 Goal，但不能降回 Fast。崩溃恢复不会重建 Agent 的推理过程；Duo Core 自身崩溃后需手动运行 `duo resume`。会话绑定本机和仓库路径，辅助脚本面向 macOS/Linux。交付安全边界与本地 TCP 信任模型见[架构说明](./docs/architecture.md)和 [SECURITY.md](./SECURITY.md)。
 
 ## 开发
 

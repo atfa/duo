@@ -134,7 +134,7 @@ func (a *App) helpLines(width int) []string {
 			"FAST (default): Austin drives, Tony independently verifies. No shared plan, no dual sign-off.",
 			"GOAL (duo --mode goal): shared plan + independent work + cross-review + dual sign-off.",
 			"Escalate FAST to GOAL on the fly: type /escalate [reason] or /mode goal in the composer, or agents call duo_escalate.",
-			"--resume always uses the persisted mode.",
+			"duo resume always uses the persisted mode.",
 		}},
 		{"Keyboard", helpKeyboardLines()},
 		{"Model Picker (Ctrl+M)", helpModelPickerLines()},
@@ -166,8 +166,7 @@ func (a *App) helpLines(width int) []string {
 		}},
 		{"Command Line", helpCommandLineLines()},
 		{"Resume & Recovery", []string{
-			"duo --resume (or -r, or the bare word resume) picks this repository's unfinished session;",
-			"duo --resume <id> picks one specific session.",
+			"duo resume picks this repository's unfinished session; duo resume <id> picks one specific session.",
 			"Resume restores Duo state, worktrees, each driver’s saved conversation state, working scope, pane history, and collaboration wake-up.",
 		}},
 		{"Delivery", []string{
@@ -219,7 +218,6 @@ func helpCommandLineLines() []string {
 	lines := append([]string{}, clidoc.SignatureLines()...)
 	return append(lines,
 		"",
-		"The bare word 'resume' is an alias of --resume.",
 		"Run duo --help for every flag, its default, and the DUO_* environment variables.",
 	)
 }

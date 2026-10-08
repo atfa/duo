@@ -24,48 +24,48 @@ func parseMCPServerArgs(args []string) (mcpServerArgs, error) {
 		arg := strings.TrimSpace(args[i])
 		switch {
 		case arg == "":
-		case arg == "--export-config" || arg == "--export" || arg == "--config":
+		case arg == "config" && i == 0:
 			out.exportJSON = true
-		case arg == "--agent":
+		case arg == "--agent" || arg == "-a":
 			i++
 			if i >= len(args) {
 				return out, fmt.Errorf("flag --agent requires an argument (austin|tony)")
 			}
 			out.cfg.Agent = protocol.CanonicalAgent(args[i])
-		case strings.HasPrefix(arg, "--agent="):
-			out.cfg.Agent = protocol.CanonicalAgent(strings.TrimPrefix(arg, "--agent="))
-		case arg == "--session":
+		case strings.HasPrefix(arg, "--agent=") || strings.HasPrefix(arg, "-a="):
+			out.cfg.Agent = protocol.CanonicalAgent(strings.SplitN(arg, "=", 2)[1])
+		case arg == "--session" || arg == "-s":
 			i++
 			if i >= len(args) {
 				return out, fmt.Errorf("flag --session requires an argument")
 			}
 			out.cfg.SessionID = strings.TrimSpace(args[i])
-		case strings.HasPrefix(arg, "--session="):
-			out.cfg.SessionID = strings.TrimSpace(strings.TrimPrefix(arg, "--session="))
-		case arg == "--token":
+		case strings.HasPrefix(arg, "--session=") || strings.HasPrefix(arg, "-s="):
+			out.cfg.SessionID = strings.TrimSpace(strings.SplitN(arg, "=", 2)[1])
+		case arg == "--token" || arg == "-k":
 			i++
 			if i >= len(args) {
 				return out, fmt.Errorf("flag --token requires an argument")
 			}
 			out.cfg.Token = strings.TrimSpace(args[i])
-		case strings.HasPrefix(arg, "--token="):
-			out.cfg.Token = strings.TrimSpace(strings.TrimPrefix(arg, "--token="))
-		case arg == "--host":
+		case strings.HasPrefix(arg, "--token=") || strings.HasPrefix(arg, "-k="):
+			out.cfg.Token = strings.TrimSpace(strings.SplitN(arg, "=", 2)[1])
+		case arg == "--host" || arg == "-H":
 			i++
 			if i >= len(args) {
 				return out, fmt.Errorf("flag --host requires an argument")
 			}
 			out.cfg.Host = strings.TrimSpace(args[i])
-		case strings.HasPrefix(arg, "--host="):
-			out.cfg.Host = strings.TrimSpace(strings.TrimPrefix(arg, "--host="))
-		case arg == "--port":
+		case strings.HasPrefix(arg, "--host=") || strings.HasPrefix(arg, "-H="):
+			out.cfg.Host = strings.TrimSpace(strings.SplitN(arg, "=", 2)[1])
+		case arg == "--port" || arg == "-p":
 			i++
 			if i >= len(args) {
 				return out, fmt.Errorf("flag --port requires an argument")
 			}
 			out.cfg.Port = strings.TrimSpace(args[i])
-		case strings.HasPrefix(arg, "--port="):
-			out.cfg.Port = strings.TrimSpace(strings.TrimPrefix(arg, "--port="))
+		case strings.HasPrefix(arg, "--port=") || strings.HasPrefix(arg, "-p="):
+			out.cfg.Port = strings.TrimSpace(strings.SplitN(arg, "=", 2)[1])
 		case arg == "-h" || arg == "--help" || arg == "help":
 			printMCPHelp()
 			out.help = true
@@ -87,14 +87,13 @@ func printMCPHelp() {
 	fmt.Println("Runs the Model Context Protocol (MCP) server over stdio for Duo state machine tools.")
 	fmt.Println("Connection parameters default to DUO_AGENT, DUO_SESSION, DUO_TOKEN, DUO_HOST, DUO_PORT environment variables.")
 	fmt.Println()
-	fmt.Println("Flags:")
-	fmt.Println("  --agent <austin|tony>   Agent role (default: $DUO_AGENT)")
-	fmt.Println("  --session <id>          Duo session ID (default: $DUO_SESSION)")
-	fmt.Println("  --token <token>         Duo session token (default: $DUO_TOKEN)")
-	fmt.Println("  --host <host>           Duo bridge host (default: $DUO_HOST or 127.0.0.1)")
-	fmt.Println("  --port <port>           Duo bridge port (default: $DUO_PORT)")
-	fmt.Println("  --export-config         Print MCP client configuration JSON instead of starting server")
-	fmt.Println("                         (aliases: --export, --config)")
+	fmt.Println("Connection flags:")
+	fmt.Println("  --agent, -a <austin|tony> Agent role (default: $DUO_AGENT)")
+	fmt.Println("  --session, -s <id>       Duo session ID (default: $DUO_SESSION)")
+	fmt.Println("  --token, -k <token>      Duo session token (default: $DUO_TOKEN)")
+	fmt.Println("  --host, -H <host>        Duo bridge host (default: $DUO_HOST or 127.0.0.1)")
+	fmt.Println("  --port, -p <port>        Duo bridge port (default: $DUO_PORT)")
+	fmt.Println("  duo mcp-server config    Print MCP client configuration JSON instead of starting server")
 }
 
 func runMCPServer(ctx context.Context, args []string) error {

@@ -30,6 +30,13 @@ func modeEnv(mode string) string {
 	return "goal"
 }
 
+func languageEnv(language string) string {
+	if strings.TrimSpace(language) == "zh" {
+		return "zh"
+	}
+	return "en"
+}
+
 type ProcessState int
 
 const (
@@ -67,6 +74,7 @@ func (s ProcessState) String() string {
 type Config struct {
 	Agent          protocol.AgentID
 	Mode           string
+	Language       string
 	Dir            string
 	RepositoryRoot string
 	ScopePath      string
@@ -441,6 +449,7 @@ func coreEnv(s *Session) []string {
 		"DUO_DRIVER=" + s.cfg.Plugin.Name(),
 		"DUO_AGENT=" + string(s.cfg.Agent),
 		"DUO_MODE=" + modeEnv(s.cfg.Mode),
+		"DUO_LANGUAGE=" + languageEnv(s.cfg.Language),
 		"DUO_HOST=" + s.cfg.Host,
 		"DUO_PORT=" + s.cfg.Port,
 		"DUO_SESSION=" + s.cfg.Session,

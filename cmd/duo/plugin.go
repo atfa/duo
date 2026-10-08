@@ -10,9 +10,9 @@ import (
 	"github.com/atfa/duo/internal/driver"
 )
 
-// runPlugins implements `duo plugins` and `duo plugin test`.
+// runPlugins implements `duo plugins` and `duo plugins test`.
 //
-// `duo plugin test <path>` exists so that writing a plugin does not require
+// `duo plugins test <path>` exists so that writing a plugin does not require
 // understanding Duo Core. A plugin author builds their executable, points this at
 // it, and either passes or does not — which is the whole onboarding story for a
 // driver.
@@ -24,9 +24,6 @@ func runPlugins(ctx context.Context, args []string) error {
 	switch strings.TrimSpace(args[0]) {
 	case "test":
 		return runPluginTest(ctx, args[1:])
-	case "list", "ls":
-		printPlugins()
-		return nil
 	case "-h", "--help", "help":
 		printPluginUsage()
 		return nil
@@ -34,12 +31,11 @@ func runPlugins(ctx context.Context, args []string) error {
 		if strings.HasPrefix(args[0], "-") {
 			return fmt.Errorf("unknown flag %q (usage: %s)", args[0], commandUsage("plugins"))
 		}
-		// A bare path is a convenience: `duo plugin ./duo-plugin-foo`.
-		return runPluginTest(ctx, args)
+		return fmt.Errorf("unknown plugins command %q (usage: %s)", args[0], commandUsage("plugins"))
 	}
 }
 
-// pluginTestArgs is the parsed `duo plugin test` command line.
+// pluginTestArgs is the parsed `duo plugins test` command line.
 type pluginTestArgs struct {
 	paths   []string
 	all     bool
@@ -47,7 +43,7 @@ type pluginTestArgs struct {
 	help    bool
 }
 
-// parsePluginTestArgs understands `duo plugin test [<path|--driver-name>…] [--all] [-v]`.
+// parsePluginTestArgs understands `duo plugins test [<path|--driver-name>…] [--all] [-v]`.
 // A bare driver name is resolved against the installed plugins, so a plugin author
 // does not have to know where it ended up.
 func parsePluginTestArgs(args []string) (pluginTestArgs, error) {
@@ -97,7 +93,7 @@ func runPluginTest(ctx context.Context, args []string) error {
 	// the crash-and-respawn check has nothing to verify against and would silently
 	// stop testing anything.
 	if _, err := driver.ReferencePluginBinary(ctx, work); err != nil {
-		fmt.Fprintf(os.Stderr, "duo plugin test: %v\n", err)
+		fmt.Fprintf(os.Stderr, "duo plugins test: %v\n", err)
 		fmt.Fprintf(os.Stderr, "  the crash-recovery check will be skipped\n")
 	}
 
@@ -143,7 +139,7 @@ func runPluginTest(ctx context.Context, args []string) error {
 }
 
 // resolvePluginPath accepts a path, a file name to be found on PATH, or a bare
-// driver name, so `duo plugin test codex` works as well as a full path.
+// driver name, so `duo plugins test codex` works as well as a full path.
 func resolvePluginPath(arg string) string {
 	if strings.ContainsRune(arg, os.PathSeparator) || strings.HasPrefix(arg, ".") {
 		return arg
@@ -187,21 +183,21 @@ func printPlugins() {
 	fmt.Println()
 	fmt.Println("Duo selects a driver with --agent <name>, or per agent with")
 	fmt.Println("--austin-driver / --tony-driver. Check one against the protocol with")
-	fmt.Println("`duo plugin test <name>`.")
+	fmt.Println("`duo plugins test <name>`.")
 }
 
 func printPluginUsage() {
 	fmt.Println("Usage:")
 	for _, line := range clidoc.SummaryLines() {
-		if strings.HasPrefix(line, "duo plugin") {
+		if strings.HasPrefix(line, "duo plugins") {
 			fmt.Println(line)
 		}
 	}
 	fmt.Println()
 	fmt.Println("  duo plugins                      list every driver Duo can see")
-	fmt.Println("  duo plugin test <path>           check one plugin against the protocol")
-	fmt.Println("  duo plugin test --all            check every plugin Duo can see")
-	fmt.Println("  duo plugin test <name>           check an installed plugin by driver name")
+	fmt.Println("  duo plugins test <path>          check one plugin against the protocol")
+	fmt.Println("  duo plugins test --all           check every plugin Duo can see")
+	fmt.Println("  duo plugins test <name>          check an installed plugin by driver name")
 	fmt.Println()
 	fmt.Println("A plugin passes when it describes itself correctly, probes, prepares a")
 	fmt.Println("runnable command, keeps its capabilities honest, resumes its own session")

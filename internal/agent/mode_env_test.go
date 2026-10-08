@@ -48,3 +48,13 @@ func TestSessionExportsModeForThePiExtension(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionExportsSelectedLanguage(t *testing.T) {
+	s := mustSession(t, "stub", Config{Agent: protocol.Austin, Mode: "goal", Language: "zh", Dir: t.TempDir()})
+	for _, entry := range coreEnv(s) {
+		if entry == "DUO_LANGUAGE=zh" {
+			return
+		}
+	}
+	t.Fatal("agent environment does not contain DUO_LANGUAGE=zh")
+}

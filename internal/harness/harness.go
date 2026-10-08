@@ -18,6 +18,7 @@ type Sender interface {
 }
 
 type Config struct {
+	Language       string
 	IdleThreshold  time.Duration
 	StallThreshold time.Duration
 	Cooldown       time.Duration
@@ -146,12 +147,21 @@ func (m *Monitor) maybeWake(ctx context.Context) {
 	if hardStalled && !normalIdle {
 		reason = "The Duo project is unfinished and no activity has been observed for an unusually long time. This may be a stalled run."
 	}
+	if m.cfg.Language == "zh" {
+		reason = "Austin 和 Tony 均处于空闲状态，但 Duo 项目尚未完成。"
+		if hardStalled && !normalIdle {
+			reason = "Duo 项目尚未完成，且长时间没有活动，流程可能已停滞。"
+		}
+	}
 
 	prompt := fmt.Sprintf(
 		"[Duo Harness]\n%s\n\n%s\n\nYou are the coordinator for recovery. Inspect the current phase and take the next concrete action. If your part is complete, call duo_set_status with ready=true. If Tony is the blocker, use duo_send to give Tony the exact information or nudge needed. In PLAN, create or revise the shared plan if necessary. Do not merely acknowledge this message.",
 		reason,
 		state.NudgeState(),
 	)
+	if m.cfg.Language == "zh" {
+		prompt = fmt.Sprintf("[Duo Harness]\n%s\n\n你是恢复流程的协调者。检查当前阶段并执行下一项具体工作。如果你负责的部分已完成，调用 duo_set_status ready=true。如果 Tony 是阻塞因素，使用 duo_send 向 Tony 提供精确信息或提醒。若处于 PLAN，必要时创建或修订共享计划。不要只回复收到。\n\n%s", reason, state.NudgeState())
+	}
 
 	if m.bus != nil {
 		m.bus.Emit(events.Event{Kind: events.KindHarness, Agent: protocol.Austin, Text: fmt.Sprintf("nudging Austin after %s without useful activity", quietFor.Round(time.Second))})
@@ -238,10 +248,19 @@ func (m *Monitor) fastNudgeAustin(ctx context.Context, state project.Snapshot) {
 	if hardStalled && quietFor < m.cfg.IdleThreshold {
 		reason = "The Fast session is unfinished and Austin has been silent for an unusually long time."
 	}
+	if m.cfg.Language == "zh" {
+		reason = "FAST 会话处于 RUNNING 阶段，Austin 当前空闲。"
+		if hardStalled && quietFor < m.cfg.IdleThreshold {
+			reason = "FAST 会话尚未完成，Austin 长时间没有活动。"
+		}
+	}
 	prompt := fmt.Sprintf(
 		"[Duo Harness]\n%s\n\nTony is only a copilot in Fast mode and does not block you: keep driving the task forward. Inspect the current state and take the next concrete action. When your work is genuinely complete, your worktree is clean and committed, and you have validated the result, request verification with duo_set_status ready=true. Do not merely acknowledge this message.\n\n%s",
 		reason, state.NudgeState(),
 	)
+	if m.cfg.Language == "zh" {
+		prompt = fmt.Sprintf("[Duo Harness]\n%s\n\nFAST 模式下 Tony 是副驾驶，不会阻塞你：继续推进任务。检查当前状态并执行下一项具体工作。工作真实完成、已验证、已提交且 worktree 干净后，调用 duo_set_status ready=true 请求验证。不要只回复收到。\n\n%s", reason, state.NudgeState())
+	}
 
 	// Two unsuccessful nudges is a stall, not just a pause. Ask the copilot once
 	// per episode for an independent diagnosis; Tony's answer is advisory.
@@ -283,6 +302,9 @@ func (m *Monitor) fastNudgeTony(ctx context.Context, state project.Snapshot) {
 		"[Duo Harness]\nAustin requested independent verification of HEAD %s, but no verdict has arrived. Inspect that exact artifact yourself, then report result=passed, or result=issue_found with a concrete note, using duo_set_verification. Fast mode is single-writer: do not commit or edit the artifact. Do not merely acknowledge this message.\n\n%s",
 		shortSHA(state.Verification.Head), state.NudgeState(),
 	)
+	if m.cfg.Language == "zh" {
+		prompt = fmt.Sprintf("[Duo Harness]\nAustin 已请求独立验证 HEAD %s，但尚未收到结论。请独立检查该精确产物，然后通过 duo_set_verification 报告 result=passed，或报告 result=issue_found 并附具体说明。FAST 模式只有 Austin 可以写入：不要提交或编辑产物。不要只回复收到。\n\n%s", shortSHA(state.Verification.Head), state.NudgeState())
+	}
 	if m.bus != nil {
 		m.bus.Emit(events.Event{Kind: events.KindHarness, Agent: protocol.Tony, Text: fmt.Sprintf("nudging Tony to verify after %s without activity", quietFor.Round(time.Second))})
 	}
@@ -299,6 +321,9 @@ func (m *Monitor) sendFastDiagnosis(ctx context.Context, state project.Snapshot)
 		"[Duo Harness]\nAustin is not making progress in RUNNING (repeated idle nudges or a reported agent error). As copilot, give a concise diagnosis: the most likely blocker and the single next concrete step for Austin. Inspect the repository and state yourself first. This is advisory; do not take over the work or commit anything.\n\n%s",
 		state.NudgeState(),
 	)
+	if m.cfg.Language == "zh" {
+		text = fmt.Sprintf("[Duo Harness]\nAustin 在 RUNNING 阶段没有取得进展（多次空闲提醒或报告 agent 错误）。作为副驾驶，请简要判断最可能的阻塞原因，并给出 Austin 下一项具体操作。先独立检查仓库和状态。这只是建议；不要接管工作或提交。\n\n%s", state.NudgeState())
+	}
 	if m.bus != nil {
 		m.bus.Emit(events.Event{Kind: events.KindHarness, Agent: protocol.Tony, Text: "asking Tony for a Fast stall diagnosis"})
 	}

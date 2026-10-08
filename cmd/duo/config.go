@@ -44,13 +44,14 @@ type config struct {
 	resume        bool
 	resumeSession string
 
-	// mode is the resolved workflow of a NEW session. For --resume the persisted
+	// mode is the resolved workflow of a NEW session. For resume the persisted
 	// mode wins, so only the explicit CLI intent is recorded here and validated
 	// once the session is loaded.
 	mode         project.Mode
 	modeSource   string
 	modeRaw      string
 	modeExplicit bool
+	language     string
 
 	// help is set by -h/--help/help, which prints the usage and exits without
 	// starting or touching a session.
@@ -123,6 +124,7 @@ func (c config) sessionOptions() session.Options {
 		BaseRef:             c.baseRef,
 		WorktreeRoot:        c.worktreeRoot,
 		Mode:                c.mode,
+		Language:            c.language,
 		ModeSource:          c.modeSource,
 		ModeRaw:             c.modeRaw,
 		ModeExplicit:        c.modeExplicit,
@@ -143,6 +145,7 @@ func (c config) sessionOptions() session.Options {
 // configFile describes ~/.duo/config.json or .duo/config.json.
 type configFile struct {
 	Mode        string               `json:"mode,omitempty"`
+	Language    string               `json:"language,omitempty"`
 	PiCommand   string               `json:"piCommand,omitempty"`
 	Driver      string               `json:"driver,omitempty"`
 	TestCommand string               `json:"testCommand,omitempty"`
@@ -170,6 +173,7 @@ type cliArgs struct {
 	resume       bool
 	sessionID    string
 	mode         string
+	language     string
 	modeExplicit bool
 	testCommand  string
 	driver       string
@@ -178,9 +182,7 @@ type cliArgs struct {
 	help         bool
 }
 
-// parseArgs understands `duo [repository] [--mode fast|goal] [--resume [id]]`.
-// Plain `duo` always starts a new session; only --resume attaches to persisted
-// state.
+// parseArgs understands options for starting a new session.
 func parseArgs(args []string) (cliArgs, error) {
 	var out cliArgs
 	for i := 0; i < len(args); i++ {
@@ -190,23 +192,6 @@ func parseArgs(args []string) (cliArgs, error) {
 		case helpRequested(arg):
 			// `duo <repo> --help` prints usage without launching a session.
 			out.help = true
-		case arg == "--resume" || arg == "-r" || arg == "resume":
-			out.resume = true
-			if i+1 < len(args) && !strings.HasPrefix(strings.TrimSpace(args[i+1]), "-") {
-				cand := strings.TrimSpace(args[i+1])
-				if strings.ContainsAny(cand, `/\`) || cand == "." || cand == ".." {
-					if out.repository == "" {
-						out.repository = cand
-						i++
-					}
-				} else {
-					out.sessionID = cand
-					i++
-				}
-			}
-		case strings.HasPrefix(arg, "--resume="):
-			out.resume = true
-			out.sessionID = strings.TrimPrefix(arg, "--resume=")
 		case arg == "--mode" || arg == "-m":
 			if i+1 >= len(args) {
 				return out, fmt.Errorf("--mode requires a value (fast or goal)")
@@ -214,40 +199,48 @@ func parseArgs(args []string) (cliArgs, error) {
 			out.mode = strings.TrimSpace(args[i+1])
 			out.modeExplicit = true
 			i++
+		case arg == "--language" || arg == "-l":
+			if i+1 >= len(args) {
+				return out, fmt.Errorf("--language requires a value (zh or en)")
+			}
+			out.language = strings.TrimSpace(args[i+1])
+			i++
+		case strings.HasPrefix(arg, "--language=") || strings.HasPrefix(arg, "-l="):
+			out.language = strings.TrimSpace(strings.SplitN(arg, "=", 2)[1])
 		case strings.HasPrefix(arg, "--mode=") || strings.HasPrefix(arg, "-m="):
 			out.mode = strings.TrimSpace(strings.SplitN(arg, "=", 2)[1])
 			out.modeExplicit = true
-		case arg == "--test-cmd":
+		case arg == "--test-cmd" || arg == "-t":
 			if i+1 >= len(args) {
 				return out, fmt.Errorf("--test-cmd requires a value (e.g. \"go test ./...\")")
 			}
 			out.testCommand = strings.TrimSpace(args[i+1])
 			i++
-		case strings.HasPrefix(arg, "--test-cmd="):
-			out.testCommand = strings.TrimSpace(strings.TrimPrefix(arg, "--test-cmd="))
-		case arg == "--agent" || arg == "--driver":
+		case strings.HasPrefix(arg, "--test-cmd=") || strings.HasPrefix(arg, "-t="):
+			out.testCommand = strings.TrimSpace(strings.SplitN(arg, "=", 2)[1])
+		case arg == "--agent" || arg == "-a":
 			if i+1 >= len(args) {
 				return out, fmt.Errorf("%s requires a value (a driver name; `duo plugins` lists them)", arg)
 			}
 			out.driver = strings.TrimSpace(args[i+1])
 			i++
-		case strings.HasPrefix(arg, "--agent=") || strings.HasPrefix(arg, "--driver="):
+		case strings.HasPrefix(arg, "--agent=") || strings.HasPrefix(arg, "-a="):
 			out.driver = strings.TrimSpace(strings.SplitN(arg, "=", 2)[1])
-		case arg == "--austin-driver" || arg == "--austin-agent":
+		case arg == "--austin-driver" || arg == "-A":
 			if i+1 >= len(args) {
 				return out, fmt.Errorf("%s requires a value", arg)
 			}
 			out.austinDriver = strings.TrimSpace(args[i+1])
 			i++
-		case strings.HasPrefix(arg, "--austin-driver=") || strings.HasPrefix(arg, "--austin-agent="):
+		case strings.HasPrefix(arg, "--austin-driver=") || strings.HasPrefix(arg, "-A="):
 			out.austinDriver = strings.TrimSpace(strings.SplitN(arg, "=", 2)[1])
-		case arg == "--tony-driver" || arg == "--tony-agent":
+		case arg == "--tony-driver" || arg == "-T":
 			if i+1 >= len(args) {
 				return out, fmt.Errorf("%s requires a value", arg)
 			}
 			out.tonyDriver = strings.TrimSpace(args[i+1])
 			i++
-		case strings.HasPrefix(arg, "--tony-driver=") || strings.HasPrefix(arg, "--tony-agent="):
+		case strings.HasPrefix(arg, "--tony-driver=") || strings.HasPrefix(arg, "-T="):
 			out.tonyDriver = strings.TrimSpace(strings.SplitN(arg, "=", 2)[1])
 		case strings.HasPrefix(arg, "-"):
 			return out, fmt.Errorf("unknown Duo flag %q (usage: %s)", arg, commandUsage("duo"))
@@ -257,9 +250,6 @@ func parseArgs(args []string) (cliArgs, error) {
 			}
 			out.repository = arg
 		}
-	}
-	if out.resume && out.sessionID == "" {
-		// Duo chooses the newest unfinished session.
 	}
 	return out, nil
 }
@@ -300,7 +290,30 @@ func resumeMode(cfg config, persisted project.Mode, sessionID string, warn func(
 }
 
 func loadConfig(args []string) (config, error) {
+	return loadConfigCommand(args, false)
+}
+
+func loadResumeConfig(args []string) (config, error) {
+	return loadConfigCommand(args, true)
+}
+
+func parseResumeArgs(args []string) (cliArgs, error) {
 	parsed, err := parseArgs(args)
+	if err == nil {
+		parsed.resume = true
+		parsed.sessionID, parsed.repository = parsed.repository, ""
+	}
+	return parsed, err
+}
+
+func loadConfigCommand(args []string, resume bool) (config, error) {
+	var parsed cliArgs
+	var err error
+	if resume {
+		parsed, err = parseResumeArgs(args)
+	} else {
+		parsed, err = parseArgs(args)
+	}
 	if err != nil {
 		return config{}, err
 	}
@@ -459,6 +472,10 @@ func loadConfig(args []string) (config, error) {
 			return config{}, err
 		}
 	}
+	language, err := resolveLanguage(parsed.language, fileCfg.Language)
+	if err != nil {
+		return config{}, err
+	}
 
 	testCommand := parsed.testCommand
 	if testCommand == "" {
@@ -485,10 +502,25 @@ func loadConfig(args []string) (config, error) {
 		resume:              parsed.resume,
 		resumeSession:       parsed.sessionID,
 		mode:                mode,
+		language:            language,
 		modeSource:          modeSource,
 		modeRaw:             parsed.mode,
 		modeExplicit:        parsed.modeExplicit,
 	}, nil
+}
+
+func resolveLanguage(cli, file string) (string, error) {
+	language := strings.TrimSpace(cli)
+	if language == "" {
+		language = strings.TrimSpace(file)
+	}
+	if language == "" {
+		language = "en"
+	}
+	if language != "zh" && language != "en" {
+		return "", fmt.Errorf("invalid language %q: must be zh or en", language)
+	}
+	return language, nil
 }
 
 func loadConfigFile(path string) (configFile, error) {
@@ -532,7 +564,7 @@ func loadMergedConfigFile(launchDir string) (configFile, error) {
 	}
 	for _, p := range candidates {
 		projectCfg, err := loadConfigFile(p)
-		if err == nil && (projectCfg.Mode != "" || projectCfg.PiCommand != "" || projectCfg.Driver != "" || projectCfg.TestCommand != "" || len(projectCfg.Agents) > 0 || projectCfg.Harness != (harnessFile{})) {
+		if err == nil && (projectCfg.Mode != "" || projectCfg.Language != "" || projectCfg.PiCommand != "" || projectCfg.Driver != "" || projectCfg.TestCommand != "" || len(projectCfg.Agents) > 0 || projectCfg.Harness != (harnessFile{})) {
 			mergeConfig(&merged, projectCfg)
 			break
 		} else if err != nil && !os.IsNotExist(err) {
@@ -544,6 +576,9 @@ func loadMergedConfigFile(launchDir string) (configFile, error) {
 }
 
 func mergeConfig(dst *configFile, src configFile) {
+	if src.Language != "" {
+		dst.Language = src.Language
+	}
 	if src.Mode != "" {
 		dst.Mode = src.Mode
 	}

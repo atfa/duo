@@ -40,12 +40,17 @@ func (c Command) Is(token string) bool {
 var commands = []Command{
 	{
 		Name:      "duo",
-		Signature: "duo [repository] [--mode fast|goal|-m] [--test-cmd <cmd>] [--agent|--driver <driver>] [--resume [id]|-r] [--austin-driver <driver>] [--tony-driver <driver>] (aliases: --austin-agent, --tony-agent)",
+		Signature: "duo [repository] [--mode|-m fast|goal] [--language|-l zh|en] [--test-cmd|-t <cmd>] [--agent|-a <driver>] [--austin-driver|-A <driver>] [--tony-driver|-T <driver>]",
 		Summary:   "start a new session (Fast by default: Austin drives, Tony verifies)",
 	},
 	{
+		Name:      "resume",
+		Signature: "duo resume [session-id]",
+		Summary:   "resume the unfinished session for this repository",
+	},
+	{
 		Name:      "apply",
-		Signature: "duo apply [session-id]   (also --session <id> | -s <id>)",
+		Signature: "duo apply [session-id]",
 		Summary:   "deliver a pending final result to this repository",
 	},
 	{
@@ -65,15 +70,13 @@ var commands = []Command{
 	},
 	{
 		Name:      "plugins",
-		Aliases:   []string{"plugin"},
-		Signature: "duo plugins   (alias: duo plugin) | duo plugin test <path…> [--all|-a] [--verbose|-v]",
+		Signature: "duo plugins | duo plugins test <path…> [--all|-a] [--verbose|-v]",
 		Summary:   "list Driver Plugins, or check them against the protocol",
 	},
 	{
 		Name:      "mcp-server",
-		Aliases:   []string{"mcp"},
-		Signature: "duo mcp-server (alias: duo mcp) [--agent austin|tony] [--session <id>] [--token <token>] [--host <host>] [--port <port>] [--export-config|--export|--config]",
-		Summary:   "serve Model Context Protocol (MCP) state machine tools over stdio",
+		Signature: "duo mcp-server [--agent|-a <role>] [--session|-s <id>] [--token|-k <token>] [--host|-H <host>] [--port|-p <port>] | duo mcp-server config [--agent|-a <role>] [--session|-s <id>] [--token|-k <token>] [--host|-H <host>] [--port|-p <port>]",
+		Summary:   "serve MCP tools over stdio, or print client configuration",
 	},
 	{
 		Name:      "help",

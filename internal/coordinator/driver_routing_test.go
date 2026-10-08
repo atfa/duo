@@ -147,6 +147,23 @@ func TestSubmitUserTaskRoutesToAgyDriverViaPTY(t *testing.T) {
 	}
 }
 
+func TestChineseLanguageUsesLiveAgentNoticeRoute(t *testing.T) {
+	server := startBridge(t)
+	austin := attachAgent(t, server, protocol.Austin)
+	tony := attachAgent(t, server, protocol.Tony)
+	coord := New(server, project.NewStateFor(project.ModeFast), harness.NewTracker(), nil, events.NewBus())
+	coord.SetLanguage("zh")
+	if err := coord.EscalateToGoal(context.Background(), "需要双人审查"); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range []*endpoint{austin, tony} {
+		messages := e.collect(t, protocol.MsgDuoNotice)
+		if len(messages) != 1 || !strings.Contains(messages[0].Text, "会话已从 Fast 模式切换到 Goal 模式") || !strings.Contains(messages[0].Text, "需要双人审查") {
+			t.Fatalf("live notice = %+v", messages)
+		}
+	}
+}
+
 // endpoint is the client side of one bridge connection. A delivery message is
 // written server-to-client, so what the bridge received can only be observed by
 // reading the client socket: the server's OnMessage fires for the opposite

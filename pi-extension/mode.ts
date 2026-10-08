@@ -10,6 +10,11 @@
  * it anyway.
  */
 export type DuoMode = "fast" | "goal";
+export type DuoLanguage = "zh" | "en";
+
+export function parseDuoLanguage(value: string | undefined): DuoLanguage {
+  return value?.trim().toLowerCase() === "zh" ? "zh" : "en";
+}
 
 /** Tools that only exist in one mode. */
 export type DuoModeTool = "plan" | "verification" | "escalate";

@@ -104,6 +104,30 @@ func TestResumePromptsArePhaseAware(t *testing.T) {
 	}
 }
 
+func TestChineseBuiltInPrompts(t *testing.T) {
+	coord := promptCoordinator()
+	coord.SetLanguage("zh")
+	prompt := coord.phasePrompt(protocol.Austin, project.PhaseReview, project.PhaseIntegrate, project.Snapshot{}, "交叉审查通过")
+	for _, want := range []string{"[Duo phase transition:", "交叉审查通过", "最终测试", "最终批准"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("Chinese phase prompt missing %q: %s", want, prompt)
+		}
+	}
+	coord.project.Restore(project.Snapshot{Phase: project.PhaseExecute, Plan: "共享计划"})
+	if got := coord.ResumePrompt(protocol.Tony); !strings.Contains(got, "继续负责的 EXECUTE 工作") || !strings.Contains(got, "共享计划") {
+		t.Fatalf("Chinese resume prompt is incomplete: %s", got)
+	}
+}
+
+func TestChineseToolResponsesKeepDynamicValuesReadable(t *testing.T) {
+	if got := chineseResponse("Shared plan updated to v12. Both signatures were reset."); got != "共享计划已更新为 v12，双方签署已重置。" {
+		t.Fatalf("plan response = %q", got)
+	}
+	if got := chineseResponse("Verification requested for Austin HEAD abcdef1234. Tony must independently verify before Duo delivers."); got != "已请求验证 Austin HEAD abcdef1234。交付前 Tony 必须独立验证。" {
+		t.Fatalf("verification response = %q", got)
+	}
+}
+
 func TestResumeIntegratePromptHonorsPartialSignatures(t *testing.T) {
 	coord := promptCoordinator()
 	if err := coord.project.Restore(project.Snapshot{

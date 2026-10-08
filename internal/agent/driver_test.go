@@ -164,6 +164,7 @@ func TestExportedEnvironmentIsCoreOnly(t *testing.T) {
 		Agent: protocol.Austin, Dir: t.TempDir(),
 		Plugin: stub.Caller(), Session: "sess", Token: "secret",
 		RepositoryRoot: "/repo", ScopePath: "internal/x", Mode: "goal",
+		Language: "en",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -175,6 +176,7 @@ func TestExportedEnvironmentIsCoreOnly(t *testing.T) {
 		"DUO_DRIVER":          "stub",
 		"DUO_AGENT":           "Austin",
 		"DUO_MODE":            "goal",
+		"DUO_LANGUAGE":        "en",
 		"DUO_SESSION":         "sess",
 		"DUO_TOKEN":           "secret",
 		"DUO_REPOSITORY_ROOT": "/repo",
@@ -192,7 +194,7 @@ func TestExportedEnvironmentIsCoreOnly(t *testing.T) {
 	}
 	for name := range seen {
 		switch name {
-		case "DUO_ACTIVE", "DUO_DRIVER", "DUO_AGENT", "DUO_MODE", "DUO_HOST", "DUO_PORT",
+		case "DUO_ACTIVE", "DUO_DRIVER", "DUO_AGENT", "DUO_MODE", "DUO_LANGUAGE", "DUO_HOST", "DUO_PORT",
 			"DUO_SESSION", "DUO_TOKEN", "DUO_REPOSITORY_ROOT", "DUO_SCOPE_PATH":
 		default:
 			t.Errorf("Core exports %s, which is not part of its contract", name)

@@ -1,6 +1,24 @@
 import { expect, test } from "bun:test";
 import { installLifecycle } from "./lifecycle";
 import { SessionTracker } from "./session";
+import { parseDuoLanguage } from "./mode";
+import { buildDuoPrompt, installDuoPrompt } from "./prompt";
+
+test("Chinese system prompt is installed with workflow rules intact", async () => {
+  expect(parseDuoLanguage("zh")).toBe("zh");
+  expect(parseDuoLanguage(undefined)).toBe("en");
+  const prompt = buildDuoPrompt("Tony", "goal", "/repo", "src", "zh");
+  expect(prompt).toContain("独立审查");
+  expect(prompt).toContain("duo_send");
+  expect(prompt).toContain("duo_set_status({ready:true})");
+  const hooks: Record<string, (input: any, output: any) => Promise<void>> = {};
+  installDuoPrompt(hooks, "Tony", "fast", "zh");
+  const output = { system: ["existing system"] };
+  await hooks["experimental.chat.system.transform"]({}, output);
+  expect(output.system[0]).toBe("existing system");
+  expect(output.system[1]).toContain("你是独立验证者和副驾驶");
+  expect(output.system[1]).toContain("duo_set_verification");
+});
 
 // A prompt Duo injects arrives as a *user* message. Reporting it back as an
 // assistant_message filled the timeline with the human's own words, and because

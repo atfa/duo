@@ -300,7 +300,7 @@ func (p *Plugin) State() (json.RawMessage, error) {
 
 Keep it in memory, set it when the Adapter reports, and return whatever you know
 now. Prefer it over the stored blob in `prepare` too, so a restart inside one
-session resumes instead of forking. `duo plugin test` fails a driver that declares
+session resumes instead of forking. `duo plugins test` fails a driver that declares
 `resume: server` and does not answer `state`.
 
 ### cleanup and notices
@@ -470,13 +470,13 @@ You can also do this by hand in one line, and it is worth doing before anything 
 echo '{"protocol":1,"id":1,"method":"describe"}' | ./duo-plugin-example
 ```
 
-**Then let Duo check it.** `duo plugin test` runs the shared conformance suite
+**Then let Duo check it.** `duo plugins test` runs the shared conformance suite
 against your executable and prints one line per check, so you do not have to
 reproduce Duo's own expectations by hand:
 
 ```sh
-duo plugin test ./duo-plugin-example -v
-duo plugin test --all      # every driver this Duo can see
+duo plugins test ./duo-plugin-example -v
+duo plugins test --all      # every driver this Duo can see
 ```
 
 **Then run it for real.** In a scratch repository:
@@ -486,7 +486,7 @@ duo plugins            # your plugin should be listed
 duo --agent example    # start a session
 ```
 
-Watch the session log. Start a session, stop it, `duo --resume`, and confirm your
+Watch the session log. Start a session, stop it, `duo resume`, and confirm your
 agent continued the same conversation. Resume is the feature users notice last and
 miss most.
 

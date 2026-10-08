@@ -11,13 +11,7 @@ import (
 )
 
 func TestParseMCPServerArgs(t *testing.T) {
-	args := []string{
-		"--agent", "tony",
-		"--session", "sess-123",
-		"--token", "tok-456",
-		"--host", "127.0.0.1",
-		"--port", "8765",
-	}
+	args := []string{"-a=tony", "-s=sess-123", "-k=tok-456", "-H=127.0.0.1", "-p=8765"}
 
 	parsed, err := parseMCPServerArgs(args)
 	if err != nil {
@@ -43,11 +37,11 @@ func TestParseMCPServerArgs(t *testing.T) {
 
 func TestExportMCPConfig(t *testing.T) {
 	parsed, err := parseMCPServerArgs([]string{
+		"config",
 		"--agent", "austin",
 		"--session", "s-1",
 		"--token", "t-1",
 		"--port", "9000",
-		"--export-config",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -91,5 +85,17 @@ func TestExportMCPConfig(t *testing.T) {
 	}
 	if argsList[0] != "mcp-server" {
 		t.Errorf("expected first arg to be mcp-server, got %v", argsList[0])
+	}
+}
+
+func TestMCPConfigIsACommand(t *testing.T) {
+	parsed, err := parseMCPServerArgs([]string{"config", "-p=9000"})
+	if err != nil || !parsed.exportJSON || parsed.cfg.Port != "9000" {
+		t.Fatalf("config command parsed as %+v, %v", parsed, err)
+	}
+	for _, args := range [][]string{{"--export-config"}, {"-e"}, {"--export"}, {"--config"}} {
+		if _, err := parseMCPServerArgs(args); err == nil {
+			t.Errorf("removed output flag accepted: %v", args)
+		}
 	}
 }

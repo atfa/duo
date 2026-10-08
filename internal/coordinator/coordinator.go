@@ -42,6 +42,7 @@ type Coordinator struct {
 
 	testCommandMu sync.RWMutex
 	testCommand   string
+	language      string
 
 	// Durable session state. EnableDurability must be called once, before the
 	// event loop starts, after any resume has restored the project state.
@@ -97,6 +98,9 @@ func New(
 func (c *Coordinator) SetAgents(agents *agentpkg.Manager) {
 	c.agents = agents
 }
+
+// SetLanguage selects the language for Duo-authored agent and human messages.
+func (c *Coordinator) SetLanguage(language string) { c.language = language }
 
 // IsAgentConnected reports whether an agent is connected via the bridge server
 // or running under the agent manager.
@@ -369,8 +373,15 @@ func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 	c.tracker.Touch(protocol.Austin)
 	c.emit(events.KindUser, protocol.Duo, protocol.Austin, text)
 	promptText := "[Human task from Duo]\n\n" + text
+	if c.language == "zh" {
+		promptText = "[Human task from Duo]\n\n以下是用户提交的原始任务，请按原文执行：\n\n" + text
+	}
 	if c.project.Snapshot().EffectiveMode() == project.ModeFast {
-		promptText += "\n\n(Duo guidance: Once your work is committed and your worktree is clean, request verification with duo_set_status ready=true so Tony can independently verify.)"
+		guidance := "(Duo guidance: Once your work is committed and your worktree is clean, request verification with duo_set_status ready=true so Tony can independently verify.)"
+		if c.language == "zh" {
+			guidance = "（Duo 提示：工作提交完成且 worktree 干净后，调用 duo_set_status ready=true 请求 Tony 独立验证。）"
+		}
+		promptText += "\n\n" + guidance
 	}
 	return c.sendToAgent(ctx, protocol.Austin, protocol.Message{
 		Version: 1, Type: protocol.MsgHumanPrompt, From: protocol.Duo, To: protocol.Austin,
@@ -411,10 +422,16 @@ func (c *Coordinator) EscalateToGoal(ctx context.Context, reason string) error {
 		"[Duo Mode Escalation]\nThe session has escalated from Fast mode to Goal mode.\nReason: %s\nPhase: PLAN (shared plan v1 initialized).\n\nFast-mode single-driver workflow has switched to Goal-mode collaborative workflow:\n- Both Austin and Tony must co-design the shared plan.\n- Refine the shared plan using duo_set_plan.\n- When aligned, both Austin and Tony must approve with duo_set_status(ready=true) to advance to EXECUTE.\n- Existing commits in your worktree are preserved.",
 		reasonDesc,
 	)
+	if c.language == "zh" {
+		austinNotice = fmt.Sprintf("[Duo Mode Escalation]\n会话已从 Fast 模式切换到 Goal 模式。\n原因：%s\n阶段：PLAN（已初始化共享计划 v1）。\n\n工作流已切换为 Goal 协作模式：Austin 和 Tony 共同设计共享计划；使用 duo_set_plan 修改计划；双方意见一致后，都调用 duo_set_status(ready=true) 进入 EXECUTE。你 worktree 中已有的提交会保留。", reasonDesc)
+	}
 	tonyNotice := fmt.Sprintf(
 		"[Duo Mode Escalation]\nThe session has escalated from Fast mode to Goal mode.\nReason: %s\nPhase: PLAN (shared plan v1 initialized).\n\nYou are now an active co-designer and co-developer (no longer read-only):\n- Read current plan with duo_status and collaborate with Austin via duo_send.\n- Refine the shared plan using duo_set_plan.\n- When aligned, both Austin and Tony must approve with duo_set_status(ready=true) to advance to EXECUTE.\n- In EXECUTE, work independently in your own worktree.",
 		reasonDesc,
 	)
+	if c.language == "zh" {
+		tonyNotice = fmt.Sprintf("[Duo Mode Escalation]\n会话已从 Fast 模式切换到 Goal 模式。\n原因：%s\n阶段：PLAN（已初始化共享计划 v1）。\n\n你现在是主动共同设计者和开发者（不再是只读角色）：使用 duo_status 查看计划，通过 duo_send 与 Austin 协作，使用 duo_set_plan 修改计划。双方意见一致后，都调用 duo_set_status(ready=true) 进入 EXECUTE；在 EXECUTE 阶段于自己的 worktree 独立工作。", reasonDesc)
+	}
 
 	_ = c.sendToAgent(ctx, protocol.Austin, protocol.Message{
 		Version:   protocol.Version,
@@ -890,6 +907,9 @@ func (c *Coordinator) handleSetPlan(ctx context.Context, client *transport.Clien
 		"[Duo plan update]\n%s updated the shared plan to v%d.\n\n%s\n\nReview this exact version. Discuss concerns with duo_send. If you approve it, call duo_set_status with ready=true. Updating the plan again invalidates both signatures. Exploratory edits in your own worktree are allowed during PLAN, but they remain provisional until the plan is jointly approved.",
 		client.Identity(), snap.PlanVersion, snap.Plan,
 	)
+	if c.language == "zh" {
+		notice = fmt.Sprintf("[Duo plan update]\n%s 将共享计划更新为 v%d。\n\n%s\n\n请审查此精确版本，并通过 duo_send 讨论问题。批准后调用 duo_set_status ready=true。再次修改计划会使双方签署失效。PLAN 阶段允许在自己的 worktree 中探索性修改，但计划获双方批准前都属于临时工作。", client.Identity(), snap.PlanVersion, snap.Plan)
+	}
 	_ = c.sendToAgent(ctx, peer, protocol.Message{
 		Version:   1,
 		Type:      protocol.MsgDuoNotice,
@@ -1023,11 +1043,17 @@ func (c *Coordinator) handleSetStatus(ctx context.Context, client *transport.Cli
 			"[Duo status]\n%s has signed %s. Your current status is ready=%v. If your work for this phase is genuinely complete and no unresolved issue remains, call duo_set_status with ready=true. Otherwise continue working or discuss via duo_send.",
 			client.Identity(), snap.Phase, snap.Ready[peer],
 		)
+		if c.language == "zh" {
+			notice = fmt.Sprintf("[Duo status]\n%s 已签署 %s。你当前的状态为 ready=%v。如果本阶段负责的工作确已完成且没有未解决问题，请调用 duo_set_status ready=true；否则继续工作或通过 duo_send 讨论。", client.Identity(), snap.Phase, snap.Ready[peer])
+		}
 	} else {
 		notice = fmt.Sprintf(
 			"[Duo status]\n%s revoked readiness for %s%s. Continue collaboration until the issue is resolved.",
 			client.Identity(), snap.Phase, noteSuffix(message.Note),
 		)
+		if c.language == "zh" {
+			notice = fmt.Sprintf("[Duo status]\n%s 撤销了 %s 阶段的就绪状态%s。请继续协作，直到问题解决。", client.Identity(), snap.Phase, noteSuffix(message.Note))
+		}
 	}
 	_ = c.sendToAgent(ctx, peer, protocol.Message{
 		Version:   1,
@@ -1101,7 +1127,11 @@ func (c *Coordinator) handleFastSetStatus(ctx context.Context, client *transport
 	if !*message.Ready {
 		c.recordEvent("completion_withdrawn", map[string]any{"phase": string(snap.Phase)})
 		_ = c.respond(ctx, client, message.RequestID, true, "Completion request withdrawn.", c.statusText(ctx))
-		c.sendFastNotice(ctx, protocol.Tony, "[Duo status]\nAustin withdrew the verification request. Stand by; no verification is pending.")
+		text := "[Duo status]\nAustin withdrew the verification request. Stand by; no verification is pending."
+		if c.language == "zh" {
+			text = "[Duo status]\nAustin 已撤回验证请求。请待命；当前没有待验证事项。"
+		}
+		c.sendFastNotice(ctx, protocol.Tony, text)
 		return
 	}
 
@@ -1114,10 +1144,14 @@ func (c *Coordinator) handleFastSetStatus(ctx context.Context, client *transport
 	_ = c.respond(ctx, client, message.RequestID, true,
 		fmt.Sprintf("Verification requested for Austin HEAD %s. Tony must independently verify before Duo delivers.", shortSHA(snap.Verification.Head)),
 		c.statusText(ctx))
-	c.sendFastNotice(ctx, protocol.Tony, fmt.Sprintf(
+	text := fmt.Sprintf(
 		"[Duo verification request]\nAustin reports the work complete and requested independent verification of HEAD %s.\n\nInspect that exact artifact yourself. Then report a structured verdict with duo_set_verification: result=passed, or result=issue_found with a concrete note describing the problem. Fast mode is single-writer: do not commit or edit the artifact; if a fix is needed, report it so Austin applies it.",
 		shortSHA(snap.Verification.Head),
-	))
+	)
+	if c.language == "zh" {
+		text = fmt.Sprintf("[Duo verification request]\nAustin 已报告工作完成，并请求独立验证 HEAD %s。\n\n请独立检查该精确产物，然后通过 duo_set_verification 给出结构化结论：result=passed，或 result=issue_found 并附上具体问题。Fast 模式只有 Austin 可以写入：不要提交或编辑产物；需要修复时报告问题，由 Austin 修改。", shortSHA(snap.Verification.Head))
+	}
+	c.sendFastNotice(ctx, protocol.Tony, text)
 }
 
 // reopenFastRoundForNewWork detects a Fast round that was driven outside the Duo
@@ -1585,6 +1619,9 @@ func (c *Coordinator) beginIntegration(ctx context.Context) string {
 	if err != nil {
 		c.recordEvent("merge_failed", map[string]any{"error": err.Error()})
 		text := "Integration could not start automatically: " + err.Error()
+		if c.language == "zh" {
+			text = "无法自动开始集成：" + err.Error()
+		}
 		c.emit(events.KindError, protocol.Duo, "", text)
 		return text
 	}
@@ -1601,6 +1638,9 @@ func (c *Coordinator) beginIntegration(ctx context.Context) string {
 			"Git merge started in Austin's worktree but has conflicts. Austin must resolve them in %s, commit the resolution, run validation, and then sign INTEGRATE. Tony must review Austin's final integrated HEAD before signing.",
 			result.AustinPath,
 		)
+		if c.language == "zh" {
+			text = fmt.Sprintf("Git 已在 Austin 的 worktree 中开始合并，但存在冲突。Austin 必须在 %s 中解决冲突、提交解决结果、运行验证，然后签署 INTEGRATE。Tony 必须在签署前审查 Austin 最终集成的 HEAD。", result.AustinPath)
+		}
 		c.emit(events.KindSystem, protocol.Duo, "", "integration conflict in "+result.AustinPath)
 		return text
 	}
@@ -1616,6 +1656,9 @@ func (c *Coordinator) beginIntegration(ctx context.Context) string {
 		result.AustinBranch,
 		shortSHA(result.Head),
 	)
+	if c.language == "zh" {
+		text = fmt.Sprintf("Tony 的分支已合并到 Austin 的集成分支 %s。集成后的 HEAD 为 %s。Austin 应运行最终验证；Tony 应审查该集成分支。只有最终 HEAD 可接受时双方才能签署 INTEGRATE。", result.AustinBranch, shortSHA(result.Head))
+	}
 	c.emit(events.KindSystem, protocol.Duo, "", fmt.Sprintf("integration merge complete → %s@%s", result.AustinBranch, shortSHA(result.Head)))
 	return text
 }
@@ -1662,6 +1705,9 @@ func (c *Coordinator) respond(ctx context.Context, client *transport.Client, req
 	if requestID == "" {
 		return nil
 	}
+	if c.language == "zh" {
+		text = chineseResponse(text)
+	}
 	return client.Send(ctx, protocol.Message{
 		Version:   1,
 		Type:      protocol.MsgResponse,
@@ -1671,6 +1717,41 @@ func (c *Coordinator) respond(ctx context.Context, client *transport.Client, req
 		State:     state,
 		Timestamp: time.Now().UnixMilli(),
 	})
+}
+
+func chineseResponse(text string) string {
+	switch {
+	case text == "ready must be true or false":
+		return "ready 必须是 true 或 false"
+	case text == "Message sent to Austin." || text == "Message sent to Tony.":
+		return strings.TrimSuffix(strings.TrimPrefix(text, "Message sent to "), ".") + " 的消息已发送。"
+	case strings.HasPrefix(text, "Shared plan updated to v"):
+		version, _, _ := strings.Cut(strings.TrimPrefix(text, "Shared plan updated to v"), ".")
+		return "共享计划已更新为 v" + version + "，双方签署已重置。"
+	case strings.HasPrefix(text, "Automated test gate ("):
+		return strings.Replace(text, "Automated test gate", "自动测试门禁", 1)
+	case strings.HasPrefix(text, "Verification requested for Austin HEAD "):
+		head, _, _ := strings.Cut(strings.TrimPrefix(text, "Verification requested for Austin HEAD "), ". Tony must independently verify before Duo delivers.")
+		return "已请求验证 Austin HEAD " + head + "。交付前 Tony 必须独立验证。"
+	case text == "Completion request withdrawn.":
+		return "已撤回完成请求。"
+	case text == "Current Duo state.":
+		return "当前 Duo 状态。"
+	case text == "escalated to Goal mode successfully; session is now in PLAN phase":
+		return "已成功切换到 Goal 模式；会话现处于 PLAN 阶段。"
+	case strings.HasPrefix(text, "Fast mode has no phase sign-off."):
+		return "Fast 模式没有阶段签署。Austin 请求验证后，Tony 使用 duo_set_verification 报告独立结论。"
+	case text == "structured verification is only used in Fast mode":
+		return "结构化验证仅用于 Fast 模式。"
+	case text == "only Tony reports Fast-mode verification":
+		return "Fast 模式下只有 Tony 可以报告验证结果。"
+	case text == "verification can only be reported during VERIFY":
+		return "只能在 VERIFY 阶段报告验证结果。"
+	case strings.HasPrefix(text, "Only Austin can request Fast-mode verification"):
+		return "Fast 模式下只有 Austin 可以请求验证。"
+	default:
+		return text
+	}
 }
 
 func noteSuffix(note string) string {

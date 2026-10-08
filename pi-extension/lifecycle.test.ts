@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { installLifecycle } from "./lifecycle";
-import { isToolEnabledForMode, parseDuoMode } from "./mode";
+import { isToolEnabledForMode, parseDuoLanguage, parseDuoMode } from "./mode";
 import { buildDuoPrompt, installDuoPrompt } from "./prompt";
 
 test("compaction abort does not report an agent error", async () => {
@@ -65,6 +65,20 @@ test("GOAL keeps the full negotiated workflow", () => {
   expect(tony).toContain("INTEGRATE");
   expect(tony).not.toContain("READ-ONLY");
   expect(tony).not.toContain("RUNNING -> VERIFY");
+});
+
+test("Chinese system prompts preserve Duo rules and protocol tokens", () => {
+  expect(parseDuoLanguage("zh")).toBe("zh");
+  expect(parseDuoLanguage("fr")).toBe("en");
+  const austin = buildDuoPrompt("Austin", "goal", "/repo", "src", "zh");
+  expect(austin).toContain("PLAN 是协商阶段");
+  expect(austin).toContain("duo_set_plan");
+  expect(austin).toContain("duo_set_status({ready:true})");
+  expect(austin).toContain("[Duo session resumed]");
+  const tony = buildDuoPrompt("Tony", "fast", "/repo", ".", "zh");
+  expect(tony).toContain("只读");
+  expect(tony).toContain("duo_set_verification");
+  expect(tony).toContain("不要用 duo_send 重复结论");
 });
 
 test("installDuoPrompt publishes the mode selected for this session", async () => {

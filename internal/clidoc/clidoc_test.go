@@ -8,11 +8,11 @@ import (
 // derives it lives in cmd/duo/usage_test.go; this list is the same set, kept
 // here so a signature cannot quietly drop one.
 var parsedFlags = []string{
-	"--agent", "--austin-agent", "--austin-driver", "--all", "--all-repos",
-	"--config", "--driver", "--dry-run", "--export", "--export-config",
-	"--force", "--help", "--host", "--mode", "--port", "--resume",
-	"--session", "--test-cmd", "--token", "--tony-agent", "--tony-driver",
-	"--version", "-a", "-f", "-h", "-m", "-n", "-r", "-s",
+	"--agent", "--austin-driver", "--all", "--all-repos",
+	"--dry-run",
+	"--force", "--help", "--host", "--language", "--mode", "--port",
+	"--session", "--test-cmd", "--token", "--tony-driver",
+	"--version", "-A", "-H", "-T", "-a", "-f", "-h", "-k", "-l", "-m", "-n", "-p", "-s", "-t",
 }
 
 // TestSignaturesCarryEveryParsedFlag is the check that keeps a newly parsed flag

@@ -1,6 +1,6 @@
 // Command duo-plugin-example is the reference implementation of the Duo Driver
 // Plugin Protocol v1. It drives no real coding agent: it exists so the protocol
-// is executable documentation, and so `duo plugin test` has something to verify
+// is executable documentation, and so `duo plugins test` has something to verify
 // that is known-good by construction.
 //
 // A real plugin is a main that serves the protocol on stdin/stdout and keeps

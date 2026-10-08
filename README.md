@@ -181,8 +181,8 @@ Everything has a working default; `duo` needs no configuration to run.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `DUO_MODE` | `fast` | Session mode: `fast` or `goal`. A CLI `--mode`/`-m` wins; `--resume` keeps the persisted mode. |
-| `DUO_TEST_COMMAND` | (none) | Automated deterministic test command run before verification / delivery (CLI `--test-cmd` wins). |
+| `DUO_MODE` | `fast` | Session mode: `fast` or `goal`. A CLI `--mode`/`-m` wins; `duo resume` keeps the persisted mode. |
+| `DUO_TEST_COMMAND` | (none) | Automated deterministic test command run before verification / delivery (CLI `--test-cmd` / `-t` wins). |
 | `DUO_REPO` | current directory | Repository or subdirectory to launch against. A CLI path argument wins. |
 | `DUO_SESSION` | timestamp + random hex | Session id, formatted `YYYYMMDD-HHMMSS-xxxxxxxx`. |
 | `DUO_WORKTREE_ROOT` | `~/.duo/worktrees/<repo>-<hash>/<session>` | Where the Austin/Tony worktrees are created. |
@@ -194,7 +194,7 @@ Everything has a working default; `duo` needs no configuration to run.
 | `DUO_HARNESS_IDLE_SECONDS` | `15` | Quiet period before an agent counts as idle. |
 | `DUO_HARNESS_STALL_SECONDS` | `300` | No progress for this long counts as a stall. |
 | `DUO_HARNESS_COOLDOWN_SECONDS` | `30` | Minimum gap between harness nudges. |
-| `DUO_HARNESS_RESUME_GRACE_SECONDS` | `45` | Extra grace after `--resume`, so reconnecting is not mistaken for a stall. |
+| `DUO_HARNESS_RESUME_GRACE_SECONDS` | `45` | Extra grace after `duo resume`, so reconnecting is not mistaken for a stall. |
 | `DUO_HISTORY_FILE` | `~/.duo/history` | Composer task history recalled with `↑`/`↓`. |
 
 To run a non-default Pi command:
@@ -218,13 +218,12 @@ identical — only how Duo launches the agent and observes it differs.
 | `agy` | `--agent agy` | Google Antigravity CLI. Duo observes the conversation and writes messages into the PTY. Token usage requires sqlite3 on PATH. |
 | `opencode` | `--agent opencode` | An opencode plugin connects back over a local socket, the same way the Pi bridge does. |
 
-`--driver` is an alias for `--agent`, and `--austin-agent` / `--tony-agent` are
-aliases for `--austin-driver` / `--tony-driver`. There is no environment variable
-for a per-agent driver: `DUO_DRIVER` sets both, and to split them use
+There is no environment variable for a per-agent driver: `DUO_DRIVER` sets both,
+and to split them use
 `--austin-driver` / `--tony-driver` or `agents.austin.driver` / `agents.tony.driver`
 in `.duo/config.json`.
 
-Pick one per agent to mix them, for example `duo --austin-driver opencode --tony-driver pi`.
+Pick one per agent to mix them, for example `duo --austin-driver opencode --tony-driver pi` (or `-A opencode -T pi`).
 
 ```bash
 duo --agent opencode                       # both agents on opencode
@@ -244,7 +243,7 @@ Two notes specific to `opencode`:
 - **Session identity is discovered, not chosen.** opencode assigns session ids
   server-side, so on a first run Duo lets opencode mint one, learns it from the
   bridge, and persists it with the session. Every later run — including
-  `--resume` after a crash — passes `--session <id>` so the agent keeps its
+  `duo resume` after a crash — passes `--session <id>` so the agent keeps its
   conversation.
 - **The model is yours to choose.** Duo does not inject a default model for
   opencode; it uses whatever your opencode config or catalog already resolves,
@@ -268,13 +267,13 @@ on stdio and forwards them to the running session's bridge:
 
 ```bash
 duo mcp-server --agent austin --session <session-id> --token <token> --port <port>
-duo mcp-server --agent tony --export-config   # print MCP client config JSON
+duo mcp-server config --agent tony            # print MCP client config JSON
 ```
 
 Connection parameters default to `DUO_AGENT`, `DUO_SESSION`, `DUO_TOKEN`,
 `DUO_HOST` and `DUO_PORT`, which Duo sets for the agents it launches, so a
-client started inside a session needs no arguments. `duo mcp` is an alias, and
-`--export-config` prints a ready-to-paste `mcpServers` entry instead of serving.
+client started inside a session needs no arguments.
+`duo mcp-server config` prints a ready-to-paste `mcpServers` entry instead of serving.
 
 ### Configuration files
 
@@ -283,6 +282,7 @@ You can persist settings globally in `~/.duo/config.json` or per-repository in `
 ```json
 {
   "mode": "fast",
+  "language": "en",
   "testCommand": "go test ./...",
   "driver": "pi",
   "piCommand": "pi",
@@ -312,7 +312,7 @@ the driver for one agent only; the top-level `driver` and `piCommand` set the
 defaults both agents start from. Duo appends `--model` and the thinking flag
 (`--variant` for opencode) unless the command already carries them.
 
-Precedence: explicit CLI flags (`--mode`, `--test-cmd`, `--agent`/`--austin-driver`/`--tony-driver`) > environment variables (`DUO_*`) > repository `.duo/config.json` > global `~/.duo/config.json` > built-in defaults.
+Precedence: explicit CLI flags (`--mode`, `--language`, `--test-cmd`, `--agent`/`--austin-driver`/`--tony-driver`) > environment variables (`DUO_*`) > repository `.duo/config.json` > global `~/.duo/config.json` > built-in defaults. Set `language` to `zh` or `en`; `duo --language zh` (or `duo -l zh`) overrides the file. This changes Duo-authored messages to agents and the human, not the TUI labels.
 
 Duo also **writes** the repository `.duo/config.json`: on every launch it records
 each agent's active driver and model there, so a model chosen in the picker is
@@ -358,16 +358,13 @@ Scope is a **default working directory, not a filesystem sandbox**. Agents can s
 ## Resuming after a crash
 
 ```bash
-duo --resume             # resume this repository's unfinished session
-duo -r                   # same
-duo resume               # same (the bare word is accepted too)
-duo --resume <id>        # resume one specific session
-duo --resume=<id>        # same
+duo resume               # resume this repository's unfinished session
+duo resume <id>          # resume one specific session
 ```
 
-A plain `duo` always starts a **new** session and refuses to overwrite an unfinished one. `--resume` picks the only unfinished session if there is exactly one, and asks for an id if there are several.
+A plain `duo` always starts a **new** session and refuses to overwrite an unfinished one. `duo resume` picks the only unfinished session if there is exactly one, and asks for an id if there are several.
 
-Resume reloads the persisted snapshot, **proves it against Git**, and revokes any signature or verification that is no longer provable before starting a process. The mode is persisted with the session: `--resume` keeps it, a legacy session with no recorded mode resumes as Goal, and `DUO_MODE` is ignored on resume (an explicit conflicting `--mode` is an error). Reconciled state is written back before agents start, so a crash during startup cannot resurrect a revoked approval or replay a merge. Each reconnected agent receives one mode- and phase-aware wake-up message; reconnects do not duplicate it. The most recent 200 entries of each pane are replayed into the TUI, so a resumed session starts with its previous conversation visible.
+Resume reloads the persisted snapshot, **proves it against Git**, and revokes any signature or verification that is no longer provable before starting a process. The mode is persisted with the session: `duo resume` keeps it, a legacy session with no recorded mode resumes as Goal, and `DUO_MODE` is ignored on resume (an explicit conflicting `--mode` is an error). Reconciled state is written back before agents start, so a crash during startup cannot resurrect a revoked approval or replay a merge. Each reconnected agent receives one mode- and phase-aware wake-up message; reconnects do not duplicate it. The most recent 200 entries of each pane are replayed into the TUI, so a resumed session starts with its previous conversation visible.
 
 Recovery is deliberately conservative: when it cannot prove an approval is still valid, it revokes rather than trusts. Expect a re-sign-off after a crash, not a silent pass.
 
@@ -397,9 +394,6 @@ Until then, a refused delivery keeps the session in `INTEGRATE` (Goal) or `VERIF
 ```bash
 duo apply                    # retry the pending delivery for this repository
 duo apply <session-id>       # retry one specific session
-duo apply --session <id>     # same
-duo apply -s <id>            # same
-duo apply --session=<id>     # same
 ```
 
 `duo apply` never starts agents and reuses the same safety rules — it will not force a blocked delivery.
@@ -421,16 +415,16 @@ duo logs                    # list the Markdown transcripts written to .duo/logs
 duo logs <repository>       # list another repository's transcripts
 ```
 
-`duo clean` cleans every completed (DONE) session of the repository by default, so `--all` currently changes nothing; `--force` is what adds unfinished sessions. `duo sessions` accepts `-a` for `--all`, `duo clean` additionally accepts `-f` for `--force` and `-n` for `--dry-run`, and `duo apply` accepts `--session <id>` / `-s <id>`. `duo plugin` and `duo mcp` are aliases of `duo plugins` and `duo mcp-server`. Every command prints its own usage with `--help` (`duo clean --help`), and `duo <repository> --help` prints the root usage from inside a repository.
+`duo clean` cleans every completed (DONE) session of the repository by default, so `--all` currently changes nothing; `--force` is what adds unfinished sessions. `duo sessions` accepts `-a` for `--all`, `duo clean` additionally accepts `-f` for `--force` and `-n` for `--dry-run`, and `duo apply <session-id>` selects a specific session. Every command prints its own usage with `--help` (`duo clean --help`), and `duo <repository> --help` prints the root usage from inside a repository.
 
 Cleaning a session removes its Git worktrees (`git worktree remove --force`), prunes the worktree registry, deletes temporary branches (`duo/<session>/*`), and removes the session snapshot directory. Any session currently locked by an active Duo process is safely skipped.
 
 
-The remaining commands do not touch sessions: `duo plugins` lists the built-in drivers plus every discovered external plugin, `duo plugin test [<path…>] [--all] [--verbose]` checks one or every driver against the [Driver Plugin Protocol](./docs/driver-plugin-protocol.md), [`duo mcp-server`](#mcp-server-duo-mcp-server) serves the Duo tools over MCP, and `duo version` (`--version`) and `duo help` (`-h`, `--help`) print the version and full usage.
+The remaining commands do not touch sessions: `duo plugins` lists the built-in drivers plus every discovered external plugin, `duo plugins test [<path…>] [--all] [--verbose]` checks one or every driver against the [Driver Plugin Protocol](./docs/driver-plugin-protocol.md), [`duo mcp-server`](#mcp-server-duo-mcp-server) serves the Duo tools over MCP, and `duo version` (`--version`) and `duo help` (`-h`, `--help`) print the version and full usage.
 
 ## Limits that affect use
 
-Duo supports two fixed roles, Austin and Tony. Fast can escalate to Goal but cannot return to Fast. A session cannot recover agent reasoning, and Duo Core does not restart itself after a crash; run `duo --resume`. Session data is local to the machine and repository path. The shell scripts target macOS/Linux. Delivery safety and local TCP trust boundaries are described in [architecture](./docs/architecture.md) and [SECURITY.md](./SECURITY.md).
+Duo supports two fixed roles, Austin and Tony. Fast can escalate to Goal but cannot return to Fast. A session cannot recover agent reasoning, and Duo Core does not restart itself after a crash; run `duo resume`. Session data is local to the machine and repository path. The shell scripts target macOS/Linux. Delivery safety and local TCP trust boundaries are described in [architecture](./docs/architecture.md) and [SECURITY.md](./SECURITY.md).
 
 ## Development
 

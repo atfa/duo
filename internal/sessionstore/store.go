@@ -167,7 +167,7 @@ func atomicWrite(path string, data []byte, perm os.FileMode) error {
 	return nil
 }
 
-// Summary describes one discovered session for `duo --resume`.
+// Summary describes one discovered session for `duo resume`.
 type Summary struct {
 	SessionID string
 	Dir       string

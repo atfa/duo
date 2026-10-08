@@ -213,7 +213,7 @@ func (s *Service) startFresh(ctx context.Context) (Result, error) {
 	// an earlier unfinished one.
 	if store.Exists() {
 		return Result{}, fmt.Errorf(
-			"Duo session %q already exists for this repository; run `duo --resume %s` to continue it",
+			"Duo session %q already exists for this repository; run `duo resume %s` to continue it",
 			set.Session, set.Session,
 		)
 	}
@@ -264,6 +264,7 @@ func (s *Service) launch(ctx context.Context) (Result, error) {
 	server := transport.NewServer(s.opts.Listen, s.sessionID, token)
 	tracker := harness.NewTracker()
 	coord := coordinator.New(server, s.state, tracker, s.ws, s.bus)
+	coord.SetLanguage(s.opts.Language)
 	s.server, s.tracker, s.coord = server, tracker, coord
 
 	// The driver plugins were registered once, by New: a session must not import a
@@ -340,6 +341,7 @@ func (s *Service) launch(ctx context.Context) (Result, error) {
 		session, err := agent.NewSession(ctx, agent.Config{
 			Agent:          agentID,
 			Mode:           s.mode.String(),
+			Language:       s.opts.Language,
 			Dir:            dir,
 			RepositoryRoot: s.set.Repository,
 			ScopePath:      s.set.ScopePath,
@@ -393,7 +395,9 @@ func (s *Service) launch(ctx context.Context) (Result, error) {
 	}
 
 	if s.opts.HarnessEnabled {
-		s.monitor = harness.NewMonitor(s.opts.Harness, s.state, s.tracker, s.server, s.bus)
+		harnessConfig := s.opts.Harness
+		harnessConfig.Language = s.opts.Language
+		s.monitor = harness.NewMonitor(harnessConfig, s.state, s.tracker, s.server, s.bus)
 		go s.monitor.Run(s.ctx)
 	}
 
@@ -859,6 +863,7 @@ func (s *Service) pluginEnv(id protocol.AgentID, host, port, token string) []str
 		"DUO_ACTIVE=1",
 		"DUO_AGENT=" + string(id),
 		"DUO_MODE=" + s.mode.String(),
+		"DUO_LANGUAGE=" + effectiveLanguage(s.opts.Language),
 		"DUO_HOST=" + host,
 		"DUO_PORT=" + port,
 		"DUO_SESSION=" + s.sessionID,
@@ -866,4 +871,11 @@ func (s *Service) pluginEnv(id protocol.AgentID, host, port, token string) []str
 		"DUO_REPOSITORY_ROOT=" + s.set.Repository,
 		"DUO_SCOPE_PATH=" + s.set.ScopePath,
 	}...)
+}
+
+func effectiveLanguage(language string) string {
+	if strings.TrimSpace(language) == "zh" {
+		return "zh"
+	}
+	return "en"
 }

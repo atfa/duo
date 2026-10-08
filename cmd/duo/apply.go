@@ -95,14 +95,6 @@ func parseApplyArgs(args []string) (string, error) {
 		case arg == "":
 		case helpRequested(arg):
 			return "", errUsageRequested
-		case arg == "--session" || arg == "-s":
-			if i+1 >= len(args) {
-				return "", fmt.Errorf("--session requires a session id")
-			}
-			sessionID = strings.TrimSpace(args[i+1])
-			i++
-		case strings.HasPrefix(arg, "--session="):
-			sessionID = strings.TrimSpace(strings.TrimPrefix(arg, "--session="))
 		case strings.HasPrefix(arg, "-"):
 			return "", fmt.Errorf("unknown flag %q (usage: %s)", arg, commandUsage("apply"))
 		default:

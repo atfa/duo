@@ -99,6 +99,9 @@ func TestPluginEnvCarriesTheOperatorEnvironment(t *testing.T) {
 	if have["DUO_AGENT"] != "Austin" || have["DUO_PORT"] != "1234" {
 		t.Errorf("Duo variables are not set: %v", have)
 	}
+	if have["DUO_LANGUAGE"] != "en" {
+		t.Errorf("default DUO_LANGUAGE = %q, want en", have["DUO_LANGUAGE"])
+	}
 }
 
 // TestPluginEnvOverridesAnInheritedDuoVariable makes sure inheriting the

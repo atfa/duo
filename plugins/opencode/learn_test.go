@@ -87,7 +87,7 @@ func TestLearnedSessionSurvivesToDisk(t *testing.T) {
 
 // TestResumedIDSurvivesStateWithoutAnyLearn is the regression test for losing a
 // resumed session at the first save. Nothing is learned here: the id came from the
-// blob, exactly as it does on `duo --resume`. State must still report it, because
+// blob, exactly as it does on `duo resume`. State must still report it, because
 // Core saves what State says and a save that reported nothing would drop the id and
 // fork the launch after next.
 func TestResumedIDSurvivesStateWithoutAnyLearn(t *testing.T) {

@@ -229,7 +229,7 @@ func SelectSession(baseDir, repoID, requested, root string) (sessionstore.Summar
 		return sessionstore.Summary{}, fmt.Errorf("no unfinished Duo session for %s; run `duo` to start a new one", root)
 	default:
 		return sessionstore.Summary{}, fmt.Errorf(
-			"multiple unfinished Duo sessions for %s:\n%s\nrun `duo --resume <session-id>` to pick one",
+			"multiple unfinished Duo sessions for %s:\n%s\nrun `duo resume <session-id>` to pick one",
 			root, FormatCandidates(candidates),
 		)
 	}

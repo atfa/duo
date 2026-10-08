@@ -58,12 +58,12 @@ func main() {
 				log.Fatal(err)
 			}
 			return
-		case "mcp-server", "mcp":
+		case "mcp-server":
 			if err := runMCPServer(ctx, os.Args[2:]); err != nil && ctx.Err() == nil {
 				log.Fatal(err)
 			}
 			return
-		case "plugins", "plugin":
+		case "plugins":
 			if err := runPlugins(ctx, os.Args[2:]); err != nil && ctx.Err() == nil {
 				log.Fatal(err)
 			}
@@ -71,7 +71,18 @@ func main() {
 		}
 	}
 
-	cfg, err := loadConfig(os.Args[1:])
+	args := os.Args[1:]
+	resume := len(args) > 0 && args[0] == "resume"
+	if resume {
+		args = args[1:]
+	}
+	var cfg config
+	var err error
+	if resume {
+		cfg, err = loadResumeConfig(args)
+	} else {
+		cfg, err = loadConfig(args)
+	}
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -122,7 +133,7 @@ func run(ctx context.Context, cfg config) error {
 	if cfg.resume {
 		what = "resumed"
 	}
-	fmt.Printf("\nDuo stopped. Session %s was preserved; resume it with `duo --resume %s`.\nWorktrees preserved in %s\n", what, end.SessionID, svc.View().Worktrees.Root)
+	fmt.Printf("\nDuo stopped. Session %s was preserved; resume it with `duo resume %s`.\nWorktrees preserved in %s\n", what, end.SessionID, svc.View().Worktrees.Root)
 	return nil
 }
 
@@ -149,26 +160,21 @@ func printUsage() {
 	fmt.Println("Starting a session:")
 	fmt.Println("  duo                    start a new Fast session (Austin drives, Tony verifies)")
 	fmt.Println("  duo --mode goal        start a new Goal session (shared plan + dual sign-off)")
-	fmt.Println("  duo --test-cmd <cmd>   run automated test command before accepting verification")
-	fmt.Println("  duo --agent <driver>")
-	fmt.Println("                       select the driver for both agents (`duo plugins` lists them)")
-	fmt.Println("  duo --austin-driver <driver>")
-	fmt.Println("  duo --tony-driver <driver>")
+	fmt.Println("  duo --language zh        set the language (or -l zh; values: zh, en)")
+	fmt.Println("  duo --test-cmd \"go test ./...\"  run the test command before accepting verification (short: -t)")
+	fmt.Println("  duo --agent pi           select both agents' driver (short: -a)")
+	fmt.Println("  duo --austin-driver pi   select Austin's driver (short: -A)")
+	fmt.Println("  duo --tony-driver pi     select Tony's driver (short: -T)")
 	fmt.Println("                       select one agent's driver, overriding --agent")
 	fmt.Println("  duo plugins            list every driver Duo can see")
-	fmt.Println("  duo plugin test <path…> [--all|-a] [--verbose|-v]")
+	fmt.Println("  duo plugins test <path…> [--all|-a] [--verbose|-v]")
 	fmt.Println("                       check Driver Plugins against the protocol; --all")
 	fmt.Println("                       checks every driver Duo can see, -v lists each check")
-	fmt.Println("  duo resume             resume this repository's unfinished session (same as -r / --resume)")
-	fmt.Println("  duo --resume           resume this repository's unfinished session")
-	fmt.Println("  duo --resume <id>      resume one specific session (required if several are unfinished)")
-	fmt.Println()
-	fmt.Println("Aliases:")
-	fmt.Println("  --driver = --agent; --austin-agent / --tony-agent = --austin-driver / --tony-driver;")
-	fmt.Println("  the bare word resume = --resume; duo plugin = duo plugins; duo mcp = duo mcp-server.")
+	fmt.Println("  duo resume [id]        resume this repository's unfinished session or a specific session")
 	fmt.Println()
 	fmt.Println("Environment:")
 	fmt.Println("  DUO_MODE               default mode for new sessions: fast or goal (an explicit --mode wins)")
+	fmt.Println("  .duo/config.json       may set \"language\": \"zh\" or \"en\"; --language overrides it")
 	fmt.Println("  DUO_TEST_COMMAND       automated test command run before accepting verification")
 	fmt.Println("  DUO_REPO               repository or subdirectory to launch against (a path argument wins)")
 	fmt.Println("  DUO_SESSION            session id to use (default: timestamp + random hex)")
@@ -181,13 +187,13 @@ func printUsage() {
 	fmt.Println("  DUO_HARNESS_IDLE_SECONDS / _STALL_SECONDS / _COOLDOWN_SECONDS")
 	fmt.Println("                         watchdog thresholds")
 	fmt.Println("  DUO_HARNESS_RESUME_GRACE_SECONDS")
-	fmt.Println("                         extra grace after --resume (default: 45)")
+	fmt.Println("                         extra grace after duo resume (default: 45)")
 	fmt.Println("  DUO_HISTORY_FILE       composer task history file (default: ~/.duo/history)")
 	fmt.Println("  DUO_AGENT, DUO_SESSION, DUO_TOKEN, DUO_HOST, DUO_PORT")
 	fmt.Println("                         bridge connection for `duo mcp-server` (see duo mcp-server --help)")
 	fmt.Println()
 	fmt.Println("Mode is fixed for a session's lifetime. DUO_MODE sets the default for new sessions;")
-	fmt.Println("an explicit --mode wins, and --resume always uses the session's persisted mode.")
+	fmt.Println("an explicit --mode wins, and resume always uses the session's persisted mode.")
 	fmt.Println()
 	fmt.Println("Every command prints its own usage with --help, for example: duo apply --help")
 	fmt.Println("Run with no path from inside a Git repository: cd project && duo")

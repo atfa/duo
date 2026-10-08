@@ -48,7 +48,6 @@ func TestHelpDocumentsEveryCommandLineSignature(t *testing.T) {
 	// One line per duo command, from the table `duo --help` also renders, plus
 	// the alias and pointer lines helpCommandLineLines appends.
 	want := append(clidoc.SignatureLines(),
-		"The bare word 'resume' is an alias of --resume.",
 		"Run duo --help for every flag, its default, and the DUO_* environment variables.",
 	)
 	for _, line := range want {

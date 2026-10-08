@@ -30,6 +30,7 @@ import (
 // to the agent CLIs and must never be documented as duo flags.
 var parserCommands = map[string]string{
 	"parseArgs":           "duo",
+	"parseResumeArgs":     "resume",
 	"parseApplyArgs":      "apply",
 	"parseCleanArgs":      "clean",
 	"parseLogsArgs":       "logs",
@@ -331,7 +332,7 @@ func dispatchedTokens(t *testing.T) map[string]bool {
 
 // parsersByCommand maps each documented command to the parser that owns it.
 var parsersByCommand = map[string]bool{
-	"duo": true, "apply": true, "sessions": true, "logs": true, "clean": true, "mcp-server": true,
+	"duo": true, "resume": true, "apply": true, "sessions": true, "logs": true, "clean": true, "mcp-server": true,
 	"plugins": true,
 }
 
@@ -339,12 +340,13 @@ var parsersByCommand = map[string]bool{
 // that owns it, so the usage text cannot document a flag Duo would reject.
 func TestUsageAcceptsEveryDocumentedFlag(t *testing.T) {
 	perCommand := map[string][]string{
-		"duo":        {"--mode", "-m", "--test-cmd", "--agent", "--driver", "--resume", "-r", "--austin-driver", "--austin-agent", "--tony-driver", "--tony-agent", "-h", "--help"},
-		"apply":      {"--session", "-s", "-h", "--help"},
+		"duo":        {"--mode", "-m", "--language", "-l", "--test-cmd", "-t", "--agent", "-a", "--austin-driver", "-A", "--tony-driver", "-T", "-h", "--help"},
+		"resume":     {"-h", "--help"},
+		"apply":      {"-h", "--help"},
 		"sessions":   {"--all", "-a", "-h", "--help"},
 		"logs":       {"-h", "--help"},
 		"clean":      {"--all", "-a", "--all-repos", "--force", "-f", "--dry-run", "-n", "-h", "--help"},
-		"mcp-server": {"--agent", "--session", "--token", "--host", "--port", "--export-config", "--export", "--config", "-h", "--help"},
+		"mcp-server": {"--agent", "-a", "--session", "-s", "--token", "-k", "--host", "-H", "--port", "-p", "-h", "--help"},
 		"plugins":    {"--all", "-a", "-v", "--verbose", "-h", "--help"},
 	}
 	for command, flags := range perCommand {
@@ -367,21 +369,21 @@ func ignoreUsageRequested(err error) error {
 // valuelessFlags are the boolean flags that take no value.
 var valuelessFlags = map[string]bool{
 	"--all": true, "-a": true, "--all-repos": true, "--force": true, "-f": true,
-	"--dry-run": true, "-n": true, "--resume": true, "-r": true, "-h": true,
-	"--help": true, "--export-config": true, "--export": true, "--config": true,
+	"--dry-run": true, "-n": true, "-h": true,
+	"--help": true,
 }
 
 // acceptsFlag runs one flag through the parser that owns the command. A help
 // request is a success, not a rejection: it prints usage and exits 0.
 func acceptsFlag(t *testing.T, command, flag string) error {
-	if valuelessFlags[flag] {
+	if valuelessFlags[flag] && !(flag == "-a" && (command == "duo" || command == "mcp-server")) {
 		return accepts(t, command, flag)
 	}
 	value := "x"
 	switch flag {
-	case "--mode":
+	case "--mode", "-m":
 		value = "fast"
-	case "--agent":
+	case "--agent", "-a":
 		if command == "mcp-server" {
 			value = "austin"
 		}
@@ -393,6 +395,9 @@ func accepts(t *testing.T, command string, args ...string) error {
 	switch command {
 	case "duo":
 		_, err := parseArgs(args)
+		return err
+	case "resume":
+		_, err := parseResumeArgs(args)
 		return err
 	case "apply":
 		_, err := parseApplyArgs(args)
@@ -453,6 +458,29 @@ func TestUsageSatisfiesEverySubcommandHelp(t *testing.T) {
 	}
 	if err := runPlugins(context.Background(), []string{"--bogus"}); err == nil {
 		t.Error("duo plugins --bogus was accepted; an unknown flag must fail")
+	}
+}
+
+func TestRemovedCLIFormsAreRejected(t *testing.T) {
+	for _, args := range [][]string{{"--driver", "pi"}, {"--austin-agent", "pi"}, {"--tony-agent", "pi"}, {"--resume"}} {
+		if _, err := parseArgs(args); err == nil {
+			t.Errorf("root parser accepted removed syntax %v", args)
+		}
+	}
+	for _, args := range [][]string{{"--session", "id"}, {"-s", "id"}} {
+		if _, err := parseApplyArgs(args); err == nil {
+			t.Errorf("apply parser accepted removed syntax %v", args)
+		}
+	}
+	for _, args := range [][]string{{"--export-config"}, {"-e"}, {"--export"}, {"--config"}} {
+		if _, err := parseMCPServerArgs(args); err == nil {
+			t.Errorf("MCP parser accepted removed syntax %v", args)
+		}
+	}
+	for _, args := range [][]string{{"list"}, {"ls"}, {"./plugin"}} {
+		if err := runPlugins(context.Background(), args); err == nil {
+			t.Errorf("plugins command accepted removed syntax %v", args)
+		}
 	}
 }
 
