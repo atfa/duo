@@ -31,9 +31,9 @@ func testSnapshot(sessionID string) Snapshot {
 			protocol.Austin: {Path: "/tmp/repo-austin", Branch: "duo/s/austin"},
 			protocol.Tony:   {Path: "/tmp/repo-tony", Branch: "duo/s/tony"},
 		},
-		PiSessions: map[protocol.AgentID]string{
-			protocol.Austin: "11111111-1111-4111-8111-111111111111",
-			protocol.Tony:   "22222222-2222-4222-8222-222222222222",
+		DriverStates: map[protocol.AgentID]DriverState{
+			protocol.Austin: {Driver: "agy", State: json.RawMessage(`{"conversationId":"11111111"}`)},
+			protocol.Tony:   {Driver: "future-driver", State: json.RawMessage(`{"cursor":2}`)},
 		},
 		CreatedAt: time.Now().UTC().Add(-time.Hour),
 	}
@@ -49,7 +49,7 @@ func newTestStore(t *testing.T, sessionID string) *Store {
 }
 
 // TestSnapshotRoundTrip is the basic durability guarantee: everything survives
-// a save/load cycle, including signatures and Pi identity.
+// a save/load cycle, including signatures and driver state.
 func TestSnapshotRoundTrip(t *testing.T) {
 	store := newTestStore(t, "session-1")
 	want := testSnapshot("session-1")
@@ -67,9 +67,8 @@ func TestSnapshotRoundTrip(t *testing.T) {
 	if !got.Ready[protocol.Austin] || got.Evidence[protocol.Austin] != "deadbeef" {
 		t.Fatalf("signature state lost: %+v", got)
 	}
-	if got.PiSessions[protocol.Austin] != want.PiSessions[protocol.Austin] ||
-		got.PiSessions[protocol.Tony] != want.PiSessions[protocol.Tony] {
-		t.Fatalf("pi session identity lost: %+v", got.PiSessions)
+	if got.DriverStates[protocol.Tony].Driver != want.DriverStates[protocol.Tony].Driver || !sameJSON(got.DriverStates[protocol.Tony].State, want.DriverStates[protocol.Tony].State) {
+		t.Fatalf("driver state lost: %+v", got.DriverStates)
 	}
 	if got.Worktrees[protocol.Tony].Branch != "duo/s/tony" {
 		t.Fatalf("worktrees lost: %+v", got.Worktrees)
@@ -119,14 +118,14 @@ func TestLoadReportsMissingAndCorruptState(t *testing.T) {
 	}
 }
 
-// TestLegacySnapshotWithoutDeliveryStillLoads proves the Delivery checkpoint is
+// TestSnapshotWithoutDeliveryStillLoads proves the Delivery checkpoint is
 // a backward-compatible addition to schema version 1: a v0.4.0 snapshot that
 // never wrote a delivery field loads unchanged and is still discoverable as a
 // session that needs delivery.
-func TestLegacySnapshotWithoutDeliveryStillLoads(t *testing.T) {
+func TestSnapshotWithoutDeliveryStillLoads(t *testing.T) {
 	store := newTestStore(t, "legacy-1")
 	legacy := `{
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "duoVersion": "v0.4.0",
   "sessionId": "legacy-1",
   "repoId": "repo-1234",
@@ -140,7 +139,6 @@ func TestLegacySnapshotWithoutDeliveryStillLoads(t *testing.T) {
   "ready": {"Austin": true, "Tony": true},
   "evidence": {"Austin": "bbbb2222", "Tony": "bbbb2222"},
   "worktrees": {},
-  "piSessions": {},
   "integration": {"started": true, "conflicted": false, "head": "bbbb2222", "mergedTony": "cccc3333"},
   "createdAt": "2024-01-01T00:00:00Z",
   "updatedAt": "2024-01-01T00:00:00Z"
@@ -151,13 +149,13 @@ func TestLegacySnapshotWithoutDeliveryStillLoads(t *testing.T) {
 
 	snap, err := store.Load()
 	if err != nil {
-		t.Fatalf("a v0.4.0 snapshot must still load: %v", err)
+		t.Fatalf("snapshot without delivery must load: %v", err)
 	}
 	if snap.SchemaVersion != SchemaVersion {
 		t.Fatalf("schemaVersion = %d, want %d", snap.SchemaVersion, SchemaVersion)
 	}
 	if snap.Delivery.Status != "" {
-		t.Fatalf("legacy snapshot must decode delivery to zero value: %+v", snap.Delivery)
+		t.Fatalf("snapshot must decode delivery to zero value: %+v", snap.Delivery)
 	}
 	if !snap.NeedsDelivery() {
 		t.Fatal("legacy DONE session with an integration head must be deliverable")
@@ -227,12 +225,11 @@ func TestNeedsDeliveryOnlyForApprovedOrDeliveredSessions(t *testing.T) {
 	}
 }
 
-// TestLoadRejectsUnsupportedSchemaVersion makes a silent reset to PLAN
-// impossible when an older Duo reads a newer checkpoint.
-func TestLoadRejectsUnsupportedSchemaVersion(t *testing.T) {
+// TestLoadRejectsPreviousSchema makes the deliberate snapshot break explicit.
+func TestLoadRejectsPreviousSchema(t *testing.T) {
 	store := newTestStore(t, "session-4")
 	snap := testSnapshot("session-4")
-	snap.SchemaVersion = SchemaVersion + 99
+	snap.SchemaVersion = 1
 	raw, err := json.Marshal(snap)
 	if err != nil {
 		t.Fatal(err)
@@ -468,23 +465,6 @@ func TestOpenUnknownSessionReportsClearly(t *testing.T) {
 	_, err := Open(t.TempDir(), "repo-1234", "missing-session")
 	if err == nil || !strings.Contains(err.Error(), "unknown Duo session") {
 		t.Fatalf("expected a clear unknown-session error, got %v", err)
-	}
-}
-
-func TestNewUUIDIsUniqueAndWellFormed(t *testing.T) {
-	seen := map[string]bool{}
-	for i := 0; i < 32; i++ {
-		id, err := NewUUID()
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(id) != 36 || id[8] != '-' || id[13] != '-' || id[14] != '4' {
-			t.Fatalf("malformed uuid: %q", id)
-		}
-		if seen[id] {
-			t.Fatalf("duplicate uuid: %q", id)
-		}
-		seen[id] = true
 	}
 }
 

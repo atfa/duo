@@ -10,11 +10,6 @@ import (
 	"github.com/atfa/duo/internal/protocol"
 )
 
-// DefaultDriver is the driver an agent gets when nothing names one. It is a name
-// and nothing more: Duo Core branches on nothing here, and the driver it selects
-// answers for its own binary, models and defaults from its manifest.
-const DefaultDriver = "pi"
-
 // Options is the whole of a frontend's configuration for one Duo session.
 //
 // It is deliberately frontend-neutral: nothing here refers to a terminal, a flag
@@ -53,9 +48,10 @@ type Options struct {
 	HarnessEnabled bool
 	Harness        harness.Config
 
-	// Drivers. Every map is keyed by agent. A missing entry means "the driver's
-	// own default", never a name Core made up.
+	// Drivers. Every map is keyed by agent. Missing agent entries use the
+	// frontend-selected default; Core does not choose a driver name.
 	AgentCommands       map[protocol.AgentID]string
+	DefaultAgentDriver  string
 	AgentDrivers        map[protocol.AgentID]string
 	AgentModels         map[protocol.AgentID]string
 	AgentThinkings      map[protocol.AgentID]string
@@ -73,16 +69,16 @@ type Options struct {
 //
 // It is a free function rather than a method so the CLI's own configuration type
 // can answer the same question with the same rule instead of a second copy of it.
-func AgentDriver(drivers map[protocol.AgentID]string, agent protocol.AgentID) string {
+func AgentDriver(drivers map[protocol.AgentID]string, agent protocol.AgentID, fallback string) string {
 	if drv, ok := drivers[agent]; ok && drv != "" {
 		return drv
 	}
-	return DefaultDriver
+	return fallback
 }
 
 // AgentDriver names the driver an agent should launch.
 func (o *Options) AgentDriver(agent protocol.AgentID) string {
-	return AgentDriver(o.AgentDrivers, agent)
+	return AgentDriver(o.AgentDrivers, agent, o.DefaultAgentDriver)
 }
 
 // ResolveDriver settles the three things only the driver can answer: which binary

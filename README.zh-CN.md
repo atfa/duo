@@ -321,7 +321,7 @@ driver，切换 driver 时它会被丢弃——那个 id 对新的 CLI 没有意
 
 ```text
 ~/.duo/sessions/<repo-id>/<session-id>/
-    state.json      mode、phase、验证/Plan、签字、证据、worktree 路径与分支、Pi session id
+    state.json      mode、phase、验证/Plan、签字、证据、worktree 路径与分支、driver 私有的恢复状态
     events.jsonl    阶段、签字、bridge 与 merge 事件的诊断日志，
                     同时保存 resume 时回放进 TUI 的 pane 记录
     duo.log         生命周期输出（session token 写入前已脱敏）

@@ -274,8 +274,8 @@ func TestWriteModelShowsLoadingDriverName(t *testing.T) {
 
 	var b strings.Builder
 	a.writeModel(&b, a.width, a.height)
-	if !strings.Contains(b.String(), "Loading models from pi…") {
-		t.Errorf("expected default pi driver loading message, got:\n%s", b.String())
+	if !strings.Contains(b.String(), "Loading models from driver…") {
+		t.Errorf("expected generic driver loading message, got:\n%s", b.String())
 	}
 
 	a.setDriver(protocol.Austin, newPreviewSession(t, "agy", protocol.Austin, ""))

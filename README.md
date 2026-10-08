@@ -325,7 +325,7 @@ when the driver changes, since its id means nothing to the new CLI. Because
 
 ```text
 ~/.duo/sessions/<repo-id>/<session-id>/
-    state.json      mode, phase, verification/Plan, signatures, evidence, worktree paths/branches, Pi session ids
+    state.json      mode, phase, verification/Plan, signatures, evidence, worktree paths/branches, opaque per-driver resume state
     events.jsonl    diagnostic journal of phase, signature, bridge and merge events,
                     plus the pane transcript restored into the TUI on resume
     duo.log         lifecycle output (session tokens are redacted before writing)

@@ -9,23 +9,21 @@ import (
 	"github.com/atfa/duo/internal/protocol"
 )
 
-// TestLegacySnapshotWithoutModeLoadsAsGoal is the compatibility guarantee for
-// every state.json written before modes existed: no mode key at all, so the
-// session must remain Goal and keep its existing delivery rules.
-func TestLegacySnapshotWithoutModeLoadsAsGoal(t *testing.T) {
-	raw := `{"schemaVersion":1,"sessionId":"legacy","phase":"INTEGRATE","ready":{"Austin":true,"Tony":true}}`
+// TestSnapshotWithoutModeDefaultsToGoal pins the zero-mode behavior.
+func TestSnapshotWithoutModeDefaultsToGoal(t *testing.T) {
+	raw := `{"schemaVersion":2,"sessionId":"no-mode","phase":"INTEGRATE","ready":{"Austin":true,"Tony":true}}`
 	var snap Snapshot
 	if err := json.Unmarshal([]byte(raw), &snap); err != nil {
 		t.Fatal(err)
 	}
 	if got := snap.EffectiveMode(); got != project.ModeGoal {
-		t.Fatalf("legacy mode = %q, want goal", got)
+		t.Fatalf("mode = %q, want goal", got)
 	}
 	if snap.Verification != nil {
-		t.Fatalf("a legacy snapshot must have no verification, got %+v", snap.Verification)
+		t.Fatalf("a snapshot without mode must have no verification, got %+v", snap.Verification)
 	}
 	if !snap.NeedsDelivery() {
-		t.Fatal("a legacy dual-signed INTEGRATE must still need delivery")
+		t.Fatal("a dual-signed INTEGRATE must still need delivery")
 	}
 }
 

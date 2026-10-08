@@ -34,12 +34,6 @@ func (s *Service) composeSnapshot(coord *coordinator.Coordinator) sessionstore.S
 	for k, v := range s.driverState {
 		driverStates[k] = v
 	}
-	piSessions := make(map[protocol.AgentID]string, len(s.piSessions))
-	for k, v := range s.piSessions {
-		if strings.TrimSpace(v) != "" {
-			piSessions[k] = v
-		}
-	}
 	agentDrivers := make(map[protocol.AgentID]string)
 	agentModels := make(map[protocol.AgentID]string)
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
@@ -69,11 +63,6 @@ func (s *Service) composeSnapshot(coord *coordinator.Coordinator) sessionstore.S
 					driverStates[id] = sessionstore.DriverState{Driver: dt, State: state}
 				}
 			}
-			// The mirror follows the identity the driver reports — the same value
-			// v0.9.0 persisted — never a field read out of the blob.
-			if sid := d.SessionID(); sid != "" {
-				piSessions[id] = sid
-			}
 		}
 	}
 	if coord != nil {
@@ -93,7 +82,6 @@ func (s *Service) composeSnapshot(coord *coordinator.Coordinator) sessionstore.S
 		CreatedAt:    s.createdAt,
 		Project:      s.state.Snapshot(),
 		Worktrees:    s.set,
-		PiSessions:   piSessions,
 		DriverStates: driverStates,
 		AgentDrivers: agentDrivers,
 		AgentModels:  agentModels,

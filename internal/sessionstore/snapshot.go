@@ -1,7 +1,6 @@
 package sessionstore
 
 import (
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -14,9 +13,9 @@ import (
 	"github.com/atfa/duo/internal/protocol"
 )
 
-// SchemaVersion is the persisted snapshot schema. Loading a snapshot written by
-// an incompatible schema is refused explicitly instead of resetting to PLAN.
-const SchemaVersion = 1
+// SchemaVersion is the persisted snapshot schema. Version 2 removes the Pi-only
+// resume mirror; incompatible snapshots are refused instead of migrated.
+const SchemaVersion = 2
 
 type Worktree struct {
 	Path   string `json:"path"`
@@ -31,7 +30,7 @@ type Integration struct {
 }
 
 // Delivery statuses. The empty status means "never attempted", which is the
-// zero value for every v0.4.0 snapshot, so legacy sessions load unchanged.
+// zero value when delivery has not been attempted.
 const (
 	DeliveryPending = "pending"
 	DeliveryApplied = "applied"
@@ -60,9 +59,9 @@ type Delivery struct {
 func (d Delivery) Applied() bool { return d.Status == DeliveryApplied }
 
 // Verification is the durable Fast-mode verification record. It is a small
-// optional extension to schema version 1: Goal and legacy snapshots simply
-// have no verification object. `head` binds a passed verdict to one exact
-// Austin artifact, `note` carries an issue description, and `at` records when
+// optional checkpoint: Goal snapshots simply have no verification object.
+// `head` binds a passed verdict to one exact Austin artifact, `note` carries an
+// issue description, and `at` records when
 // the verdict was formed.
 type Verification struct {
 	Status string     `json:"status,omitempty"`
@@ -72,7 +71,7 @@ type Verification struct {
 }
 
 // Snapshot is the durable checkpoint for one Duo session. It combines the
-// project domain state with workspace, Pi session identity and integration
+// project domain state with workspace, opaque driver state and integration
 // state. Git remains the ground truth for artifacts and evidence.
 type Snapshot struct {
 	SchemaVersion int    `json:"schemaVersion"`
@@ -93,7 +92,7 @@ type Snapshot struct {
 	// Mode is the session workflow, fixed for the session's lifetime. Driver is
 	// recorded for observability only: it is derived from the mode (Fast is
 	// always Austin-driven) and no reader branches on it. Both are omitted by
-	// legacy v0.4.x snapshots, which load as Goal.
+	// snapshots that omit it, which normalize to Goal.
 	Mode   project.Mode `json:"mode,omitempty"`
 	Driver string       `json:"driver,omitempty"`
 
@@ -106,14 +105,9 @@ type Snapshot struct {
 
 	Verification *Verification `json:"verification,omitempty"`
 
-	Worktrees  map[protocol.AgentID]Worktree `json:"worktrees"`
-	PiSessions map[protocol.AgentID]string   `json:"piSessions"`
+	Worktrees map[protocol.AgentID]Worktree `json:"worktrees"`
 
-	// DriverStates is the authoritative per-agent driver identity and resume
-	// blob. It is absent in snapshots written by v0.9.x; Load migrates those
-	// from AgentDrivers and PiSessions (see MigratedDriverStates). PiSessions
-	// above is kept written for one release as a downgrade mirror so a v0.9.0
-	// binary can still resume instead of minting fresh identities.
+	// DriverStates contains each driver's opaque resume state.
 	DriverStates map[protocol.AgentID]DriverState `json:"driverStates,omitempty"`
 
 	Integration Integration `json:"integration"`
@@ -124,9 +118,9 @@ type Snapshot struct {
 }
 
 // EffectiveMode is the single normalization point for the persisted mode.
-// Only an explicitly recorded "fast" is Fast; a legacy snapshot with no mode
-// field, and any unrecognized value, is Goal. Every reader goes through here so
-// the legacy rule cannot drift between resolver, coordinator, harness and CLI.
+// Only an explicitly recorded "fast" is Fast; a snapshot with no mode field,
+// and any unrecognized value, is Goal. Every reader goes through here so this
+// rule cannot drift between resolver, coordinator, harness and CLI.
 func (s Snapshot) EffectiveMode() project.Mode {
 	if s.Mode == project.ModeFast {
 		return project.ModeFast
@@ -135,7 +129,7 @@ func (s Snapshot) EffectiveMode() project.Mode {
 }
 
 // VerificationResult returns the persisted verification, or a zero value when
-// the session has none (Goal and legacy snapshots).
+// the session has none (Goal snapshots).
 func (s Snapshot) VerificationResult() project.Verification {
 	if s.Verification == nil {
 		return project.Verification{}
@@ -155,10 +149,9 @@ func (s Snapshot) Worktree(agent protocol.AgentID) (Worktree, bool) {
 
 // NeedsDelivery reports whether this session has an agent-approved artifact that
 // has not been handed back to the user's repository yet. It covers the normal
-// INTEGRATE dual sign-off, a delivery that was interrupted mid-transaction,
-// legacy v0.4.0 snapshots that reached DONE without any delivery record at all,
-// and a Fast session whose verification passed but whose delivery was
-// interrupted before the durable delivery record was written.
+// INTEGRATE dual sign-off, a delivery interrupted mid-transaction, a DONE
+// snapshot without a delivery record, and a Fast session whose verification
+// passed but whose delivery record was interrupted.
 //
 // A Fast pass is only deliverable while it is still bound to the current Austin
 // HEAD; recovery clears a stale pass before this is consulted, and the delivery
@@ -176,9 +169,8 @@ func (s Snapshot) NeedsDelivery() bool {
 	case "INTEGRATE":
 		return s.Ready[protocol.Austin] && s.Ready[protocol.Tony]
 	case "DONE":
-		// v0.4.0 marked DONE as soon as both agents signed, without ever
-		// touching the user's repository. Integration.Head or a recorded
-		// delivery head is the evidence that there is something to apply.
+		// Integration.Head or a recorded delivery head proves there is an artifact
+		// to apply.
 		return strings.TrimSpace(s.Integration.Head) != "" || strings.TrimSpace(s.Delivery.FinalHead) != ""
 	default:
 		return false
@@ -208,18 +200,6 @@ func RepoID(repository string) string {
 		name = "repo"
 	}
 	return fmt.Sprintf("%s-%s", name, hex.EncodeToString(sum[:4]))
-}
-
-// NewUUID returns a random RFC 4122 version 4 UUID, used for stable Pi session
-// identities.
-func NewUUID() (string, error) {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16]), nil
 }
 
 var invalidName = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)

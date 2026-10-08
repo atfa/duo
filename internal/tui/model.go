@@ -240,8 +240,7 @@ func (a *App) route(event events.Event) {
 			a.currentThinking = map[protocol.AgentID]string{}
 		}
 		a.currentThinking[event.Agent] = event.Thinking
-		// Pi clamps the level to what the model supports, so report what it
-		// settled on rather than what was requested.
+		// Report the level the agent settled on rather than what was requested.
 		a.setStatus(fmt.Sprintf("%s thinking: %s", event.Agent, event.Thinking), false)
 		return
 	}

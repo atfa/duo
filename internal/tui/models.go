@@ -27,7 +27,7 @@ func (a *App) driverType(agent protocol.AgentID) string {
 	if d := a.live.Agent(agent).Driver; d != "" {
 		return d
 	}
-	return "pi"
+	return "driver"
 }
 
 func (a *App) modelForAgent(agent protocol.AgentID) string {
@@ -213,8 +213,8 @@ func (a *App) moveModelCursor(delta int) {
 // footer.
 func modelVisibleRows(h int) int { return maxInt(h-5, 1) }
 
-// applySelectedModel asks the target agent's Pi bridge to switch models. Pi
-// persists the choice in its session, so a restart or resume keeps it. With
+// applySelectedModel asks the target driver to switch models. The choice is
+// persisted in the session, so a restart or resume keeps it. With
 // keepOpen set (Space) the picker stays up so the thinking level can be adjusted
 // in the same visit; Enter closes it.
 func (a *App) applySelectedModel(ctx context.Context, keepOpen bool) {

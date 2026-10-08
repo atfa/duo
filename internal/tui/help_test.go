@@ -94,7 +94,7 @@ func TestEveryRoutedKeyIsDocumented(t *testing.T) {
 }
 
 // TestEveryDetachKeyIsDocumented checks the three keys that return from a
-// native Pi attach. They are matched by codepoint rather than by a normalised
+// native agent attach. They are matched by codepoint rather than by a normalised
 // key name, so they carry no Dispatch entry.
 func TestEveryDetachKeyIsDocumented(t *testing.T) {
 	labels := map[int64]string{92: "Ctrl+\\", 93: "Ctrl+]", 12305: "Ctrl+】"}
@@ -102,11 +102,11 @@ func TestEveryDetachKeyIsDocumented(t *testing.T) {
 	for _, codepoint := range detachCodepoints(t) {
 		label, ok := labels[codepoint]
 		if !ok {
-			t.Errorf("native Pi detach codepoint %d is not documented in Help", codepoint)
+			t.Errorf("native agent detach codepoint %d is not documented in Help", codepoint)
 			continue
 		}
 		if !strings.Contains(documented, label) {
-			t.Errorf("Help does not document the native Pi detach key %s", label)
+			t.Errorf("Help does not document the native agent detach key %s", label)
 		}
 	}
 }

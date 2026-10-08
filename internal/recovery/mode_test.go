@@ -58,8 +58,7 @@ func TestComposeRoundTripsModeAndVerification(t *testing.T) {
 			Started:      true,
 			Verification: project.Verification{Status: project.VerificationPassed, Head: "abcdef0123456789", Note: "ok", At: &at},
 		},
-		Worktrees:  set,
-		PiSessions: map[protocol.AgentID]string{},
+		Worktrees: set,
 	})
 	if snap.EffectiveMode() != project.ModeFast {
 		t.Fatalf("composed mode = %q, want fast", snap.Mode)
@@ -90,7 +89,6 @@ func TestComposeRoundTripsModeAndVerification(t *testing.T) {
 		CreatedAt:  at,
 		Project:    project.Snapshot{Mode: project.ModeGoal, Phase: project.PhasePlan, Started: true},
 		Worktrees:  set,
-		PiSessions: map[protocol.AgentID]string{},
 	})
 	if goal.EffectiveMode() != project.ModeGoal || goal.Driver != "" || goal.Verification != nil {
 		t.Fatalf("goal snapshot = mode %q driver %q verification %+v", goal.Mode, goal.Driver, goal.Verification)
@@ -127,8 +125,7 @@ func TestReconcileFastVerificationHonoursTheHeadBinding(t *testing.T) {
 			Started:      true,
 			Verification: project.Verification{Status: project.VerificationPassed, Head: target, At: &at},
 		},
-		Worktrees:  set,
-		PiSessions: map[protocol.AgentID]string{},
+		Worktrees: set,
 	})
 
 	result, err := Reconcile(ctx, ws, snap)
@@ -171,9 +168,8 @@ func TestReconcileFastVerificationHonoursTheHeadBinding(t *testing.T) {
 	}
 }
 
-// TestReconcileLegacyGoalSnapshotIsUnchanged keeps recovery's Goal contract: a
-// legacy snapshot with no mode still reconciles as Goal.
-func TestReconcileLegacyGoalSnapshotIsUnchanged(t *testing.T) {
+// TestReconcileGoalSnapshotWithoutMode keeps recovery's default-mode behavior.
+func TestReconcileGoalSnapshotWithoutMode(t *testing.T) {
 	ctx := context.Background()
 	ws, set, repo := newFixture(t)
 	snap := snapshotFor(set, repo, project.PhasePlan, 1)
@@ -183,12 +179,12 @@ func TestReconcileLegacyGoalSnapshotIsUnchanged(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got := result.Snapshot.EffectiveMode(); got != project.ModeGoal {
-		t.Fatalf("legacy reconcile mode = %q, want goal", got)
+		t.Fatalf("reconcile mode = %q, want goal", got)
 	}
 	if result.Snapshot.Phase != string(project.PhasePlan) {
-		t.Fatalf("legacy reconcile phase = %s, want PLAN", result.Snapshot.Phase)
+		t.Fatalf("reconcile phase = %s, want PLAN", result.Snapshot.Phase)
 	}
 	if result.Snapshot.Verification != nil {
-		t.Fatalf("legacy reconcile must not invent verification: %+v", result.Snapshot.Verification)
+		t.Fatalf("reconcile must not invent verification: %+v", result.Snapshot.Verification)
 	}
 }

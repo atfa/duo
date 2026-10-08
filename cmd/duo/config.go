@@ -79,10 +79,9 @@ func (c config) agentCommand(agent protocol.AgentID) string {
 	return c.agentCommands[agent]
 }
 
-// agentDriver names the driver an agent should launch. The rule lives with the
-// session, so the CLI cannot drift from the frontend-neutral answer.
+// agentDriver names the driver an agent should launch, applying the CLI default.
 func (c config) agentDriver(agent protocol.AgentID) string {
-	return session.AgentDriver(c.agentDrivers, agent)
+	return session.AgentDriver(c.agentDrivers, agent, defaultDriver)
 }
 
 // agentModel is what the operator asked for, which may be nothing. The driver's
@@ -131,6 +130,7 @@ func (c config) sessionOptions() session.Options {
 		HarnessEnabled:      c.harnessEnabled,
 		Harness:             c.harness,
 		AgentCommands:       c.agentCommands,
+		DefaultAgentDriver:  defaultDriver,
 		AgentDrivers:        c.agentDrivers,
 		AgentModels:         c.agentModels,
 		AgentThinkings:      c.agentThinkings,

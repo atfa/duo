@@ -168,7 +168,7 @@ func (a *App) helpLines(width int) []string {
 		{"Resume & Recovery", []string{
 			"duo --resume (or -r, or the bare word resume) picks this repository's unfinished session;",
 			"duo --resume <id> picks one specific session.",
-			"Resume restores Duo state, worktrees, Pi conversation identity, working scope, pane history, and collaboration wake-up.",
+			"Resume restores Duo state, worktrees, each driver’s saved conversation state, working scope, pane history, and collaboration wake-up.",
 		}},
 		{"Delivery", []string{
 			"DONE means the final integrated artifact has been delivered to the original repository.",

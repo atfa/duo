@@ -58,10 +58,6 @@ func snapshotFor(set workspace.Set, repo string, phase project.Phase, planVersio
 			Started:     true,
 		},
 		Worktrees: set,
-		PiSessions: map[protocol.AgentID]string{
-			protocol.Austin: "11111111-1111-4111-8111-111111111111",
-			protocol.Tony:   "22222222-2222-4222-8222-222222222222",
-		},
 	})
 }
 
@@ -523,10 +519,6 @@ func TestComposeRoundTripThroughDisk(t *testing.T) {
 			CreatedAt:  time.Now().UTC(),
 			Project:    snapshot,
 			Worktrees:  set,
-			PiSessions: map[protocol.AgentID]string{
-				protocol.Austin: "11111111-1111-4111-8111-111111111111",
-				protocol.Tony:   "22222222-2222-4222-8222-222222222222",
-			},
 		})
 		if err := store.Save(snap); err != nil {
 			t.Errorf("persist snapshot: %v", err)
@@ -564,9 +556,6 @@ func TestComposeRoundTripThroughDisk(t *testing.T) {
 	}
 	if !result.Snapshot.Ready[protocol.Austin] {
 		t.Fatalf("a crash-free round trip revoked a valid signature: %s", result.Report.String())
-	}
-	if result.Snapshot.PiSessions[protocol.Austin] != loaded.PiSessions[protocol.Austin] {
-		t.Fatal("Pi session identity was not preserved across the crash")
 	}
 }
 

@@ -409,7 +409,6 @@ func startE2EWithOptions(t *testing.T, ctx context.Context, scope string, mode p
 				CreatedAt:   time.Now().UTC(),
 				Project:     p,
 				Worktrees:   set,
-				PiSessions:  map[protocol.AgentID]string{},
 				Integration: coord.CurrentIntegration(),
 				Delivery:    coord.CurrentDelivery(),
 			})

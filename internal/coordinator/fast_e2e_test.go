@@ -185,7 +185,7 @@ func TestComposerReopensDeliveredSession(t *testing.T) {
 }
 
 // TestFastModeNativeFollowUpReopens pins the follow-up path that does not go
-// through the Duo composer: the human talks to Austin in native Pi (Ctrl+A) and
+// through the Duo composer: the human talks to Austin in native session (Ctrl+A) and
 // lets it commit, so SubmitUserTask never runs. Austin's next completion request
 // is the only signal Duo sees, and it names a new Austin HEAD. It must reopen the
 // DONE round instead of being rejected, otherwise the new commit is stranded in
@@ -212,7 +212,7 @@ func TestFastModeNativeFollowUpReopens(t *testing.T) {
 		t.Fatalf("round 1 delivery = %+v, want applied at %s", delivered, firstHead)
 	}
 
-	// The human asks for a follow-up in native Pi, and Austin commits and
+	// The human asks for a follow-up in native session, and Austin commits and
 	// requests verification without Duo ever seeing a human task.
 	writeAndCommit(t, set.Austin.Path, "result.md", "round two\n", "round two")
 	fastRequestVerification(t, austin)

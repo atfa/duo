@@ -175,8 +175,8 @@ func (a *App) Run(ctx context.Context) error {
 	}
 }
 
-// applyAction is the one place TUI-mode actions are applied. While an agent's
-// bypasses it entirely in Run so Pi keeps ownership of its Ctrl+/ handling.
+// applyAction is the one place TUI-mode actions are applied. While an agent is
+// attached, Run bypasses it so the agent keeps ownership of its key handling.
 func (a *App) applyAction(ctx context.Context, action inputAction) bool {
 	switch action.kind {
 	case actionNone:
@@ -449,7 +449,7 @@ func (a *App) leaveNative() {
 	a.requestFullClear()
 }
 
-// nativeDetach reports whether b returns to Duo and whether it still belongs to Pi input.
+// nativeDetach reports whether b returns to Duo and whether it still belongs to the attached agent input.
 func (a *App) nativeDetach(b byte) (detach, forward bool) {
 	if b == 0x1c || b == 0x1d { // legacy Ctrl+\\ and Ctrl+]
 		a.nativeDetachBuf = nil

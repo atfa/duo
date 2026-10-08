@@ -87,7 +87,6 @@ type ComposeInput struct {
 	CreatedAt    time.Time
 	Project      project.Snapshot
 	Worktrees    workspace.Set
-	PiSessions   map[protocol.AgentID]string                   // downgrade mirror: bare identities a v0.9.0 binary can read
 	DriverStates map[protocol.AgentID]sessionstore.DriverState // authoritative plugin-owned state
 	AgentDrivers map[protocol.AgentID]string
 	AgentModels  map[protocol.AgentID]string
@@ -117,7 +116,6 @@ func Compose(in ComposeInput) sessionstore.Snapshot {
 		Notes:         make(map[protocol.AgentID]string, len(agents)),
 		Evidence:      make(map[protocol.AgentID]string, len(agents)),
 		Worktrees:     make(map[protocol.AgentID]sessionstore.Worktree, len(agents)),
-		PiSessions:    make(map[protocol.AgentID]string, len(agents)),
 		Integration: sessionstore.Integration{
 			Started:    in.Integration.Head != "" || in.Integration.Conflicted,
 			Conflicted: in.Integration.Conflicted,
@@ -171,9 +169,6 @@ func Compose(in ComposeInput) sessionstore.Snapshot {
 		snap.Evidence[agent] = in.Project.Evidence[agent]
 		if wt, ok := in.Worktrees.For(agent); ok {
 			snap.Worktrees[agent] = sessionstore.Worktree{Path: wt.Path, Branch: wt.Branch}
-		}
-		if id := strings.TrimSpace(in.PiSessions[agent]); id != "" {
-			snap.PiSessions[agent] = id
 		}
 	}
 	return snap

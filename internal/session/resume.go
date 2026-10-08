@@ -116,7 +116,7 @@ func (s *Service) startResume(ctx context.Context) (Result, error) {
 	// last time is handed back untouched, and the plugin decides what it means. A
 	// session with none starts a fresh conversation, which is the plugin's cue to
 	// mint an identity or to leave the agent to.
-	driverState, piSessions := DriverSeeds(reconciled)
+	driverState := DriverSeeds(reconciled)
 
 	createdAt := reconciled.CreatedAt
 	if createdAt.IsZero() {
@@ -156,7 +156,6 @@ func (s *Service) startResume(ctx context.Context) (Result, error) {
 	s.sessionID = reconciled.SessionID
 	s.createdAt = createdAt
 	s.driverState = driverState
-	s.piSessions = piSessions
 	s.integration = workspace.IntegrationResult{
 		AustinBranch: set.Austin.Branch,
 		AustinPath:   set.Austin.Path,
@@ -175,27 +174,15 @@ func (s *Service) startResume(ctx context.Context) (Result, error) {
 	return s.launch(ctx)
 }
 
-// DriverSeeds turns a reconciled snapshot into the session's two identity maps:
-// the authoritative plugin blobs and the bare downgrade mirror. Both are read as
-// Load left them, so a v0.9.0 file has already been migrated by the time it
-// reaches here. Only bare values enter the mirror — a `{`-prefixed value is a blob
-// that a v0.9.0 binary could only misread as an id — and the mirror refills from
-// the driver's SessionID() as soon as an agent launches.
-func DriverSeeds(snap sessionstore.Snapshot) (map[protocol.AgentID]sessionstore.DriverState, map[protocol.AgentID]string) {
+// DriverSeeds returns the opaque driver state to replay when each agent starts.
+func DriverSeeds(snap sessionstore.Snapshot) map[protocol.AgentID]sessionstore.DriverState {
 	driverState := make(map[protocol.AgentID]sessionstore.DriverState, len(snap.DriverStates))
 	for agent, state := range snap.DriverStates {
 		if len(state.State) != 0 {
 			driverState[agent] = state
 		}
 	}
-	piSessions := make(map[protocol.AgentID]string, len(snap.PiSessions))
-	for agent, id := range snap.PiSessions {
-		id = strings.TrimSpace(id)
-		if id != "" && !strings.HasPrefix(id, "{") {
-			piSessions[agent] = id
-		}
-	}
-	return driverState, piSessions
+	return driverState
 }
 
 // SelectSession resolves which persisted session to resume: an explicit id, the

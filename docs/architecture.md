@@ -112,7 +112,11 @@ Fast delivers Austin's verified commit directly.
 A frontend that is not `cmd/duo` — a GUI, an editor plugin, a test — drives one Duo
 session through `internal/session` and implements nothing about a session itself.
 `session.Options` is the whole of a session's configuration and names no flag,
-terminal or environment variable. `session.Service` owns the composition root, the
+terminal or environment variable. The frontend selects the default driver and passes
+it explicitly; Core has no product-specific driver default. Driver resume state is
+persisted as an opaque per-agent blob. Snapshot schema changes are explicit and
+incompatible versions are rejected rather than migrated.
+`session.Service` owns the composition root, the
 session lock, the agent bridge, the lifecycle observer and the delivery handoff
 that used to live in `cmd/duo`. `cmd/duo` builds `Options` from its flags and then
 only renders.

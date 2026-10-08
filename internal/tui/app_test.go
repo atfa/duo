@@ -31,7 +31,7 @@ func TestNativeDetach(t *testing.T) {
 		{"similar CSI-u without Ctrl", "\x1b[93;4u", false, len("\x1b[93;4u")},
 		{"similar modifyOtherKeys without Ctrl", "\x1b[27;4;93~", false, len("\x1b[27;4;93~")},
 		{"ordinary input", "hello", false, len("hello")},
-		{"native Ctrl+/ passes to Pi", "\x1f", false, 1},
+		{"native Ctrl+/ passes to attached agent", "\x1f", false, 1},
 	}
 
 	for _, tt := range tests {

@@ -65,7 +65,7 @@ func (a *App) driverName(agent protocol.AgentID) string {
 	if d := a.live.Agent(agent).Driver; d != "" {
 		return d
 	}
-	return "pi"
+	return "driver"
 }
 
 func (a *App) isConnected(id protocol.AgentID) bool {

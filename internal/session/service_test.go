@@ -72,11 +72,12 @@ func freeAddr(t *testing.T) string {
 func headlessOptions(t *testing.T, repo, baseDir, listen string) Options {
 	agent := fakeAgent(t)
 	return Options{
-		LaunchDir: repo,
-		BaseDir:   baseDir,
-		Session:   "headless",
-		Listen:    listen,
-		Mode:      project.ModeFast,
+		DefaultAgentDriver: "pi",
+		LaunchDir:          repo,
+		BaseDir:            baseDir,
+		Session:            "headless",
+		Listen:             listen,
+		Mode:               project.ModeFast,
 		AgentCommands: map[protocol.AgentID]string{
 			protocol.Austin: agent,
 			protocol.Tony:   agent,

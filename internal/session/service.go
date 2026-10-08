@@ -99,7 +99,6 @@ type Service struct {
 	transcripts *sessionstore.LogWriter
 
 	driverState map[protocol.AgentID]sessionstore.DriverState
-	piSessions  map[protocol.AgentID]string
 
 	integration workspace.IntegrationResult
 	delivery    sessionstore.Delivery
@@ -231,7 +230,6 @@ func (s *Service) startFresh(ctx context.Context) (Result, error) {
 	s.journal = store.OpenEvents()
 	s.logger = store.OpenLog()
 	s.driverState = map[protocol.AgentID]sessionstore.DriverState{}
-	s.piSessions = map[protocol.AgentID]string{}
 	s.mode = s.opts.Mode
 
 	s.logger.Printf("starting Duo %s session %s mode=%s (source=%s) repository=%s scope=%s", versionString(), s.sessionID, s.mode, s.opts.ModeSource, s.root, set.ScopePath)
