@@ -249,6 +249,24 @@ Two notes specific to `opencode`:
   opencode; it uses whatever your opencode config or catalog already resolves,
   and `--variant` carries a configured reasoning effort.
 
+Codex is available as `--agent codex` or per agent with `--austin-driver codex`
+and `--tony-driver codex`. Duo passes model and reasoning selections to the Codex
+CLI, configures the `duo` MCP server for workflow tools, and runs Codex with
+`--dangerously-bypass-approvals-and-sandbox` so it can work unattended without
+folder trust or permission prompts. Codex's sandbox is disabled, so it can access
+files outside its worktree; Git worktrees separate normal repository edits but
+are not a security boundary. Use this mode only when the host is otherwise trusted
+or isolated. Duo passes per-invocation trust overrides for the repository and its
+worktree rather than editing Codex's persistent config. Codex may still gate
+project-scoped skills. Base commands with conflicting sandbox or approval flags
+are rejected.
+Codex assigns its own session IDs; the driver learns them from new rollout metadata
+for the exact worktree and resumes them with `codex resume <id>`. If multiple Codex
+sessions start in the same worktree at once, the driver leaves the ID unset rather
+than risk resuming the wrong conversation. Codex has no live activity or prompt
+bridge in this integration; workflow tools are provided through MCP and terminal
+input remains available.
+
 Duo runs agents with tool calls auto-approved (`--auto` for opencode,
 `--dangerously-skip-permissions` for agy) because they work unattended in their
 own isolated worktree. `duo plugins` lists the built-in drivers plus any

@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/atfa/duo/plugins/agy"
+	"github.com/atfa/duo/plugins/codex"
 	"github.com/atfa/duo/plugins/opencode"
 	"github.com/atfa/duo/plugins/pi"
 )
@@ -17,4 +18,5 @@ func registerDrivers() {
 	pi.Register()
 	agy.Register()
 	opencode.Register()
+	codex.Register()
 }
