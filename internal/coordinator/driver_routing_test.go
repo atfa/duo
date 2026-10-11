@@ -147,6 +147,88 @@ func TestSubmitUserTaskRoutesToAgyDriverViaPTY(t *testing.T) {
 	}
 }
 
+func TestGoalTaskIsDeliveredToBothConnectedAgents(t *testing.T) {
+	ctx := context.Background()
+	coord := New(nil, project.NewStateFor(project.ModeGoal), harness.NewTracker(), nil, events.NewBus())
+	austin := newMockDriver(protocol.Austin, "codex", observedFromOutside())
+	tony := newMockDriver(protocol.Tony, "pi", observedFromOutside())
+	austin.running, tony.running = true, true
+	agents := agent.NewManager()
+	agents.Add(austin)
+	agents.Add(tony)
+	coord.SetAgents(agents)
+
+	const task = "design a shared task scheduler"
+	if err := coord.SubmitUserTask(ctx, task); err != nil {
+		t.Fatalf("SubmitUserTask failed: %v", err)
+	}
+	for _, tc := range []struct {
+		driver *mockDriver
+		role   string
+	}{{austin, "Austin"}, {tony, "Tony"}} {
+		tc.driver.mu.Lock()
+		got := strings.Join(tc.driver.written, "")
+		tc.driver.mu.Unlock()
+		if !strings.Contains(got, task) || !strings.Contains(got, "Duo Goal task: PLAN") || !strings.Contains(got, "You are "+tc.role) {
+			t.Errorf("%s received incomplete Goal task: %q", tc.role, got)
+		}
+	}
+}
+
+func TestGoalTaskUsesAustinPTYAndTonysLiveBridge(t *testing.T) {
+	ctx := context.Background()
+	server := startBridge(t)
+	coord := New(server, project.NewStateFor(project.ModeGoal), harness.NewTracker(), nil, events.NewBus())
+	austin := newMockDriver(protocol.Austin, "codex", observedFromOutside())
+	tony := newMockDriver(protocol.Tony, "pi", liveSwitching())
+	austin.running, tony.running = true, true
+	agents := agent.NewManager()
+	agents.Add(austin)
+	agents.Add(tony)
+	coord.SetAgents(agents)
+	tonyEndpoint := attachAgent(t, server, protocol.Tony)
+
+	const task = "co-design the deployment workflow"
+	if err := coord.SubmitUserTask(ctx, task); err != nil {
+		t.Fatalf("SubmitUserTask failed: %v", err)
+	}
+	got := tonyEndpoint.collect(t, protocol.MsgHumanPrompt)
+	if len(got) != 1 || !strings.Contains(got[0].Text, task) || !strings.Contains(got[0].Text, "You are Tony") {
+		t.Fatalf("Tony bridge task = %+v", got)
+	}
+	austin.mu.Lock()
+	austinWritten := strings.Join(austin.written, "")
+	austin.mu.Unlock()
+	if !strings.Contains(austinWritten, task) {
+		t.Fatalf("Austin PTY did not receive task: %q", austinWritten)
+	}
+	tony.mu.Lock()
+	defer tony.mu.Unlock()
+	if len(tony.written) != 0 {
+		t.Fatalf("Tony bridge delivery also wrote to PTY: %q", tony.written)
+	}
+}
+
+func TestGoalTaskFailsClearlyWhenTonyIsDisconnected(t *testing.T) {
+	ctx := context.Background()
+	coord := New(nil, project.NewStateFor(project.ModeGoal), harness.NewTracker(), nil, events.NewBus())
+	austin := newMockDriver(protocol.Austin, "codex", observedFromOutside())
+	austin.running = true
+	agents := agent.NewManager()
+	agents.Add(austin)
+	coord.SetAgents(agents)
+
+	err := coord.SubmitUserTask(ctx, "work")
+	if err == nil || !strings.Contains(err.Error(), "Tony is not connected") {
+		t.Fatalf("SubmitUserTask error = %v, want explicit Tony connectivity error", err)
+	}
+	austin.mu.Lock()
+	defer austin.mu.Unlock()
+	if len(austin.written) != 0 {
+		t.Fatalf("Austin received task before checking Tony connectivity: %q", austin.written)
+	}
+}
+
 func TestChineseLanguageUsesLiveAgentNoticeRoute(t *testing.T) {
 	server := startBridge(t)
 	austin := attachAgent(t, server, protocol.Austin)

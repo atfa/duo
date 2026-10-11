@@ -334,10 +334,9 @@ func (c *Coordinator) emit(kind events.Kind, agent, peer protocol.AgentID, text 
 	c.bus.Emit(events.Event{Kind: kind, Agent: agent, Peer: peer, Text: text})
 }
 
-// SubmitUserTask is the single human entry point used by the Duo TUI. Austin
-// receives the task and is responsible for waking Tony through duo_send. On a
-// DONE session it first reopens the round, so a composer follow-up is a normal
-// task again instead of a dead end.
+// SubmitUserTask is the single human entry point used by the Duo TUI. Goal
+// tasks are sent to both agents; Fast tasks go only to Austin. On a DONE
+// session it first reopens the round, so a composer follow-up is a normal task.
 func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
@@ -368,14 +367,31 @@ func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 	if !c.IsAgentConnected(protocol.Austin) {
 		return fmt.Errorf("Austin is not connected yet")
 	}
+	goal := c.project.Snapshot().EffectiveMode() == project.ModeGoal
+	if goal && !c.IsAgentConnected(protocol.Tony) {
+		return fmt.Errorf("Tony is not connected; Goal mode requires both Austin and Tony")
+	}
 	c.reopenFinishedSession()
 	c.project.MarkStarted()
 	c.tracker.Touch(protocol.Austin)
-	c.emit(events.KindUser, protocol.Duo, protocol.Austin, text)
 	promptText := "[Human task from Duo]\n\n" + text
 	if c.language == "zh" {
 		promptText = "[Human task from Duo]\n\n以下是用户提交的原始任务，请按原文执行：\n\n" + text
 	}
+	if goal {
+		for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+			c.tracker.Touch(agent)
+			c.emit(events.KindUser, protocol.Duo, agent, text)
+			if err := c.sendToAgent(ctx, agent, protocol.Message{
+				Version: 1, Type: protocol.MsgHumanPrompt, From: protocol.Duo, To: agent,
+				Text: goalTaskPrompt(agent, text, c.language), Timestamp: time.Now().UnixMilli(),
+			}); err != nil {
+				return fmt.Errorf("send Goal task to %s: %w", agent, err)
+			}
+		}
+		return nil
+	}
+	c.emit(events.KindUser, protocol.Duo, protocol.Austin, text)
 	if c.project.Snapshot().EffectiveMode() == project.ModeFast {
 		guidance := "(Duo guidance: Once your work is committed and your worktree is clean, request verification with duo_set_status ready=true so Tony can independently verify.)"
 		if c.language == "zh" {
@@ -387,6 +403,23 @@ func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 		Version: 1, Type: protocol.MsgHumanPrompt, From: protocol.Duo, To: protocol.Austin,
 		Text: promptText, Timestamp: time.Now().UnixMilli(),
 	})
+}
+
+func goalTaskPrompt(agent protocol.AgentID, task, language string) string {
+	if language == "zh" {
+		role := "你是 Austin，Goal 模式的协作成员。"
+		if agent == protocol.Austin {
+			role += "请先独立理解任务，并与 Tony 协商；不要等待 Tony 被你唤醒，因为 Duo 已同时向双方发送任务。"
+		} else {
+			role = "你是 Tony，Goal 模式的独立共同设计者。请立即开始，不要等待 Austin 再发消息；先形成自己的方案，再通过 duo_send 与 Austin 讨论。"
+		}
+		return fmt.Sprintf("[Duo Goal task: PLAN]\n%s\n\n当前阶段是 PLAN：先调用 duo_status 查看权威状态；双方共同使用 duo_send 讨论方案，并用 duo_set_plan 维护完整共享计划。方案达成一致后，各自调用 duo_set_status ready=true 批准当前计划版本。Duo Core 收到双方批准后才会推进到 EXECUTE。\n\n用户原始任务：\n%s", role, task)
+	}
+	role := "You are Austin, a collaborating agent in Goal mode. Independently understand the task and coordinate with Tony; Duo has already sent the task to both of you, so do not wait for Tony to be woken by you."
+	if agent == protocol.Tony {
+		role = "You are Tony, an independent co-designer in Goal mode. Start now without waiting for another message from Austin: form your own proposal, then discuss it with Austin using duo_send."
+	}
+	return fmt.Sprintf("[Duo Goal task: PLAN]\n%s\n\nThe current phase is PLAN. First call duo_status to inspect authoritative state. Discuss the proposal with duo_send and maintain the complete shared plan with duo_set_plan. Once aligned, each of you must call duo_set_status ready=true to approve the current plan version. Duo Core advances to EXECUTE only after both approvals.\n\nOriginal human task:\n%s", role, task)
 }
 
 // EscalateToGoal dynamically escalates an active Fast mode session to Goal mode.

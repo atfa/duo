@@ -19,10 +19,10 @@ duo              # FAST (default)
 duo --mode goal  # full negotiated workflow
 ```
 
-Then type a task in the composer and press `Enter`. The composer always sends to **Austin**.
+Then type a task in the composer and press `Enter`. In **Fast**, Duo sends it to **Austin**. In **Goal**, Duo sends it to **both Austin and Tony** so they can co-design the shared Plan.
 
 - In **Fast**, Austin works in its own worktree, commits, and calls `duo_set_status` to request verification; Tony verifies that exact commit with `duo_set_verification` and either passes it or returns a concrete issue. Duo then delivers the verified commit and marks `DONE`.
-- In **Goal**, Austin wakes Tony with `duo_send`, they agree a shared Plan, and Duo Core drives `PLAN → EXECUTE → REVIEW → INTEGRATE → DONE` from there.
+- In **Goal**, Austin and Tony receive the task together, agree a shared Plan with `duo_send` and `duo_set_plan`, and Duo Core drives `PLAN → EXECUTE → REVIEW → INTEGRATE → DONE` from there.
 
 Requirements:
 
@@ -112,7 +112,7 @@ A build can take a long time, and the timeline only changes when an agent finish
 
 | Key | Action |
 |---|---|
-| `Enter` | Send composer text to Austin |
+| `Enter` | Send composer text to Austin in Fast, or both agents in Goal |
 | `Ctrl+Enter` / `Shift+Enter`\* | Insert a newline in the composer |
 | `Ctrl+A` | Attach to Austin's own agent session directly |
 | `Ctrl+T` | Attach to Tony's own agent session directly |
@@ -161,7 +161,7 @@ Typing `/` in the composer opens an interactive command palette showing availabl
 | `/clear` | The composer only holds this command, so it is already empty; Duo forces a full redraw and says so |
 | `/quit` or `/exit` | Exit Duo and preserve session state |
 
-An unknown command is reported as an error. `//text` and an absolute path (e.g. `/usr/bin/python`) are sent to Austin as a task.
+An unknown command is reported as an error. `//text` and an absolute path (e.g. `/usr/bin/python`) are sent as a task (Austin in Fast; both agents in Goal).
 
 Submitted tasks are appended to `~/.duo/history` (override with `DUO_HISTORY_FILE`), so `↑`/`↓` recall survives restarting or resuming Duo.
 

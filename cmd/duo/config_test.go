@@ -735,6 +735,30 @@ func TestANonDefaultDriverDoesNotInheritPiCommand(t *testing.T) {
 	}
 }
 
+func TestAgentConfiguredCodexResumesWithoutPiCommand(t *testing.T) {
+	cfg := loadConfigFor(t, `{"piCommand":"pi-custom","agents":{"austin":{"driver":"codex"}}}`)
+	if got := cfg.agentDriver(protocol.Austin); got != "codex" {
+		t.Fatalf("Austin driver = %q, want codex", got)
+	}
+	if got := cfg.agentCommand(protocol.Austin); got != "" {
+		t.Fatalf("Codex inherited Pi command on resume: %q", got)
+	}
+	if cfg.agentDriverExplicit[protocol.Austin] {
+		t.Fatal("project config driver should not override the persisted session driver")
+	}
+	if got := cfg.agentCommand(protocol.Tony); got != "pi-custom" {
+		t.Fatalf("default Pi command = %q, want pi-custom", got)
+	}
+	if !cfg.agentCommandDefault[protocol.Tony] {
+		t.Fatal("default Pi command source was not recorded")
+	}
+
+	cfg = loadConfigFor(t, `{"piCommand":"pi-custom","agents":{"austin":{"driver":"codex","command":"codex-wrapper"}}}`)
+	if got := cfg.agentCommand(protocol.Austin); got != "codex-wrapper" {
+		t.Fatalf("explicit Codex command = %q, want codex-wrapper", got)
+	}
+}
+
 // TestModelPersistedForAnotherDriverIsDropped covers the launch that failed for a
 // user who switched Tony to pi: .duo/config.json still held the opencode model
 // Tony had been using, --tony-driver pi changed the driver, and the model rode

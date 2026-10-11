@@ -2,7 +2,7 @@
 
 All notable project milestones are documented here.
 
-## Unreleased
+## v0.9.1 — 2026-10-12
 
 ### Driver plugins
 
@@ -10,6 +10,8 @@ All notable project milestones are documented here.
 - **`contextUsage` and `tokenRate` are now capabilities Duo keeps.** Core showed whatever figures arrived on an activity message regardless of what the driver declared, so a driver reporting a context window it could not actually maintain — or a rate computed from something other than its own output — put a number on screen that the operator had no way to distrust. Each figure is now gated on the capability that promises it, which is what the field always claimed to mean. A driver that omits both is unaffected: it reported nothing before and reports nothing now.
 - **The capability rule is enforced rather than stated.** `internal/driver/decoupling_test.go` reflects over `Capabilities` and fails when a field is declared that no Core file reads, so the next field cannot be added without Core either branching on it or the field becoming descriptive metadata in the same review. A companion guard reads `docs/` and fails when a document names `capabilities.<key>` for a key that is no longer a capability — the first move left `docs/duo-bridge-protocol.md` still telling adapter authors to set `capabilities.mcp`, which only a verifier reading the prose caught.
 - **Adding a driver no longer means editing the install scripts or the release workflow.** `install.sh`, `install-release.sh` and `release.yml` each named every driver binary to build or install, so a fourth driver had to be written into three files that had no other reason to know any driver existed. All three derive the list from `go list ./cmd/...`, producing exactly the binaries that shipped before — verified name-for-name — and `install-release.sh` installs whatever the release archive contains. A new guard keeps a driver binary out of those files.
+- **Codex startup, resume and reporting are more reliable.** The Codex driver now starts without a background daemon, reads its model catalog correctly, reports activity and assistant replies to Duo, wakes once with the saved conversation identity after resume, and preserves project command/profile settings. PTY I/O no longer holds the session lock while blocked, so status and Stop remain responsive.
+- **Goal mode gives both agents the task and supports attaching to native agent sessions.** Austin and Tony receive the work directly, and the interface can attach to each driver's own terminal session; the Help and keybinding text describes this consistently.
 
 ### Interface
 

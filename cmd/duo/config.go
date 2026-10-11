@@ -25,16 +25,17 @@ type config struct {
 	harnessEnabled bool
 	harness        harness.Config
 
-	repository    string
-	launchDir     string
-	worktreeRoot  string
-	session       string
-	baseRef       string
-	piCommand     string
-	testCommand   string
-	agentCommands map[protocol.AgentID]string
-	agentDrivers  map[protocol.AgentID]string
-	agentModels   map[protocol.AgentID]string
+	repository          string
+	launchDir           string
+	worktreeRoot        string
+	session             string
+	baseRef             string
+	piCommand           string
+	testCommand         string
+	agentCommands       map[protocol.AgentID]string
+	agentCommandDefault map[protocol.AgentID]bool
+	agentDrivers        map[protocol.AgentID]string
+	agentModels         map[protocol.AgentID]string
 	// agentThinkings is the reasoning effort per agent, or empty for the driver's own default.
 	agentThinkings map[protocol.AgentID]string
 
@@ -132,6 +133,7 @@ func (c config) sessionOptions() session.Options {
 		HarnessEnabled:      c.harnessEnabled,
 		Harness:             c.harness,
 		AgentCommands:       c.agentCommands,
+		AgentCommandDefault: c.agentCommandDefault,
 		DefaultAgentDriver:  defaultDriver,
 		AgentDrivers:        c.agentDrivers,
 		AgentModels:         c.agentModels,
@@ -381,6 +383,7 @@ func loadConfigCommand(args []string, resume bool) (config, error) {
 	piCommand := envString("DUO_PI_COMMAND", defaultPiCmd)
 
 	agentCommands := make(map[protocol.AgentID]string)
+	agentCommandDefault := make(map[protocol.AgentID]bool)
 	agentDrivers := make(map[protocol.AgentID]string)
 	agentModels := make(map[protocol.AgentID]string)
 	agentThinkings := make(map[protocol.AgentID]string)
@@ -432,8 +435,9 @@ func loadConfigCommand(args []string, resume bool) (config, error) {
 		// driver other than the default one was named. Naming the default driver
 		// explicitly is not naming a different one, and must not silently drop an
 		// operator's custom binary.
-		if baseCmd == "" && (!isExplicit || driverType == defaultDriver) {
+		if baseCmd == "" && (driverType == defaultDriver || (!isExplicit && agentCfg.Driver == "")) {
 			baseCmd = piCommand
+			agentCommandDefault[id] = true
 		}
 
 		// requested is the model the user asked for, and is emptied when it
@@ -494,6 +498,7 @@ func loadConfigCommand(args []string, resume bool) (config, error) {
 		piCommand:           piCommand,
 		testCommand:         testCommand,
 		agentCommands:       agentCommands,
+		agentCommandDefault: agentCommandDefault,
 		agentDrivers:        agentDrivers,
 		agentModels:         agentModels,
 		agentThinkings:      agentThinkings,

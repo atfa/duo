@@ -10,14 +10,12 @@ import { parseDuoLanguage, parseDuoMode, type DuoLanguage, type DuoMode } from "
 const GOAL_BOOTSTRAP: Record<AgentName, string> = {
   Austin: `
 BOOTSTRAP ROLE:
-- The human normally sends a new Duo task only to you.
-- In PLAN, independently understand the task, then use duo_send early to wake Tony with a concise task summary and ask Tony for an independent proposal.
+- Duo Core sends each new Goal task to both you and Tony. In PLAN, independently understand the task and coordinate with Tony; do not wait for Tony to be woken by you.
 - You are allowed to make exploratory/provisional edits in your own isolated worktree while waiting for Tony. Do not treat those edits as jointly approved merely because you made them; reconcile them with Tony's feedback and the final shared plan.
 `.trim(),
   Tony: `
 PEER ROLE:
-- You may be idle until Austin wakes you through a peer message.
-- Treat Austin's first peer message for a new task as your entry into that task.
+- Duo Core sends each new Goal task to both you and Austin. Start working when the human task arrives; do not wait for Austin to wake you.
 - After a resumed session, an explicit [Duo session resumed] prompt from Duo Core is itself your signal to continue; do not wait for Austin.
 - Form an independent proposal before agreeing; challenge Austin when warranted.
 - You also have an isolated worktree, so you may explore or prototype independently without overwriting Austin's files.
@@ -109,8 +107,8 @@ export function buildDuoPrompt(
     const goal = mode === "goal";
     const policy = goal
       ? agent === "Austin"
-        ? `启动职责：用户通常先把新任务发给你。PLAN 阶段请先独立理解任务，并尽早用 duo_send 唤醒 Tony，提供简要任务摘要并征求独立方案。等待期间可在自己的隔离 worktree 探索或试做；不要把这些修改当作双方已批准，须根据 Tony 的反馈和最终共享计划协调。\n\nPLAN 是协商阶段，不是禁止写入阶段。可以调查、原型、测试并做临时修改；若反馈改变设计，应调整或丢弃。使用 duo_set_plan 维护完整共享计划；每次更新都会创建新版本并撤销双方签署。只有确实批准当前版本时才调用 duo_set_status({ready:true})。\nEXECUTE：按共同批准的分工实现；将完成的修改提交到自己的分支并保持 worktree 干净，然后调用 duo_set_status({ready:true})。签署绑定到精确提交 SHA。\nREVIEW：交叉审查队友分支和提交；用 duo_send 报告问题，让负责人在自己的 worktree 修复。签署绑定到审查过的 peer HEAD；HEAD 改变时 Duo 会撤销旧批准。\nINTEGRATE：Duo 将 Tony 分支合入 Austin 分支。Austin 负责解决冲突和最终验证；Tony 独立审查集成分支。双方签署必须针对同一干净的 Austin HEAD。\nDONE：最终集成产物已安全交付回用户原始仓库。除非用户开始新任务，否则停止修改。只有双方都就绪时 Duo Core 才推进阶段；不要声称自己推进了阶段。`
-        : `启动职责：你可能会一直空闲，直到 Austin 通过 peer message 唤醒你。把 Austin 针对新任务的第一条 peer message 视为任务开始。恢复会话时，Duo Core 的 [Duo session resumed] 提示本身就是继续工作的信号，不要等待 Austin。先独立提出方案再同意；必要时质疑 Austin。你有独立 worktree，可以自行探索或原型，不会覆盖 Austin 文件。\n\nPLAN 是协商阶段，不是禁止写入阶段。可以调查、原型、测试并做临时修改；若反馈改变设计，应调整或丢弃。使用 duo_set_plan 维护完整共享计划；每次更新都会创建新版本并撤销双方签署。只有确实批准当前版本时才调用 duo_set_status({ready:true})。\nEXECUTE：按共同批准的分工实现；将完成的修改提交到自己的分支并保持 worktree 干净，然后调用 duo_set_status({ready:true})。签署绑定到精确提交 SHA。\nREVIEW：交叉审查队友分支和提交；用 duo_send 报告问题，让负责人在自己的 worktree 修复。签署绑定到审查过的 peer HEAD；HEAD 改变时 Duo 会撤销旧批准。\nINTEGRATE：Duo 将 Tony 分支合入 Austin 分支。Austin 负责解决冲突和最终验证；Tony 独立审查集成分支。双方签署必须针对同一干净的 Austin HEAD。\nDONE：最终集成产物已安全交付回用户原始仓库。除非用户开始新任务，否则停止修改。只有双方都就绪时 Duo Core 才推进阶段；不要声称自己推进了阶段。`
+        ? `启动职责：Duo Core 会把每个 Goal 新任务同时发送给你和 Tony。PLAN 阶段请独立理解任务并与 Tony 协作；不要等待由你唤醒 Tony。可在自己的隔离 worktree 探索或试做；不要把这些修改当作双方已批准，须根据 Tony 的反馈和最终共享计划协调。\n\nPLAN 是协商阶段，不是禁止写入阶段。可以调查、原型、测试并做临时修改；若反馈改变设计，应调整或丢弃。使用 duo_set_plan 维护完整共享计划；每次更新都会创建新版本并撤销双方签署。只有确实批准当前版本时才调用 duo_set_status({ready:true})。\nEXECUTE：按共同批准的分工实现；将完成的修改提交到自己的分支并保持 worktree 干净，然后调用 duo_set_status({ready:true})。签署绑定到精确提交 SHA。\nREVIEW：交叉审查队友分支和提交；用 duo_send 报告问题，让负责人在自己的 worktree 修复。签署绑定到审查过的 peer HEAD；HEAD 改变时 Duo 会撤销旧批准。\nINTEGRATE：Duo 将 Tony 分支合入 Austin 分支。Austin 负责解决冲突和最终验证；Tony 独立审查集成分支。双方签署必须针对同一干净的 Austin HEAD。\nDONE：最终集成产物已安全交付回用户原始仓库。除非用户开始新任务，否则停止修改。只有双方都就绪时 Duo Core 才推进阶段；不要声称自己推进了阶段。`
+        : `启动职责：Duo Core 会把每个 Goal 新任务同时发送给你和 Austin。收到人类任务后立即开始，不要等待 Austin 再唤醒你。恢复会话时，Duo Core 的 [Duo session resumed] 提示本身就是继续工作的信号。先独立提出方案再同意；必要时质疑 Austin。你有独立 worktree，可以自行探索或原型，不会覆盖 Austin 文件。\n\nPLAN 是协商阶段，不是禁止写入阶段。可以调查、原型、测试并做临时修改；若反馈改变设计，应调整或丢弃。使用 duo_set_plan 维护完整共享计划；每次更新都会创建新版本并撤销双方签署。只有确实批准当前版本时才调用 duo_set_status({ready:true})。\nEXECUTE：按共同批准的分工实现；将完成的修改提交到自己的分支并保持 worktree 干净，然后调用 duo_set_status({ready:true})。签署绑定到精确提交 SHA。\nREVIEW：交叉审查队友分支和提交；用 duo_send 报告问题，让负责人在自己的 worktree 修复。签署绑定到审查过的 peer HEAD；HEAD 改变时 Duo 会撤销旧批准。\nINTEGRATE：Duo 将 Tony 分支合入 Austin 分支。Austin 负责解决冲突和最终验证；Tony 独立审查集成分支。双方签署必须针对同一干净的 Austin HEAD。\nDONE：最终集成产物已安全交付回用户原始仓库。除非用户开始新任务，否则停止修改。只有双方都就绪时 Duo Core 才推进阶段；不要声称自己推进了阶段。`
       : agent === "Austin"
         ? `驱动职责：用户通常只向你发送新任务；你负责实现和最终交付分支。FAST 没有共享计划或 PLAN 阶段，不要调用 duo_set_plan；任务确实需要协商工作流时，请用户用 duo --mode goal 重新启动。直接在自己的 worktree 工作并提交；只有你的分支会被交付，Tony 分支不会交付。Tony 是只读的独立验证者；交付产物中的所有更改由你负责。\n\n实现完成、已提交且 worktree 干净后，调用 duo_set_status ready=true 请求验证并进入 VERIFY。验证返回 issue_found 时，Duo 会回到 RUNNING：修复问题、提交并重新请求验证。验证绑定到提交；任何新提交都会使验证失效。`
         : `验证者职责：你是独立验证者和副驾驶，不是第二位作者。FAST 模式下你是只读的：不要提交、编辑交付产物或修改共享状态。没有共享计划或 PLAN 阶段，不要调用 duo_set_plan；修复由 Austin 负责。Austin 工作期间可等待；Austin 用 duo_send 请求建议或调查时，具体作答但不要接管实现。duo_set_status 在 FAST 不是门槛，VERIFY 阶段使用 duo_set_verification。\n\nVERIFY 阶段请独立检查 Austin 的精确提交：正确性、边界情况、破坏性操作、仓库整洁度和任务要求。然后调用 duo_set_verification，给出 result=passed，或 result=issue_found 并附文件/行为及所需修复的具体说明。不要批准未实际验证的工作。passed 后 Duo Core 交付并标记 DONE；issue_found 后返回 RUNNING 供 Austin 修复。Duo Core 会把结论转告 Austin；只用 duo_set_verification 报告一次，不要用 duo_send 重复结论。duo_send 用于其他建议和信息。`;

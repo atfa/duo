@@ -160,3 +160,77 @@ func TestServerIgnoresMCPClientRegistrationAndDisconnect(t *testing.T) {
 	cancel()
 	_ = <-done
 }
+
+func TestServerIgnoresObserverRegistrationAndDisconnect(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	h := &mcpTestHandler{
+		connected:    make(chan protocol.AgentID, 1),
+		disconnected: make(chan protocol.AgentID, 1),
+		messages:     make(chan protocol.Message, 2),
+	}
+	s := NewServer("127.0.0.1:0", "session-1", "secret")
+	s.SetHandler(h)
+	done := make(chan error, 1)
+	go func() { done <- s.ListenAndServe(ctx) }()
+	<-s.Ready()
+
+	conn, err := net.Dial("tcp", s.Addr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.NewEncoder(conn).Encode(protocol.Message{
+		Version: protocol.Version, Type: protocol.MsgHello, ClientType: "observer",
+		Agent: protocol.Austin, SessionID: "session-1", Token: "secret",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-h.connected:
+		t.Fatalf("observer emitted OnConnect: %v", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+	if s.IsConnected(protocol.Austin) {
+		t.Fatal("observer occupied the Austin endpoint")
+	}
+
+	if err := json.NewEncoder(conn).Encode(protocol.Message{Version: protocol.Version, Type: protocol.MsgActivity, Activity: protocol.ActivityAgentStart}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-h.messages:
+		if got.Type != protocol.MsgActivity || got.Activity != protocol.ActivityAgentStart || got.Agent != protocol.Austin {
+			t.Fatalf("observer message = %#v", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("observer activity message was not dispatched")
+	}
+	if err := json.NewEncoder(conn).Encode(protocol.Message{Version: protocol.Version, Type: protocol.MsgAssistantMessage, Text: "Austin summary"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-h.messages:
+		if got.Type != protocol.MsgAssistantMessage || got.Text != "Austin summary" || got.Agent != protocol.Austin {
+			t.Fatalf("observer assistant message = %#v", got)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("observer assistant message was not dispatched")
+	}
+	if err := json.NewEncoder(conn).Encode(protocol.Message{Version: protocol.Version, Type: protocol.MsgSetStatus, Text: "ready"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-h.messages:
+		t.Fatalf("observer dispatched non-activity message: %#v", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+	_ = conn.Close()
+	select {
+	case got := <-h.disconnected:
+		t.Fatalf("observer emitted OnDisconnect: %v", got)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	cancel()
+	_ = <-done
+}

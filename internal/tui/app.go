@@ -31,7 +31,7 @@ func (a *App) startupMessage() string {
 	if a.live.EffectiveMode() == project.ModeFast {
 		return "Duo " + a.version + " ready (FAST mode). Type a task and press Enter; Austin drives while Tony independently verifies before Duo delivers the result." + where
 	}
-	return "Duo " + a.version + " ready (GOAL mode). Type a task and press Enter; Austin will wake Tony when collaboration is needed." + where
+	return "Duo " + a.version + " ready (GOAL mode). Type a task and press Enter; Duo sends it to both Austin and Tony to co-design the shared plan." + where
 }
 
 // announceRunningAgents reports the agents that are already up when the timeline
@@ -110,7 +110,7 @@ func (a *App) Run(ctx context.Context) error {
 		a.live = sub.View
 	}
 
-	inputCh := make(chan byte, 256)
+	inputCh := make(chan []byte, 16)
 	go readBytes(tty.File, inputCh)
 	var escTimer <-chan time.Time
 	tick := time.NewTicker(250 * time.Millisecond)
@@ -132,36 +132,54 @@ func (a *App) Run(ctx context.Context) error {
 			a.refreshView()
 			a.route(ev)
 			a.markDirty()
-		case b, ok := <-inputCh:
+		case input, ok := <-inputCh:
 			if !ok {
 				return nil
 			}
-			if a.native != "" {
-				detach, forward := a.nativeDetach(b)
-				if forward {
-					_ = a.svc.Write(a.native, []byte{b})
+			for i := 0; i < len(input); {
+				if a.native != "" {
+					consumed, detach := a.forwardNativeChunk(input[i:])
+					i += consumed
+					if detach {
+						a.leaveNative()
+						continue
+					}
+					break
 				}
-				if detach {
-					a.leaveNative()
+				b := input[i]
+				i++
+				action := a.handleByte(b)
+				if len(a.escBuf) > 0 {
+					escTimer = time.After(25 * time.Millisecond)
+				} else {
+					escTimer = nil
 				}
-				continue
+				if a.applyAction(ctx, action) {
+					return nil
+				}
+				if action.kind == actionNone && len(a.escBuf) == 0 {
+					a.markDirty()
+				}
 			}
-			action := a.handleByte(b)
-			if len(a.escBuf) > 0 {
-				escTimer = time.After(25 * time.Millisecond)
+			if a.native != "" && a.nativeInput.pending != nil {
+				delay := 100 * time.Millisecond
+				if len(a.nativeInput.pending) > 1 {
+					delay = 250 * time.Millisecond
+				}
+				escTimer = time.After(delay)
 			} else {
 				escTimer = nil
-			}
-			if a.applyAction(ctx, action) {
-				return nil
-			}
-			if action.kind == actionNone && len(a.escBuf) == 0 {
-				a.markDirty()
 			}
 		case <-winch:
 			a.resize()
 		case <-escTimer:
 			escTimer = nil
+			if a.native != "" {
+				if input := a.nativeInput.flush(); len(input) > 0 {
+					_ = a.svc.Write(a.native, input)
+				}
+				continue
+			}
 			if a.applyAction(ctx, a.handleEscapeTimeout()) {
 				return nil
 			}
@@ -404,12 +422,12 @@ func (a *App) syncSize() {
 	}
 }
 
-func readBytes(r io.Reader, out chan<- byte) {
+func readBytes(r io.Reader, out chan<- []byte) {
 	buf := make([]byte, 256)
 	for {
 		n, err := r.Read(buf)
-		for _, b := range buf[:n] {
-			out <- b
+		if n > 0 {
+			out <- append([]byte(nil), buf[:n]...)
 		}
 		if err != nil {
 			close(out)
@@ -425,6 +443,10 @@ func (a *App) enterNative(target protocol.AgentID) error {
 	a.syncSize()
 	a.native = target
 	a.nativeDetachBuf = nil
+	a.nativeInput = nativeInputAssembler{}
+	if a.renderer != nil {
+		a.renderer.discard()
+	}
 	_, _ = a.tty.File.WriteString(terminal.MouseOff + terminal.BracketedPasteOff + terminal.ShowCursor + terminal.ExitAltScreen + terminal.ClearHome)
 	recent, err := a.svc.Attach(target, a.tty.File)
 	if err != nil {
@@ -445,6 +467,7 @@ func (a *App) leaveNative() {
 	a.native = ""
 	a.syncSize()
 	a.nativeDetachBuf = nil
+	a.nativeInput = nativeInputAssembler{}
 	_, _ = a.tty.File.WriteString(terminal.ResetOuterModes + terminal.EnterAltScreen + terminal.HideCursor + terminal.MouseOn + terminal.ModifyOtherKeysOn + terminal.BracketedPasteOn + terminal.ClearHome)
 	a.requestFullClear()
 }
@@ -464,6 +487,30 @@ func (a *App) nativeDetach(b byte) (detach, forward bool) {
 		return true, true
 	}
 	return false, true
+}
+
+// nativeInputChunk assembles bytes for the attached process and stops at the
+// detach key so the caller can return the rest of the chunk to Duo.
+func (a *App) nativeInputChunk(input []byte) (forward []byte, consumed int, detach bool) {
+	for _, b := range input {
+		consumed++
+		detach, send := a.nativeDetach(b)
+		if send {
+			forward = append(forward, a.nativeInput.add(b)...)
+		}
+		if detach {
+			return forward, consumed, true
+		}
+	}
+	return forward, consumed, false
+}
+
+func (a *App) forwardNativeChunk(input []byte) (consumed int, detach bool) {
+	forward, consumed, detach := a.nativeInputChunk(input)
+	if len(forward) > 0 {
+		_ = a.svc.Write(a.native, forward)
+	}
+	return consumed, detach
 }
 
 func nativeDetachSequence(buf []byte) bool {

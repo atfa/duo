@@ -62,6 +62,18 @@ func (r *renderer) markDirty(full bool) {
 // the event loop.
 func (r *renderer) dueChan() <-chan time.Time { return r.due }
 
+func (r *renderer) discard() {
+	if r.timer != nil && !r.timer.Stop() {
+		select {
+		case <-r.timer.C:
+		default:
+		}
+	}
+	r.due = nil
+	r.dirty = false
+	r.full = false
+}
+
 // flush draws the latest state once if a frame is scheduled and reports whether
 // it wrote anything.
 func (r *renderer) flush() bool {

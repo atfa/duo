@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -189,5 +190,112 @@ func TestSaveProjectConfigKeepsModelWhenDriverUnchanged(t *testing.T) {
 	}
 	if got := parsed.Agents["austin"].Model; got != "opencode/claude-sonnet-4-6" {
 		t.Fatalf("model = %q, want it kept", got)
+	}
+}
+
+func TestSaveProjectConfigPreservesOtherProjectOptions(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".duo", "config.json")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	initial := `{"mode":"goal","harness":{"enabled":false},"x-extension":{"value":7},"agents":{"austin":{"driver":"codex","model":"gpt-6-sol","command":"codex --profile cli-proxy","thinking":"high","x-agent-option":"keep"}}}`
+	if err := os.WriteFile(configPath, []byte(initial), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := SaveProjectConfig(dir, "", map[protocol.AgentID]string{protocol.Austin: "codex"}, map[protocol.AgentID]string{protocol.Austin: "gpt-5.6-terra"}); err != nil {
+			t.Fatalf("SaveProjectConfig failed: %v", err)
+		}
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	for key, want := range map[string]string{
+		"mode": `"goal"`, "harness": `{"enabled":false}`, "x-extension": `{"value":7}`,
+	} {
+		var compact bytes.Buffer
+		if err := json.Compact(&compact, got[key]); err != nil || compact.String() != want {
+			t.Errorf("%s = %s, want %s (compact error %v)", key, got[key], want, err)
+		}
+	}
+	var agents map[string]map[string]json.RawMessage
+	if err := json.Unmarshal(got["agents"], &agents); err != nil {
+		t.Fatal(err)
+	}
+	austin := agents["austin"]
+	for key, want := range map[string]string{
+		"model": `"gpt-5.6-terra"`, "command": `"codex --profile cli-proxy"`,
+		"thinking": `"high"`, "x-agent-option": `"keep"`,
+	} {
+		if string(austin[key]) != want {
+			t.Errorf("Austin %s = %s, want %s", key, austin[key], want)
+		}
+	}
+}
+
+func TestSaveProjectConfigRejectsInvalidExistingConfigWithoutReplacingIt(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".duo", "config.json")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	initial := []byte(`{"agents":`)
+	if err := os.WriteFile(configPath, initial, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveProjectConfig(dir, "codex", nil, nil); err == nil {
+		t.Fatal("SaveProjectConfig accepted malformed existing JSON")
+	}
+	after, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(initial) {
+		t.Fatalf("malformed config was changed: %q", after)
+	}
+}
+
+func TestSaveProjectConfigReturnsExistingConfigReadError(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".duo", "config.json")
+	if err := os.MkdirAll(configPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveProjectConfig(dir, "codex", nil, nil); err == nil {
+		t.Fatal("SaveProjectConfig ignored an error reading existing config")
+	}
+	if st, err := os.Stat(configPath); err != nil || !st.IsDir() {
+		t.Fatalf("existing config path was replaced: stat=%v err=%v", st, err)
+	}
+}
+
+func TestSaveProjectConfigHandlesNullAgents(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".duo", "config.json")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte(`{"agents":null}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveProjectConfig(dir, "", map[protocol.AgentID]string{protocol.Austin: "codex"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got ProjectConfigFile
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Agents["austin"].Driver != "codex" {
+		t.Fatalf("Austin driver = %q, want codex", got.Agents["austin"].Driver)
 	}
 }

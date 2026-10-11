@@ -348,6 +348,7 @@ func (s *Service) launch(ctx context.Context) (Result, error) {
 			Host:           host,
 			Port:           port,
 			Session:        s.sessionID,
+			ResumeWake:     s.resume,
 			Token:          token,
 			Plugin:         plugin,
 			PluginState:    s.driverState[agentID].State,
@@ -461,6 +462,11 @@ func (s *Service) closeLocked() Result {
 
 	if s.agents != nil {
 		s.agents.StopAll()
+		if s.store != nil && s.state != nil {
+			if err := s.store.Save(s.composeSnapshot(s.coord)); err != nil && s.logger != nil {
+				s.logger.Printf("final checkpoint: %v", err)
+			}
+		}
 		s.agents.CloseAll()
 	}
 	if s.state != nil && s.journal != nil {

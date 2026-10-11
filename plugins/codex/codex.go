@@ -3,10 +3,12 @@ package codex
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,11 +18,14 @@ import (
 	"time"
 
 	"github.com/atfa/duo/internal/driver"
+	"github.com/atfa/duo/internal/mcp"
+	"github.com/atfa/duo/internal/protocol"
 )
 
 const (
 	Name          = "codex"
 	DriverVersion = "1.0.0"
+	resumePrompt  = "Continue Duo's existing task. First inspect duo_status, then continue the current phase in this worktree without restarting completed work."
 )
 
 var (
@@ -39,10 +44,12 @@ type state struct {
 }
 
 type Plugin struct {
-	mu      sync.Mutex
-	current state
-	stop    context.CancelFunc
-	learned bool
+	mu           sync.Mutex
+	current      state
+	stop         context.CancelFunc
+	activityStop context.CancelFunc
+	activitySink *codexActivitySink
+	learned      bool
 }
 
 func New() driver.Handler { return &Plugin{} }
@@ -59,12 +66,169 @@ func (p *Plugin) Describe() (*driver.Manifest, error) {
 		ModelReference: driver.ModelBare,
 		Capabilities: driver.Capabilities{
 			Resume:      driver.ResumeServer,
+			Models:      true,
 			Thinking:    true,
 			Bridge:      driver.BridgeNone,
 			PTYFallback: true,
 		},
-		MCP: true,
+		MCP:      true,
+		Activity: true,
 	}, nil
+}
+
+// Models asks Codex's app-server for the models it currently exposes in its
+// picker. The server is authoritative for account, provider and CLI-version
+// specific availability.
+func (*Plugin) Models() (*driver.ModelList, error) {
+	path, err := lookPath(Name)
+	if err != nil {
+		return nil, fmt.Errorf("find codex CLI: %w", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), driver.ModelListTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, "app-server", "--stdio")
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		return nil, fmt.Errorf("start codex app-server: %w", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, fmt.Errorf("start codex app-server: %w", err)
+	}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("start codex app-server: %w", err)
+	}
+	stopped := false
+	stop := func() {
+		if !stopped {
+			_ = stdin.Close()
+			_ = cmd.Wait()
+			stopped = true
+		}
+	}
+	defer func() {
+		stop()
+	}()
+	fail := func(err error) (*driver.ModelList, error) {
+		stop()
+		if detail := strings.TrimSpace(stderr.String()); detail != "" {
+			return nil, fmt.Errorf("Codex app-server: %w: %s", err, detail)
+		}
+		return nil, fmt.Errorf("Codex app-server: %w", err)
+	}
+
+	w := bufio.NewWriter(stdin)
+	if err := writeAppServerMessage(w, map[string]any{"method": "initialize", "id": 1, "params": map[string]any{"clientInfo": map[string]string{"name": "duo", "version": DriverVersion}, "capabilities": map[string]bool{"experimentalApi": true}}}); err != nil {
+		return fail(err)
+	}
+	reader := bufio.NewScanner(stdout)
+	reader.Buffer(make([]byte, 4096), 4<<20)
+	if _, err := appServerResponse(reader, 1); err != nil {
+		return fail(fmt.Errorf("initialize: %w", err))
+	}
+	if err := writeAppServerMessage(w, map[string]any{"method": "initialized"}); err != nil {
+		return fail(err)
+	}
+	var models []driver.Model
+	cursor := ""
+	seenCursors := make(map[string]bool)
+	requestID := 2
+	for {
+		params := map[string]any{"includeHidden": false, "limit": 100}
+		if cursor != "" {
+			params["cursor"] = cursor
+		}
+		if err := writeAppServerMessage(w, map[string]any{"method": "model/list", "id": requestID, "params": params}); err != nil {
+			return fail(err)
+		}
+		var result struct {
+			Data []struct {
+				ID          string            `json:"id"`
+				Model       string            `json:"model"`
+				DisplayName string            `json:"displayName"`
+				Input       []string          `json:"inputModalities"`
+				Reasoning   []json.RawMessage `json:"supportedReasoningEfforts"`
+			} `json:"data"`
+			NextCursor *string `json:"nextCursor"`
+		}
+		response, err := appServerResponse(reader, requestID)
+		if err != nil {
+			return fail(fmt.Errorf("model/list: %w", err))
+		}
+		if err := json.Unmarshal(response, &result); err != nil {
+			return fail(fmt.Errorf("decode model catalog: %w", err))
+		}
+		for _, item := range result.Data {
+			id := item.Model
+			if id == "" {
+				id = item.ID
+			}
+			if id == "" {
+				continue
+			}
+			name := item.DisplayName
+			if name == "" {
+				name = id
+			}
+			images := false
+			for _, modality := range item.Input {
+				images = images || modality == "image"
+			}
+			models = append(models, driver.Model{Provider: "openai", ID: id, DisplayName: name, Images: images, Thinking: len(item.Reasoning) > 0})
+		}
+		if result.NextCursor == nil || *result.NextCursor == "" {
+			if len(models) == 0 {
+				return fail(errors.New("Codex returned no selectable models"))
+			}
+			stop()
+			return &driver.ModelList{Models: models}, nil
+		}
+		if seenCursors[*result.NextCursor] {
+			return fail(errors.New("Codex model catalog repeated a pagination cursor"))
+		}
+		seenCursors[*result.NextCursor] = true
+		cursor = *result.NextCursor
+		requestID++
+	}
+}
+
+func writeAppServerMessage(w *bufio.Writer, message any) error {
+	data, err := json.Marshal(message)
+	if err != nil {
+		return err
+	}
+	if _, err = w.Write(data); err == nil {
+		_, err = w.WriteString("\n")
+	}
+	if err == nil {
+		err = w.Flush()
+	}
+	return err
+}
+
+func appServerResponse(reader *bufio.Scanner, id int) (json.RawMessage, error) {
+	for reader.Scan() {
+		var message struct {
+			ID     *int            `json:"id"`
+			Result json.RawMessage `json:"result"`
+			Error  *struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+		if json.Unmarshal(reader.Bytes(), &message) != nil || message.ID == nil || *message.ID != id {
+			continue
+		}
+		if message.Error != nil {
+			return nil, errors.New(message.Error.Message)
+		}
+		return message.Result, nil
+	}
+	if err := reader.Err(); err != nil {
+		return nil, err
+	}
+	return nil, io.EOF
 }
 
 func (p *Plugin) Probe() (*driver.ProbeResult, error) {
@@ -83,6 +247,15 @@ func (p *Plugin) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
 	if len(req.State) > 0 {
 		if err := json.Unmarshal(req.State, &prior); err != nil {
 			return nil, &driver.RPCError{Code: driver.CodeInvalid, Message: "codex resume state is not readable: " + err.Error()}
+		}
+	}
+	if prior.SessionID == "" && prior.CWD != "" && !prior.StartedAt.IsZero() {
+		// A previous Duo checkpoint may have captured the prepared state before
+		// Codex wrote its rollout metadata. On resume, accept only one matching
+		// rollout from the worktree's recent day; ambiguity remains unresolved.
+		ids := findNewSessionIDs(codexHome(), state{CWD: prior.CWD, StartedAt: prior.StartedAt.Add(-24 * time.Hour)})
+		if len(ids) == 1 {
+			prior.SessionID = ids[0]
 		}
 	}
 	mcpCommand, err := duoCommand()
@@ -106,8 +279,16 @@ func (p *Plugin) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
 		}
 	}
 	command := base
+	// Keep Duo's Codex process out of a potentially stale shared daemon.
+	if !driver.HasFlag(command, "--no-daemon") {
+		command += " --no-daemon"
+	}
+	resumeWithoutSession := prior.SessionID == "" && prior.CWD != "" && !prior.StartedAt.IsZero()
 	if prior.SessionID != "" && !hasSubcommand(command, "resume") {
 		command += " resume " + driver.ShellQuote(prior.SessionID)
+		if req.ResumeWake {
+			command += " " + driver.ShellQuote(resumePrompt)
+		}
 	}
 	command = driver.AppendFlag(command, "--model", driver.BareModelID(req.Model))
 	if effort := strings.TrimSpace(req.Thinking); effort != "" {
@@ -129,6 +310,9 @@ func (p *Plugin) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
 	if !driver.HasFlag(command, "--yolo", "--dangerously-bypass-approvals-and-sandbox") {
 		command += " --dangerously-bypass-approvals-and-sandbox"
 	}
+	if req.ResumeWake && resumeWithoutSession && !hasSubcommand(base, "resume") {
+		command += " " + driver.ShellQuote("This Duo session was resumed, but no prior Codex conversation could be recovered. Do not claim to have that conversation. First inspect duo_status, then continue the current phase and work in this worktree without restarting completed work.")
+	}
 
 	next := prior
 	if next.SessionID == "" {
@@ -147,6 +331,12 @@ func (p *Plugin) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
 	p.mu.Unlock()
 	if prior.SessionID == "" && next.CWD != "" {
 		p.watch(next)
+	}
+	if next.CWD != "" {
+		p.watchActivity(next, mcp.Config{
+			Agent: protocol.CanonicalAgent(string(req.Agent)), SessionID: req.Session,
+			Token: req.Token, Host: req.Host, Port: req.Port, ClientType: "observer",
+		})
 	}
 	return &driver.LaunchPlan{
 		Command: command,
@@ -281,12 +471,239 @@ func (p *Plugin) watch(target state) {
 	}()
 }
 
+func (p *Plugin) watchActivity(target state, cfg mcp.Config) {
+	p.mu.Lock()
+	if p.activityStop != nil {
+		p.activityStop()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	p.activityStop = cancel
+	if p.activitySink != nil {
+		p.activitySink.Close()
+	}
+	p.activitySink = &codexActivitySink{cfg: cfg}
+	sink := p.activitySink
+	p.mu.Unlock()
+
+	// A resumed rollout contains old turns. Start at its current end so only
+	// activity from the newly resumed turn affects Duo's work state.
+	var offset int64
+	initialized := target.SessionID == ""
+	if target.SessionID != "" {
+		if path := findRolloutPath(codexHome(), target, target.SessionID); path != "" {
+			if info, err := os.Stat(path); err == nil {
+				offset, initialized = info.Size(), true
+			}
+		}
+	}
+	interval := watchInterval
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		var pending []byte
+		path := ""
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+			p.mu.Lock()
+			id := p.current.SessionID
+			p.mu.Unlock()
+			sink.Retry()
+			if id == "" {
+				continue
+			}
+			if id != target.SessionID {
+				target.SessionID = id
+				path = ""
+			}
+			if path == "" {
+				path = findRolloutPath(codexHome(), target, id)
+				if path == "" {
+					continue
+				}
+				if !initialized {
+					if info, err := os.Stat(path); err == nil {
+						offset, initialized = info.Size(), true
+					}
+				}
+			}
+			for _, message := range readRolloutMessages(path, &offset, &pending) {
+				message.Version = protocol.Version
+				message.Agent = cfg.Agent
+				message.Timestamp = time.Now().UnixMilli()
+				if message.Type == protocol.MsgAssistantMessage {
+					sink.OnAssistantMessage(message)
+				} else {
+					sink.OnActivity(message)
+				}
+			}
+		}
+	}()
+}
+
+type codexActivitySink struct {
+	cfg      mcp.Config
+	mu       sync.Mutex
+	bc       *mcp.BridgeClient
+	pending  *protocol.Message
+	messages []protocol.Message
+	closed   bool
+}
+
+func (s *codexActivitySink) OnActivity(message protocol.Message) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
+	s.pending = &message
+	s.retryLocked()
+}
+
+func (s *codexActivitySink) OnAssistantMessage(message protocol.Message) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return
+	}
+	s.messages = append(s.messages, message)
+	s.retryLocked()
+}
+
+func (s *codexActivitySink) Retry() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.retryLocked()
+}
+
+func (s *codexActivitySink) retryLocked() {
+	if s.closed || (len(s.messages) == 0 && s.pending == nil) {
+		return
+	}
+	if s.bc == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		bc, err := mcp.ConnectBridge(ctx, s.cfg)
+		cancel()
+		if err != nil {
+			return
+		}
+		s.bc = bc
+	}
+	for len(s.messages) > 0 {
+		if err := s.bc.Send(s.messages[0]); err != nil {
+			_ = s.bc.Close()
+			s.bc = nil
+			return
+		}
+		s.messages = s.messages[1:]
+	}
+	if s.pending == nil {
+		return
+	}
+	if err := s.bc.Send(*s.pending); err != nil {
+		_ = s.bc.Close()
+		s.bc = nil
+		return
+	}
+	s.pending = nil
+}
+
+func (s *codexActivitySink) Close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closed = true
+	s.pending = nil
+	s.messages = nil
+	if s.bc != nil {
+		_ = s.bc.Close()
+		s.bc = nil
+	}
+}
+
+func readRolloutMessages(path string, offset *int64, pending *[]byte) []protocol.Message {
+	file, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return nil
+	}
+	if info.Size() < *offset {
+		*offset = 0
+		*pending = nil
+	}
+	if _, err := file.Seek(*offset, io.SeekStart); err != nil {
+		return nil
+	}
+	data, err := io.ReadAll(file)
+	if err != nil || len(data) == 0 {
+		return nil
+	}
+	*offset += int64(len(data))
+	lines := append(*pending, data...)
+	parts := bytes.Split(lines, []byte{'\n'})
+	*pending = append((*pending)[:0], parts[len(parts)-1]...)
+	messages := make([]protocol.Message, 0, 1)
+	for _, line := range parts[:len(parts)-1] {
+		var event struct {
+			Type    string `json:"type"`
+			Payload struct {
+				Type    string `json:"type"`
+				Role    string `json:"role"`
+				Content []struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				} `json:"content"`
+			} `json:"payload"`
+		}
+		if json.Unmarshal(line, &event) != nil {
+			continue
+		}
+		if event.Type == "response_item" && event.Payload.Type == "message" && event.Payload.Role == "assistant" {
+			var text strings.Builder
+			for _, part := range event.Payload.Content {
+				if part.Type == "output_text" {
+					text.WriteString(part.Text)
+				}
+			}
+			if body := strings.TrimSpace(text.String()); body != "" {
+				messages = append(messages, protocol.Message{Type: protocol.MsgAssistantMessage, Text: body})
+			}
+			continue
+		}
+		if event.Type != "event_msg" {
+			continue
+		}
+		switch event.Payload.Type {
+		case "task_started":
+			messages = append(messages, protocol.Message{Type: protocol.MsgActivity, Activity: protocol.ActivityAgentStart})
+		case "task_complete", "turn_aborted":
+			messages = append(messages, protocol.Message{Type: protocol.MsgActivity, Activity: protocol.ActivityAgentSettled})
+		}
+	}
+	return messages
+}
+
 func (p *Plugin) Close() error {
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	if p.stop != nil {
 		p.stop()
 		p.stop = nil
+	}
+	if p.activityStop != nil {
+		p.activityStop()
+		p.activityStop = nil
+	}
+	sink := p.activitySink
+	p.activitySink = nil
+	p.mu.Unlock()
+	if sink != nil {
+		sink.Close()
 	}
 	return nil
 }
@@ -308,9 +725,52 @@ type rolloutMeta struct {
 	Type      string `json:"type"`
 	Timestamp string `json:"timestamp"`
 	Payload   struct {
-		ID  string `json:"id"`
-		CWD string `json:"cwd"`
+		ID     string          `json:"id"`
+		CWD    string          `json:"cwd"`
+		Source json.RawMessage `json:"source"`
 	} `json:"payload"`
+}
+
+func (meta rolloutMeta) isSubagent() bool {
+	var source map[string]json.RawMessage
+	if json.Unmarshal(meta.Payload.Source, &source) != nil {
+		return false
+	}
+	var subagent map[string]json.RawMessage
+	return json.Unmarshal(source["subagent"], &subagent) == nil && subagent != nil
+}
+
+func findRolloutPath(home string, target state, sessionID string) string {
+	if target.StartedAt.IsZero() {
+		return ""
+	}
+	days := []time.Time{
+		target.StartedAt.Local().AddDate(0, 0, -1), target.StartedAt.Local(), target.StartedAt.Local().AddDate(0, 0, 1),
+		target.StartedAt.UTC().AddDate(0, 0, -1), target.StartedAt.UTC(), target.StartedAt.UTC().AddDate(0, 0, 1),
+	}
+	seen := make(map[string]bool)
+	for _, date := range days {
+		dir := filepath.Join(home, "sessions", date.Format("2006"), date.Format("01"), date.Format("02"))
+		if seen[dir] {
+			continue
+		}
+		seen[dir] = true
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasPrefix(entry.Name(), "rollout-") || !strings.HasSuffix(entry.Name(), ".jsonl") {
+				continue
+			}
+			path := filepath.Join(dir, entry.Name())
+			meta, err := readRolloutMeta(path)
+			if err == nil && meta.Type == "session_meta" && !meta.isSubagent() && meta.Payload.ID == sessionID && sameCWD(meta.Payload.CWD, target.CWD) {
+				return path
+			}
+		}
+	}
+	return ""
 }
 
 func findNewSessionIDs(home string, target state) []string {
@@ -341,7 +801,7 @@ func findNewSessionIDs(home string, target state) []string {
 				continue
 			}
 			meta, err := readRolloutMeta(filepath.Join(dir, entry.Name()))
-			if err != nil || meta.Type != "session_meta" || meta.Payload.ID == "" || !sameCWD(meta.Payload.CWD, target.CWD) {
+			if err != nil || meta.Type != "session_meta" || meta.isSubagent() || meta.Payload.ID == "" || !sameCWD(meta.Payload.CWD, target.CWD) {
 				continue
 			}
 			created, err := time.Parse(time.RFC3339Nano, meta.Timestamp)

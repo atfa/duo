@@ -95,7 +95,7 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	defer func() {
 		current := s.unregister(client)
 		_ = client.Close()
-		if s.handler != nil && current && client.clientType != "mcp" {
+		if s.handler != nil && current && client.clientType != "mcp" && client.clientType != "observer" {
 			s.handler.OnDisconnect(client)
 		}
 	}()
@@ -129,7 +129,7 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 			}
 			client.agent = agent
 			client.clientType = message.ClientType
-			if message.ClientType != "mcp" {
+			if message.ClientType != "mcp" && message.ClientType != "observer" {
 				s.register(client)
 				if s.handler != nil {
 					s.handler.OnConnect(ctx, client)
@@ -140,6 +140,9 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 
 		if client.agent == "" {
 			log.Printf("ignoring message before hello from %s", conn.RemoteAddr())
+			continue
+		}
+		if client.clientType == "observer" && message.Type != protocol.MsgActivity && message.Type != protocol.MsgAssistantMessage {
 			continue
 		}
 

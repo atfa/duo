@@ -18,6 +18,53 @@ const (
 	bracketedPasteEnd   = "\x1b[201~"
 )
 
+type nativeInputAssembler struct{ pending []byte }
+
+// add keeps terminal escape sequences intact so a split ESC byte cannot be
+// interpreted as an Escape key before the rest of a terminal reply arrives.
+func (f *nativeInputAssembler) add(b byte) []byte {
+	if len(f.pending) == 0 {
+		if b == 0x1b {
+			f.pending = []byte{b}
+			return nil
+		}
+		return []byte{b}
+	}
+	f.pending = append(f.pending, b)
+	if len(f.pending) == 2 {
+		switch b {
+		case '[', ']', 'O':
+			return nil
+		default:
+			return f.flush()
+		}
+	}
+	if len(f.pending) > 256 {
+		return f.flush()
+	}
+	switch f.pending[1] {
+	case '[':
+		if b >= 0x40 && b <= 0x7e {
+			return f.flush()
+		}
+	case ']':
+		if b == 0x07 || (len(f.pending) >= 2 && f.pending[len(f.pending)-2] == 0x1b && b == '\\') {
+			return f.flush()
+		}
+	case 'O':
+		if b >= 0x40 && b <= 0x7e {
+			return f.flush()
+		}
+	}
+	return nil
+}
+
+func (f *nativeInputAssembler) flush() []byte {
+	out := f.pending
+	f.pending = nil
+	return out
+}
+
 type actionKind int
 
 const (

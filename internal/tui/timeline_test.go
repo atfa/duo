@@ -56,6 +56,19 @@ func TestTimelineMainViewAlignsSpeakersAndKeepsGeometry(t *testing.T) {
 	t.Fatal("Tony → Austin label not found")
 }
 
+func TestGoalUserTaskTimelineShowsBothRecipients(t *testing.T) {
+	a := testApp(100, 30)
+	a.route(events.Event{Kind: events.KindUser, Agent: protocol.Duo, Peer: protocol.Austin, Text: "design the scheduler"})
+	a.route(events.Event{Kind: events.KindUser, Agent: protocol.Duo, Peer: protocol.Tony, Text: "design the scheduler"})
+
+	if len(a.duo) != 2 {
+		t.Fatalf("user task entries = %d, want one for each Goal recipient", len(a.duo))
+	}
+	if a.duo[0].label != "Human → Austin" || a.duo[1].label != "Human → Tony" {
+		t.Fatalf("user task labels = %q, %q", a.duo[0].label, a.duo[1].label)
+	}
+}
+
 // The timeline is one scrollable, selectable region keyed to the existing Duo
 // scroll/selection plumbing.
 func TestTimelineScrollsAndSelects(t *testing.T) {

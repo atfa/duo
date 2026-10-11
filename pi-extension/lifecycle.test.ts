@@ -62,9 +62,15 @@ test("GOAL keeps the full negotiated workflow", () => {
   const tony = buildDuoPrompt("Tony", "goal", "/repo", ".");
   expect(tony).toContain("PLAN -> EXECUTE -> REVIEW -> INTEGRATE -> DONE");
   expect(tony).toContain("duo_set_plan");
+  expect(tony).toContain("Duo Core sends each new Goal task to both you and Austin");
+  expect(tony).toContain("do not wait for Austin to wake you");
   expect(tony).toContain("INTEGRATE");
   expect(tony).not.toContain("READ-ONLY");
   expect(tony).not.toContain("RUNNING -> VERIFY");
+
+  const austin = buildDuoPrompt("Austin", "goal", "/repo", ".");
+  expect(austin).toContain("Duo Core sends each new Goal task to both you and Tony");
+  expect(austin).not.toContain("wake Tony");
 });
 
 test("Chinese system prompts preserve Duo rules and protocol tokens", () => {
@@ -75,10 +81,14 @@ test("Chinese system prompts preserve Duo rules and protocol tokens", () => {
   expect(austin).toContain("duo_set_plan");
   expect(austin).toContain("duo_set_status({ready:true})");
   expect(austin).toContain("[Duo session resumed]");
+  expect(austin).toContain("Duo Core 会把每个 Goal 新任务同时发送给你和 Tony");
   const tony = buildDuoPrompt("Tony", "fast", "/repo", ".", "zh");
   expect(tony).toContain("只读");
   expect(tony).toContain("duo_set_verification");
   expect(tony).toContain("不要用 duo_send 重复结论");
+  const goalTony = buildDuoPrompt("Tony", "goal", "/repo", ".", "zh");
+  expect(goalTony).toContain("Duo Core 会把每个 Goal 新任务同时发送给你和 Austin");
+  expect(goalTony).toContain("不要等待 Austin 再唤醒你");
 });
 
 test("installDuoPrompt publishes the mode selected for this session", async () => {

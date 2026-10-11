@@ -27,6 +27,13 @@ jobs:
         with:
           go-version: ${{ matrix.go }}
           cache: true
+      - name: Build driver plugins for tests
+        run: |
+          mkdir -p "$RUNNER_TEMP/duo-bin"
+          for pkg in $(go list ./cmd/duo-plugin-*); do
+            go build -o "$RUNNER_TEMP/duo-bin/$(basename "$pkg")" "$pkg"
+          done
+          echo "$RUNNER_TEMP/duo-bin" >> "$GITHUB_PATH"
       - name: Test
         run: go test ./...
       - name: Vet

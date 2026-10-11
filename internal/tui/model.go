@@ -8,6 +8,7 @@ import (
 
 	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/models"
+	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/session"
 	"github.com/atfa/duo/internal/sessionstore"
@@ -146,6 +147,7 @@ type App struct {
 	native          protocol.AgentID
 	escBuf          []byte
 	nativeDetachBuf []byte
+	nativeInput     nativeInputAssembler
 	selection       paneSelection
 }
 
@@ -185,7 +187,7 @@ func (a *App) setStatus(text string, isError bool) {
 
 // markDirty schedules a frame for the next renderer tick.
 func (a *App) markDirty() {
-	if a.renderer != nil {
+	if a.renderer != nil && a.native == "" {
 		a.renderer.markDirty(false)
 	}
 }
@@ -194,7 +196,7 @@ func (a *App) markDirty() {
 // required whenever the previous frame may no longer cover the terminal
 // (resize, layout change, alternate-screen re-entry).
 func (a *App) requestFullClear() {
-	if a.renderer != nil {
+	if a.renderer != nil && a.native == "" {
 		a.renderer.markDirty(true)
 	}
 }
@@ -213,7 +215,7 @@ func (a *App) spinnerActive() bool {
 // spinnerTick advances the spinner only while work is visible, so an idle Duo
 // does not repaint periodically.
 func (a *App) spinnerTick() bool {
-	if a.view != viewMain || !a.spinnerActive() {
+	if a.native != "" || a.view != viewMain || !a.spinnerActive() {
 		return false
 	}
 	a.frame++
@@ -258,7 +260,11 @@ func (a *App) route(event events.Event) {
 		// the same exchange on both sides.
 		a.addLabeled(event.Agent, directionLabel(event.Agent, event.Peer), text, false, false)
 	case events.KindUser:
-		a.addLabeled(protocol.Duo, "Human → Austin", text, false, false)
+		target := event.Peer
+		if target == "" {
+			target = protocol.Austin
+		}
+		a.addLabeled(protocol.Duo, directionLabel("Human", target), text, false, false)
 	case events.KindHarness:
 		a.addLabeled(protocol.Duo, directionLabel(protocol.Duo, ""), "Harness: "+text, false, false)
 	case events.KindError:
@@ -396,7 +402,11 @@ func (a *App) submit(ctx context.Context) bool {
 		a.setStatus(err.Error(), true)
 		a.add(protocol.Duo, "ERROR: "+err.Error())
 	} else {
-		a.setStatus("sent to Austin", false)
+		status := "sent to Austin"
+		if a.live.EffectiveMode() == project.ModeGoal {
+			status = "sent to Austin and Tony"
+		}
+		a.setStatus(status, false)
 	}
 	return false
 }

@@ -53,6 +53,79 @@ func TestNativeDetach(t *testing.T) {
 	}
 }
 
+func TestNativeInputAssemblerKeepsTerminalSequencesIntact(t *testing.T) {
+	for _, sequence := range []string{"\x1b[1;1R", "\x1b[<35;1;1M", "\x1b]11;rgb:158e/193a/1e75\x1b\\"} {
+		t.Run(sequence, func(t *testing.T) {
+			var assembler nativeInputAssembler
+			var writes [][]byte
+			for _, chunk := range [][]byte{[]byte(sequence[:1]), []byte(sequence[1:])} {
+				var write []byte
+				for _, b := range chunk {
+					write = append(write, assembler.add(b)...)
+				}
+				if len(write) > 0 {
+					writes = append(writes, write)
+				}
+			}
+			if len(writes) != 1 || string(writes[0]) != sequence || len(assembler.pending) != 0 {
+				t.Fatalf("writes = %q, pending %q; want one write %q", writes, assembler.pending, sequence)
+			}
+		})
+	}
+}
+
+func TestNativeInputAssemblerPreservesOrdinaryKeysAndEscapeTimeout(t *testing.T) {
+	var assembler nativeInputAssembler
+	if got := string(assembler.add('x')); got != "x" {
+		t.Fatalf("ordinary key = %q", got)
+	}
+	if got := assembler.add(0x1b); len(got) != 0 {
+		t.Fatalf("Escape emitted early: %q", got)
+	}
+	if got := string(assembler.flush()); got != "\x1b" {
+		t.Fatalf("timed out Escape = %q", got)
+	}
+}
+
+func TestNativeModeSuppressesFramesAndKeepsInputAndDetach(t *testing.T) {
+	a := testApp(80, 24)
+	writer := &countingWriter{}
+	a.renderer.out = writer
+	a.requestFullClear()
+	a.native = protocol.Austin
+	a.renderer.discard()
+
+	a.setRuntime(protocol.Austin, harness.AgentRuntime{Busy: true})
+	a.route(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "working"})
+	if !a.spinnerActive() {
+		t.Fatal("activity event should mark Austin busy")
+	}
+	if a.spinnerTick() {
+		t.Fatal("native mode must not animate Duo frames")
+	}
+	if a.renderer.dueChan() != nil || a.renderer.dirty || a.renderer.flush() || writer.writes != 0 {
+		t.Fatalf("Duo rendered over native view: due=%v dirty=%v writes=%d", a.renderer.dueChan() != nil, a.renderer.dirty, writer.writes)
+	}
+
+	consumed, detach := a.forwardNativeChunk([]byte("hello"))
+	if consumed != 5 || detach {
+		t.Fatalf("ordinary native input = consumed %d, detach %v", consumed, detach)
+	}
+	if got := a.svc.(*fakeSession).writes[protocol.Austin]; len(got) != 1 || string(got[0]) != "hello" {
+		t.Fatalf("forwarded native input = %q, want hello", got)
+	}
+	consumed, detach = a.forwardNativeChunk([]byte{0x1d})
+	if consumed != 1 || !detach {
+		t.Fatalf("Ctrl+] = consumed %d, detach %v", consumed, detach)
+	}
+
+	a.native = ""
+	a.requestFullClear()
+	if a.renderer.dueChan() == nil {
+		t.Fatal("leaving native mode should schedule a Duo redraw")
+	}
+}
+
 func TestHelpIgnoresMouseAttach(t *testing.T) {
 	a := testApp(80, 24)
 	a.view = viewHelp

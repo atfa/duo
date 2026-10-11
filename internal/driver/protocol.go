@@ -227,15 +227,17 @@ type ProbeResult struct {
 // Every field is Core state the plugin may need; none of them is a driver
 // concept.
 type LaunchRequest struct {
-	Agent          AgentID `json:"agent"`
-	Mode           string  `json:"mode"`
-	CWD            string  `json:"cwd"`
-	RepositoryRoot string  `json:"repositoryRoot,omitempty"`
-	ScopePath      string  `json:"scopePath,omitempty"`
-	Session        string  `json:"session"`
-	Token          string  `json:"token"`
-	Host           string  `json:"host"`
-	Port           string  `json:"port"`
+	Agent AgentID `json:"agent"`
+	// ResumeWake is true only for the first launch when Duo resumes a session.
+	ResumeWake     bool   `json:"resumeWake,omitempty"`
+	Mode           string `json:"mode"`
+	CWD            string `json:"cwd"`
+	RepositoryRoot string `json:"repositoryRoot,omitempty"`
+	ScopePath      string `json:"scopePath,omitempty"`
+	Session        string `json:"session"`
+	Token          string `json:"token"`
+	Host           string `json:"host"`
+	Port           string `json:"port"`
 	// BaseCommand is the operator's own command for this agent, possibly empty
 	// and possibly carrying arguments. A plugin must preserve it and add to it.
 	BaseCommand string `json:"baseCommand,omitempty"`

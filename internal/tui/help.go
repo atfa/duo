@@ -30,7 +30,7 @@ type keyBinding struct {
 }
 
 var keyBindings = []keyBinding{
-	{[]string{"enter"}, "Enter", "Enter Send", "Send task/message to Austin; selects the highlighted command when the palette is open"},
+	{[]string{"enter"}, "Enter", "Enter Send", "Send task/message to Austin (Fast) or both agents (Goal); selects the highlighted command when the palette is open"},
 	{[]string{"ctrl-enter"}, "Ctrl/Shift+Enter", "Ctrl/Shift+Enter Newline", "Insert a newline in the composer"},
 	{[]string{"ctrl-a"}, "Ctrl+A", "Ctrl+A/T Native", "Attach to Austin's own agent session directly"},
 	{[]string{"ctrl-t"}, "Ctrl+T", "", "Attach to Tony's own agent session directly"},
@@ -94,8 +94,8 @@ func (a *App) helpLines(width int) []string {
 	}
 	quickStart := []string{
 		"1. Type a task in the Duo composer and press Enter.",
-		"2. The human composer sends to Austin by default.",
-		"3. Austin wakes Tony through duo_send in a fresh task.",
+		"2. In Goal, Duo sends the task to both Austin and Tony.",
+		"3. Both co-design the shared plan with duo_send and duo_set_plan, then approve it.",
 		"4. Austin and Tony work independently in private Git worktrees.",
 		"5. Duo Core manages phase and delivery.",
 	}
@@ -153,7 +153,7 @@ func (a *App) helpLines(width int) []string {
 			"/status              Print authoritative session and worktree status.",
 			"/clear               The composer only holds this command, so it is already empty; Duo forces a full redraw and says so.",
 			"/quit or /exit       Exit Duo and preserve session state.",
-			"An unknown command is reported as an error. //text and an absolute path (e.g. /usr/bin/python) are sent to Austin as a task.",
+			"An unknown command is reported as an error. //text and an absolute path (e.g. /usr/bin/python) are sent as a task (Austin in Fast; both agents in Goal).",
 			"Composer history is persisted to ~/.duo/history (override with DUO_HISTORY_FILE) and is recalled with ↑/↓ at the first/last line.",
 			"Ctrl+Shift+Enter and Ctrl+M need a terminal that reports them distinctly (CSI-u or modifyOtherKeys); use Ctrl+Enter and Alt+M elsewhere.",
 		}},

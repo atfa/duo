@@ -159,6 +159,7 @@ Request:
 ```json
 {
   "agent": "Austin",
+  "resumeWake": true,
   "mode": "goal",
   "cwd": "/path/to/worktree",
   "repositoryRoot": "/path/to/repo",
@@ -177,6 +178,7 @@ Request:
 | field | meaning |
 |---|---|
 | `agent` | `Austin` or `Tony`. The two agents are always separate. |
+| `resumeWake` | true only for the first launch of a resumed Duo session; use it to wake the agent to continue existing work. |
 | `mode` | `fast` or `goal`. The session's workflow. |
 | `cwd` | the agent's own worktree. **Your agent runs here.** |
 | `repositoryRoot`, `scopePath` | the repository and the subdirectory the human scoped this session to. |

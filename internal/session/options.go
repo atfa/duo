@@ -52,6 +52,7 @@ type Options struct {
 	// Drivers. Every map is keyed by agent. Missing agent entries use the
 	// frontend-selected default; Core does not choose a driver name.
 	AgentCommands       map[protocol.AgentID]string
+	AgentCommandDefault map[protocol.AgentID]bool
 	DefaultAgentDriver  string
 	AgentDrivers        map[protocol.AgentID]string
 	AgentModels         map[protocol.AgentID]string
@@ -80,6 +81,19 @@ func AgentDriver(drivers map[protocol.AgentID]string, agent protocol.AgentID, fa
 // AgentDriver names the driver an agent should launch.
 func (o *Options) AgentDriver(agent protocol.AgentID) string {
 	return AgentDriver(o.AgentDrivers, agent, o.DefaultAgentDriver)
+}
+
+func (o *Options) restoreAgentDriver(agent protocol.AgentID, driver string) {
+	if o.AgentCommandDefault[agent] && driver != o.DefaultAgentDriver {
+		if o.AgentCommands == nil {
+			o.AgentCommands = make(map[protocol.AgentID]string)
+		}
+		o.AgentCommands[agent] = ""
+	}
+	if o.AgentDrivers == nil {
+		o.AgentDrivers = make(map[protocol.AgentID]string)
+	}
+	o.AgentDrivers[agent] = driver
 }
 
 // ResolveDriver settles the three things only the driver can answer: which binary

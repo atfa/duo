@@ -129,10 +129,10 @@ func (s *Service) startResume(ctx context.Context) (Result, error) {
 		}
 		for _, ag := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
 			if drv := reconciled.AgentDrivers[ag]; drv != "" && !s.opts.AgentDriverExplicit[ag] {
-				// The driver is restored, and nothing else: a restored driver's own
-				// manifest names the binary it runs, so there is no command to rewrite
-				// and no table here saying which name means which executable.
-				s.opts.AgentDrivers[ag] = drv
+				// The manifest names the restored driver's binary. Drop a command only
+				// when it came from the default driver's fallback; explicit commands
+				// still reach the plugin as operator overrides.
+				s.opts.restoreAgentDriver(ag, drv)
 			}
 		}
 	}

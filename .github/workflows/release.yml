@@ -16,6 +16,13 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: stable
+      - name: Build driver plugins for tests
+        run: |
+          mkdir -p "$RUNNER_TEMP/duo-bin"
+          for pkg in $(go list ./cmd/duo-plugin-*); do
+            go build -o "$RUNNER_TEMP/duo-bin/$(basename "$pkg")" "$pkg"
+          done
+          echo "$RUNNER_TEMP/duo-bin" >> "$GITHUB_PATH"
       - run: go test ./...
       - run: go vet ./...
       - run: CGO_ENABLED=0 go build ./cmd/...

@@ -37,6 +37,39 @@ func languageEnv(language string) string {
 	return "en"
 }
 
+// Rewrap a nonblocking duplicate so Go's poller can interrupt blocked PTY I/O on close.
+func makePollablePTY(ptmx *os.File) (*os.File, error) {
+	raw, err := ptmx.SyscallConn()
+	if err != nil {
+		return nil, err
+	}
+	var fd int
+	var dupErr error
+	if err := raw.Control(func(rawFD uintptr) {
+		fd, dupErr = syscall.Dup(int(rawFD))
+	}); err != nil {
+		return nil, err
+	}
+	if dupErr != nil {
+		return nil, dupErr
+	}
+	syscall.CloseOnExec(fd)
+	if err := syscall.SetNonblock(fd, true); err != nil {
+		_ = syscall.Close(fd)
+		return nil, err
+	}
+	file := os.NewFile(uintptr(fd), ptmx.Name())
+	if file == nil {
+		_ = syscall.Close(fd)
+		return nil, fmt.Errorf("wrap duplicated PTY master")
+	}
+	if err := ptmx.Close(); err != nil {
+		_ = file.Close()
+		return nil, err
+	}
+	return file, nil
+}
+
 type ProcessState int
 
 const (
@@ -81,6 +114,8 @@ type Config struct {
 	Host, Port     string
 	Session        string
 	Token          string
+	// ResumeWake asks the plugin to continue work on the first launch only.
+	ResumeWake bool
 
 	// Plugin is the driver that owns this agent. Everything agent-specific is
 	// asked of it.
@@ -295,6 +330,10 @@ func (s *Session) Effort() string {
 
 func (s *Session) RestartRunning(ctx context.Context) error {
 	if s.Running() {
+		state := s.DriverState()
+		s.mu.Lock()
+		s.cfg.PluginState = state
+		s.mu.Unlock()
 		s.Stop()
 		return s.Start(ctx)
 	}
@@ -322,6 +361,7 @@ func (s *Session) SetOnExit(fn func(ExitEvent)) {
 func (s *Session) prepareLocked(ctx context.Context) (*driver.LaunchPlan, error) {
 	plan, err := s.cfg.Plugin.Prepare(ctx, driver.LaunchRequest{
 		Agent:          driver.AgentID(s.cfg.Agent),
+		ResumeWake:     s.cfg.ResumeWake,
 		Mode:           modeEnv(s.cfg.Mode),
 		CWD:            s.cfg.Dir,
 		RepositoryRoot: s.cfg.RepositoryRoot,
@@ -392,9 +432,20 @@ func (s *Session) Start(ctx context.Context) error {
 		s.waitErr = err
 		return fmt.Errorf("start %s PTY: %w", s.cfg.Agent, err)
 	}
+	pollablePTY, err := makePollablePTY(ptmx)
+	if err != nil {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		_ = ptmx.Close()
+		s.waitErr = err
+		s.state = ProcessFailed
+		_ = cmd.Wait()
+		return fmt.Errorf("prepare %s PTY for I/O: %w", s.cfg.Agent, err)
+	}
+	ptmx = pollablePTY
 	s.cmd = cmd
 	s.ptmx = ptmx
 	s.started = true
+	s.cfg.ResumeWake = false
 	s.stopping = false
 	s.state = ProcessRunning
 	s.waitErr = nil
@@ -465,6 +516,7 @@ func (s *Session) readLoop(r io.Reader, done <-chan struct{}) {
 		n, err := r.Read(buf)
 		if n > 0 {
 			chunk := append([]byte(nil), buf[:n]...)
+			var attached io.Writer
 			s.mu.Lock()
 			// A previous reader must never write into a restarted process's buffer.
 			if s.stopped == done {
@@ -472,11 +524,12 @@ func (s *Session) readLoop(r io.Reader, done <-chan struct{}) {
 				if len(s.recent) > recentLimit {
 					s.recent = append([]byte(nil), s.recent[len(s.recent)-recentLimit:]...)
 				}
-				if s.attached != nil {
-					_, _ = s.attached.Write(chunk)
-				}
+				attached = s.attached
 			}
 			s.mu.Unlock()
+			if attached != nil {
+				_, _ = attached.Write(chunk)
+			}
 		}
 		if err != nil {
 			return
@@ -486,11 +539,13 @@ func (s *Session) readLoop(r io.Reader, done <-chan struct{}) {
 
 func (s *Session) Write(data []byte) error {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 	if s.state != ProcessRunning || s.ptmx == nil {
+		s.mu.RUnlock()
 		return fmt.Errorf("%s session is not running", s.cfg.Agent)
 	}
-	_, err := s.ptmx.Write(data)
+	ptmx := s.ptmx
+	s.mu.RUnlock()
+	_, err := ptmx.Write(data)
 	return err
 }
 

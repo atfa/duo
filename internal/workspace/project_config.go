@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -113,8 +114,29 @@ func SaveProjectConfig(repoRoot string, driver string, agentDrivers map[protocol
 
 	configPath := filepath.Join(duoDir, "config.json")
 	var cfg ProjectConfigFile
-	if data, err := os.ReadFile(configPath); err == nil {
-		_ = json.Unmarshal(data, &cfg)
+	config := make(map[string]json.RawMessage)
+	agents := make(map[string]json.RawMessage)
+	data, err := os.ReadFile(configPath)
+	if err == nil {
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			return fmt.Errorf("read Duo project config: %w", err)
+		}
+		if err := json.Unmarshal(data, &config); err != nil || config == nil {
+			if err == nil {
+				err = fmt.Errorf("expected a JSON object")
+			}
+			return fmt.Errorf("read Duo project config: %w", err)
+		}
+		if rawAgents := config["agents"]; len(rawAgents) > 0 {
+			if err := json.Unmarshal(rawAgents, &agents); err != nil {
+				return fmt.Errorf("read Duo project agent config: %w", err)
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("read Duo project config: %w", err)
+	}
+	if agents == nil {
+		agents = make(map[string]json.RawMessage)
 	}
 
 	if cfg.Agents == nil {
@@ -152,6 +174,11 @@ func SaveProjectConfig(repoRoot string, driver string, agentDrivers map[protocol
 	} else if driver != "" {
 		cfg.Driver = driver
 	}
+	if cfg.Driver == "" {
+		delete(config, "driver")
+	} else {
+		config["driver"], _ = json.Marshal(cfg.Driver)
+	}
 
 	for id, model := range agentModels {
 		key := strings.ToLower(string(id))
@@ -170,7 +197,41 @@ func SaveProjectConfig(repoRoot string, driver string, agentDrivers map[protocol
 		cfg.Agents[key] = entry
 	}
 
-	data, err := json.MarshalIndent(cfg, "", "  ")
+	for key, entry := range cfg.Agents {
+		var fields map[string]json.RawMessage
+		if raw := agents[key]; len(raw) > 0 {
+			if err := json.Unmarshal(raw, &fields); err != nil {
+				return fmt.Errorf("read Duo project agent config %q: %w", key, err)
+			}
+		}
+		if fields == nil {
+			fields = make(map[string]json.RawMessage)
+		}
+		if entry.Driver == "" {
+			delete(fields, "driver")
+		} else {
+			fields["driver"], _ = json.Marshal(entry.Driver)
+		}
+		if entry.Model == "" {
+			delete(fields, "model")
+		} else {
+			fields["model"], _ = json.Marshal(entry.Model)
+		}
+		agents[key], err = json.Marshal(fields)
+		if err != nil {
+			return err
+		}
+	}
+	if len(agents) == 0 {
+		delete(config, "agents")
+	} else {
+		config["agents"], err = json.Marshal(agents)
+		if err != nil {
+			return err
+		}
+	}
+
+	data, err = json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return err
 	}

@@ -40,6 +40,10 @@ or if the version does not match exactly.
 - `agent` is `Austin` or `Tony`. The two agents have separate conversations and
   separate sessions.
 - `version` must be exactly `1`.
+- `clientType: "observer"` is for an authenticated activity and assistant-message
+  connection. Core dispatches only those messages and does not register it as the
+  agent endpoint or issue connect/disconnect events, so it cannot trigger a resume
+  wake.
 
 Core answers with a `response`:
 

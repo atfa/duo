@@ -10,6 +10,7 @@ import (
 
 	"github.com/atfa/duo/internal/agent"
 	"github.com/atfa/duo/internal/agent/agenttest"
+	"github.com/atfa/duo/internal/driver"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/sessionstore"
@@ -60,6 +61,52 @@ func TestComposeSnapshotPrefersTheLiveDriverState(t *testing.T) {
 	s := &Service{opts: Options{}, repoID: "repo-1", sessionID: "session-1", createdAt: time.Unix(0, 0).UTC(), state: project.NewStateFor(project.ModeGoal), set: workspace.Set{}, agents: mgr, driverState: map[protocol.AgentID]sessionstore.DriverState{}}
 	if got := s.composeSnapshot(nil).DriverStates[protocol.Austin]; string(got.State) != `{"cursor":"learned"}` || got.Driver != "stub" {
 		t.Fatalf("snapshot state = %+v, want driver's new opaque state", got)
+	}
+}
+
+func TestCloseCheckpointsLiveDriverState(t *testing.T) {
+	store, err := sessionstore.New(t.TempDir(), "repo-1", "session-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stub := agenttest.New("stub").With(func(spec *agenttest.Spec) {
+		spec.Command = "sh -c 'sleep 60'"
+		spec.Capabilities.Resume = driver.ResumeServer
+		spec.State = []byte(`{"sessionId":"prepared"}`)
+		spec.LiveState = []byte(`{"sessionId":"learned-before-close"}`)
+	})
+	sess, err := agent.NewSession(context.Background(), agent.Config{Agent: protocol.Austin, Dir: t.TempDir(), Plugin: stub.Caller()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := sess.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	mgr := agent.NewManager()
+	mgr.Add(sess)
+	svc := &Service{
+		sessionID: "session-1",
+		repoID:    "repo-1",
+		createdAt: time.Now(),
+		store:     store,
+		state:     project.NewStateFor(project.ModeFast),
+		set:       workspace.Set{Repository: "/repo"},
+		agents:    mgr,
+	}
+	svc.Close()
+
+	snapshot, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		SessionID string `json:"sessionId"`
+	}
+	if err := json.Unmarshal(snapshot.DriverStates[protocol.Austin].State, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.SessionID != "learned-before-close" {
+		t.Fatalf("final checkpoint state = %q, want live state", got.SessionID)
 	}
 }
 
