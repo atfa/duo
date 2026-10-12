@@ -69,6 +69,11 @@ type App struct {
 	view        viewMode
 	helpOffset  int
 
+	// quitArmedUntil is when a pending quit confirmation lapses. It is set by the
+	// first quit key of an unfinished session and cleared by the second one or by
+	// the deadline, whichever comes first.
+	quitArmedUntil time.Time
+
 	// Pane scroll state. An offset is the number of wrapped lines above the
 	// pane bottom; `seen` is the wrapped line count observed last time, so the
 	// offset can grow with new output and keep the view on the same content.

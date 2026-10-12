@@ -189,8 +189,49 @@ func (a *App) Run(ctx context.Context) error {
 			a.applyModelList(res)
 		case <-tick.C:
 			a.spinnerTick()
+			a.expireQuitArm()
 		}
 	}
+}
+
+// quitConfirmWindow is how long the first quit key of an unfinished session stays
+// armed. Short enough that a second press is a decision rather than a reflex, and
+// long enough to notice the prompt and mean it.
+const quitConfirmWindow = 3 * time.Second
+
+// workUnfinished reports whether quitting now would leave work behind: a session
+// that was given a task and has not reached DONE. A session nobody has started has
+// nothing to lose, and a finished one has already delivered, so neither earns a
+// confirmation.
+func (a *App) workUnfinished() bool {
+	return a.live.Project.Started && a.live.Phase() != project.PhaseDone
+}
+
+// confirmQuit makes the first quit key of an unfinished session a warning and the
+// second one, inside quitConfirmWindow, the quit. The arming lapses on its own:
+// the cost of walking away from a live session is high and the cost of a stray
+// keypress should not be, so a quit has to be asked for twice.
+func (a *App) confirmQuit() bool {
+	now := time.Now()
+	if !a.quitArmedUntil.IsZero() && now.Before(a.quitArmedUntil) {
+		a.quitArmedUntil = time.Time{}
+		return true
+	}
+	a.quitArmedUntil = now.Add(quitConfirmWindow)
+	a.setStatus(fmt.Sprintf("session unfinished — press Ctrl+Q again within %s to quit, otherwise it cancels", quitConfirmWindow), true)
+	a.markDirty()
+	return false
+}
+
+// expireQuitArm disarms a quit that was not confirmed in time. The run loop calls
+// it from its own tick, so an idle interface still forgets a pending quit.
+func (a *App) expireQuitArm() {
+	if a.quitArmedUntil.IsZero() || time.Now().Before(a.quitArmedUntil) {
+		return
+	}
+	a.quitArmedUntil = time.Time{}
+	a.setStatus("quit cancelled", false)
+	a.markDirty()
 }
 
 // applyAction is the one place TUI-mode actions are applied. While an agent is
@@ -200,6 +241,9 @@ func (a *App) applyAction(ctx context.Context, action inputAction) bool {
 	case actionNone:
 		return false
 	case actionQuit:
+		if a.workUnfinished() {
+			return a.confirmQuit()
+		}
 		return true
 	case actionToggleHelp:
 		if a.view == viewHelp {

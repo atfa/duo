@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/harness"
+	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/sessionstore"
 )
@@ -641,5 +643,96 @@ func TestHelpEscapeSequences(t *testing.T) {
 				t.Fatalf("%q action = %v, want %v", tt.sequence, action.kind, tt.want)
 			}
 		})
+	}
+}
+
+// startedSession is a session that was given a task and has not finished, which
+// is the state the quit confirmation exists for.
+func startedSession(t *testing.T, a *App) *project.State {
+	t.Helper()
+	state := project.NewStateFor(project.ModeFast)
+	state.MarkStarted()
+	a.live.Project = state.Snapshot()
+	return state
+}
+
+// A live session must not disappear on one stray key. Quitting mid-task loses the
+// interface, not the work — but the operator cannot see the worktree — so the
+// first Ctrl+Q asks and only the second one, inside the window, quits.
+func TestQuitOnAnUnfinishedSessionAsksTwice(t *testing.T) {
+	a := testApp(80, 24)
+	startedSession(t, a)
+
+	if a.applyAction(context.Background(), inputAction{kind: actionQuit}) {
+		t.Fatal("the first Ctrl+Q of an unfinished session must not quit")
+	}
+	if !strings.Contains(a.status, "Ctrl+Q") {
+		t.Errorf("a pending quit is not explained to the operator: %q", a.status)
+	}
+	if a.statusError != true {
+		t.Error("a pending quit must read as a warning, not as information")
+	}
+
+	if !a.applyAction(context.Background(), inputAction{kind: actionQuit}) {
+		t.Fatal("the second Ctrl+Q inside the window must quit")
+	}
+	if !a.quitArmedUntil.IsZero() {
+		t.Error("a confirmed quit must disarm rather than linger")
+	}
+}
+
+// A prompt nobody answers lapses, so the next Ctrl+Q asks again instead of
+// quitting on the strength of a keypress from long ago.
+func TestUnconfirmedQuitExpires(t *testing.T) {
+	a := testApp(80, 24)
+	startedSession(t, a)
+
+	a.applyAction(context.Background(), inputAction{kind: actionQuit})
+
+	// A pending quit that has not run out yet must survive the tick that
+	// normally expires it.
+	a.quitArmedUntil = time.Now().Add(time.Hour)
+	a.expireQuitArm()
+	if !a.applyAction(context.Background(), inputAction{kind: actionQuit}) {
+		t.Fatal("a quit still inside its window must survive the tick")
+	}
+
+	a.quitArmedUntil = time.Now().Add(-time.Second)
+	a.expireQuitArm()
+	if !a.quitArmedUntil.IsZero() {
+		t.Fatal("an expired quit must be disarmed")
+	}
+	if a.applyAction(context.Background(), inputAction{kind: actionQuit}) {
+		t.Fatal("a Ctrl+Q after an expired prompt must ask again, not quit")
+	}
+}
+
+// Nothing is at stake before the first task and nothing is left after DONE, so
+// neither pays for a confirmation: the guard must not become the reason a
+// finished session cannot be closed.
+func TestQuitIsImmediateWhenThereIsNothingToLose(t *testing.T) {
+	untouched := testApp(80, 24)
+	if !untouched.applyAction(context.Background(), inputAction{kind: actionQuit}) {
+		t.Error("a session nobody has started must quit on the first Ctrl+Q")
+	}
+
+	done := testApp(80, 24)
+	state := project.NewStateFor(project.ModeFast)
+	state.MarkStarted()
+	if _, _, err := state.SetReady(protocol.Austin, true, "", "head-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := state.SetVerification(protocol.Tony, project.VerificationPassed, "", "head-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.Complete(); err != nil {
+		t.Fatal(err)
+	}
+	done.live.Project = state.Snapshot()
+	if phase := done.live.Phase(); phase != project.PhaseDone {
+		t.Fatalf("the fixture did not reach DONE, it is at %s", phase)
+	}
+	if !done.applyAction(context.Background(), inputAction{kind: actionQuit}) {
+		t.Error("a finished session must quit on the first Ctrl+Q")
 	}
 }

@@ -46,7 +46,7 @@ var keyBindings = []keyBinding{
 	{[]string{"ctrl-p"}, "Ctrl+P", "", "Toggle the Austin/Tony work preview: current tool and arguments, last error, and the text being streamed"},
 	{[]string{"ctrl-g"}, "Ctrl+G", "", "Toggle message timestamps"},
 	{[]string{"ctrl-x"}, "Ctrl+X", "", "Copy Austin's latest message to the human to the clipboard"},
-	{[]string{"ctrl-q", "ctrl-d"}, "Ctrl+Q / Ctrl+D", "Ctrl+Q/D Quit", "Quit Duo and preserve session"},
+	{[]string{"ctrl-q", "ctrl-d"}, "Ctrl+Q / Ctrl+D", "Ctrl+Q/D Quit", "Quit Duo and preserve session; an unfinished session asks once before quitting"},
 	{[]string{"tab"}, "Tab", "", "Autocomplete the highlighted slash command; switch agent inside the model picker"},
 	{[]string{"esc"}, "Esc", "", "Dismiss the slash menu, close the model picker, or leave Help and the session overview"},
 	{[]string{"left", "right"}, "← / →", "", "Move the composer cursor"},
