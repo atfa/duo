@@ -159,6 +159,18 @@ func (c *Coordinator) sendToAgent(ctx context.Context, agent protocol.AgentID, m
 	return fmt.Errorf("%s is not connected", agent)
 }
 
+// SendToAgent delivers a message over whichever delivery path the agent's driver
+// declares, and records it as an injected prompt when it is one.
+//
+// It is the coordinator's own sendToAgent under the name the harness and the
+// session compose through: a driver whose bridge is lazy — Codex only starts its
+// MCP bridge the first time it calls a Duo tool — has no client on the socket
+// server at all, so handing a component the server makes that agent permanently
+// unreachable to it.
+func (c *Coordinator) SendToAgent(ctx context.Context, agent protocol.AgentID, message protocol.Message) error {
+	return c.sendToAgent(ctx, agent, message)
+}
+
 // EnableDurability attaches persistent session state and an event journal. It
 // installs the project persistence hook, so it must be called after a resume
 // has finished restoring state; otherwise recovery would immediately write back.

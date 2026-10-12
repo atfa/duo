@@ -20,14 +20,14 @@ type recordingSender struct {
 	sent    []protocol.Message
 }
 
-func (r *recordingSender) Send(_ context.Context, _ protocol.AgentID, message protocol.Message) error {
+func (r *recordingSender) SendToAgent(_ context.Context, _ protocol.AgentID, message protocol.Message) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.sent = append(r.sent, message)
 	return nil
 }
 
-func (r *recordingSender) IsConnected(agent protocol.AgentID) bool {
+func (r *recordingSender) IsAgentConnected(agent protocol.AgentID) bool {
 	if r.offline[agent] {
 		return false
 	}

@@ -398,7 +398,10 @@ func (s *Service) launch(ctx context.Context) (Result, error) {
 	if s.opts.HarnessEnabled {
 		harnessConfig := s.opts.Harness
 		harnessConfig.Language = s.opts.Language
-		s.monitor = harness.NewMonitor(harnessConfig, s.state, s.tracker, s.server, s.bus)
+		// The coordinator, not the socket server: it owns the decision of whether a
+		// message goes over a bridge or into the agent's terminal, and a driver with
+		// a lazy bridge has no client for the server to be asked about.
+		s.monitor = harness.NewMonitor(harnessConfig, s.state, s.tracker, s.coord, s.bus)
 		go s.monitor.Run(s.ctx)
 	}
 

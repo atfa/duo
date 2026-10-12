@@ -12,9 +12,13 @@ import (
 	"github.com/atfa/duo/internal/protocol"
 )
 
+// Sender reaches an agent. It is the coordinator's own delivery seam rather than
+// the socket server: a driver whose bridge is lazy has no bridge client until it
+// first calls a Duo tool, and gating the watchdog on one makes that agent
+// unnudgeable for the whole session.
 type Sender interface {
-	Send(context.Context, protocol.AgentID, protocol.Message) error
-	IsConnected(protocol.AgentID) bool
+	SendToAgent(context.Context, protocol.AgentID, protocol.Message) error
+	IsAgentConnected(protocol.AgentID) bool
 }
 
 type Config struct {
@@ -92,7 +96,7 @@ func (m *Monitor) maybeWake(ctx context.Context) {
 		return
 	}
 
-	if !m.sender.IsConnected(protocol.Austin) || !m.sender.IsConnected(protocol.Tony) {
+	if !m.sender.IsAgentConnected(protocol.Austin) || !m.sender.IsAgentConnected(protocol.Tony) {
 		return
 	}
 
@@ -166,7 +170,7 @@ func (m *Monitor) maybeWake(ctx context.Context) {
 	if m.bus != nil {
 		m.bus.Emit(events.Event{Kind: events.KindHarness, Agent: protocol.Austin, Text: fmt.Sprintf("nudging Austin after %s without useful activity", quietFor.Round(time.Second))})
 	}
-	if err := m.sender.Send(ctx, protocol.Austin, protocol.Message{
+	if err := m.sender.SendToAgent(ctx, protocol.Austin, protocol.Message{
 		Version:   1,
 		Type:      protocol.MsgHarnessPrompt,
 		From:      protocol.Duo,
@@ -203,7 +207,7 @@ func (m *Monitor) maybeWakeFast(ctx context.Context) {
 // fastNudgeAustin nudges the driver when Austin itself is idle. Tony's state is
 // deliberately irrelevant: Fast must not double-wait on two agents.
 func (m *Monitor) fastNudgeAustin(ctx context.Context, state project.Snapshot) {
-	if !m.sender.IsConnected(protocol.Austin) {
+	if !m.sender.IsAgentConnected(protocol.Austin) {
 		return
 	}
 	austin := m.tracker.Snapshot(protocol.Austin)
@@ -283,7 +287,7 @@ func (m *Monitor) fastNudgeAustin(ctx context.Context, state project.Snapshot) {
 
 // fastNudgeTony asks the verifier to move while a verification request is open.
 func (m *Monitor) fastNudgeTony(ctx context.Context, state project.Snapshot) {
-	if !m.sender.IsConnected(protocol.Tony) {
+	if !m.sender.IsAgentConnected(protocol.Tony) {
 		return
 	}
 	tony := m.tracker.Snapshot(protocol.Tony)
@@ -323,7 +327,7 @@ func (m *Monitor) fastNudgeTony(ctx context.Context, state project.Snapshot) {
 // sendFastDiagnosis asks Tony once per stuck episode for an independent
 // diagnosis. It never takes over the work and never blocks Austin.
 func (m *Monitor) sendFastDiagnosis(ctx context.Context, state project.Snapshot) {
-	if !m.sender.IsConnected(protocol.Tony) {
+	if !m.sender.IsAgentConnected(protocol.Tony) {
 		return
 	}
 	text := fmt.Sprintf(
@@ -340,7 +344,7 @@ func (m *Monitor) sendFastDiagnosis(ctx context.Context, state project.Snapshot)
 }
 
 func (m *Monitor) sendHarnessPrompt(ctx context.Context, agent protocol.AgentID, text string) {
-	if err := m.sender.Send(ctx, agent, protocol.Message{
+	if err := m.sender.SendToAgent(ctx, agent, protocol.Message{
 		Version:   protocol.Version,
 		Type:      protocol.MsgHarnessPrompt,
 		From:      protocol.Duo,

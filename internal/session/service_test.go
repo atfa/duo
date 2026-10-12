@@ -12,6 +12,7 @@ import (
 
 	"github.com/atfa/duo/internal/agent"
 	"github.com/atfa/duo/internal/events"
+	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/sessionstore"
@@ -273,5 +274,27 @@ func TestAnExitDuoAskedForIsNotReported(t *testing.T) {
 
 	if reported := errorsIn(ch); len(reported) != 0 {
 		t.Fatalf("requested stop reported %d error(s): %v", len(reported), reported)
+	}
+}
+
+// A running agent with no bridge client must still count as reachable, because
+// that is the property the watchdog depends on. A driver whose bridge is lazy —
+// Codex only starts its MCP bridge the first time it calls a Duo tool — holds no
+// client on the socket server at all, so a reachability gate that asks the
+// server can never see such an agent and never nudges it.
+func TestAReachabilityGateMustNotBeTheSocketServer(t *testing.T) {
+	repo := gitRepo(t)
+	svc := New(headlessOptions(t, repo, t.TempDir(), "127.0.0.1:0"))
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer svc.Close()
+
+	if svc.server.IsConnected(protocol.Tony) {
+		t.Fatal("the stub agent is not expected to hold a bridge client; this test proves nothing if it does")
+	}
+	var sender harness.Sender = svc.coord
+	if !sender.IsAgentConnected(protocol.Tony) {
+		t.Fatal("a running agent with no bridge client must still be reachable, or the harness can never nudge it")
 	}
 }
