@@ -60,3 +60,24 @@ func TestFailureTailKeepsTheReasonNotTheBanner(t *testing.T) {
 		t.Errorf("kept %d lines, want at most %d plus the marker", lines, failureTailLines)
 	}
 }
+
+// TestFailureTailStripsPrivateCSISequences covers the leak this fixes: a driver
+// that enables the kitty keyboard protocol writes ESC [ > 4 ; 0 m and friends,
+// which are ordinary CSI sequences. A parameter class of digits and "?" alone
+// cannot match them, so every one of them reached the operator's error as
+// literal "[>4;0m" text.
+func TestFailureTailStripsPrivateCSISequences(t *testing.T) {
+	// What codex wrote before it exited 1, escape sequences included.
+	raw := []byte("\x1b[?25l\x1b[>4;0m\x1b[>7u\x1b[10;?11;?uCodex\r\n\x1b[1;31mError: workspace routing discovery failed\x1b[0m\r\n")
+
+	got := failureTail(raw)
+	if !strings.Contains(got, "Error: workspace routing discovery failed") {
+		t.Fatalf("driver's reason was lost: %q", got)
+	}
+	if strings.Contains(got, "[>") || strings.Contains(got, "[?") {
+		t.Errorf("a private CSI sequence reached the report: %q", got)
+	}
+	if strings.Contains(got, "\x1b") {
+		t.Errorf("escape sequences survived into the report: %q", got)
+	}
+}

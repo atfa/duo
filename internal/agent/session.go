@@ -141,11 +141,14 @@ type ExitEvent struct {
 	Agent protocol.AgentID
 	State ProcessState
 	Err   error
-	// Output is the tail of what the process wrote before it ended, present only
-	// when it failed. A driver launched into a PTY merges its stderr into that
-	// stream, so this is where the driver's own diagnosis lands: a rejected flag or
-	// an unknown model is printed there and nowhere else. Without it the operator
-	// sees only "exit status 1" and has to guess.
+	// Requested is true when Duo asked the process to stop. A shutdown is not a
+	// failure, so it must never be reported as one.
+	Requested bool
+	// Output is the tail of what the process wrote before it ended, present
+	// whenever Duo did not ask it to stop. A driver launched into a PTY merges its
+	// stderr into that stream, so this is where the driver's own diagnosis lands: a
+	// rejected flag or an unknown model is printed there and nowhere else. Without
+	// it the operator sees only "exit status 1" and has to guess.
 	Output string
 }
 
@@ -466,8 +469,9 @@ func (s *Session) Start(ctx context.Context) error {
 		_ = ptmx.Close()
 		s.mu.Lock()
 		s.waitErr = err
+		requested := s.stopping
 		switch {
-		case s.stopping, err == nil:
+		case requested, err == nil:
 			// A Duo-initiated stop (SIGTERM/SIGKILL) is a normal shutdown even
 			// though Wait reports a signal error.
 			s.state = ProcessExited
@@ -480,8 +484,12 @@ func (s *Session) Start(ctx context.Context) error {
 		onExit := s.cfg.OnExit
 		s.mu.Unlock()
 		if onExit != nil {
-			event := ExitEvent{Agent: s.cfg.Agent, State: final, Err: err}
-			if final == ProcessFailed {
+			event := ExitEvent{Agent: s.cfg.Agent, State: final, Err: err, Requested: requested}
+			if !requested {
+				// An agent that ends on its own is reporting something whatever its
+				// exit status: a CLI that gives up during bootstrap often exits 0
+				// right after printing its own diagnosis, and keeping the tail only
+				// for non-zero exits would turn that into a silent disappearance.
 				event.Output = s.failureOutput()
 			}
 			onExit(event)

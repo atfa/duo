@@ -13,8 +13,11 @@ import (
 // up with only "exit status 1" and the operator is left guessing.
 var (
 	// CSI sequences, which cover colour, cursor movement and erase, plus the
-	// two-character and charset-select escapes.
-	failureANSI = regexp.MustCompile("\x1b\\[[0-9;?]*[ -/]*[@-~]|\x1b[()][A-Za-z0-9]|\x1b[@-Z\\\\-_]")
+	// two-character and charset-select escapes. The parameter byte class is the
+	// whole 0x30-0x3F range ECMA-48 reserves for it: a private sequence such as
+	// ESC [ > 4 ; 0 m is an ordinary CSI, and a class stopping at digits and "?"
+	// leaves it in the reported reason as literal "[>4;0m".
+	failureANSI = regexp.MustCompile("\x1b\\[[0-9:;<=>?]*[ -/]*[@-~]|\x1b[()][A-Za-z0-9]|\x1b[@-Z\\\\-_]")
 	// Anything left that still looks like an escape, so a partial sequence from a
 	// truncated buffer cannot reach the log.
 	failureStrayEscape = regexp.MustCompile("\x1b")

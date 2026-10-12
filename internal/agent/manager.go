@@ -23,9 +23,12 @@ type LifecycleEvent struct {
 	Agent protocol.AgentID
 	State ProcessState
 	Err   error
-	// Output carries what a failed process printed before it ended, so the
-	// session log and the interface can show the driver's own reason rather than
-	// only the exit status. Empty unless the process failed.
+	// Requested is true when Duo asked the process to stop. Only an exit Duo did
+	// not ask for is a failure worth reporting.
+	Requested bool
+	// Output carries what the process printed before it ended, so the session log
+	// and the interface can show the driver's own reason rather than only the exit
+	// status. Empty when Duo asked it to stop.
 	Output string
 }
 
@@ -51,7 +54,7 @@ func (m *Manager) observe(event LifecycleEvent) {
 
 func (m *Manager) Add(d Driver) {
 	d.SetOnExit(func(event ExitEvent) {
-		m.observe(LifecycleEvent{Kind: "agent_exit", Agent: event.Agent, State: event.State, Err: event.Err, Output: event.Output})
+		m.observe(LifecycleEvent{Kind: "agent_exit", Agent: event.Agent, State: event.State, Err: event.Err, Requested: event.Requested, Output: event.Output})
 	})
 	m.mu.Lock()
 	defer m.mu.Unlock()

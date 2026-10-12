@@ -428,22 +428,35 @@ func (s *Service) observeLifecycle(event agent.LifecycleEvent) {
 		}
 	case "agent_exit":
 		s.logger.Printf("%s exited (state=%s): %v", event.Agent, event.State, event.Err)
+		if event.Requested {
+			// Duo asked this process to stop, so this is a shutdown rather than a
+			// failure, and reporting it as one would fill every session log with an
+			// error the operator caused.
+			break
+		}
 		// A driver that refuses to run says why once, on its own output, and
 		// "exit status 1" alone leaves the operator guessing. Write the reason to
 		// the session log and repeat it in the interface, so the cause is where the
 		// failure is reported.
-		if reason := strings.TrimSpace(event.Output); reason != "" {
-			s.logger.Printf("%s output before exit:\n%s", event.Agent, indentBlock(reason))
-			// Addressed to Duo's own pane, which is the timeline: the failed agent's
-			// pane already shows the raw stream, and repeating it there would bury
-			// the reason under a second "ERROR:".
-			s.bus.Emit(events.Event{
-				Time:  time.Now(),
-				Kind:  events.KindError,
-				Agent: protocol.Duo,
-				Text:  fmt.Sprintf("%s exited (%s):\n%s", event.Agent, exitReason(event), reason),
-			})
+		reason := strings.TrimSpace(event.Output)
+		if reason == "" {
+			// Some agents report a fatal problem only inside a full-screen interface
+			// Duo cannot read back, and some give up without saying anything at all.
+			// Staying silent then would leave a session that has quietly lost an
+			// agent still waiting on that agent, which is exactly the failure this
+			// line exists to make visible.
+			reason = "the agent process ended on its own without reporting a reason"
 		}
+		s.logger.Printf("%s output before exit:\n%s", event.Agent, indentBlock(reason))
+		// Addressed to Duo's own pane, which is the timeline: the failed agent's
+		// pane already shows the raw stream, and repeating it there would bury the
+		// reason under a second "ERROR:".
+		s.bus.Emit(events.Event{
+			Time:  time.Now(),
+			Kind:  events.KindError,
+			Agent: protocol.Duo,
+			Text:  fmt.Sprintf("%s:\n%s", exitHeadline(event), reason),
+		})
 	}
 	s.bus.Emit(events.Event{Time: time.Now(), Kind: events.KindActivity, Agent: event.Agent})
 }

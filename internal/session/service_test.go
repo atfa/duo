@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/atfa/duo/internal/agent"
+	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/sessionstore"
@@ -206,4 +208,70 @@ func TestCommandsAreRefusedOutsideARunningSession(t *testing.T) {
 	}
 	// Close is idempotent: a frontend may call it from a deferred cleanup as well.
 	svc.Close()
+}
+
+// testSessionStore opens a throwaway session directory, because the lifecycle
+// observer records every transition before it reports it.
+func testSessionStore(t *testing.T) *sessionstore.Store {
+	t.Helper()
+	base := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(base, "repo", "s1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store, err := sessionstore.Open(base, "repo", "s1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store
+}
+
+// errorsIn drains the events of one kind a session published, so a test can ask
+// what the human would have been shown.
+func errorsIn(ch <-chan events.Event) []string {
+	var found []string
+	for len(ch) > 0 {
+		if e := <-ch; e.Kind == events.KindError {
+			found = append(found, e.Text)
+		}
+	}
+	return found
+}
+
+// An agent that ends on its own has to reach the human even when it printed
+// nothing and exited 0. Codex gives up during TUI bootstrap that way, and a
+// session that has quietly lost Tony otherwise waits on Tony forever.
+func TestAnAgentThatExitsOnItsOwnIsReportedWithoutOutput(t *testing.T) {
+	store := testSessionStore(t)
+	svc := &Service{bus: events.NewBus(), journal: store.OpenEvents(), logger: store.OpenLog()}
+	ch, cancel := svc.bus.Subscribe(8)
+	defer cancel()
+
+	svc.observeLifecycle(agent.LifecycleEvent{
+		Kind: "agent_exit", Agent: protocol.Tony, State: agent.ProcessExited,
+	})
+
+	reported := errorsIn(ch)
+	if len(reported) != 1 {
+		t.Fatalf("exit errors = %v, want exactly one", reported)
+	}
+	if !strings.Contains(reported[0], "Tony") {
+		t.Errorf("exit error does not name the agent that died:\n%s", reported[0])
+	}
+}
+
+// A shutdown is not a failure: Duo asked for it, so it must stay out of the
+// transcript or every session log ends with two invented errors.
+func TestAnExitDuoAskedForIsNotReported(t *testing.T) {
+	store := testSessionStore(t)
+	svc := &Service{bus: events.NewBus(), journal: store.OpenEvents(), logger: store.OpenLog()}
+	ch, cancel := svc.bus.Subscribe(8)
+	defer cancel()
+
+	svc.observeLifecycle(agent.LifecycleEvent{
+		Kind: "agent_exit", Agent: protocol.Tony, State: agent.ProcessExited, Requested: true,
+	})
+
+	if reported := errorsIn(ch); len(reported) != 0 {
+		t.Fatalf("requested stop reported %d error(s): %v", len(reported), reported)
+	}
 }

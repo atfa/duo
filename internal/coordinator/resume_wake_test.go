@@ -118,8 +118,14 @@ func TestNewResumedRuntimeWakesAgain(t *testing.T) {
 }
 
 func TestResumeWakeJournalsEachAgentOnce(t *testing.T) {
+	// The journal's directory is claimed before the server that writes into it.
+	// Go runs cleanups last-in-first-out, so this order stops the server before
+	// the directory is deleted; the reverse order lets a connection goroutine
+	// append while TempDir cleanup is removing, and the run fails on
+	// "directory not empty" whenever the two overlap.
+	dir := t.TempDir()
 	server, coord, _ := startWakeServer(t, true)
-	store, err := sessionstore.New(t.TempDir(), "repo", "session")
+	store, err := sessionstore.New(dir, "repo", "session")
 	if err != nil {
 		t.Fatal(err)
 	}

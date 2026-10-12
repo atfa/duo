@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"net"
 	"os/exec"
 	"strings"
@@ -129,13 +130,14 @@ func manifestOf(ctx context.Context, plugin driver.Caller) *driver.Manifest {
 	return manifest
 }
 
-// exitReason describes a failed process in one clause, for a headline above the
-// driver's own output.
-func exitReason(event agent.LifecycleEvent) string {
-	if event.Err != nil {
-		return event.Err.Error()
+// exitHeadline names the process that ended, with its error status when the OS
+// reported one. A process that ended on its own with status 0 gets no clause: the
+// state name would only repeat the headline ("Tony exited (exited)").
+func exitHeadline(event agent.LifecycleEvent) string {
+	if event.Err == nil {
+		return fmt.Sprintf("%s exited", event.Agent)
 	}
-	return event.State.String()
+	return fmt.Sprintf("%s exited (%s)", event.Agent, event.Err)
 }
 
 // indentBlock keeps a multi-line driver message readable in the session log
