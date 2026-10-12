@@ -61,6 +61,7 @@ func TestContractPassesForEveryShippedPlugin(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping subprocess contract test in short mode")
 	}
+	stubAgentModelCLIs(t)
 	for _, tc := range []struct{ pkg, name string }{
 		{"github.com/atfa/duo/cmd/duo-plugin-pi", "duo-plugin-pi"},
 		{"github.com/atfa/duo/cmd/duo-plugin-opencode", "duo-plugin-opencode"},
@@ -82,6 +83,22 @@ func TestContractPassesForEveryShippedPlugin(t *testing.T) {
 			}
 		})
 	}
+}
+
+func stubAgentModelCLIs(t *testing.T) {
+	t.Helper()
+	binDir := t.TempDir()
+	for name, output := range map[string]string{
+		"pi":       "openai gpt-5.6-codex 128000 8192 yes yes\n",
+		"opencode": "openai/gpt-5.6-codex\n",
+	} {
+		path := filepath.Join(binDir, name)
+		script := "#!/bin/sh\ncase \"$1\" in\n  --version) echo '" + name + " 1.0.0' ;;\n  --list-models|models) printf '%s' '" + output + "' ;;\n  *) exit 2 ;;\nesac\n"
+		if err := os.WriteFile(path, []byte(script), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 }
 
 // TestContractRejectsSomethingThatIsNotAPlugin checks the harness does not pass a

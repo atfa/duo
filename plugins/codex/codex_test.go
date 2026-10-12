@@ -128,6 +128,7 @@ func TestPrepareRespectsOperatorSafetyFlagsAndOmitsEmptyModel(t *testing.T) {
 }
 
 func TestPrepareDisablesSharedDaemonForFreshAndResumedCommands(t *testing.T) {
+	stubCodexCLI(t)
 	cwd := t.TempDir()
 	prior, err := json.Marshal(state{SessionID: "prior-session", CWD: cwd})
 	if err != nil {
@@ -142,6 +143,7 @@ func TestPrepareDisablesSharedDaemonForFreshAndResumedCommands(t *testing.T) {
 }
 
 func TestPreparePromptsCodexToContinueOnlyWhenAddingResume(t *testing.T) {
+	stubCodexCLI(t)
 	cwd := t.TempDir()
 	stateBlob, err := json.Marshal(state{SessionID: "prior-session", CWD: cwd})
 	if err != nil {
@@ -285,6 +287,7 @@ func TestPrepareSkipsGlobalPreflightForCustomCommand(t *testing.T) {
 }
 
 func TestDiscoverFreshRolloutAndResumeAfterRestart(t *testing.T) {
+	stubCodexCLI(t)
 	home := t.TempDir()
 	t.Setenv("CODEX_HOME", home)
 	oldInterval := watchInterval
@@ -319,6 +322,7 @@ func TestDiscoverFreshRolloutAndResumeAfterRestart(t *testing.T) {
 }
 
 func TestPrepareRecoversUniqueRolloutWhenCheckpointPredatesMetadata(t *testing.T) {
+	stubCodexCLI(t)
 	home, cwd := t.TempDir(), t.TempDir()
 	t.Setenv("CODEX_HOME", home)
 	startedAt := time.Now()
@@ -550,6 +554,7 @@ func (h *activityCapture) OnMessage(_ context.Context, _ *transport.Client, msg 
 }
 
 func TestWatcherDoesNotChooseAnAmbiguousSession(t *testing.T) {
+	stubCodexCLI(t)
 	home, cwd := t.TempDir(), t.TempDir()
 	t.Setenv("CODEX_HOME", home)
 	oldInterval, oldSettle := watchInterval, settleInterval
@@ -588,6 +593,22 @@ func TestThinkingOptions(t *testing.T) {
 func prepare(t *testing.T, req driver.LaunchRequest) *driver.LaunchPlan {
 	t.Helper()
 	return prepareWith(t, &Plugin{}, req)
+}
+
+func stubCodexCLI(t *testing.T) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "codex")
+	if err := os.WriteFile(path, []byte("#!/bin/sh\necho 'codex 1.0.0'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	oldLookPath := lookPath
+	lookPath = func(name string) (string, error) {
+		if name == Name {
+			return path, nil
+		}
+		return oldLookPath(name)
+	}
+	t.Cleanup(func() { lookPath = oldLookPath })
 }
 
 func prepareWith(t *testing.T, p *Plugin, req driver.LaunchRequest) *driver.LaunchPlan {
