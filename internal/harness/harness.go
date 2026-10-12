@@ -218,7 +218,20 @@ func (m *Monitor) fastNudgeAustin(ctx context.Context, state project.Snapshot) {
 	}
 
 	active := austin.Busy || austin.ProviderActive || austin.ToolDepth > 0
-	if active {
+
+	last := austin.LastActivity
+	if state.LastMutation.After(last) {
+		last = state.LastMutation
+	}
+	quietFor := time.Since(last)
+	hardStalled := quietFor >= m.cfg.StallThreshold
+
+	// A hard stall outranks what the agent says about itself. An agent that has
+	// been silent past the stall threshold while still reporting itself busy is
+	// the one case the threshold exists for: observeAustinActivity above already
+	// returned for an agent that did anything new, so reaching here with a large
+	// quietFor means nothing has moved however busy the agent claims to be.
+	if active && !hardStalled {
 		m.resetFastEpisode()
 		return
 	}
@@ -229,12 +242,6 @@ func (m *Monitor) fastNudgeAustin(ctx context.Context, state project.Snapshot) {
 		m.sendFastDiagnosis(ctx, state)
 	}
 
-	last := austin.LastActivity
-	if state.LastMutation.After(last) {
-		last = state.LastMutation
-	}
-	quietFor := time.Since(last)
-	hardStalled := quietFor >= m.cfg.StallThreshold
 	if quietFor < m.cfg.IdleThreshold && !hardStalled {
 		return
 	}
@@ -245,12 +252,12 @@ func (m *Monitor) fastNudgeAustin(ctx context.Context, state project.Snapshot) {
 	}
 
 	reason := "Austin is idle while the Fast session is still in RUNNING."
-	if hardStalled && quietFor < m.cfg.IdleThreshold {
+	if hardStalled {
 		reason = "The Fast session is unfinished and Austin has been silent for an unusually long time."
 	}
 	if m.cfg.Language == "zh" {
 		reason = "FAST 会话处于 RUNNING 阶段，Austin 当前空闲。"
-		if hardStalled && quietFor < m.cfg.IdleThreshold {
+		if hardStalled {
 			reason = "FAST 会话尚未完成，Austin 长时间没有活动。"
 		}
 	}
@@ -291,7 +298,9 @@ func (m *Monitor) fastNudgeTony(ctx context.Context, state project.Snapshot) {
 	quietFor := time.Since(last)
 	active := tony.Busy || tony.ProviderActive || tony.ToolDepth > 0
 	hardStalled := quietFor >= m.cfg.StallThreshold
-	if active || (quietFor < m.cfg.IdleThreshold && !hardStalled) {
+	// Same rule as fastNudgeAustin: a verifier that has been silent past the stall
+	// threshold while reporting itself busy is stuck, not slow.
+	if !hardStalled && (active || quietFor < m.cfg.IdleThreshold) {
 		return
 	}
 	if _, allowed := m.beginFastNudge(project.PhaseVerify, false); !allowed {

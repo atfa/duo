@@ -3,7 +3,9 @@ package harness
 import (
 	"context"
 	"testing"
+	"time"
 
+	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 )
@@ -152,5 +154,43 @@ func TestFastMonitorDiagnosesReportedFailure(t *testing.T) {
 
 	if got := len(sentTo(sender, protocol.Tony)); got != 1 {
 		t.Fatalf("a reported failure must earn exactly one diagnosis, got %d", got)
+	}
+}
+
+// TestFastMonitorStallOutranksBusy pins the case that hid a wedged agent for
+// eight minutes: it reports itself busy forever, so the old `if active { return }`
+// short-circuited every later check and Duo said nothing at all. A stall past the
+// threshold is the one thing that outranks what an agent says about itself — and
+// only past the threshold, or a busy agent mid-turn would be interrupted on
+// every tick.
+func TestFastMonitorStallOutranksBusy(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		threshold time.Duration
+		wantNudge bool
+	}{
+		// Still inside the threshold, so a busy agent is left to finish its turn.
+		{"busy inside the stall threshold", time.Hour, false},
+		{"busy past the stall threshold", time.Nanosecond, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			state := fastMonitorState(t)
+			sender := &recordingSender{connected: true}
+			m := NewMonitor(Config{
+				IdleThreshold:  tc.threshold,
+				StallThreshold: tc.threshold,
+				Cooldown:       0,
+				TickInterval:   time.Millisecond,
+			}, state, NewTracker(), sender, events.NewBus())
+
+			// Austin reports itself working. Nothing else happens: no tool, no
+			// provider, no message — the state a wedged agent sits in forever.
+			m.tracker.Handle(protocol.Austin, protocol.ActivityAgentStart)
+
+			m.maybeWake(context.Background())
+			if nudged := len(sentTo(sender, protocol.Austin)) > 0; nudged != tc.wantNudge {
+				t.Fatalf("Austin nudged = %v, want %v", nudged, tc.wantNudge)
+			}
+		})
 	}
 }
