@@ -2,6 +2,66 @@
 
 All notable project milestones are documented here.
 
+## v0.10.0 — 2026-10-15
+
+A minor release because three of these changes what Duo *does* rather than only
+what it reports: a dead agent is now always visible, an agent that has wedged is
+now caught even while it claims to be working, and quitting a live session now
+asks twice.
+
+### Agents
+
+- **An agent that stops being watched no longer disappears silently.** The tail of
+  a failed process was captured only for a non-zero exit, and the exit was reported
+  only when that tail was non-empty. A CLI that gives up during bootstrap often
+  exits 0 right after printing its own diagnosis, so a session could sit in `VERIFY`
+  waiting on an agent that no longer existed, with nothing but `exited [Restart]`
+  in a preview pane to explain it. `ExitEvent` and `LifecycleEvent` now carry
+  `Requested`, so the observer can tell a shutdown Duo asked for from a death, and
+  every exit Duo did not ask for reaches the timeline — with the driver's own output
+  when there is any, and an explicit statement when there is not.
+- **A private escape sequence no longer reaches the operator's error.** The ANSI
+  stripper matched CSI sequences whose parameters were digits, `;` and `?`, which
+  is not the whole range ECMA-48 reserves for parameter bytes. A sequence such as
+  `ESC [ > 4 ; 0 m`, written by any agent that enables the kitty keyboard
+  protocol, reached the reported reason as the literal text `[>4;0m`. The parameter
+  class is now the full `0x30`–`0x3F` range.
+- **The watchdog reaches an agent whose bridge has not connected yet.** Harness
+  messages went to the socket server, and the server's reachability check asks only
+  whether a bridge client is registered. Codex starts its Duo MCP bridge the first
+  time it calls a Duo tool, so before that moment it held no client at all and every
+  nudge and every copilot escalation was dropped on the floor: a session whose only
+  agent could not be reached simply stopped progressing, with a nudge count that
+  never moved. The monitor is now handed the coordinator, which already owns the
+  decision of whether a message goes over a bridge or into the agent's terminal, and
+  whose reachability check counts a running driver. Because the coordinator records
+  injected prompts, a harness message also stops being mistaken for something the
+  agent said itself.
+
+### Watchdog
+
+- **A Fast stall is caught even when the agent still calls itself busy.** The Fast
+  path returned as soon as an agent reported activity, which is the one case the
+  stall threshold exists for: an agent silent past the threshold while reporting
+  itself busy is stuck, not slow. Goal mode already made this distinction; Fast did
+  not, so a wedged driver could hold a session open indefinitely without Duo saying
+  a word. A hard stall now outranks what the agent says about itself, for the
+  verifier as well as the driver. The reason text that says an agent has been silent
+  for an unusually long time was unreachable — it required being quiet *and* inside
+  the idle threshold at once — and is now reachable in both languages.
+
+### Interface
+
+- **Quitting a session that still has work in it asks first.** `Ctrl+Q` closed an
+  unfinished session outright, and the only warning was a line in the exit message
+  the operator had to read carefully: the work was safe in a worktree they were not
+  looking at, which is exactly the state where pressing `Ctrl+Q` again — once to
+  read something, once to leave — is most likely. The first `Ctrl+Q` or `Ctrl+D`
+  now warns and arms a three-second window; a second one inside it quits, and an
+  unanswered warning lapses on its own. A session nobody has started and a session
+  that has already delivered both quit on the first press, so the guard cannot
+  become the reason a finished round cannot be closed.
+
 ## v0.9.1 — 2026-10-12
 
 ### Driver plugins
