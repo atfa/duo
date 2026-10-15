@@ -145,6 +145,7 @@ func (a *App) helpLines(width int) []string {
 			"/mode                Print the current session mode.",
 			"/mode goal           Upgrade the session to Goal mode; /mode fast is rejected, a session never returns to Fast.",
 			"/model               Open the model and thinking level picker (Ctrl+M).",
+			"/language [zh|en]    Set Duo language for this repository, saved to .duo/config.json; without an argument it reports the current language.",
 			"/overview            Toggle the session overview and git diffstat (Ctrl+O).",
 			"/preview             Toggle the agent work preview band (Ctrl+P).",
 			"/timestamps          Toggle message timestamps (Ctrl+G).",

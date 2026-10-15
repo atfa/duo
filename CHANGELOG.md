@@ -2,6 +2,29 @@
 
 All notable project milestones are documented here.
 
+## v0.10.2 — 2026-10-15
+
+One change: the language Duo speaks can now be set while a session runs, from
+the composer, and it survives the session.
+
+### `/language`
+
+- **`/language zh` and `/language en` set the language of a running session.**
+  Duo has taken its language from `--language` and the config file since long
+  ago, which meant changing it required leaving the session, editing the file
+  and relaunching. The command is validated (`zh` or `en`, nothing else), and
+  `/language` with no argument reports the language actually in force.
+- **The choice is written to the repository's `.duo/config.json`.** The project
+  layer overrides the global one, so a resumed session, and every session
+  started in the repository afterwards, use the language that was chosen —
+  the same layering the model picker already persists to. The write is atomic
+  and preserves every other key in the file; a failed write is reported, not
+  swallowed.
+- **What switches when.** Coordinator prompts to the agents and the human
+  switch immediately. An agent process keeps the `DUO_LANGUAGE` it was
+  launched with until it restarts, and the harness keeps the language of its
+  startup; both pick the new one up on the agent's next restart.
+
 ## v0.10.1 — 2026-10-15
 
 Two changes to the report Austin writes when a session finishes — what it is

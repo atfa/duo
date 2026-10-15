@@ -2,11 +2,13 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
+	"github.com/atfa/duo/internal/session"
 )
 
 func newTestApp() *App {
@@ -144,6 +146,84 @@ func TestSlashNavigationAndSelection(t *testing.T) {
 	app.handleKey("e")
 	if !app.hasSlashMenu() {
 		t.Fatal("menu should reactivate after typing a new character")
+	}
+}
+
+func TestRunSlashLanguage(t *testing.T) {
+	ctx := context.Background()
+	fake := &fakeSession{view: session.View{Language: "en"}}
+	app := New(fake)
+	app.setProject(project.NewStateFor(project.ModeFast))
+	app.width, app.height = 80, 24
+
+	// 1. The palette lists /language for the /l prefix.
+	app.input = []byte("/l")
+	app.inputPos = 2
+	matches := app.matchingSlashCommands()
+	if len(matches) != 1 || matches[0].Name != "/language" {
+		t.Fatalf("/l matches = %+v, want only /language", matches)
+	}
+
+	// 2. /language without an argument reports the current language and sends no command.
+	if !app.runSlashCommand(ctx, "/language") {
+		t.Fatal("/language without args not handled")
+	}
+	if !strings.Contains(app.status, "current language: en") {
+		t.Fatalf("status = %q, want the current language reported", app.status)
+	}
+	if len(fake.commands) != 0 {
+		t.Fatalf("no command expected, got %v", fake.commands)
+	}
+
+	// 3. /language zh sends SetLanguage and reports success.
+	if !app.runSlashCommand(ctx, "/language zh") {
+		t.Fatal("/language zh not handled")
+	}
+	if len(fake.commands) != 1 {
+		t.Fatalf("expected 1 command, got %v", fake.commands)
+	}
+	cmd, ok := fake.commands[0].(session.SetLanguage)
+	if !ok || cmd.Language != "zh" {
+		t.Fatalf("command = %#v, want SetLanguage{Language: zh}", fake.commands[0])
+	}
+	if !strings.Contains(app.status, "language → zh") {
+		t.Fatalf("status = %q, want the success reported", app.status)
+	}
+
+	// 4. The argument is case-insensitive.
+	if !app.runSlashCommand(ctx, "/LANGUAGE EN") {
+		t.Fatal("/LANGUAGE EN not handled")
+	}
+	if cmd, ok := fake.commands[1].(session.SetLanguage); !ok || cmd.Language != "en" {
+		t.Fatalf("command = %#v, want SetLanguage{Language: en}", fake.commands[1])
+	}
+
+	// 5. An invalid language is an error and sends no command.
+	if !app.runSlashCommand(ctx, "/language fr") {
+		t.Fatal("/language fr not handled")
+	}
+	if !app.statusError {
+		t.Fatalf("status = %q, want an error", app.status)
+	}
+	if len(fake.commands) != 2 {
+		t.Fatalf("an invalid argument must send no command, got %v", fake.commands)
+	}
+
+	// 6. Extra arguments are rejected.
+	if !app.runSlashCommand(ctx, "/language zh en") {
+		t.Fatal("/language zh en not handled")
+	}
+	if !app.statusError || len(fake.commands) != 2 {
+		t.Fatalf("extra arguments must be rejected: status=%q commands=%v", app.status, fake.commands)
+	}
+
+	// 7. A session error is reported, not swallowed.
+	fake.err = errors.New("session is closed")
+	if !app.runSlashCommand(ctx, "/language zh") {
+		t.Fatal("/language zh not handled")
+	}
+	if !app.statusError || !strings.Contains(app.status, "session is closed") {
+		t.Fatalf("status = %q, want the error reported", app.status)
 	}
 }
 
