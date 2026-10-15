@@ -13,7 +13,7 @@ export type DuoMessageType =
   | "hello" | "test" | "activity" | "assistant_message" | "agent_error"
   | "peer_message" | "steer" | "duo_notice" | "harness_prompt" | "human_prompt"
   | "resume_prompt" | "set_plan" | "set_status" | "get_status" | "response"
-  | "set_verification" | "escalate" | "set_model" | "model_state" | "cycle_thinking"
+  | "set_verification" | "set_steps" | "escalate" | "set_model" | "model_state" | "cycle_thinking"
   | "thinking_state";
 
 /**
@@ -37,6 +37,9 @@ export type DuoMessage = {
 
   text?: string;
   plan?: string;
+  /** STEP mode: the raw markdown checkbox list for the step queue. Parsing is
+   * done by the Go runtime, never by the bridge, so there is one parser. */
+  steps?: string;
   note?: string;
   ready?: boolean;
   verification?: VerificationResult;

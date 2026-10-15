@@ -8,6 +8,7 @@ import { registerPlanTool } from "./tools/plan";
 import { registerProjectStatusTool } from "./tools/project-status";
 import { registerSendTool } from "./tools/send";
 import { registerStatusTool } from "./tools/status";
+import { registerStepsTool } from "./tools/steps";
 import { registerVerificationTool } from "./tools/verification";
 import { registerEscalateTool } from "./tools/escalate";
 
@@ -39,6 +40,7 @@ export default function (pi: any) {
 
   registerSendTool(pi, transport);
   registerPlanTool(pi, transport, mode);
+  registerStepsTool(pi, transport, mode);
   registerStatusTool(pi, transport, mode);
   registerProjectStatusTool(pi, transport);
   registerVerificationTool(pi, transport, mode, AGENT);

@@ -5,6 +5,9 @@ import type { DuoTransport } from "./transport";
 
 const z = tool.schema;
 
+// opencode's `tool()` helper types its execute arguments from the schema, so the
+// argument parameters below are inferred; the schema is the contract.
+
 /**
  * Duo's six coordination tools, registered as opencode tools.
  *
@@ -16,8 +19,8 @@ export function buildDuoTools(
   transport: DuoTransport,
   agent: AgentName,
   mode: DuoMode,
-): Record<string, any> {
-  const tools: Record<string, any> = {};
+): Record<string, unknown> {
+  const tools: Record<string, unknown> = {};
 
   const ok = (response: DuoMessage): string => {
     const parts: string[] = [];
@@ -65,14 +68,18 @@ export function buildDuoTools(
 
   tools.duo_set_status = tool({
     description:
-      mode === "goal"
-        ? "Set your own sign-off state for the current Duo phase. Duo Core advances only when both Austin and Tony have valid, non-stale signatures."
-        : "FAST mode: Austin-only readiness. Austin uses ready=true to request independent verification of the committed, clean HEAD; Tony cannot sign and must use duo_set_verification instead.",
+      mode === "fast"
+        ? "FAST mode: Austin-only readiness. Austin uses ready=true to request independent verification of the committed, clean HEAD; Tony cannot sign and must use duo_set_verification instead."
+        : mode === "step"
+          ? "STEP mode: sign the phase that needs dual sign-off — the step queue in PLAN, and the final step in INTEGRATE. Duo Core advances a step after Tony's verification passes on its exact HEAD; the queue cursor is Duo's, never yours."
+          : "Set your own sign-off state for the current Duo phase. Duo Core advances only when both Austin and Tony have valid, non-stale signatures.",
     args: {
       ready: z.boolean().describe(
-        mode === "goal"
-          ? "true = sign current phase; false = revoke your signature because work or objections remain."
-          : "FAST mode: Austin-only. ready=true requests independent verification of your committed, clean HEAD; ready=false withdraws a pending request. It is not a phase sign-off.",
+        mode === "fast"
+          ? "FAST mode: Austin-only. ready=true requests independent verification of your committed, clean HEAD; ready=false withdraws a pending request. It is not a phase sign-off."
+          : mode === "step"
+            ? "true = sign the current STEP gate (approve the queue in PLAN, request review of your committed HEAD in EXECUTE, accept the final step in INTEGRATE); false = revoke."
+            : "true = sign current phase; false = revoke your signature because work or objections remain.",
       ),
       note: z.string().optional().describe("Optional concise reason or completion note."),
     },
@@ -110,10 +117,35 @@ export function buildDuoTools(
     });
   }
 
+  if (isToolEnabledForMode("steps", mode)) {
+    tools.duo_set_steps = tool({
+      description:
+        "Create or replace the STEP-mode step queue during PLAN. Send a markdown checkbox list, one step per line; every update creates a new version and invalidates both agents' signatures. Duo Core advances the queue after each step lands — agents never mark a step done by hand.",
+      args: {
+        steps: z
+          .string()
+          .describe(
+            "The complete ordered queue as a markdown checkbox list, e.g. '- [ ] add ModeStep\\n- [ ] land per-step delivery'. Send the whole list, not a patch.",
+          ),
+      },
+      async execute(args) {
+        const steps = args.steps.trim();
+        if (!steps) return "Steps were empty and were not sent.";
+        try {
+          return ok(await transport.request("set_steps", { steps }));
+        } catch (error) {
+          return failed("Duo set steps failed", error);
+        }
+      },
+    });
+  }
+
   if (isToolEnabledForMode("verification", mode) && agent === "Tony") {
     tools.duo_set_verification = tool({
       description:
-        "FAST mode only. Report the result of independently verifying Austin's exact current commit: passed, or issue_found with a concrete note.",
+        mode === "step"
+          ? "STEP mode. Report the result of independently verifying the current step's exact Austin commit: passed lands the step on the base branch and advances the queue; issue_found returns the step to EXECUTE."
+          : "FAST mode only. Report the result of independently verifying Austin's exact current commit: passed, or issue_found with a concrete note.",
       args: {
         result: z
           .enum(["passed", "issue_found"])
