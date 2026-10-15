@@ -72,9 +72,16 @@ func (c *Coordinator) unclaimFinalSummary() {
 	c.summaryMu.Unlock()
 }
 
-// finalSummaryPrompt asks Austin for the process and the results of the whole
-// session, not a restatement of the DONE notice, and names the delivery facts
-// that anchor the report.
+// finalSummaryPrompt asks Austin three questions about the finished round, and
+// names the delivery facts that anchor the answers.
+//
+// The questions are the contract, and they are deliberately not "describe the
+// process and the results": a report written that way answers the prompt and
+// still tells the human nothing they cannot read off the transcript. Asking for
+// the result, then the points of agreement and disagreement with Tony, then
+// whether having two agents improved anything at all, forces the three answers
+// the human actually wants and gives the last one a shape — yes or no, first —
+// that cannot be satisfied by narrating the review.
 func (c *Coordinator) finalSummaryPrompt(snap project.Snapshot) string {
 	d := c.CurrentDelivery()
 	set := c.workspace.Set()
@@ -87,10 +94,10 @@ func (c *Coordinator) finalSummaryPrompt(snap project.Snapshot) string {
 		applied = shortSHA(d.FinalHead)
 	}
 	if c.language == "zh" {
-		return fmt.Sprintf("[Duo final summary request]\n本次会话已在 %s 模式下完成：最终产物已交付到 %s 的 %s 分支，HEAD 为 %s。\n\n请在正常 assistant 回复中向用户总结整个会话；Duo 会将回复显示为 `Austin → Human`。不要使用 duo_send：该消息会发给 Tony，而不是用户。\n\n请涵盖：\n  - 过程：用户提出并确认了什么、采用的方法及原因、哪些内容被拒绝/修正/返工，以及审查和验证的实际过程。\n  - 结果：仓库现在新增或改变了什么、重要文件、交付的 HEAD，以及用户依赖该结果前应了解的限制、取舍、后续事项和风险。\n\n产物已经交付：不要编辑文件、提交或开始新工作。用户可随时提交后续任务，届时会以新一轮重新打开会话。", snap.EffectiveMode().Display(), set.Repository, branch, applied)
+		return fmt.Sprintf("[Duo final summary request]\n本次会话已在 %s 模式下完成：最终产物已交付到 %s 的 %s 分支，HEAD 为 %s。\n\n按顺序回答三个问题。每个问题先给结论，再给依据。\n\n1. 结果。仓库现在有哪些是它原来没有的：哪些行为变了，由哪些文件承载。一段话加一个文件清单，别的不要写。\n\n2. 你和 Tony 达成一致的地方，以及没有达成一致的地方。先列出双方共同的结论；再逐条列出分歧：每条都要写明是谁持什么立场、什么证据判定了胜负、证据支持哪一方。如果你驳回了 Tony，直接写明并给出理由；如果你采纳了 Tony 的纠正，指出是哪一条。\n\n3. 两个 agent 有没有真的提高工作质量。第一句必须是「是」或「不是」，然后说明因为有两个 agent 而具体变好了什么：本来会漏发的发现、事后被证明量错的测量、被评审改掉的决定。如果这次协作没有产生价值，就直接说没有，不要硬凑。\n\n第 1 和第 3 问各自控制在几句话内。第 2 问可以长一些，但只能长到这条分歧真正需要的程度。\n\n不要复述会话过程——human 已经在时间线里读过了。\n\n在正常 assistant 回复中回答；Duo 会显示为 `Austin → Human`。不要使用 duo_send：该消息会发给 Tony，而不是用户。\n\n产物已经交付：不要编辑文件、提交或开始新工作。用户可随时提交后续任务，届时会以新一轮重新打开会话。", snap.EffectiveMode().Display(), set.Repository, branch, applied)
 	}
 	return fmt.Sprintf(
-		"[Duo final summary request]\nThis session is DONE in %s mode: the final artifact was delivered to %s on %s as %s.\n\nSummarise the whole session for the human in your normal assistant reply; Duo shows that reply as `Austin → Human`. Do not use duo_send: that message reaches Tony, not the human.\n\nCover two things:\n  - The process: how the work actually went. What was asked and agreed, the approach taken and why, anything that was rejected, corrected or reworked on the way, and how the review, cross-review and verification actually went.\n  - The results: what a user of this repository now has that they did not have before. The behaviour that changed, the important files, the delivered HEAD, and anything they must know before relying on it — limitations, trade-offs, follow-ups and risks.\n\nThe artifact is already delivered: do not edit files, do not commit, and do not start new work. The human can submit a follow-up task at any time, which reopens the session as a fresh round.",
+		"[Duo final summary request]\nThis session is DONE in %s mode: the final artifact was delivered to %s on %s as %s.\n\nAnswer three questions, in this order. Lead each answer with its conclusion, not its evidence.\n\n1. Result. What the repository now has that it did not have before: the behaviour that changed, and the files that carry it. One paragraph and a file list, nothing else.\n\n2. Where you and Tony agreed, and where you did not. Name the conclusions you both reached. Then list every point of disagreement: for each one say which of you held which position, what evidence settled it, and which side that evidence supports. If you overruled Tony, say so plainly and give the reason. If you accepted a correction from Tony, name which one.\n\n3. Whether having two agents improved the work. Answer yes or no in the first sentence, then name what specifically got better because there were two: findings that would otherwise have shipped, measurements that turned out to be wrong, decisions that changed on review. If the collaboration produced nothing, say that rather than inventing value.\n\nKeep answers 1 and 3 to a few sentences each. Answer 2 may run longer, but only to the length a disagreement actually needs.\n\nDo not narrate the session — the human has already read the timeline.\n\nReport in your normal assistant reply; Duo shows it as `Austin → Human`. Do not use duo_send: that message reaches Tony, not the human.\n\nThe artifact is already delivered: do not edit files, do not commit, and do not start new work. The human can submit a follow-up task at any time, which reopens the session as a fresh round.",
 		snap.EffectiveMode().Display(), set.Repository, branch, applied,
 	)
 }

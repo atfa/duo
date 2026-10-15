@@ -82,9 +82,15 @@ func TestDoneAsksAustinToSummariseTheSession(t *testing.T) {
 			if notice.From != protocol.Duo || notice.To != protocol.Austin {
 				t.Fatalf("summary request is %s → %s, want Duo → Austin", notice.From, notice.To)
 			}
+			// The three questions are the contract: the result, the points of
+			// agreement and disagreement, and whether the collaboration improved
+			// anything. A prompt asking only for "process and results" is
+			// answered by narrating the timeline, which the human has read.
 			for _, want := range []string{
-				"The process", "The results", "Austin → Human",
-				"Do not use duo_send", "do not start new work", mode.Display(),
+				"Answer three questions", "1. Result.", "2. Where you and Tony agreed",
+				"3. Whether having two agents improved the work", "yes or no in the first sentence",
+				"If you overruled Tony", "Do not narrate the session",
+				"Austin → Human", "Do not use duo_send", "do not start new work", mode.Display(),
 			} {
 				if !strings.Contains(notice.Text, want) {
 					t.Fatalf("summary request missing %q:\n%s", want, notice.Text)
@@ -166,5 +172,38 @@ func TestFinalSummaryIsRequestedOncePerRound(t *testing.T) {
 	coord.unclaimFinalSummary()
 	if !coord.claimFinalSummary() {
 		t.Fatal("a reopened round must ask for its own summary")
+	}
+}
+
+// TestFinalSummaryPromptAsksTheSameThreeQuestionsInBothLanguages guards the one
+// place this contract can quietly rot. The two strings are written by hand, so a
+// rewrite of the English half leaves the Chinese half asking the old, weaker
+// questions — and the human who set --language zh is the one who would keep
+// getting a report they did not ask for, with nothing to show it.
+func TestFinalSummaryPromptAsksTheSameThreeQuestionsInBothLanguages(t *testing.T) {
+	snap := project.Snapshot{PlanVersion: 1}
+	questions := map[string][]string{
+		"en": {"1. Result.", "2. Where you and Tony agreed", "3. Whether having two agents improved the work"},
+		"zh": {"1. 结果。", "2. 你和 Tony 达成一致的地方", "3. 两个 agent 有没有真的提高工作质量"},
+	}
+	// The verdict must be an answerable question in both languages, not a request
+	// to describe the review.
+	verdict := map[string]string{
+		"en": "yes or no in the first sentence",
+		"zh": "第一句必须是「是」或「不是」",
+	}
+
+	for _, language := range []string{"en", "zh"} {
+		coord := promptCoordinator()
+		coord.language = language
+		got := coord.finalSummaryPrompt(snap)
+		for _, want := range questions[language] {
+			if !strings.Contains(got, want) {
+				t.Fatalf("%s prompt missing question %q:\n%s", language, want, got)
+			}
+		}
+		if !strings.Contains(got, verdict[language]) {
+			t.Fatalf("%s prompt does not demand a yes/no verdict:\n%s", language, got)
+		}
 	}
 }
