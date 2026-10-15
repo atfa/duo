@@ -530,6 +530,7 @@ func (s *Service) view() View {
 		Version:     versionString(),
 		SessionID:   s.sessionID,
 		Mode:        s.mode,
+		Language:    effectiveLanguage(s.opts.Language),
 		TestCommand: s.opts.TestCommand,
 		Notices:     append([]string(nil), s.notices...),
 	}
@@ -646,9 +647,30 @@ func (s *Service) Do(ctx context.Context, cmd Command) error {
 		}
 		s.tracker.Reset(c.Agent)
 		return nil
+	case SetLanguage:
+		return s.setLanguage(c)
 	default:
 		return fmt.Errorf("unsupported command %T", cmd)
 	}
+}
+
+// setLanguage switches the language Duo writes in and makes the switch real
+// now: the coordinator's next prompts use it, agents pick it up when they next
+// restart, and the project configuration records it so a resume and the next
+// session start in the language the human chose. Unlike the model, a language
+// that failed to persist is reported: the command promised to save it.
+func (s *Service) setLanguage(c SetLanguage) error {
+	language := strings.ToLower(strings.TrimSpace(c.Language))
+	if language != "zh" && language != "en" {
+		return fmt.Errorf("invalid language %q: must be zh or en", c.Language)
+	}
+	s.opts.Language = language
+	s.coord.SetLanguage(language)
+	repo := ""
+	if s.ws != nil {
+		repo = s.ws.Set().Repository
+	}
+	return workspace.SaveProjectLanguage(repo, language)
 }
 
 // setModel switches an agent's model and makes the switch real: the driver is told

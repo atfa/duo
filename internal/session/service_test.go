@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
@@ -426,5 +427,47 @@ func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// /language must switch the language Duo writes in right now, report it through
+// the View, persist it to the project config so a resume and the next session
+// start in it, and refuse anything that is not zh or en without touching state.
+func TestSetLanguageSwitchesAndPersists(t *testing.T) {
+	repo := gitRepo(t)
+	svc := New(headlessOptions(t, repo, t.TempDir(), "127.0.0.1:0"))
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer svc.Close()
+
+	if got := svc.View().Language; got != "en" {
+		t.Fatalf("initial View.Language = %q, want en", got)
+	}
+	if err := svc.Do(context.Background(), SetLanguage{Language: " ZH "}); err != nil {
+		t.Fatalf("SetLanguage zh: %v", err)
+	}
+	if got := svc.View().Language; got != "zh" {
+		t.Fatalf("View.Language = %q, want zh", got)
+	}
+	data, err := os.ReadFile(filepath.Join(repo, ".duo", "config.json"))
+	if err != nil {
+		t.Fatalf("project config not written: %v", err)
+	}
+	var cfg struct {
+		Language string `json:"language"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("parse project config: %v\n%s", err, data)
+	}
+	if cfg.Language != "zh" {
+		t.Fatalf("persisted language = %q, want zh\n%s", cfg.Language, data)
+	}
+
+	if err := svc.Do(context.Background(), SetLanguage{Language: "fr"}); err == nil {
+		t.Fatal("SetLanguage accepted fr")
+	}
+	if got := svc.View().Language; got != "zh" {
+		t.Fatalf("rejected command changed language to %q, want zh", got)
 	}
 }

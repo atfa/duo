@@ -100,6 +100,54 @@ func ensureGitExclude(repoRoot string) {
 	_ = appendLineIfMissing(filepath.Join(infoDir, "exclude"), ".duo/")
 }
 
+// SaveProjectLanguage records the language Duo writes in .duo/config.json in
+// repoRoot. It writes through the same raw-key map SaveProjectConfig uses, so
+// the driver, models and anything else the file carries survive untouched, and
+// an empty language removes the key rather than persisting "".
+func SaveProjectLanguage(repoRoot, language string) error {
+	repoRoot = strings.TrimSpace(repoRoot)
+	if repoRoot == "" {
+		return nil
+	}
+	duoDir := filepath.Join(repoRoot, ".duo")
+	if err := os.MkdirAll(duoDir, 0755); err != nil {
+		return err
+	}
+	_ = EnsureGitIgnore(repoRoot)
+
+	configPath := filepath.Join(duoDir, "config.json")
+	config := make(map[string]json.RawMessage)
+	data, err := os.ReadFile(configPath)
+	if err == nil {
+		if err := json.Unmarshal(data, &config); err != nil || config == nil {
+			if err == nil {
+				err = fmt.Errorf("expected a JSON object")
+			}
+			return fmt.Errorf("read Duo project config: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("read Duo project config: %w", err)
+	}
+
+	if language == "" {
+		delete(config, "language")
+	} else {
+		config["language"], _ = json.Marshal(language)
+	}
+
+	data, err = json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+
+	tmpFile := configPath + ".tmp"
+	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmpFile, configPath)
+}
+
 // SaveProjectConfig writes or updates .duo/config.json in repoRoot with the active driver and models.
 func SaveProjectConfig(repoRoot string, driver string, agentDrivers map[protocol.AgentID]string, agentModels map[protocol.AgentID]string) error {
 	repoRoot = strings.TrimSpace(repoRoot)
