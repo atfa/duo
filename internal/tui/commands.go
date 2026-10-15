@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/atfa/duo/internal/protocol"
+	"github.com/atfa/duo/internal/session"
 )
 
 type slashCmd struct {
@@ -19,6 +20,7 @@ var slashCommandList = []slashCmd{
 	{Name: "/escalate", Args: "[reason]", Description: "平滑升级至 Goal 模式 · Escalate to Goal mode", NeedsArgs: true},
 	{Name: "/mode", Args: "[fast|goal]", Description: "报告或升级会话模式 · Report or escalate session mode", NeedsArgs: true},
 	{Name: "/model", Args: "", Description: "选择模型与思考级别 · Model & thinking picker (Ctrl+M)", NeedsArgs: false},
+	{Name: "/language", Args: "[zh|en]", Description: "设置 Duo 语言并写入配置 · Set Duo language, saved to config", NeedsArgs: true},
 	{Name: "/copy", Args: "", Description: "复制 Austin 最新消息 · Copy Austin's latest message (Ctrl+X)", NeedsArgs: false},
 	{Name: "/overview", Args: "", Description: "查看会话概览与变更统计 · Session overview & diffstat (Ctrl+O)", NeedsArgs: false},
 	{Name: "/preview", Args: "", Description: "切换工作轨迹预览栏 · Toggle work preview (Ctrl+P)", NeedsArgs: false},
@@ -205,6 +207,30 @@ func (a *App) runSlashCommand(ctx context.Context, text string) bool {
 		return true
 	case "/quit", "/exit":
 		a.applyAction(ctx, inputAction{kind: actionQuit})
+		return true
+	case "/language":
+		if len(fields) == 1 {
+			lang := a.live.Language
+			if lang == "" {
+				lang = "en"
+			}
+			a.setStatus(fmt.Sprintf("current language: %s (use /language zh or /language en)", lang), false)
+			return true
+		}
+		if len(fields) > 2 {
+			a.setStatus("usage: /language [zh|en]", true)
+			return true
+		}
+		lang := strings.ToLower(fields[1])
+		if lang != "zh" && lang != "en" {
+			a.setStatus(fmt.Sprintf("invalid language %q: use zh or en", fields[1]), true)
+			return true
+		}
+		if err := a.svc.Do(ctx, session.SetLanguage{Language: lang}); err != nil {
+			a.setStatus(err.Error(), true)
+			return true
+		}
+		a.setStatus(fmt.Sprintf("language → %s (saved to .duo/config.json)", lang), false)
 		return true
 	case "/mode":
 		if len(fields) == 1 {
