@@ -45,14 +45,22 @@ type RestartAgent struct {
 	Agent protocol.AgentID `json:"agent"`
 }
 
+// SetLanguage selects the language Duo writes its own messages in, and records
+// it in the project configuration so later sessions start in it.
+type SetLanguage struct {
+	Language string `json:"language"`
+}
+
 func (SubmitTask) Kind() string     { return "submit_task" }
 func (EscalateToGoal) Kind() string { return "escalate_to_goal" }
 func (SetModel) Kind() string       { return "set_model" }
 func (CycleThinking) Kind() string  { return "cycle_thinking" }
 func (RestartAgent) Kind() string   { return "restart_agent" }
+func (SetLanguage) Kind() string    { return "set_language" }
 
 func (SubmitTask) command()     {}
 func (EscalateToGoal) command() {}
 func (SetModel) command()       {}
 func (CycleThinking) command()  {}
 func (RestartAgent) command()   {}
+func (SetLanguage) command()    {}

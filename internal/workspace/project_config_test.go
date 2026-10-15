@@ -299,3 +299,109 @@ func TestSaveProjectConfigHandlesNullAgents(t *testing.T) {
 		t.Fatalf("Austin driver = %q, want codex", got.Agents["austin"].Driver)
 	}
 }
+
+func TestSaveProjectLanguageWritesPreservesAndRemoves(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".duo", "config.json")
+	initial := `{"driver":"codex","x-extension":{"value":7},"language":"en"}`
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte(initial), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveProjectLanguage(dir, "zh"); err != nil {
+		t.Fatalf("SaveProjectLanguage failed: %v", err)
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if string(got["language"]) != `"zh"` {
+		t.Fatalf("language = %s, want \"zh\"", got["language"])
+	}
+	for key, want := range map[string]string{
+		"driver": `"codex"`, "x-extension": `{"value":7}`,
+	} {
+		var compact bytes.Buffer
+		if err := json.Compact(&compact, got[key]); err != nil || compact.String() != want {
+			t.Errorf("%s not preserved (compact %s, err %v)", key, compact.String(), err)
+		}
+	}
+	if len(data) == 0 || data[len(data)-1] != '\n' {
+		t.Fatalf("config must end with a newline: %q", data)
+	}
+	if _, err := os.Stat(configPath + ".tmp"); !os.IsNotExist(err) {
+		t.Fatal("temp file left behind by the atomic write")
+	}
+
+	// An empty language removes the key; it must never persist "".
+	if err := SaveProjectLanguage(dir, ""); err != nil {
+		t.Fatalf("clearing language failed: %v", err)
+	}
+	data, _ = os.ReadFile(configPath)
+	got = nil
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := got["language"]; ok {
+		t.Fatalf("language key must be removed, got %s", data)
+	}
+}
+
+func TestSaveProjectLanguageMutualPreservationWithSaveProjectConfig(t *testing.T) {
+	dir := t.TempDir()
+	if err := SaveProjectLanguage(dir, "zh"); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveProjectConfig(dir, "codex", map[protocol.AgentID]string{protocol.Austin: "codex"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveProjectLanguage(dir, "en"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, ".duo", "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]json.RawMessage
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if string(got["language"]) != `"en"` {
+		t.Fatalf("language = %s, want \"en\"", got["language"])
+	}
+	var agents map[string]map[string]json.RawMessage
+	if err := json.Unmarshal(got["agents"], &agents); err != nil {
+		t.Fatal(err)
+	}
+	if string(agents["austin"]["driver"]) != `"codex"` {
+		t.Fatalf("Austin driver lost by SaveProjectLanguage: %s", data)
+	}
+}
+
+func TestSaveProjectLanguageRejectsMalformedExistingConfigWithoutReplacingIt(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".duo", "config.json")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	initial := []byte(`{"language":`)
+	if err := os.WriteFile(configPath, initial, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveProjectLanguage(dir, "zh"); err == nil {
+		t.Fatal("SaveProjectLanguage accepted malformed existing JSON")
+	}
+	after, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(initial) {
+		t.Fatalf("malformed config was changed: %q", after)
+	}
+}

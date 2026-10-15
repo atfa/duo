@@ -42,6 +42,7 @@ type View struct {
 	Version   string
 	SessionID string
 	Mode      project.Mode
+	Language  string
 	Project   project.Snapshot
 	Worktrees workspace.Set
 
