@@ -20,6 +20,12 @@ type entry struct {
 	text    string
 	error   bool
 	warning bool
+	// summary marks Austin's final report: the one Duo asked for at DONE. Tony
+	// may write his own account of the round at any time, and it is a perfectly
+	// good report — but only one of these is the deliverable the human was
+	// promised, and the timeline has to make that obvious rather than leaving
+	// two similar blocks to be told apart by their first line.
+	summary bool
 	// label is the conversation header for this entry, a directed pair such as
 	// "Austin → Tony" or "Duo → Human". It is empty only for plain notices,
 	// which fall back to the speaker and the human in the timeline.
@@ -372,6 +378,10 @@ func (a *App) restoreEntry(item sessionstore.TUIEntry) {
 func (a *App) appendEntry(agent protocol.AgentID, item entry) {
 	a.nextSeq++
 	item.seq = a.nextSeq
+	// A resumed session replays through here too, so the mark is derived from
+	// the text on the way in rather than stored: what it keys off is Austin's own
+	// rule, which the report carries wherever the journal does.
+	item.summary = protocol.IsSummaryReport(item.text)
 	list := &a.duo
 	switch agent {
 	case protocol.Austin:

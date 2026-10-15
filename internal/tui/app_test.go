@@ -736,3 +736,79 @@ func TestQuitIsImmediateWhenThereIsNothingToLose(t *testing.T) {
 		t.Error("a finished session must quit on the first Ctrl+Q")
 	}
 }
+
+// The final report has to be findable in a timeline that also holds Tony's own
+// account of the same round, which is a perfectly good report and arrives
+// unasked. The report Duo asked for is marked in three places at once: a star on
+// the header, the brighter colour on the rules Austin drew, and the body colour
+// under them.
+func TestFinalSummaryIsMarkedInTheTimeline(t *testing.T) {
+	rule := strings.Repeat("=", protocol.SummaryRuleWidth)
+	report := rule + "\n|  DUO SESSION SUMMARY — AUSTIN  |\n" + rule + "\n\n1. Result. Added quicksort.\n\n2. Tony caught a double-lock bug; I overruled his xprop reading.\n\n3. Yes — the invariant test found it."
+
+	a := testApp(120, 40)
+	a.timeline = true
+	a.route(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: report})
+	a.route(events.Event{Kind: events.KindAssistant, Agent: protocol.Tony, Text: "交付已确认，master 已更新。"})
+
+	if len(a.austin) != 1 || !a.austin[0].summary {
+		t.Fatalf("Austin's report was not marked: %+v", a.austin)
+	}
+	if len(a.tony) != 1 || a.tony[0].summary {
+		t.Fatalf("Tony's own account must stay unmarked: %+v", a.tony)
+	}
+
+	frame := a.buildFrame(renderNormal)
+	if !strings.Contains(frame, ansiSummary+"★ "+"Austin → Human") {
+		t.Fatalf("the report header is not starred in the report's colour:\n%s", frame)
+	}
+	if !strings.Contains(frame, ansiSummary+rule) {
+		t.Fatalf("the rule Austin drew is not painted in the brighter colour:\n%s", frame)
+	}
+	// Markdown gives an ordered list its own indent, so the assertion is about
+	// the colour the body was last painted with, not about where it starts.
+	if got := lastColourBefore(frame, "1. Result"); got != ansiSummaryBody {
+		t.Fatalf("the report body was painted with %q, want %q:\n%s", got, ansiSummaryBody, frame)
+	}
+	// An unmarked peer report must keep the speaker's own colour, or the mark
+	// would only be saying that Austin is not Tony.
+	if got := lastColourBefore(frame, "Tony → Human"); got != ansiTonyBold {
+		t.Fatalf("Tony's header was painted with %q, want his own %q:\n%s", got, ansiTonyBold, frame)
+	}
+}
+
+// lastColourBefore reports the SGR code in effect where text appears, which is
+// what the painter actually chose for that line.
+func lastColourBefore(frame, needle string) string {
+	i := strings.Index(frame, needle)
+	if i < 0 {
+		return ""
+	}
+	prefix := frame[:i]
+	j := strings.LastIndex(prefix, "\x1b[")
+	if j < 0 {
+		return ""
+	}
+	k := strings.IndexByte(prefix[j:], 'm')
+	if k < 0 {
+		return ""
+	}
+	return prefix[j : j+k+1]
+}
+
+// The rule Austin draws is the marker, so the interface's own markdown handling
+// must leave it alone: a renderer that redrew it would erase the very line the
+// report is recognised by.
+func TestSummaryRuleSurvivesMarkdownRendering(t *testing.T) {
+	rule := strings.Repeat("=", protocol.SummaryRuleWidth)
+	lines := markdownLines(rule+"\n|  DUO SESSION SUMMARY  |", 120)
+	if len(lines) < 2 {
+		t.Fatalf("the box did not render: %+v", lines)
+	}
+	if got := lines[0].text(); got != rule {
+		t.Fatalf("the top rule was rewritten to %q", got)
+	}
+	if got := lines[1].text(); !strings.HasPrefix(got, "|") || !strings.HasSuffix(got, "|") {
+		t.Fatalf("the title line lost its bars: %q", got)
+	}
+}

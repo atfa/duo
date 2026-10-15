@@ -192,6 +192,13 @@ func TestFinalSummaryPromptAsksTheSameThreeQuestionsInBothLanguages(t *testing.T
 		"en": "yes or no in the first sentence",
 		"zh": "第一句必须是「是」或「不是」",
 	}
+	// The prompt must name the width, not only show the rule: a model told to
+	// draw "a rule of equals signs" invents its own length, and the interface's
+	// floor then has to decide whether a three-character guess was meant.
+	width := map[string]string{
+		"en": "67 `=`",
+		"zh": "67 个 `=`",
+	}
 
 	for _, language := range []string{"en", "zh"} {
 		coord := promptCoordinator()
@@ -204,6 +211,15 @@ func TestFinalSummaryPromptAsksTheSameThreeQuestionsInBothLanguages(t *testing.T
 		}
 		if !strings.Contains(got, verdict[language]) {
 			t.Fatalf("%s prompt does not demand a yes/no verdict:\n%s", language, got)
+		}
+		// The rule the interface recognises has to be the rule the prompt spells
+		// out. If the two ever drift, every report stops being marked and nothing
+		// says why.
+		if !strings.Contains(got, protocol.SummaryRuleLine()) {
+			t.Fatalf("%s prompt does not show the rule the interface looks for:\n%s", language, got)
+		}
+		if !strings.Contains(got, width[language]) {
+			t.Fatalf("%s prompt does not state the rule's width:\n%s", language, got)
 		}
 	}
 }

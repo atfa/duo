@@ -49,6 +49,13 @@ const (
 // already spends 32 on the human speaker, so a green frame would read as speech
 // rather than as a workflow.
 const (
+	// ansiSummary is the colour of Austin's final report. It is the human's own
+	// green rather than Austin's cyan: the report is the deliverable the human
+	// was promised, and colouring it in the speaker's hue would say "Austin said
+	// this" when what makes it different is that Duo asked for it.
+	ansiSummary     = "\x1b[1;92m"
+	ansiSummaryBody = "\x1b[32m"
+
 	ansiBorderFast = "\x1b[36m"
 	ansiBorderGoal = "\x1b[35m"
 	ansiTitleFast  = ansiTitle
@@ -316,6 +323,12 @@ func paintEntry(line paneLine, width int) string {
 	if line.warning {
 		return paint(ansiStatus, fit(line.text(), width))
 	}
+	if line.summary {
+		if isSummaryRuleLine(line.text()) {
+			return paint(ansiSummary, fit(line.text(), width))
+		}
+		return paint(ansiSummaryBody, fit(line.text(), width))
+	}
 	var b strings.Builder
 	used := 0
 	for _, span := range line.spans {
@@ -356,6 +369,12 @@ func (a *App) paintPaneEntry(line paneLine, width int, agent protocol.AgentID, r
 			rw := runeWidthNear(r, runeAfter(spanRunes, j))
 			if used+rw > from && used < to {
 				b.WriteString(paint(ansiSelect, string(r)))
+			} else if line.summary {
+				if isSummaryRuleLine(line.text()) {
+					b.WriteString(paint(ansiSummary, string(r)))
+				} else {
+					b.WriteString(paint(ansiSummaryBody, string(r)))
+				}
 			} else if line.error {
 				b.WriteString(paint(ansiError, string(r)))
 			} else if line.warning {
@@ -544,6 +563,9 @@ type paneLine struct {
 	continuation string
 	error        bool
 	warning      bool
+	// summary carries Austin's final report down to the painter, so the rule
+	// Austin drew and the body under it can be given the report's own colour.
+	summary bool
 }
 
 func (l paneLine) text() string {
@@ -655,6 +677,13 @@ func timelineEntryLines(e timelineEntry, width int, timestamps bool) []paneLine 
 	// The style comes from the label before the stamp is appended so the target
 	// is still parsed exactly.
 	style := speakerHeaderStyle(head)
+	if e.entry.summary {
+		// The star is on the header, not in the body: Austin's own text is
+		// already marked by the rule it drew, so the badge marks the message
+		// rather than asking Austin to say in prose that this is the report.
+		head = "★ " + head
+		style = ansiSummary
+	}
 	if timestamps && !e.entry.at.IsZero() {
 		head += " · " + e.entry.at.Format("15:04:05")
 	}
@@ -666,6 +695,9 @@ func timelineEntryLines(e timelineEntry, width int, timestamps bool) []paneLine 
 	if e.origin == protocol.Tony {
 		headText = fit(strings.Repeat(" ", maxInt(bubble-displayWidth(head), 0))+head, bubble)
 	}
+	// The header keeps its own span style and is not marked as summary itself:
+	// the star and the colour are already in that one span, and letting the
+	// painter recolour it would throw away the very distinction it carries.
 	lines := []paneLine{{spans: []markdownSpan{{text: strings.Repeat(" ", indent) + headText, style: style}}}}
 
 	prefix := strings.Repeat(" ", indent)
@@ -681,6 +713,7 @@ func timelineEntryLines(e timelineEntry, width int, timestamps bool) []paneLine 
 	for i := range bodyLines {
 		bodyLines[i].error = e.entry.error
 		bodyLines[i].warning = e.entry.warning
+		bodyLines[i].summary = e.entry.summary
 		lead := prefix
 		if e.origin == protocol.Tony && len(bodyLines) == 1 {
 			lead = strings.Repeat(" ", maxInt(width-displayWidth(bodyLines[i].text()), 0))
@@ -1509,4 +1542,21 @@ func minInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// isSummaryRuleLine reports whether a rendered line is one of the rules Austin
+// drew around its final report, which are painted in the report's own brighter
+// colour so the box stands out from the body it introduces.
+//
+// It tests the pane line rather than the entry, because by the time a line
+// reaches the painter the entry is gone and only the shape is left to judge by.
+func isSummaryRuleLine(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	if len(trimmed) < protocol.SummaryRuleMinWidth {
+		return false
+	}
+	if strings.Trim(trimmed, protocol.SummaryRuleChar) != "" {
+		return false
+	}
+	return true
 }

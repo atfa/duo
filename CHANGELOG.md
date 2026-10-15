@@ -2,6 +2,37 @@
 
 All notable project milestones are documented here.
 
+## v0.10.1 — 2026-10-15
+
+Two changes to the report Austin writes when a session finishes: what it is
+asked for, and how the interface marks it.
+
+### The final report
+
+- **Austin is asked three questions instead of for a narration.** The request
+  asked for "the process" and "the results", which a report can satisfy while
+  telling the human nothing they could not read off the transcript they had
+  already watched. It now asks, in order: what the repository now has that it did
+  not have before; where Austin and Tony agreed and where they did not, with each
+  disagreement attributed and settled by the evidence; and whether having two
+  agents improved the work at all, to be answered yes or no in the first sentence
+  with the option of saying it produced nothing. A disagreement Austin overruled
+  Tony on has to be stated plainly with its reason, and a correction accepted from
+  Tony has to be named. Both language versions carry the same three questions, and
+  a test holds them to it.
+- **The report is marked so it cannot be mistaken for an ordinary message.** Tony
+  writes his own account of a finished round without being asked, and it is a good
+  account; the two were easy to tell apart only by reading them. Austin now opens
+  the report with a title box drawn from `=` and `|`, and the interface paints the
+  star on the header, the rules Austin drew and the body under them in the human's
+  own green rather than Austin's cyan, because what makes this one different is
+  that Duo asked for it. The rule is also the marker: a line of equals signs is
+  what the interface looks for, it is the one line of the box that carries no text
+  and so reads the same in every language, and the interface's markdown renderer
+  leaves it alone. A report that arrives without its rule is still readable — it is
+  simply not marked, which is the failure mode worth having, because a
+  misrecognised report would assert something untrue.
+
 ## v0.10.0 — 2026-10-15
 
 A minor release because three of these changes what Duo *does* rather than only
