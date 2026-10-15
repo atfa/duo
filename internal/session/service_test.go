@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
@@ -147,6 +148,10 @@ func TestStartCloseStartCloseInOneProcess(t *testing.T) {
 	if _, err := first.Start(context.Background()); err != nil {
 		t.Fatalf("start: %v", err)
 	}
+	// A session that never started is discarded on close, which is the contract
+	// TestAnUnstartedSessionLeavesNothingBehind covers. These tests need one that
+	// survives Close, so the started flag is set the way the workflow sets it.
+	first.state.MarkStarted()
 	first.Close()
 
 	second := New(resumeOptions(t, repo, baseDir, listen))
@@ -167,6 +172,9 @@ func TestConcurrentStartOfTheSameSessionIsRefusedByTheLock(t *testing.T) {
 	if _, err := seed.Start(context.Background()); err != nil {
 		t.Fatalf("seed start: %v", err)
 	}
+	// See TestStartCloseStartCloseInOneProcess: a session that never started is
+	// discarded, and this test needs one on disk to contend for.
+	seed.state.MarkStarted()
 	seed.Close()
 
 	first := New(resumeOptions(t, repo, baseDir, "127.0.0.1:0"))
@@ -296,5 +304,127 @@ func TestAReachabilityGateMustNotBeTheSocketServer(t *testing.T) {
 	var sender harness.Sender = svc.coord
 	if !sender.IsAgentConnected(protocol.Tony) {
 		t.Fatal("a running agent with no bridge client must still be reachable, or the harness can never nudge it")
+	}
+}
+
+// Leaving Duo without ever giving it a task must leave the repository and the
+// disk exactly as they were. Today it leaves two worktrees, two branches, a
+// resumable session and three transcript files; the point of this is that none of
+// them exist afterwards, and that `duo sessions` therefore has nothing to offer a
+// resume that would fail.
+func TestAnUnstartedSessionLeavesNothingBehind(t *testing.T) {
+	repo := gitRepo(t)
+	baseDir := t.TempDir()
+
+	svc := New(headlessOptions(t, repo, baseDir, "127.0.0.1:0"))
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	set := svc.set
+	transcripts := transcriptsFor(t, repo, set.Session)
+
+	if ended := svc.Close(); !ended.Discarded {
+		t.Fatal("closing a session that never started did not report a discard")
+	}
+
+	if _, err := os.Stat(set.Austin.Path); !os.IsNotExist(err) {
+		t.Errorf("Austin's worktree survived a discard: %v", err)
+	}
+	if _, err := os.Stat(set.Tony.Path); !os.IsNotExist(err) {
+		t.Errorf("Tony's worktree survived a discard: %v", err)
+	}
+	for _, branch := range []string{set.Austin.Branch, set.Tony.Branch} {
+		if out, err := gitOn(t, repo, "branch", "--list", branch); err != nil {
+			t.Fatalf("git branch --list: %v", err)
+		} else if strings.TrimSpace(out) != "" {
+			t.Errorf("branch %s survived a discard", branch)
+		}
+	}
+	for _, path := range transcripts {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("transcript %s survived a discard", filepath.Base(path))
+		}
+	}
+	if _, err := sessionstore.Open(baseDir, sessionstore.RepoID(repo), set.Session); err == nil {
+		t.Error("the session record survived a discard, so a resume would offer a session that no longer exists")
+	}
+}
+
+// The discard is the only irreversible thing Duo does without being asked, so the
+// case that must not reach it is a session that looks untouched but is not. Here
+// the started flag lies — a driver that never reports a turn would produce exactly
+// this — and Git is what says otherwise.
+func TestAnUnstartedSessionWithWorkIsKept(t *testing.T) {
+	repo := gitRepo(t)
+	baseDir := t.TempDir()
+
+	svc := New(headlessOptions(t, repo, baseDir, "127.0.0.1:0"))
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	set := svc.set
+	// An uncommitted edit: nothing to resume would be able to reproduce it, and
+	// the worktrees are where the human's work still is.
+	writeFile(t, filepath.Join(set.Austin.Path, "hand-written.txt"), "mine\n")
+
+	if ended := svc.Close(); ended.Discarded {
+		t.Fatal("a session with uncommitted work was discarded")
+	}
+	if _, err := os.Stat(set.Austin.Path); err != nil {
+		t.Errorf("Austin's worktree was removed despite holding work: %v", err)
+	}
+	if _, err := sessionstore.Open(baseDir, sessionstore.RepoID(repo), set.Session); err != nil {
+		t.Errorf("a kept session must stay resumable: %v", err)
+	}
+}
+
+// A session that started is a session the human may want to resume, whatever the
+// worktrees look like: an agent that answered and then made nothing is still a
+// conversation worth having.
+func TestAStartedSessionIsNeverDiscarded(t *testing.T) {
+	repo := gitRepo(t)
+	baseDir := t.TempDir()
+
+	svc := New(headlessOptions(t, repo, baseDir, "127.0.0.1:0"))
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	set := svc.set
+	svc.state.MarkStarted()
+
+	if ended := svc.Close(); ended.Discarded {
+		t.Fatal("a started session was discarded")
+	}
+	if _, err := os.Stat(set.Austin.Path); err != nil {
+		t.Errorf("a started session lost its worktree: %v", err)
+	}
+}
+
+// transcriptsFor lists the three transcript files a session writes into the
+// repository, which is where an unstarted run used to leave the only trace the
+// human could see.
+func transcriptsFor(t *testing.T, repo, sessionID string) []string {
+	t.Helper()
+	dir := filepath.Join(repo, ".duo", "logs")
+	return []string{
+		filepath.Join(dir, sessionID+".md"),
+		filepath.Join(dir, sessionID+"-austin.md"),
+		filepath.Join(dir, sessionID+"-tony.md"),
+	}
+}
+
+func gitOn(t *testing.T, dir string, args ...string) (string, error) {
+	t.Helper()
+	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
+	if err != nil {
+		return string(out), fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return string(out), nil
+}
+
+func writeFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

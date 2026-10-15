@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -268,57 +267,23 @@ func cleanSummaries(ctx context.Context, baseDir, repoID string, items []session
 	return cleaned, skipped, nil
 }
 
+// cleanSessionWorktrees removes the Git worktrees, their branches and their
+// directory on disk. The removal itself lives in internal/workspace, because
+// ending a session that never started has to do exactly this too, and two
+// implementations of an irreversible operation is one more than a project should
+// have.
 func cleanSessionWorktrees(ctx context.Context, snap sessionstore.Snapshot) {
-	home, _ := os.UserHomeDir()
-	duoWorktreesBase := filepath.Join(home, ".duo", "worktrees")
-
-	// 1. If git repo exists, remove worktrees and temporary branches through Git
-	if snap.Repository != "" {
-		if _, err := os.Stat(snap.Repository); err == nil {
-			for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
-				if wt, ok := snap.Worktree(agent); ok && wt.Path != "" {
-					_ = exec.CommandContext(ctx, "git", "-C", snap.Repository, "worktree", "remove", "--force", wt.Path).Run()
-				}
-			}
-			_ = exec.CommandContext(ctx, "git", "-C", snap.Repository, "worktree", "prune").Run()
-			if snap.SessionID != "" {
-				austinBranch := fmt.Sprintf("duo/%s/austin", snap.SessionID)
-				tonyBranch := fmt.Sprintf("duo/%s/tony", snap.SessionID)
-				_ = exec.CommandContext(ctx, "git", "-C", snap.Repository, "branch", "-D", austinBranch, tonyBranch).Run()
-			}
-		}
+	set := workspace.Set{
+		Repository: snap.Repository,
+		BaseBranch: snap.BaseBranch,
+		BaseCommit: snap.BaseCommit,
+		Session:    snap.SessionID,
 	}
-
-	// 2. Remove worktree directory on disk if it still exists and is under ~/.duo/worktrees
-	var sessionWorktreeDir string
-	if wt, ok := snap.Worktree(protocol.Austin); ok && wt.Path != "" {
-		sessionWorktreeDir = filepath.Dir(wt.Path)
-	} else if wt, ok := snap.Worktree(protocol.Tony); ok && wt.Path != "" {
-		sessionWorktreeDir = filepath.Dir(wt.Path)
+	if wt, ok := snap.Worktree(protocol.Austin); ok {
+		set.Austin = workspace.Worktree{Path: wt.Path, Branch: wt.Branch}
 	}
-
-	if sessionWorktreeDir != "" && isSafeWorktreeSubdir(sessionWorktreeDir, duoWorktreesBase) {
-		_ = os.RemoveAll(sessionWorktreeDir)
-		// Try to clean empty parent repository worktree dir
-		parentRepoWorktreeDir := filepath.Dir(sessionWorktreeDir)
-		if isSafeWorktreeSubdir(parentRepoWorktreeDir, duoWorktreesBase) {
-			_ = os.Remove(parentRepoWorktreeDir)
-		}
+	if wt, ok := snap.Worktree(protocol.Tony); ok {
+		set.Tony = workspace.Worktree{Path: wt.Path, Branch: wt.Branch}
 	}
-}
-
-func isSafeWorktreeSubdir(path, base string) bool {
-	if path == "" || base == "" {
-		return false
-	}
-	cleanPath := filepath.Clean(path)
-	cleanBase := filepath.Clean(base)
-	if cleanPath == cleanBase {
-		return false // Never delete base directory itself
-	}
-	rel, err := filepath.Rel(cleanBase, cleanPath)
-	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return false
-	}
-	return true
+	_ = set.Discard(ctx)
 }

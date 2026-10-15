@@ -27,9 +27,14 @@ const LogsDirName = "logs"
 // A LogWriter is safe for concurrent use and never returns an error from
 // Append: a transcript must not be able to break the session it describes.
 type LogWriter struct {
-	mu      sync.Mutex
-	full    *os.File
-	agents  map[string]*os.File
+	mu     sync.Mutex
+	full   *os.File
+	agents map[string]*os.File
+	// paths are the files this writer created, kept because Remove has to work
+	// after Close: Close releases the handles, and a removal that could only find
+	// them through the handles would silently delete nothing depending on the
+	// order the two ran in.
+	paths   []string
 	started time.Time
 }
 
@@ -64,22 +69,26 @@ func NewLogWriter(repoRoot string, info Transcript) (*LogWriter, error) {
 
 	w := &LogWriter{agents: map[string]*os.File{}, started: time.Now()}
 
-	full, err := createTranscript(filepath.Join(dir, info.SessionID+".md"), info, "")
+	fullPath := filepath.Join(dir, info.SessionID+".md")
+	full, err := createTranscript(fullPath, info, "")
 	if err != nil {
 		return nil, err
 	}
 	w.full = full
+	w.paths = append(w.paths, fullPath)
 
 	// One file per agent, holding everything shown in that agent's pane: what
 	// the human said to it, what it said back, and what it exchanged with its
 	// peer. That is the agent's own view of the round.
 	for _, agent := range []string{"austin", "tony"} {
-		f, err := createTranscript(filepath.Join(dir, info.SessionID+"-"+agent+".md"), info, agent)
+		agentPath := filepath.Join(dir, info.SessionID+"-"+agent+".md")
+		f, err := createTranscript(agentPath, info, agent)
 		if err != nil {
 			w.Close()
 			return nil, err
 		}
 		w.agents[agent] = f
+		w.paths = append(w.paths, agentPath)
 	}
 	return w, nil
 }
@@ -237,4 +246,41 @@ func (w *LogWriter) Close() error {
 		delete(w.agents, name)
 	}
 	return firstErr
+}
+
+// Remove closes the transcripts and deletes them, along with the .duo/logs
+// directory and .duo itself when nothing else is left in them.
+//
+// It exists for the one case where a session wrote transcripts and then owned
+// nothing: a run that was ended before a task was ever submitted. Deleting the
+// files is the only way the repository returns to the state it was in before
+// Duo was launched, and leaving three files the user never asked for is not a
+// state anyone can explain afterwards. A .duo/config.json the operator wrote
+// keeps .duo alive, which is correct: that file is theirs, not ours.
+func (w *LogWriter) Remove() error {
+	if w == nil {
+		return nil
+	}
+	w.mu.Lock()
+	paths := append([]string(nil), w.paths...)
+	w.mu.Unlock()
+	_ = w.Close()
+
+	for _, path := range paths {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	if len(paths) == 0 {
+		return nil
+	}
+	for _, dir := range []string{filepath.Join(filepath.Dir(paths[0]), ".."), filepath.Dir(paths[0])} {
+		if dir == "" {
+			continue
+		}
+		// Both removals are of empty directories only, so a config.json or an
+		// earlier session's transcripts keep theirs.
+		_ = os.Remove(dir)
+	}
+	return nil
 }

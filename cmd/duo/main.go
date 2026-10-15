@@ -129,6 +129,14 @@ func run(ctx context.Context, cfg config) error {
 
 	end := svc.Close()
 
+	// A session that never started has been removed, so telling the human to
+	// resume it would hand them a command that fails and a session that `duo
+	// sessions` will never list again.
+	if end.Discarded {
+		fmt.Printf("\nDuo stopped. No task was submitted, so the session left nothing behind: its worktrees and record were removed. Nothing to resume.\n")
+		return nil
+	}
+
 	what := "started"
 	if cfg.resume {
 		what = "resumed"

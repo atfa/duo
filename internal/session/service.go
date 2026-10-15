@@ -43,6 +43,11 @@ type Result struct {
 	// delivery is safely pending and only the human can unblock it. A frontend
 	// must not start a loop when this is set.
 	Finished bool
+	// Discarded reports that the session owned nothing and left nothing: it was
+	// ended before a task was ever submitted, so its worktrees, record and
+	// transcripts are gone and there is nothing to resume. A frontend must not
+	// tell the human to resume a session that no longer exists.
+	Discarded bool
 
 	// Outcome describes a finished delivery for the frontend to report. Its
 	// wording is the frontend's business: Core returns the facts.
@@ -145,7 +150,7 @@ func (s *Service) Start(ctx context.Context) (Result, error) {
 
 	res, err := s.start(ctx)
 	if err != nil {
-		s.closeLocked()
+		s.closeLocked(ctx)
 		return Result{}, err
 	}
 	return res, nil
@@ -159,7 +164,10 @@ func (s *Service) Start(ctx context.Context) (Result, error) {
 func (s *Service) Close() Result {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.closeLocked()
+	// A background context, not s.ctx: by the time a session is torn down its own
+	// context is already cancelled, and the Git calls that decide whether the
+	// worktrees may be removed have to be able to run.
+	return s.closeLocked(context.Background())
 }
 
 func (s *Service) start(ctx context.Context) (Result, error) {
@@ -466,7 +474,7 @@ func (s *Service) observeLifecycle(event agent.LifecycleEvent) {
 
 // closeLocked releases everything Start acquired. It is idempotent; the caller
 // must hold s.mu.
-func (s *Service) closeLocked() Result {
+func (s *Service) closeLocked(ctx context.Context) Result {
 	res := Result{SessionID: s.sessionID}
 	if s.state != nil {
 		res.Phase = s.state.Snapshot().Phase
@@ -497,6 +505,12 @@ func (s *Service) closeLocked() Result {
 	if s.lock != nil {
 		_ = s.lock.Release()
 		s.lock = nil
+	}
+	// Last, because it undoes everything the lines above acquired: the lock has
+	// to be released before its directory can be removed, and the agents have to
+	// be stopped before the worktrees they are sitting in can go.
+	if s.discardUnstarted(ctx) {
+		res.Discarded = true
 	}
 	if s.cancel != nil {
 		s.cancel()
@@ -900,4 +914,69 @@ func effectiveLanguage(language string) string {
 		return "zh"
 	}
 	return "en"
+}
+
+// discardUnstarted removes everything a session that never started left behind:
+// the worktrees and their branches, the session record, and the transcripts it
+// wrote into the user's repository.
+//
+// The rule it enforces is symmetry. Launching Duo and leaving without giving it
+// a task should leave the repository and the disk exactly as they were; today it
+// leaves two worktrees, two branches, a session that `duo resume` would happily
+// offer, and three transcript files the human never asked for and cannot later
+// explain.
+//
+// Two independent conditions have to hold, and both are deliberate. The session
+// must not have started, which is the workflow's own record that no task was
+// submitted and no agent ever began a turn. Git must also report nothing worth
+// keeping, because that record is only as good as the drivers' reporting: a
+// driver that never announces a turn would leave a session looking untouched
+// while the human worked in it through an attached terminal. Asking Git is what
+// makes this safe for a driver nobody has audited.
+//
+// note writes to the session log when there is one. Nothing here is reported as
+// an error. A session being torn down is not the
+// moment to fail, so every failure is logged and the session is left resumable
+// instead — `duo clean` remains the way to remove it by hand.
+func (s *Service) discardUnstarted(ctx context.Context) bool {
+	if s.state == nil || s.set.Session == "" {
+		return false
+	}
+	if s.state.Snapshot().Started {
+		return false
+	}
+	carries, err := s.set.CarriesWork(ctx)
+	if err != nil {
+		s.note("keeping session %s: could not tell whether its worktrees are empty: %v", s.set.Session, err)
+		return false
+	}
+	if carries {
+		s.note("keeping session %s: a worktree has changes or commits, so it is not an untouched run", s.set.Session)
+		return false
+	}
+
+	_ = s.transcripts.Remove()
+	if err := s.set.Discard(ctx); err != nil {
+		s.note("removing worktrees for session %s: %v", s.set.Session, err)
+		return false
+	}
+	if s.store != nil {
+		if err := s.store.Remove(); err != nil {
+			s.note("removing the record for session %s: %v", s.set.Session, err)
+			return false
+		}
+	}
+	s.note("session %s was ended before a task was submitted and left nothing behind", s.set.Session)
+	return true
+}
+
+// note appends one line to the session log. The teardown path uses it instead of
+// returning an error: a session being closed is not the moment to fail, and a
+// line in the log is enough for the operator who wonders why their worktree is
+// still there.
+func (s *Service) note(format string, args ...any) {
+	if s.logger == nil {
+		return
+	}
+	s.logger.Printf(format, args...)
 }

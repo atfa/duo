@@ -4,8 +4,37 @@ All notable project milestones are documented here.
 
 ## v0.10.1 — 2026-10-15
 
-Two changes to the report Austin writes when a session finishes: what it is
-asked for, and how the interface marks it.
+Two changes to the report Austin writes when a session finishes — what it is
+asked for and how the interface marks it — and one to what happens when Duo is
+launched and then left without a task.
+
+### A session that never started
+
+- **Leaving Duo without giving it a task now leaves nothing behind.** Launching
+  Duo and walking away had already created two worktrees, two branches, a session
+  record and three transcript files in the user's repository, and left a resumable
+  session in `duo sessions` offering a round that contained nothing. Ending such a
+  session now removes all of it, so the repository and the disk are exactly as they
+  were before Duo was launched, and the session does not appear in `duo sessions` at
+  all — there is nothing to resume, and `duo resume` must not be pointed at it. The
+  exit message says so instead of naming a preserved session.
+- **Git, not the session's own record, decides whether it is safe.** Two conditions
+  must hold, and the second is the one that makes this safe. The session must not
+  have started, which is the workflow's own record that no task was submitted and no
+  agent ever began a turn — a session the human worked in through an attached
+  terminal has started too, because the agent's first turn is what flips the flag.
+  Git must also report no work: no uncommitted changes and no commit on top of the
+  base commit in either worktree. That second check exists because the first is only
+  as good as the drivers' reporting, and a driver that never announces a turn would
+  otherwise make a session with real work in it look untouched. Asking Git costs two
+  commands per worktree and makes the discard safe for a driver nobody has audited.
+  Anything unreadable is treated as carrying work, and a failure never fails the
+  teardown: the session is logged and kept, and `duo clean` remains the way to
+  remove it by hand.
+- **`duo clean` and the session teardown now share one removal.** The worktree,
+  branch and directory removal moved into `internal/workspace`, because it is an
+  irreversible operation and two implementations of one is one more than a project
+  should have.
 
 ### The final report
 
