@@ -2,7 +2,35 @@
 
 All notable project milestones are documented here.
 
-## Unreleased
+## v0.11.0 — 2026-10-16
+
+### GPUI graphical frontend — `duo gui` (MVP)
+
+A second frontend, and the first one that is not a terminal. `duo gui` starts the
+same session `duo` does and hands it to a native window built with
+[GPUI](https://gpui.rs), Zed's Rust UI framework. The window renders the session —
+mode, phase, agent state, the shared timeline — and sends back the verbs a human
+performs.
+
+- **Core, the terminal interface and the graphical one stay isolated.** Duo Core is
+  unchanged: `internal/session` is still the only seam a frontend drives, and it
+  knows nothing about a terminal or a window. The graphical frontend is two pieces
+  that never import each other's world — `internal/guiipc` projects a session onto a
+  small NDJSON protocol, and the `gpui/` crate (`duo-gpui`) draws it. A parser-level
+  test pins that boundary the same way `internal/tui` already pins its own.
+- **[docs/gui-protocol.md](docs/gui-protocol.md) is the frozen contract.** One
+  direction carries a full `View` plus timeline `event`s; the other carries five
+  human commands. It deliberately has no gate verb: signing a phase is authorized
+  by an agent's live bridge connection, and a graphical frontend is the human, not
+  an agent.
+- **The MVP is narrower than the TUI on purpose**: submit a task, escalate to Goal,
+  restart an agent, switch language. No agent PTY stream, model picker, plan editor
+  or mouse. The smallest window that is genuinely usable is the right first one.
+- **Build it with `make gpui`** (`cargo build --release` in `gpui/`). The crate pins
+  `libc = "=0.2.179"`: gpui's transitive `xattr 0.2.3` reads `libc::ENOATTR`, which
+  libc stopped defining in 0.2.180, and without the pin the crate does not build on a
+  current toolchain. Rust is not part of `make check`, because CI carries no Rust
+  toolchain.
 
 ### Step mode — `duo --mode step`
 
@@ -45,6 +73,12 @@ PLAN → (per step: EXECUTE → REVIEW → INTEGRATE → land the step) → DONE
   `duo_escalate` stays Fast-only, because Step is chosen at start rather than
   escalated into. `SchemaVersion` stays 2: the queue is additive optional state, so a
   new binary can still read a session an older one wrote.
+- **A Step session now tells its agents the real mode.** `modeEnv` folded every mode
+  but Fast into Goal, so a Step session handed its adapters `DUO_MODE=goal` while
+  its driver plugins saw `DUO_MODE=step`. An adapter registers its tool set from
+  that value, and the Goal set has no `duo_set_steps`, so a Step session could not
+  publish the queue it requires and stayed in PLAN. Every mode now reaches both the
+  adapter and the driver unchanged.
 
 ## v0.10.2 — 2026-10-15
 
