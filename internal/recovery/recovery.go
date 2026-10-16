@@ -388,7 +388,47 @@ func Reconcile(ctx context.Context, ws *workspace.GitManager, snap sessionstore.
 		}
 	}
 
+	// Step mode: every landed step goes to the base branch, so a crash between a
+	// step landing and the verifier sync leaves Tony's worktree on the previous
+	// step — he would review and build a tree the user never received. The
+	// fast-forward is a no-op when Tony is already current, so replaying it here is
+	// safe whether or not the original attempt completed. The target is the landed
+	// step's own head, never Austin's live HEAD, so in-flight work for the next
+	// step is never handed to the verifier as if it had landed.
+	if out.EffectiveMode() == project.ModeStep {
+		if landed := lastLandedStepHead(out.Steps); landed != "" {
+			sync, err := ws.SyncTonyTo(ctx, landed)
+			switch {
+			case err != nil:
+				report.Notes = append(report.Notes, "could not fast-forward Tony onto the landed step: "+err.Error())
+			case sync.Skipped:
+				report.Notes = append(report.Notes, sync.Reason)
+			case sync.Moved:
+				report.Notes = append(report.Notes, "Tony's worktree was fast-forwarded to the landed step "+shortHead(sync.Head))
+			}
+		}
+	}
+
 	return Result{Snapshot: out, Report: report}, nil
+}
+
+// lastLandedStepHead returns the delivery head of the newest step that reached
+// the user's repository, or "" when no step has landed yet.
+func lastLandedStepHead(steps project.Steps) string {
+	for i := len(steps) - 1; i >= 0; i-- {
+		if steps[i].Done {
+			return strings.TrimSpace(steps[i].DeliveryHead)
+		}
+	}
+	return ""
+}
+
+func shortHead(head string) string {
+	head = strings.TrimSpace(head)
+	if len(head) > 10 {
+		return head[:10]
+	}
+	return head
 }
 
 // ReconcileAndApply is the common resume path: reconcile, then install the

@@ -3,7 +3,7 @@ package workspace
 import (
 	"bytes"
 	"context"
-	"crypto/sha1"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -96,7 +96,11 @@ func (m *GitManager) Prepare(ctx context.Context) (Set, error) {
 		if err != nil {
 			return Set{}, err
 		}
-		h := sha1.Sum([]byte(root))
+		// sha256 rather than sha1: this only derives a directory name for a new
+		// session, and resume reconstructs the root from the persisted worktree
+		// path (session/resume.go), so changing the hash cannot relocate an
+		// existing session's worktrees.
+		h := sha256.Sum256([]byte(root))
 		repoName := filepath.Base(root)
 		workspaceRoot = filepath.Join(home, ".duo", "worktrees", fmt.Sprintf("%s-%x", repoName, h[:4]), session)
 	}
@@ -370,6 +374,64 @@ func (m *GitManager) Head(ctx context.Context, agent protocol.AgentID) (string, 
 		return "", err
 	}
 	return strings.TrimSpace(head), nil
+}
+
+// StepSync is the outcome of fast-forwarding the verifier onto a landed step.
+//
+// Moved is false when Tony was already current. Skipped reports a worktree that
+// could not be advanced (uncommitted content): that is reported, never forced,
+// because a fast-forward rewrites tracked files.
+type StepSync struct {
+	Head    string
+	Moved   bool
+	Skipped bool
+	Reason  string
+}
+
+// SyncTonyTo fast-forwards Tony's worktree onto target, which is the DeliveryHead
+// of the step that just landed.
+//
+// In Step mode every landed step goes to the base branch, so a verifier left on
+// the previous step would review and build a tree the user never received. The
+// target is the landed head rather than Austin's live HEAD on purpose: syncing to
+// Austin's current HEAD would hand the verifier Austin's in-flight, unsigned work
+// for the next step.
+//
+// Only a fast-forward is allowed. It cannot discard Tony's commits or create a
+// merge commit, and it is a no-op when Tony is already current, which is what
+// makes replaying it after a crash between the landing and the sync safe.
+func (m *GitManager) SyncTonyTo(ctx context.Context, target string) (StepSync, error) {
+	tony := m.set.Tony
+	target = strings.TrimSpace(target)
+
+	status, err := m.Status(ctx, protocol.Tony)
+	if err != nil {
+		return StepSync{}, err
+	}
+	if target == "" {
+		return StepSync{Head: status.Head, Skipped: true, Reason: "no landed step head to sync to"}, nil
+	}
+	if status.Dirty {
+		return StepSync{Head: status.Head, Skipped: true, Reason: "Tony's worktree has uncommitted changes; it was not fast-forwarded to the landed step"}, nil
+	}
+	if strings.TrimSpace(status.Head) == target {
+		return StepSync{Head: status.Head}, nil
+	}
+
+	cmd := exec.CommandContext(ctx, "git", "-C", tony.Path, "merge", "--ff-only", target)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		message := strings.TrimSpace(stdout.String() + "\n" + stderr.String())
+		return StepSync{}, fmt.Errorf("fast-forward Tony onto %s: %w\n%s", shortSHA(target), err, message)
+	}
+	head, err := gitOutput(ctx, tony.Path, "rev-parse", "HEAD")
+	if err != nil {
+		return StepSync{}, err
+	}
+	head = strings.TrimSpace(head)
+	return StepSync{Head: head, Moved: head != strings.TrimSpace(status.Head)}, nil
 }
 
 // MergeState describes an interrupted or completed merge in a worktree.

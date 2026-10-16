@@ -60,6 +60,10 @@ const (
 	ansiBorderGoal = "\x1b[35m"
 	ansiTitleFast  = ansiTitle
 	ansiTitleGoal  = "\x1b[1;35m"
+	// STEP is green: Fast is cyan and Goal is magenta, and the mode is the first
+	// thing the operator reads, so the three must be tellable apart at a glance.
+	ansiBorderStep = "\x1b[32m"
+	ansiTitleStep  = "\x1b[1;32m"
 )
 
 const (
@@ -188,6 +192,40 @@ func (a *App) writeTimelineLayout(b *strings.Builder, w, h int) {
 	a.writeFrameTail(b, w, composer)
 }
 
+// stepCursor is the queue position in the status row: "3/7", or "0/0" when no
+// queue has been published yet. It reads the Step array, which is the single
+// source of truth Duo owns.
+func stepCursor(snap project.Snapshot) string {
+	total := len(snap.Steps)
+	if total == 0 {
+		return "0/0"
+	}
+	cursor := snap.Step
+	if cursor > total {
+		cursor = total
+	}
+	if cursor < 1 {
+		cursor = 1
+	}
+	return fmt.Sprintf("%d/%d", cursor, total)
+}
+
+// stepSummary names the step under work, so the human can tell which increment is
+// in flight without opening the plan.
+func stepSummary(snap project.Snapshot) string {
+	if len(snap.Steps) == 0 {
+		return "No step queue yet"
+	}
+	if snap.Step >= 1 && snap.Step <= len(snap.Steps) {
+		step := snap.Steps[snap.Step-1]
+		if landed := shortHead(step.DeliveryHead); landed != "" {
+			return fmt.Sprintf("Step: %s · landed %s", step.Title, landed)
+		}
+		return "Step: " + step.Title
+	}
+	return fmt.Sprintf("Queue complete: %d step(s) landed", len(snap.Steps))
+}
+
 // writeFrameTail draws the mode/phase status rows, the transient status line,
 // the composer and the footer, which the split and timeline layouts share.
 func (a *App) writeFrameTail(b *strings.Builder, w int, composer composerLayout) {
@@ -202,6 +240,20 @@ func (a *App) writeFrameTail(b *strings.Builder, w int, composer composerLayout)
 		if note := strings.TrimSpace(snap.Verification.Note); note != "" {
 			second += " — " + strings.ReplaceAll(note, "\n", " ")
 		}
+	} else if snap.EffectiveMode() == project.ModeStep {
+		// STEP is the Goal chain per queue step, so the operator needs the cursor
+		// and the current step's title, not the plan prose: the plan is stable for
+		// the whole session and the step is what is happening now.
+		readyA, readyT := "○", "○"
+		if snap.Ready[protocol.Austin] {
+			readyA = "✓"
+		}
+		if snap.Ready[protocol.Tony] {
+			readyT = "✓"
+		}
+		status = fmt.Sprintf(" Duo · %s · %s · step %s · Austin %s · Tony %s ",
+			snap.EffectiveMode().Display(), snap.Phase, stepCursor(snap), readyA, readyT)
+		second = " " + a.deliverySummary() + " · " + stepSummary(snap)
 	} else {
 		readyA, readyT := "○", "○"
 		if snap.Ready[protocol.Austin] {
@@ -268,9 +320,12 @@ func (a *App) repoTitle(width, divider int) string {
 // cyan frame it has always had and Goal is magenta, so the mode is obvious from
 // the colours alone, without reading the status row.
 func (a *App) frameColor() string {
-	if a.live.Mode == project.ModeFast {
+	switch a.live.EffectiveMode() {
+	case project.ModeFast:
 		return ansiBorderFast
-	} else {
+	case project.ModeStep:
+		return ansiBorderStep
+	default:
 		return ansiBorderGoal
 	}
 }
@@ -278,10 +333,14 @@ func (a *App) frameColor() string {
 // frameTitle is the bold top-row hue: the mode badge is painted with it, so the
 // mode is the first bold thing the operator reads.
 func (a *App) frameTitle() string {
-	if a.live.Mode == project.ModeFast {
+	switch a.live.EffectiveMode() {
+	case project.ModeFast:
 		return ansiTitleFast
+	case project.ModeStep:
+		return ansiTitleStep
+	default:
+		return ansiTitleGoal
 	}
-	return ansiTitleGoal
 }
 
 // deliverySummary reports the durable hand-off state so it stays visible in the

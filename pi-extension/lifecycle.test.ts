@@ -28,6 +28,8 @@ test("an unknown DUO_MODE falls back to the conservative goal workflow", () => {
   expect(parseDuoMode("turbo")).toBe("goal");
   expect(parseDuoMode("fast")).toBe("fast");
   expect(parseDuoMode(" FAST ")).toBe("fast");
+  expect(parseDuoMode("step")).toBe("step");
+  expect(parseDuoMode(" STEP ")).toBe("step");
 });
 
 test("mode gates the shared-plan and verification tools", () => {
@@ -37,6 +39,60 @@ test("mode gates the shared-plan and verification tools", () => {
   expect(isToolEnabledForMode("verification", "goal")).toBe(false);
   expect(isToolEnabledForMode("escalate", "fast")).toBe(true);
   expect(isToolEnabledForMode("escalate", "goal")).toBe(false);
+});
+
+// STEP keeps the Goal phase chain, so it needs the prose plan as well as the
+// queue, and its per-step gate is Tony's HEAD-bound verification. STEP is chosen
+// at start, so nothing escalates into it.
+test("STEP gates its tools: plan and queue and verification, never escalate", () => {
+  expect(isToolEnabledForMode("plan", "step")).toBe(true);
+  expect(isToolEnabledForMode("steps", "step")).toBe(true);
+  expect(isToolEnabledForMode("verification", "step")).toBe(true);
+  expect(isToolEnabledForMode("escalate", "step")).toBe(false);
+
+  // The queue verb belongs to no other mode.
+  expect(isToolEnabledForMode("steps", "goal")).toBe(false);
+  expect(isToolEnabledForMode("steps", "fast")).toBe(false);
+});
+
+// The restart stops Duo so the launcher can resume the queue on a new binary, so
+// it is offered only where a durable queue exists to resume into. STEP is the one
+// mode that can continue across a restart; Goal and Fast cannot.
+test("only STEP offers the self-restart", () => {
+  expect(isToolEnabledForMode("restart", "step")).toBe(true);
+  expect(isToolEnabledForMode("restart", "goal")).toBe(false);
+  expect(isToolEnabledForMode("restart", "fast")).toBe(false);
+});
+
+test("STEP tells Austin to drive one step and never tick the queue", () => {
+  const austin = buildDuoPrompt("Austin", "step", "/repo", ".");
+  expect(austin).toContain("EXECUTE -> REVIEW -> INTEGRATE -> land the step");
+  expect(austin).toContain("duo_set_steps");
+  expect(austin).toContain("duo_set_plan");
+  expect(austin).toContain("You never tick a box yourself");
+  expect(austin).toContain("Do not start the next step first");
+  // Austin's per-step verb is a sign-off, not a verification verdict.
+  expect(austin).not.toContain("call duo_set_verification");
+});
+
+test("STEP makes Tony the per-step verifier whose pass lands the step", () => {
+  const tony = buildDuoPrompt("Tony", "step", "/repo", ".");
+  expect(tony).toContain("duo_set_verification");
+  expect(tony).toContain("lands the step and advances the queue");
+  expect(tony).toContain("read-only on the delivered artifact");
+  expect(tony).toContain("fast-forwards your worktree to the landed HEAD");
+  expect(tony).toContain("do not restate the same verdict with duo_send");
+});
+
+test("Chinese STEP prompts keep the protocol verbs", () => {
+  const austin = buildDuoPrompt("Austin", "step", "/repo", ".", "zh");
+  expect(austin).toContain("落地该步骤");
+  expect(austin).toContain("duo_set_steps");
+  expect(austin).toContain("你绝不自己打勾");
+  const tony = buildDuoPrompt("Tony", "step", "/repo", ".", "zh");
+  expect(tony).toContain("duo_set_verification");
+  expect(tony).toContain("落地该步骤并推进队列");
+  expect(tony).toContain("快进到已落地的 HEAD");
 });
 
 test("FAST makes Tony a read-only verifier and never offers the shared plan", () => {
@@ -98,6 +154,9 @@ test("installDuoPrompt publishes the mode selected for this session", async () =
     { on: (name: string, handler: (event: any) => Promise<void>) => handlers.set(name, handler) },
     "Tony",
     parseDuoMode("fast"),
+    // The assertion below is about the mode, not the language, so the language is
+    // pinned: inheriting DUO_LANGUAGE made this test fail in a Chinese session.
+    "en",
   );
 
   await handlers.get("before_agent_start")!({ systemPromptOptions: { sections } });

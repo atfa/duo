@@ -5,6 +5,9 @@ import type { DuoTransport } from "./transport";
 
 const z = tool.schema;
 
+// opencode's `tool()` helper types its execute arguments from the schema, so the
+// argument parameters below are inferred; the schema is the contract.
+
 /**
  * Duo's six coordination tools, registered as opencode tools.
  *
@@ -16,8 +19,8 @@ export function buildDuoTools(
   transport: DuoTransport,
   agent: AgentName,
   mode: DuoMode,
-): Record<string, any> {
-  const tools: Record<string, any> = {};
+): Record<string, unknown> {
+  const tools: Record<string, unknown> = {};
 
   const ok = (response: DuoMessage): string => {
     const parts: string[] = [];
@@ -65,14 +68,18 @@ export function buildDuoTools(
 
   tools.duo_set_status = tool({
     description:
-      mode === "goal"
-        ? "Set your own sign-off state for the current Duo phase. Duo Core advances only when both Austin and Tony have valid, non-stale signatures."
-        : "FAST mode: Austin-only readiness. Austin uses ready=true to request independent verification of the committed, clean HEAD; Tony cannot sign and must use duo_set_verification instead.",
+      mode === "fast"
+        ? "FAST mode: Austin-only readiness. Austin uses ready=true to request independent verification of the committed, clean HEAD; Tony cannot sign and must use duo_set_verification instead."
+        : mode === "step"
+          ? "STEP mode: sign the phase that needs dual sign-off — the step queue in PLAN, and the final step in INTEGRATE. Duo Core advances a step after Tony's verification passes on its exact HEAD; the queue cursor is Duo's, never yours."
+          : "Set your own sign-off state for the current Duo phase. Duo Core advances only when both Austin and Tony have valid, non-stale signatures.",
     args: {
       ready: z.boolean().describe(
-        mode === "goal"
-          ? "true = sign current phase; false = revoke your signature because work or objections remain."
-          : "FAST mode: Austin-only. ready=true requests independent verification of your committed, clean HEAD; ready=false withdraws a pending request. It is not a phase sign-off.",
+        mode === "fast"
+          ? "FAST mode: Austin-only. ready=true requests independent verification of your committed, clean HEAD; ready=false withdraws a pending request. It is not a phase sign-off."
+          : mode === "step"
+            ? "true = sign the current STEP gate (approve the queue in PLAN, request review of your committed HEAD in EXECUTE, accept the final step in INTEGRATE); false = revoke."
+            : "true = sign current phase; false = revoke your signature because work or objections remain.",
       ),
       note: z.string().optional().describe("Optional concise reason or completion note."),
     },
@@ -110,10 +117,48 @@ export function buildDuoTools(
     });
   }
 
+  if (isToolEnabledForMode("steps", mode)) {
+    tools.duo_set_steps = tool({
+      description:
+        "STEP mode. Publish the step queue in PLAN, or extend it later with append=true. Send a markdown checkbox list, one step per line, using '- [ ]' for every step: Duo owns the ticks. A PLAN update resets both agents' signatures; after PLAN the queue can only grow.",
+      args: {
+        steps: z
+          .string()
+          .describe(
+            "The queue as a markdown checkbox list, e.g. '- [ ] add ModeStep\\n- [ ] land per-step delivery'. Send the whole list, not a patch.",
+          ),
+        append: z
+          .boolean()
+          .optional()
+          .describe(
+            "true = add these steps to the END of the existing queue instead of replacing it. This is the only way to change the queue after PLAN, and it cannot disturb steps already landed.",
+          ),
+      },
+      async execute(args) {
+        const steps = args.steps.trim();
+        if (!steps) return "Steps were empty and were not sent.";
+        try {
+          return ok(
+            await transport.request("set_steps", {
+              steps,
+              // The coordinator reads an "append" marker to allow growing the
+              // queue after PLAN; without it a mid-loop edit is rejected outright.
+              text: args.append === true ? "append" : "",
+            }),
+          );
+        } catch (error) {
+          return failed("Duo set steps failed", error);
+        }
+      },
+    });
+  }
+
   if (isToolEnabledForMode("verification", mode) && agent === "Tony") {
     tools.duo_set_verification = tool({
       description:
-        "FAST mode only. Report the result of independently verifying Austin's exact current commit: passed, or issue_found with a concrete note.",
+        mode === "step"
+          ? "STEP mode. Report the result of independently verifying the current step's exact Austin commit: passed lands the step on the base branch and advances the queue; issue_found returns the step to EXECUTE."
+          : "FAST mode only. Report the result of independently verifying Austin's exact current commit: passed, or issue_found with a concrete note.",
       args: {
         result: z
           .enum(["passed", "issue_found"])
@@ -162,6 +207,37 @@ export function buildDuoTools(
           return ok(await transport.request("escalate", { note: reason }));
         } catch (error) {
           return failed("Duo escalate failed", error);
+        }
+      },
+    });
+  }
+
+  if (isToolEnabledForMode("restart", mode)) {
+    tools.duo_restart_duo = tool({
+      description:
+        "STEP mode only. Ask Duo to stop so the launcher can resume this session on a newly installed binary. Both agents are killed and restarted; the durable step queue continues at the same step. Use it between steps, as the last action of a round, not while a step is under review.",
+      args: {
+        reason: z
+          .string()
+          .describe(
+            "Why the restart is wanted now, e.g. the step landed a change to Duo itself.",
+          ),
+        install: z
+          .boolean()
+          .optional()
+          .describe(
+            "true = also build and install from the delivered branch before resuming. Omit or false to restart on the binary already installed.",
+          ),
+      },
+      async execute(args) {
+        const reason = args.reason.trim();
+        if (!reason) return "a reason is required";
+        try {
+          return ok(
+            await transport.request("restart_duo", { note: reason, install: args.install === true }),
+          );
+        } catch (error) {
+          return failed("Duo restart failed", error);
         }
       },
     });

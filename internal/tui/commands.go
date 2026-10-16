@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/session"
 )
@@ -235,7 +236,16 @@ func (a *App) runSlashCommand(ctx context.Context, text string) bool {
 	case "/mode":
 		if len(fields) == 1 {
 			mode := a.live.EffectiveMode().Display()
-			a.setStatus(fmt.Sprintf("current mode: %s (use /mode goal to escalate)", mode), false)
+			switch a.live.EffectiveMode() {
+			case project.ModeGoal:
+				a.setStatus("current mode: GOAL (use /mode goal to escalate)", false)
+			case project.ModeStep:
+				// STEP is chosen at start and has no escalation target, so unlike FAST
+				// there is nothing to offer here.
+				a.setStatus("current mode: STEP — Duo lands one reviewed step of the queue at a time", false)
+			default:
+				a.setStatus(fmt.Sprintf("current mode: %s (use /mode goal to escalate)", mode), false)
+			}
 			return true
 		}
 		return false // e.g. /mode goal, pass to SubmitUserTask

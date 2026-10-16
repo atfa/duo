@@ -22,6 +22,9 @@ func TestFrameModeBadgeAndBorderColour(t *testing.T) {
 	}{
 		{"fast", project.ModeFast, "[FAST]", "\x1b[1;36m", "\x1b[36m"},
 		{"goal", project.ModeGoal, "[GOAL]", "\x1b[1;35m", "\x1b[35m"},
+		// STEP is green so the three modes are tellable apart at a glance: the
+		// badge and border hue are the first thing the operator reads.
+		{"step", project.ModeStep, "[STEP]", "\x1b[1;32m", "\x1b[32m"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

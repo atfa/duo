@@ -8,6 +8,109 @@ import (
 	"github.com/atfa/duo/internal/protocol"
 )
 
+// stepResumePrompt re-injects the queue an agent has no memory of. A STEP
+// session can be resumed by a different Duo process on a new binary, so the
+// queue, the cursor and the current step's title are the whole contract: without
+// them an agent restarts a step that already landed.
+func (c *Coordinator) stepResumePrompt(agent protocol.AgentID, snap project.Snapshot) string {
+	if c.language == "zh" {
+		return c.stepResumePromptZh(agent, snap)
+	}
+	set := c.workspace.Set()
+	own, _ := set.For(agent)
+	queue := strings.TrimSpace(snap.Steps.Render())
+	if queue == "" {
+		queue = "(no queue set: Austin publishes it with duo_set_steps)"
+	}
+	total := len(snap.Steps)
+	cursor := snap.Step
+	if cursor > total {
+		cursor = total
+	}
+	title := "(none)"
+	if snap.Step >= 1 && snap.Step <= total {
+		title = snap.Steps[snap.Step-1].Title
+	}
+	scope := strings.TrimSpace(set.ScopePath)
+	if scope == "" {
+		scope = "."
+	}
+
+	header := fmt.Sprintf(
+		"[Duo session resumed]\n\nThe previous Duo session has been restored.\n\nCurrent phase: %s\nStep: %d of %d — %s\nShared plan version: v%d\nAustin ready: %t\nTony ready: %t\nCurrent worktree: %s (%s)\nWorking-directory scope: %s\n\nStep queue (Duo owns the ticks; never edit them by hand):\n%s\n\nFirst inspect duo_status and the existing Git state. Do not restart the task from scratch, do not re-land a step that is already ticked, and do not discard valid existing work.",
+		snap.Phase, cursor, total, title, snap.PlanVersion,
+		snap.Ready[protocol.Austin], snap.Ready[protocol.Tony],
+		own.Path, own.Branch, scope, queue,
+	)
+
+	switch snap.Phase {
+	case project.PhasePlan:
+		return header + "\n\nRe-enter the current collaboration state now. Continue co-designing the queue and the prose plan, use duo_send for substantive discussion, and sign only the exact queue version you approve. Do not merely acknowledge this message. Take the next concrete action required by PLAN."
+	case project.PhaseExecute:
+		if agent == protocol.Austin {
+			return header + "\n\nContinue the current step from the existing worktree state: do not restart it and do not start the next one. When it is genuinely complete, commit it, keep the worktree clean, and call duo_set_status ready=true. Do not merely acknowledge this message. Resume the next concrete action."
+		}
+		return header + "\n\nYou are read-only on the delivered artifact while a step is in flight. Inspect, build and test in your own worktree, which Duo keeps fast-forwarded to the last landed step, and answer Austin with duo_send when he asks. Do not merely acknowledge this message."
+	case project.PhaseReview:
+		return header + "\n\nResume the verification of the current step. Inspect Austin's CURRENT HEAD, not a remembered one, then report with duo_set_verification: passed lands the step and advances the queue, issue_found returns it to EXECUTE with a concrete note. Do not merely acknowledge this message."
+	case project.PhaseIntegrate:
+		if total > 0 && cursor == total {
+			return header + "\n\nThis is the final step. Validate the landed result and sign INTEGRATE with duo_set_status ready=true only when the tree is acceptable; Duo revokes a signature whose HEAD moved. Do not redo the whole task. Do not merely acknowledge this message."
+		}
+		return header + "\n\nA step landing may have been interrupted. Duo reconciles the delivery itself: do not land a step by hand and do not start new work until the next EXECUTE notice names the next step."
+	default:
+		return header + "\n\nDo not merely acknowledge this message. Take the next concrete action required by the current phase."
+	}
+}
+
+func (c *Coordinator) stepResumePromptZh(agent protocol.AgentID, snap project.Snapshot) string {
+	set := c.workspace.Set()
+	own, _ := set.For(agent)
+	queue := strings.TrimSpace(snap.Steps.Render())
+	if queue == "" {
+		queue = "（尚未设置队列：Austin 用 duo_set_steps 发布）"
+	}
+	total := len(snap.Steps)
+	cursor := snap.Step
+	if cursor > total {
+		cursor = total
+	}
+	title := "（无）"
+	if snap.Step >= 1 && snap.Step <= total {
+		title = snap.Steps[snap.Step-1].Title
+	}
+	scope := strings.TrimSpace(set.ScopePath)
+	if scope == "" {
+		scope = "."
+	}
+
+	header := fmt.Sprintf(
+		"[Duo 会话已恢复]\n\n上一个 Duo 会话已恢复。\n\n当前阶段：%s\n步骤：第 %d/%d 步 — %s\n共享计划版本：v%d\nAustin 就绪：%t\nTony 就绪：%t\n当前 worktree：%s（%s）\n工作目录范围：%s\n\n步骤队列（打勾由 Duo 维护，不要手工修改）：\n%s\n\n请先检查 duo_status 和现有 Git 状态。不要从头重做任务，不要重复落地已打勾的步骤，也不要丢弃有效的现有工作。",
+		snap.Phase, cursor, total, title, snap.PlanVersion,
+		snap.Ready[protocol.Austin], snap.Ready[protocol.Tony],
+		own.Path, own.Branch, scope, queue,
+	)
+
+	switch snap.Phase {
+	case project.PhasePlan:
+		return header + "\n\n请重新进入当前协作状态：继续共同设计队列与文字计划，必要时用 duo_send 实质讨论，并只对你确实批准的队列版本签署。不要仅仅确认本消息。"
+	case project.PhaseExecute:
+		if agent == protocol.Austin {
+			return header + "\n\n基于现有 worktree 继续当前步骤：不要重做它，也不要开始下一步。确实完成后提交、保持 worktree 干净，并调用 duo_set_status ready=true。不要仅仅确认本消息。"
+		}
+		return header + "\n\n步骤进行中时你对交付物只读。可在自己的 worktree 检查、构建、测试（Duo 会把它快进到最新落地的 HEAD），Austin 询问时具体作答。不要仅仅确认本消息。"
+	case project.PhaseReview:
+		return header + "\n\n继续验证当前步骤。请检查 Austin 当前的 HEAD，而不是记忆中的版本，然后用 duo_set_verification 报告：passed 落地该步骤并推进队列；issue_found 附具体说明并退回 EXECUTE。不要仅仅确认本消息。"
+	case project.PhaseIntegrate:
+		if total > 0 && cursor == total {
+			return header + "\n\n这是最后一个步骤。验证落地结果后，仅在其可接受时用 duo_set_status ready=true 签署 INTEGRATE；HEAD 变动时 Duo 会撤销签署。不要重做整个任务。不要仅仅确认本消息。"
+		}
+		return header + "\n\n某次步骤落地可能被中断。交付由 Duo 自行调节：不要手工落地步骤，在下一条 EXECUTE 提示指明下一步之前不要开始新工作。"
+	default:
+		return header + "\n\n不要仅仅确认本消息。请执行当前阶段要求的下一个具体动作。"
+	}
+}
+
 // ResumePrompt renders a new, authoritative instruction rather than relying
 // on what an old Pi conversation happens to remember.
 func (c *Coordinator) ResumePrompt(agent protocol.AgentID) string {
@@ -15,6 +118,12 @@ func (c *Coordinator) ResumePrompt(agent protocol.AgentID) string {
 }
 
 func (c *Coordinator) resumePrompt(agent protocol.AgentID, snap project.Snapshot) string {
+	// STEP is checked before the language: its resume prompt is the one surface
+	// that must re-inject the queue, and a language dispatch that ran first handed
+	// a STEP session the Goal wake, which never mentions the queue.
+	if snap.EffectiveMode() == project.ModeStep {
+		return c.stepResumePrompt(agent, snap)
+	}
 	if c.language == "zh" {
 		return c.chineseResumePrompt(agent, snap)
 	}

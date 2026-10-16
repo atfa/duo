@@ -2,6 +2,50 @@
 
 All notable project milestones are documented here.
 
+## Unreleased
+
+### Step mode — `duo --mode step`
+
+For one complex task whose increments are each worth an independent review and each
+worth landing. The Goal phase chain runs **once per step** of a durable queue, and
+every step is landed on your branch as it is verified, with no human task entry
+between steps. See [docs/architecture.md](docs/architecture.md) for the boundaries
+and [docs/self-upgrade.md](docs/self-upgrade.md) for the restart loop this enables.
+
+```text
+PLAN → (per step: EXECUTE → REVIEW → INTEGRATE → land the step) → DONE
+```
+
+- **The queue is the contract.** Agents co-design an ordered queue with
+  `duo_set_steps` (a markdown checkbox list) alongside the prose design in
+  `duo_set_plan`, and both approve it before EXECUTE. Duo parses the list once into
+  a structured array that is the single source of truth, renders it back wherever a
+  prompt needs one, and owns the cursor: agents never tick a box, a landed step is
+  never removed or reordered, and a queue update creates a new version and resets
+  both signatures.
+- **Each step is gated by one HEAD-bound verification.** Austin implements and
+  commits exactly the current step and puts that HEAD up for review; Tony reports
+  `passed` with `duo_set_verification`, which lands the step and advances the queue,
+  or `issue_found` with a concrete note, which returns the step to EXECUTE. A new
+  commit invalidates a verdict, as in Fast mode.
+- **Dual sign-off is kept where it buys real agreement**: the queue in PLAN, and the
+  final step. Signing every step twice would add cost without adding an independent
+  check — Austin signing his own INTEGRATE is self-approval.
+- **The verifier always reviews what you received.** Because each landed step goes to
+  the branch you launched Duo from, Duo fast-forwards Tony's worktree to the landed
+  head after every step. Without it the verifier would review and build a tree that
+  never reached you, and each step's merge would re-conflict against the original
+  session base. The target is the landed step's own head, never Austin's live HEAD,
+  so in-flight work for the next step is never presented as landed.
+- **A restart is a step action, not a special case.** The queue is durable and
+  re-injected on resume, so a session can be picked up by a different Duo process —
+  including a newly installed binary — and continue at the correct step.
+- `duo_set_steps` is available in Step mode only; `duo_set_plan` and
+  `duo_set_verification` are enabled for Step alongside their existing modes;
+  `duo_escalate` stays Fast-only, because Step is chosen at start rather than
+  escalated into. `SchemaVersion` stays 2: the queue is additive optional state, so a
+  new binary can still read a session an older one wrote.
+
 ## v0.10.2 — 2026-10-15
 
 One change: the language Duo speaks can now be set while a session runs, from
