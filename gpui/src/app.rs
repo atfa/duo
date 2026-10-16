@@ -10,7 +10,7 @@ use std::io::Write as _;
 use gpui::prelude::*;
 use gpui::{
     div, px, rgb, AnyElement, Context, FocusHandle, Focusable, FontWeight, KeyDownEvent, Render,
-    Rgba, StatefulInteractiveElement, Window,
+    Rgba, StatefulInteractiveElement, Window, WindowAppearance,
 };
 use smol::channel::Receiver;
 
@@ -28,6 +28,90 @@ const MODE_FAST: &str = "fast";
 /// The timeline keeps the most recent entries. A window is not an archive, and an
 /// unbounded vector in a process that may run for hours is a leak.
 const MAX_EVENTS: usize = 500;
+
+#[derive(Clone, Copy)]
+struct Theme {
+    light: bool,
+    background: Rgba,
+    surface: Rgba,
+    foreground: Rgba,
+    muted: Rgba,
+    faint: Rgba,
+    border: Rgba,
+    secondary: Rgba,
+    placeholder: Rgba,
+    input: Rgba,
+    hint: Rgba,
+    warning: Rgba,
+    error: Rgba,
+}
+
+impl Theme {
+    fn from_appearance(appearance: WindowAppearance) -> Self {
+        let light = matches!(
+            appearance,
+            WindowAppearance::Light | WindowAppearance::VibrantLight
+        );
+        if light {
+            Self {
+                light,
+                background: rgb(0xf5f7fb),
+                surface: rgb(0xffffff),
+                foreground: rgb(0x202735),
+                muted: rgb(0x515d72),
+                faint: rgb(0x657187),
+                border: rgb(0xd8deea),
+                secondary: rgb(0x3f4c60),
+                placeholder: rgb(0x768197),
+                input: rgb(0x202735),
+                hint: rgb(0x707c90),
+                warning: rgb(0x8a5a00),
+                error: rgb(0xb33b3b),
+            }
+        } else {
+            Self {
+                light,
+                background: rgb(0x0f1116),
+                surface: rgb(0x151922),
+                foreground: rgb(0xd8dbe2),
+                muted: rgb(0x8b93a5),
+                faint: rgb(0x6b7280),
+                border: rgb(0x252a35),
+                secondary: rgb(0xa9b1c1),
+                placeholder: rgb(0x6b7280),
+                input: rgb(0xe6e9ef),
+                hint: rgb(0x5b6472),
+                warning: rgb(0xd9a441),
+                error: rgb(0xe06c6c),
+            }
+        }
+    }
+
+    fn speaker(self, agent: &str) -> Rgba {
+        match (self.light, agent) {
+            (false, AGENT_AUSTIN) => rgb(0x6fc7d8),
+            (true, AGENT_AUSTIN) => rgb(0x166579),
+            (false, AGENT_TONY) => rgb(0xd08cd8),
+            (true, AGENT_TONY) => rgb(0x874091),
+            (false, "duo") => rgb(0xe0c063),
+            (true, "duo") => rgb(0x846500),
+            (false, "human") => rgb(0x7ec97e),
+            (true, "human") => rgb(0x33763e),
+            _ => self.muted,
+        }
+    }
+
+    fn mode(self, mode: &str) -> Rgba {
+        match (self.light, mode) {
+            (false, "FAST") => rgb(0x6fc7d8),
+            (true, "FAST") => rgb(0xb5e3eb),
+            (false, "STEP") => rgb(0x7ec97e),
+            (true, "STEP") => rgb(0xc8e8c8),
+            (false, _) => rgb(0xd08cd8),
+            (true, _) => rgb(0xead1ed),
+        }
+    }
+}
 
 pub struct DuoApp {
     view: Option<View>,
@@ -164,23 +248,24 @@ impl Focusable for DuoApp {
 }
 
 impl Render for DuoApp {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let theme = Theme::from_appearance(window.appearance());
         div()
             .flex()
             .flex_col()
             .size_full()
-            .bg(rgb(0x0f1116))
-            .text_color(rgb(0xd8dbe2))
+            .bg(theme.background)
+            .text_color(theme.foreground)
             .font_family("monospace")
             .track_focus(&self.focus)
             .on_key_down(
                 cx.listener(|this, event: &KeyDownEvent, _window, cx| this.on_key(event, cx)),
             )
-            .child(self.header())
-            .child(self.agents_row())
-            .child(self.timeline())
-            .child(self.status_row())
-            .child(self.input_row())
+            .child(self.header(theme))
+            .child(self.agents_row(theme))
+            .child(self.timeline(theme))
+            .child(self.status_row(theme))
+            .child(self.input_row(theme))
     }
 }
 
@@ -188,7 +273,7 @@ impl Render for DuoApp {
 // children without making the element type of `render` depend on its contents.
 
 impl DuoApp {
-    fn header(&self) -> AnyElement {
+    fn header(&self, theme: Theme) -> AnyElement {
         let mut children: Vec<AnyElement> = Vec::new();
 
         let version = self
@@ -198,8 +283,23 @@ impl DuoApp {
             .unwrap_or_default();
         children.push(
             div()
+                .w(px(24.))
+                .h(px(24.))
+                .flex_none()
+                .rounded_md()
+                .bg(rgb(0x182f93))
+                .text_color(rgb(0xffffff))
                 .font_weight(FontWeight::BOLD)
-                .child(format!("Duo {version}"))
+                .flex()
+                .items_center()
+                .justify_center()
+                .child("d²")
+                .into_any_element(),
+        );
+        children.push(
+            div()
+                .font_weight(FontWeight::BOLD)
+                .child(format!("xduo · Duo {version}"))
                 .into_any_element(),
         );
 
@@ -210,21 +310,25 @@ impl DuoApp {
                     .px_2()
                     .py_1()
                     .rounded_md()
-                    .bg(mode_color(&mode))
-                    .text_color(rgb(0x0f1116))
+                    .bg(theme.mode(&mode))
+                    .text_color(if theme.light {
+                        rgb(0x202735)
+                    } else {
+                        rgb(0x0f1116)
+                    })
                     .font_weight(FontWeight::BOLD)
                     .child(mode)
                     .into_any_element(),
             );
             children.push(
                 div()
-                    .text_color(rgb(0x8b93a5))
+                    .text_color(theme.muted)
                     .child(view.phase.clone())
                     .into_any_element(),
             );
             children.push(
                 div()
-                    .text_color(rgb(0x6b7280))
+                    .text_color(theme.faint)
                     .child(format!(
                         "{} · {} @ {}",
                         view.session, view.repository, view.base_branch
@@ -236,7 +340,7 @@ impl DuoApp {
         if self.closed {
             children.push(
                 div()
-                    .text_color(rgb(0xe06c6c))
+                    .text_color(theme.error)
                     .child("closed")
                     .into_any_element(),
             );
@@ -251,12 +355,12 @@ impl DuoApp {
             .px_3()
             .py_2()
             .border_b_1()
-            .border_color(rgb(0x252a35))
+            .border_color(theme.border)
             .children(children)
             .into_any_element()
     }
 
-    fn agents_row(&self) -> AnyElement {
+    fn agents_row(&self, theme: Theme) -> AnyElement {
         div()
             .flex()
             .flex_none()
@@ -264,14 +368,14 @@ impl DuoApp {
             .gap_3()
             .px_3()
             .py_2()
-            .child(self.agent_card(AGENT_AUSTIN, "Austin"))
-            .child(self.agent_card(AGENT_TONY, "Tony"))
+            .child(self.agent_card(AGENT_AUSTIN, "Austin", theme))
+            .child(self.agent_card(AGENT_TONY, "Tony", theme))
             .into_any_element()
     }
 
-    fn agent_card(&self, id: &str, title: &str) -> AnyElement {
+    fn agent_card(&self, id: &str, title: &str, theme: Theme) -> AnyElement {
         let agent = self.view.as_ref().and_then(|view| view.agents.get(id));
-        let color = speaker_color(id);
+        let color = theme.speaker(id);
 
         let (detail, activity, state) = match agent {
             Some(agent) => (
@@ -308,13 +412,13 @@ impl DuoApp {
                 )
                 .child(
                     div()
-                        .text_color(rgb(0x8b93a5))
+                        .text_color(theme.muted)
                         .text_sm()
                         .child(state),
                 )
                 .into_any_element(),
             div()
-                .text_color(rgb(0x8b93a5))
+                .text_color(theme.muted)
                 .text_sm()
                 .child(detail)
                 .into_any_element(),
@@ -322,7 +426,7 @@ impl DuoApp {
         if !activity.is_empty() {
             rows.push(
                 div()
-                    .text_color(rgb(0xa9b1c1))
+                    .text_color(theme.secondary)
                     .text_sm()
                     .truncate()
                     .child(activity)
@@ -338,15 +442,15 @@ impl DuoApp {
             .gap_1()
             .px_3()
             .py_2()
-            .bg(rgb(0x151922))
+            .bg(theme.surface)
             .rounded_md()
             .border_1()
-            .border_color(rgb(0x252a35))
+            .border_color(theme.border)
             .children(rows)
             .into_any_element()
     }
 
-    fn timeline(&self) -> AnyElement {
+    fn timeline(&self, theme: Theme) -> AnyElement {
         let mut children: Vec<AnyElement> = Vec::new();
 
         // Notices are state, not history: they come from the last view, so they are
@@ -364,7 +468,7 @@ impl DuoApp {
                                 .w(px(130.))
                                 .flex_none()
                                 .text_sm()
-                                .text_color(rgb(0xd9a441))
+                                .text_color(theme.warning)
                                 .child("notice"),
                         )
                         .child(
@@ -372,7 +476,7 @@ impl DuoApp {
                                 .flex_1()
                                 .min_w_0()
                                 .text_sm()
-                                .text_color(rgb(0xd9a441))
+                                .text_color(theme.warning)
                                 .child(notice.clone()),
                         )
                         .into_any_element(),
@@ -381,13 +485,13 @@ impl DuoApp {
         }
 
         for event in &self.events {
-            children.push(self.timeline_row(event));
+            children.push(self.timeline_row(event, theme));
         }
 
         if children.is_empty() {
             children.push(
                 div()
-                    .text_color(rgb(0x6b7280))
+                    .text_color(theme.faint)
                     .child("Waiting for Duo…")
                     .into_any_element(),
             );
@@ -407,8 +511,8 @@ impl DuoApp {
             .into_any_element()
     }
 
-    fn timeline_row(&self, event: &Event) -> AnyElement {
-        let (speaker, color) = event_speaker(event);
+    fn timeline_row(&self, event: &Event, theme: Theme) -> AnyElement {
+        let (speaker, color) = event_speaker(event, theme);
         let header = if event.label.is_empty() {
             speaker
         } else {
@@ -443,7 +547,7 @@ impl DuoApp {
             .into_any_element()
     }
 
-    fn status_row(&self) -> AnyElement {
+    fn status_row(&self, theme: Theme) -> AnyElement {
         let mut parts: Vec<String> = Vec::new();
         if let Some(view) = self.view.as_ref() {
             parts.push(format!("plan v{}", view.plan_version));
@@ -466,14 +570,14 @@ impl DuoApp {
             .flex_none()
             .px_3()
             .py_1()
-            .bg(rgb(0x151922))
-            .text_color(rgb(0x8b93a5))
+            .bg(theme.surface)
+            .text_color(theme.muted)
             .text_sm()
             .child(parts.join("  ·  "))
             .into_any_element()
     }
 
-    fn input_row(&self) -> AnyElement {
+    fn input_row(&self, theme: Theme) -> AnyElement {
         let empty = self.input.is_empty();
         let text = if empty {
             "Type a task and press Enter…".to_owned()
@@ -490,16 +594,20 @@ impl DuoApp {
             .px_3()
             .py_2()
             .border_t_1()
-            .border_color(rgb(0x252a35))
+            .border_color(theme.border)
             .child(
                 div()
-                    .text_color(if empty { rgb(0x6b7280) } else { rgb(0xe6e9ef) })
+                    .text_color(if empty {
+                        theme.placeholder
+                    } else {
+                        theme.input
+                    })
                     .child(text),
             )
             .child(
                 div()
                     .text_xs()
-                    .text_color(rgb(0x5b6472))
+                    .text_color(theme.hint)
                     .child(hint_line(self.view.as_ref())),
             )
             .into_any_element()
@@ -533,32 +641,31 @@ fn ready_mark(view: &View, agent: &str) -> &'static str {
     }
 }
 
-fn mode_color(mode: &str) -> Rgba {
-    match mode {
-        "FAST" => rgb(0x6fc7d8),
-        "STEP" => rgb(0x7ec97e),
-        _ => rgb(0xd08cd8),
-    }
-}
-
-fn speaker_color(agent: &str) -> Rgba {
-    match agent {
-        AGENT_AUSTIN => rgb(0x6fc7d8),
-        AGENT_TONY => rgb(0xd08cd8),
-        "duo" => rgb(0xe0c063),
-        "human" => rgb(0x7ec97e),
-        _ => rgb(0x8b93a5),
-    }
-}
-
-fn event_speaker(event: &Event) -> (String, Rgba) {
+fn event_speaker(event: &Event, theme: Theme) -> (String, Rgba) {
     if !event.agent.is_empty() {
-        return (event.agent.clone(), speaker_color(&event.agent));
+        return (event.agent.clone(), theme.speaker(&event.agent));
     }
     match event.kind.as_str() {
-        "error" => ("error".to_owned(), rgb(0xe06c6c)),
-        "verdict" => ("verdict".to_owned(), rgb(0xd9a441)),
-        "user" => ("human".to_owned(), rgb(0x7ec97e)),
-        _ => ("duo".to_owned(), rgb(0xe0c063)),
+        "error" => ("error".to_owned(), theme.error),
+        "verdict" => ("verdict".to_owned(), theme.warning),
+        "user" => ("human".to_owned(), theme.speaker("human")),
+        _ => ("duo".to_owned(), theme.speaker("duo")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Theme;
+    use gpui::WindowAppearance;
+
+    #[test]
+    fn theme_palette_tracks_light_and_dark_appearance() {
+        let light = Theme::from_appearance(WindowAppearance::Light);
+        let dark = Theme::from_appearance(WindowAppearance::Dark);
+
+        assert_ne!(light.background, dark.background);
+        assert_ne!(light.foreground, dark.foreground);
+        assert_ne!(light.surface, dark.surface);
+        assert_ne!(light.speaker("austin"), dark.speaker("austin"));
     }
 }

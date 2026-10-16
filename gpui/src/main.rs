@@ -12,7 +12,7 @@ use std::io::BufRead;
 
 use gpui::{
     px, size, App, AppContext, Application, Bounds, Focusable, TitlebarOptions, WindowBounds,
-    WindowOptions,
+    WindowDecorations, WindowOptions,
 };
 use smol::channel;
 
@@ -28,14 +28,26 @@ fn main() {
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
             titlebar: Some(TitlebarOptions {
-                title: Some("Duo".into()),
+                title: Some("xduo".into()),
                 ..Default::default()
             }),
+            // Keep system-drawn controls and resize borders on macOS and ask the
+            // Linux compositor/window manager for server-side decorations. This
+            // lets GNOME, KDE, Xfce and other desktops use their own titlebar
+            // layout and button style instead of relying on client-side chrome.
+            window_decorations: Some(WindowDecorations::Server),
+            is_resizable: true,
+            is_minimizable: true,
+            app_id: Some("xduo".into()),
             ..Default::default()
         };
 
         cx.open_window(options, move |window, cx| {
-            let app = cx.new(|cx| DuoApp::new(rx, cx));
+            let app = cx.new(|cx| {
+                cx.observe_window_appearance(window, |_, window, _| window.refresh())
+                    .detach();
+                DuoApp::new(rx, cx)
+            });
             let focus = app.read(cx).focus_handle(cx);
             window.focus(&focus);
             app
@@ -62,7 +74,7 @@ fn read_stdin(tx: channel::Sender<ServerMessage>) {
                         break;
                     }
                 }
-                Err(err) => eprintln!("duo-gpui: ignoring an unparsable frame: {err}"),
+                Err(err) => eprintln!("xduo: ignoring an unparsable frame: {err}"),
             }
         }
         let _ = tx.send_blocking(ServerMessage::Closed {

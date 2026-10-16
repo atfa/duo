@@ -1,5 +1,5 @@
 [package]
-name = "duo-gpui"
+name = "xduo"
 version = "0.11.0"
 edition = "2021"
 description = "Duo's GPUI graphical frontend (MVP): a renderer over the `duo gui` NDJSON protocol."
@@ -7,7 +7,7 @@ license = "MIT"
 publish = false
 
 [[bin]]
-name = "duo-gpui"
+name = "xduo"
 path = "src/main.rs"
 
 [dependencies]

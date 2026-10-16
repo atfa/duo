@@ -1,6 +1,6 @@
 # Duo's GPUI frontend (MVP)
 
-`duo-gpui` is the graphical frontend: one GPU-rendered window over a Duo session,
+`xduo` is the graphical frontend: one GPU-rendered window over a Duo session,
 built with [GPUI](https://gpui.rs), the Rust UI framework Zed uses. It is an MVP
 on purpose — the smallest window that is genuinely usable rather than a copy of
 the terminal interface.
@@ -25,8 +25,18 @@ cd gpui && cargo build --release
 ```
 
 `duo gui` resolves the renderer in one order: `--gui-binary <path>`, then
-`DUO_GPUI_BIN`, then `duo-gpui` on `PATH`, then a `duo-gpui` next to the `duo`
+`DUO_GPUI_BIN`, then `xduo` on `PATH`, then an `xduo` next to the `duo`
 binary itself.
+
+The window follows the system light/dark appearance and updates when it changes.
+It keeps the platform titlebar and native resize borders. macOS draws its
+standard close, minimize and zoom controls. Build a macOS `.app` with
+`scripts/package-xduo-macos.sh <output.app>` to install the xduo Dock icon; run
+`duo gui` with `DUO_GPUI_BIN` pointing to the app's `Contents/MacOS/xduo`.
+On Linux, xduo requests server-side decorations so the desktop's window manager
+supplies its own buttons and borders. `app_id` is `xduo`; install the matching
+icon and launcher with `scripts/install-xduo-desktop.sh` (the Duo CLI must be on
+PATH when installing). The d² mark also appears in the window content.
 
 The build tree is `gpui/.target` rather than cargo's default `target`, which
 `gpui/.cargo/config.toml` sets. This repository's Go tooling walks `./...` from

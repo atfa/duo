@@ -21,9 +21,9 @@ import (
 var _ guiipc.Session = (*session.Service)(nil)
 
 const (
-	// guiBinaryDefault is the renderer this build looks for: the binary name the
-	// `gpui/` crate produces, so `make gpui` is enough to make `duo gui` work.
-	guiBinaryDefault = "duo-gpui"
+	// guiBinaryDefault is the renderer binary produced by the `gpui/` crate, so
+	// `make gpui` is enough to make `duo gui` work.
+	guiBinaryDefault = "xduo"
 	// guiBinaryEnv names the renderer explicitly, for a build tree that is not on
 	// PATH.
 	guiBinaryEnv = "DUO_GPUI_BIN"

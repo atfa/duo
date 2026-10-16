@@ -214,9 +214,15 @@ duo gui resume <session-id>   # open the window on a session already in flight
 ```
 
 Build the renderer once — `make gpui`, which needs cargo — and `duo gui` finds
-`duo-gpui` through `--gui-binary <path>`, then `DUO_GPUI_BIN`, then `PATH`, then
+`xduo` through `--gui-binary <path>`, then `DUO_GPUI_BIN`, then `PATH`, then
 next to the `duo` binary. When it cannot find one it says so, naming every place
 it looked, before it starts a session.
+
+The GUI follows the system light/dark appearance and uses the system titlebar
+and window borders, with a d² mark in the window. On Linux, run
+`scripts/install-xduo-desktop.sh` to register the app icon and launcher. On
+macOS, build the app bundle with `scripts/package-xduo-macos.sh <output.app>`
+to install the Dock icon.
 
 | Key | Action |
 | --- | --- |

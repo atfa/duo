@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=xduo
+Comment=Graphical window for a Duo coding session
+Exec=xduo-launcher
+Icon=xduo
+Terminal=false
+Categories=Development;IDE;
+StartupNotify=true
+StartupWMClass=xduo
