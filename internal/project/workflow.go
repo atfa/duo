@@ -24,6 +24,10 @@ type workflow interface {
 	setVerification(s *State, agent protocol.AgentID, result VerificationResult, note, head string) (Transition, error)
 	// complete performs the final agent-work → DONE transition after delivery.
 	complete(s *State) error
+	// setSteps sets or extends the Step-mode queue. Fast and Goal have no queue.
+	setSteps(s *State, steps Steps, appendOnly bool) error
+	// landStep records that the current step reached the user's repository.
+	landStep(s *State, head string) (Transition, error)
 	// reopen starts a new round from a finished DONE session so a follow-up
 	// human task can be worked and verified again. The mode decides the
 	// starting phase, and every signature from the finished round is cleared.
@@ -31,8 +35,11 @@ type workflow interface {
 }
 
 func (s *State) workflow() workflow {
-	if s.mode == ModeFast {
+	switch s.mode {
+	case ModeFast:
 		return fastWorkflow{}
+	case ModeStep:
+		return stepWorkflow{}
 	}
 	return goalWorkflow{}
 }
@@ -84,7 +91,7 @@ func (goalWorkflow) setReady(s *State, agent protocol.AgentID, ready bool, note,
 			// accepted status must not start a second delivery transaction.
 			transition.ReadyForDelivery = !wasReady && ready
 		default:
-			if next, ok := ModeGoal.Next(s.phase); ok {
+			if next, ok := s.mode.Next(s.phase); ok {
 				s.phase = next
 				s.resetApprovalsLocked()
 				s.lastMutation = time.Now()
@@ -97,6 +104,16 @@ func (goalWorkflow) setReady(s *State, agent protocol.AgentID, ready bool, note,
 
 func (goalWorkflow) setVerification(*State, protocol.AgentID, VerificationResult, string, string) (Transition, error) {
 	return Transition{}, fmt.Errorf("%w: structured verification is only used in Fast mode", ErrModeMismatch)
+}
+
+// setSteps and landStep are Step-mode state. Goal has a plan, not a queue, so a
+// caller that reaches them has picked the wrong mode.
+func (goalWorkflow) setSteps(*State, Steps, bool) error {
+	return fmt.Errorf("%w: Goal mode has a plan, not a step queue (use `duo --mode step`)", ErrModeMismatch)
+}
+
+func (goalWorkflow) landStep(*State, string) (Transition, error) {
+	return Transition{}, fmt.Errorf("%w: only STEP mode lands steps", ErrModeMismatch)
 }
 
 // complete performs the explicit INTEGRATE → DONE transition after the final
@@ -140,6 +157,14 @@ type fastWorkflow struct{}
 
 func (fastWorkflow) setPlan(*State, string) error {
 	return fmt.Errorf("%w: Fast mode has no shared plan; Austin drives the task directly (use `duo --mode goal` for the planned workflow)", ErrModeMismatch)
+}
+
+func (fastWorkflow) setSteps(*State, Steps, bool) error {
+	return fmt.Errorf("%w: Fast mode has no step queue (use `duo --mode step`)", ErrModeMismatch)
+}
+
+func (fastWorkflow) landStep(*State, string) (Transition, error) {
+	return Transition{}, fmt.Errorf("%w: only STEP mode lands steps", ErrModeMismatch)
 }
 
 func (fastWorkflow) setReady(s *State, agent protocol.AgentID, ready bool, note, evidence string) (Transition, error) {
@@ -247,6 +272,277 @@ func (fastWorkflow) reopen(s *State) error {
 	s.started = true
 	s.lastMutation = time.Now()
 	return nil
+}
+
+// stepWorkflow is Goal's phase set with a per-step gate. The queue is the
+// dual-approved artifact in PLAN, each step is checked by Tony's HEAD-bound
+// verdict, and a landed step returns the session to EXECUTE. Austin signing his
+// own INTEGRATE would be self-approval, so the per-step gate is the Fast shape;
+// the Goal gate stays where independent agreement buys something: the queue, and
+// DONE on the last step.
+type stepWorkflow struct{}
+
+// setPlan takes the plan prose. The queue is separate state (setSteps), so a plan
+// edit cannot move the cursor.
+func (stepWorkflow) setPlan(s *State, plan string) error {
+	if s.phase != PhasePlan {
+		return fmt.Errorf("%w: the plan can only be changed during PLAN", ErrWrongPhase)
+	}
+	s.plan = plan
+	s.planVersion++
+	s.resetApprovalsLocked()
+	s.started = true
+	s.lastMutation = time.Now()
+	return nil
+}
+
+// setSteps sets or extends the queue. In PLAN the queue is authored freely and
+// needs both agents' approval, so a change resets the approvals. During EXECUTE
+// only steps may be appended: a queue edit must never invalidate work that has
+// already landed on the user's repository.
+func (stepWorkflow) setSteps(s *State, steps Steps, appendOnly bool) error {
+	if s.phase == PhaseDone {
+		return ErrProjectDone
+	}
+	if len(steps) == 0 {
+		return fmt.Errorf("%w: a Step session needs at least one step in its queue", ErrMissingPlan)
+	}
+	if s.phase == PhasePlan {
+		s.steps = steps
+		s.step = FirstOpenStep(s.steps)
+		s.resetApprovalsLocked()
+		s.started = true
+		s.lastMutation = time.Now()
+		return nil
+	}
+	if appendOnly {
+		s.steps = append(s.steps, steps...)
+		s.lastMutation = time.Now()
+		return nil
+	}
+	return fmt.Errorf("%w: the queue can only be replaced during PLAN; during %s steps may be appended", ErrWrongPhase, s.phase)
+}
+
+func (stepWorkflow) setReady(s *State, agent protocol.AgentID, ready bool, note, evidence string) (Transition, error) {
+	if s.phase == PhaseDone {
+		return Transition{}, ErrProjectDone
+	}
+
+	switch s.phase {
+	case PhasePlan:
+		if ready && strings.TrimSpace(s.plan) == "" {
+			return Transition{}, ErrMissingPlan
+		}
+		if ready && len(s.steps) == 0 {
+			return Transition{}, fmt.Errorf("%w: a Step session needs a queue before it can leave PLAN", ErrMissingPlan)
+		}
+		s.ready[agent] = ready
+		s.notes[agent] = strings.TrimSpace(note)
+		if ready {
+			s.evidence[agent] = strings.TrimSpace(evidence)
+		} else {
+			s.evidence[agent] = ""
+		}
+		s.started = true
+		s.lastMutation = time.Now()
+		if s.ready[protocol.Austin] && s.ready[protocol.Tony] {
+			s.phase = PhaseExecute
+			s.step = FirstOpenStep(s.steps)
+			s.resetApprovalsLocked()
+			s.lastMutation = time.Now()
+			return Transition{Next: PhaseExecute}, nil
+		}
+		return Transition{}, nil
+
+	case PhaseExecute:
+		if agent != protocol.Austin {
+			return Transition{}, fmt.Errorf("%w: in STEP mode Tony checks a step with duo_set_verification, not with a sign-off", ErrModeMismatch)
+		}
+		if !ready {
+			return Transition{}, nil
+		}
+		head := strings.TrimSpace(evidence)
+		if head == "" {
+			return Transition{}, fmt.Errorf("%w: a step review request needs a committed Austin HEAD", ErrWrongPhase)
+		}
+		s.setStepHeadLocked(head)
+		s.phase = PhaseReview
+		s.notes[protocol.Austin] = strings.TrimSpace(note)
+		s.started = true
+		s.lastMutation = time.Now()
+		return Transition{Next: PhaseReview}, nil
+
+	case PhaseReview:
+		if agent != protocol.Austin {
+			return Transition{}, nil
+		}
+		if ready {
+			return Transition{}, nil
+		}
+		// Austin withdraws the request before Tony reports.
+		s.phase = PhaseExecute
+		s.clearStepVerdictLocked()
+		s.lastMutation = time.Now()
+		return Transition{Next: PhaseExecute}, nil
+
+	case PhaseIntegrate:
+		// The last step ends the session, and that is the one place a step needs
+		// both agents to agree it is finished.
+		if !QueueFinished(s.steps) {
+			return Transition{}, fmt.Errorf("%w: the step queue is not finished", ErrWrongPhase)
+		}
+		s.ready[agent] = ready
+		s.notes[agent] = strings.TrimSpace(note)
+		if ready {
+			s.evidence[agent] = strings.TrimSpace(evidence)
+		} else {
+			s.evidence[agent] = ""
+		}
+		s.lastMutation = time.Now()
+		var t Transition
+		if s.ready[protocol.Austin] && s.ready[protocol.Tony] {
+			t.ReadyForDelivery = true
+		}
+		return t, nil
+
+	default:
+		return Transition{}, fmt.Errorf("%w: STEP mode does not run in phase %s", ErrWrongPhase, s.phase)
+	}
+}
+
+// setVerification is Tony's per-step check. The verdict binds to the exact Austin
+// HEAD that was submitted, so a commit after the request revokes it — the same
+// binding Fast mode enforces, and the reason the per-step gate needs no second
+// signature.
+func (stepWorkflow) setVerification(s *State, agent protocol.AgentID, result VerificationResult, note, head string) (Transition, error) {
+	if s.phase == PhaseDone {
+		return Transition{}, ErrProjectDone
+	}
+	if agent != protocol.Tony {
+		return Transition{}, fmt.Errorf("%w: only Tony can report a STEP-mode step verification", ErrModeMismatch)
+	}
+	if s.phase != PhaseReview {
+		return Transition{}, fmt.Errorf("%w: a step can only be verified during REVIEW", ErrWrongPhase)
+	}
+	note = strings.TrimSpace(note)
+	current := s.currentStepLocked()
+	if current == nil {
+		return Transition{}, fmt.Errorf("%w: the queue has no current step", ErrWrongPhase)
+	}
+
+	switch result {
+	case VerificationPassed:
+		if head != "" && !current.Verification.Targets(head) && current.Head != head {
+			return Transition{}, fmt.Errorf("%w: the step was submitted at %s, not %s; review the current artifact", ErrWrongPhase, shortHash(current.Head), shortHash(head))
+		}
+		at := time.Now()
+		current.Verification = Verification{Status: VerificationPassed, Head: current.Head, Note: note, At: &at}
+		s.phase = PhaseIntegrate
+		s.lastMutation = time.Now()
+		return Transition{Next: PhaseIntegrate}, nil
+
+	case VerificationIssueFound:
+		if note == "" {
+			return Transition{}, ErrMissingIssue
+		}
+		at := time.Now()
+		current.Verification = Verification{Status: VerificationIssueFound, Head: current.Head, Note: note, At: &at}
+		s.phase = PhaseExecute
+		s.lastMutation = time.Now()
+		return Transition{Next: PhaseExecute}, nil
+
+	default:
+		return Transition{}, fmt.Errorf("unknown verification result %q", result)
+	}
+}
+
+// complete ends the session. It refuses while a step is unlanded: the queue, not a
+// signature, decides when the work is over.
+func (stepWorkflow) complete(s *State) error {
+	if s.phase != PhaseIntegrate {
+		return fmt.Errorf("%w: a STEP session can only complete from INTEGRATE", ErrWrongPhase)
+	}
+	if !QueueFinished(s.steps) {
+		return fmt.Errorf("%w: step %d of %d has not landed", ErrWrongPhase, s.step, len(s.steps))
+	}
+	if !s.ready[protocol.Austin] || !s.ready[protocol.Tony] {
+		return fmt.Errorf("%w: finishing a STEP session requires both agents to sign the finished queue", ErrWrongPhase)
+	}
+	s.phase = PhaseDone
+	s.lastMutation = time.Now()
+	return nil
+}
+
+// landStep records that the current step reached the user's repository and moves
+// to the next one. It is the loop-back: INTEGRATE returns to EXECUTE while the
+// queue has work, and stays in INTEGRATE on the last step so the finished queue
+// can be signed off.
+func (stepWorkflow) landStep(s *State, head string) (Transition, error) {
+	if s.phase != PhaseIntegrate {
+		return Transition{}, fmt.Errorf("%w: a step lands from INTEGRATE, not %s", ErrWrongPhase, s.phase)
+	}
+	current := s.currentStepLocked()
+	if current == nil {
+		return Transition{}, fmt.Errorf("%w: the queue has no current step to land", ErrWrongPhase)
+	}
+	// Landing is idempotent on the step record: a head that is already recorded as
+	// landed on any step must not advance the queue a second time.
+	for _, landed := range s.steps {
+		if landed.DeliveryHead != "" && landed.DeliveryHead == head {
+			return Transition{}, fmt.Errorf("%w: %s already landed as step %d", ErrWrongPhase, shortHash(head), s.step)
+		}
+	}
+	if current.DeliveryHead != "" && current.DeliveryHead != head {
+		return Transition{}, fmt.Errorf("%w: step %d already landed at %s", ErrWrongPhase, s.step, shortHash(current.DeliveryHead))
+	}
+	at := time.Now().UTC().Format(time.RFC3339)
+	current.Done = true
+	current.DeliveryHead = head
+	current.DeliveredAt = at
+	s.step = FirstOpenStep(s.steps)
+	s.lastMutation = time.Now()
+	if s.step > len(s.steps) {
+		return Transition{}, nil
+	}
+	s.phase = PhaseExecute
+	s.resetApprovalsLocked()
+	return Transition{Next: PhaseExecute}, nil
+}
+
+// reopen starts a new queue from PLAN: a follow-up task is a new set of steps,
+// and the new queue is dual-approved like the first one.
+func (stepWorkflow) reopen(s *State) error {
+	if s.phase != PhaseDone {
+		return fmt.Errorf("%w: only a DONE session can be reopened", ErrWrongPhase)
+	}
+	s.phase = PhasePlan
+	s.plan = ""
+	s.steps, s.step = nil, 0
+	s.resetApprovalsLocked()
+	s.started = true
+	s.lastMutation = time.Now()
+	return nil
+}
+
+// currentStepLocked returns the step the cursor points at, or nil.
+func (s *State) currentStepLocked() *Step {
+	if s.step < 1 || s.step > len(s.steps) {
+		return nil
+	}
+	return &s.steps[s.step-1]
+}
+
+func (s *State) setStepHeadLocked(head string) {
+	if current := s.currentStepLocked(); current != nil {
+		current.Head = head
+		current.Verification = Verification{}
+	}
+}
+
+func (s *State) clearStepVerdictLocked() {
+	if current := s.currentStepLocked(); current != nil {
+		current.Verification = Verification{}
+	}
 }
 
 func shortHash(hash string) string {

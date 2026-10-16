@@ -31,22 +31,40 @@ type Snapshot struct {
 	Verification Verification
 	Started      bool
 	LastMutation time.Time
+
+	// Steps is the Step-mode queue and Step is its 1-based cursor: the index of the
+	// step being worked, and len(Steps)+1 once every step has landed. Duo owns both,
+	// so they are additive state and the persisted schema does not change.
+	Step  int   `json:"step"`
+	Steps Steps `json:"steps"`
 }
 
-// EffectiveMode normalizes a possibly-zero mode. Only an explicit "fast" is
-// Fast; a legacy snapshot with no mode is Goal.
+// EffectiveMode normalizes a possibly-zero mode through the one rule in
+// Mode.Normalize, so a Step session can never be read as Goal.
 func (s Snapshot) EffectiveMode() Mode {
-	if s.Mode == ModeFast {
-		return ModeFast
-	}
-	return ModeGoal
+	return s.Mode.Normalize()
 }
 
 func (s Snapshot) String() string {
-	if s.EffectiveMode() == ModeFast {
+	switch s.EffectiveMode() {
+	case ModeFast:
 		return s.fastString()
+	case ModeStep:
+		return s.stepString()
 	}
 	return s.goalString()
+}
+
+// stepString is the Goal rendering plus the queue: the phase and signature block
+// is the same information, and the queue is what tells an agent which step it is
+// working. The full queue is shown here because this rendering is printed once per
+// request, not on a timer.
+func (s Snapshot) stepString() string {
+	out := s.goalString()
+	if len(s.Steps) == 0 {
+		return out + "\n\nStep queue: none set — Austin sets it with duo_set_steps before the session can leave PLAN."
+	}
+	return out + "\n\nStep queue (" + fmt.Sprintf("%d step(s), cursor at %d", len(s.Steps), s.Step) + "):\n" + s.Steps.Render()
 }
 
 // NudgeState is the compact state block injected into harness nudges. Unlike
@@ -65,7 +83,7 @@ func (s Snapshot) NudgeState() string {
 		planRef = fmt.Sprintf("v%d, %d bytes — read it with duo_status", s.PlanVersion, len(plan))
 	}
 
-	return fmt.Sprintf(
+	nudge := fmt.Sprintf(
 		"Duo state:\n- phase: %s\n- plan version: %d\n- Austin ready: %t%s%s\n- Tony ready: %t%s%s\n- shared plan: %s",
 		s.Phase,
 		s.PlanVersion,
@@ -73,6 +91,13 @@ func (s Snapshot) NudgeState() string {
 		s.Ready[protocol.Tony], optionalNote(s.Notes[protocol.Tony]), optionalEvidence(s.Evidence[protocol.Tony]),
 		planRef,
 	)
+	// A nudge repeats on a timer, so the queue is reduced to the cursor line plus
+	// one short line per remaining step. Step bodies never appear here: over a
+	// ten-step loop they would be the dominant token cost of the session.
+	if s.EffectiveMode() == ModeStep && len(s.Steps) > 0 {
+		nudge += "\n- step queue:\n" + s.Steps.RenderCursor()
+	}
+	return nudge
 }
 
 // goalString is byte-for-byte the historical rendering: it is what every
@@ -147,6 +172,8 @@ type State struct {
 	phase        Phase
 	plan         string
 	planVersion  int
+	step         int
+	steps        Steps
 	ready        map[protocol.AgentID]bool
 	notes        map[protocol.AgentID]string
 	evidence     map[protocol.AgentID]string
@@ -165,12 +192,10 @@ type State struct {
 func NewState() *State { return NewStateFor(ModeGoal) }
 
 // NewStateFor returns a fresh session in the requested mode. Anything that is
-// not an explicit Fast mode is treated as Goal, so a zero value behaves like a
+// not a mode this binary knows is treated as Goal, so a zero value behaves like a
 // legacy session.
 func NewStateFor(mode Mode) *State {
-	if mode != ModeFast {
-		mode = ModeGoal
-	}
+	mode = mode.Normalize()
 	return &State{
 		mode:  mode,
 		phase: mode.initialPhase(),
@@ -221,6 +246,8 @@ func (s *State) snapshotLocked() Snapshot {
 			protocol.Tony:   s.evidence[protocol.Tony],
 		},
 		PlanVersion:  s.planVersion,
+		Step:         s.step,
+		Steps:        append(Steps(nil), s.steps...),
 		Verification: s.verification,
 		Started:      s.started,
 		LastMutation: s.lastMutation,
@@ -254,6 +281,48 @@ func (s *State) SetPlan(agent protocol.AgentID, plan string) (Snapshot, error) {
 	s.mu.Unlock()
 	notify(hook, snap)
 	return snap, nil
+}
+
+// SetSteps sets the Step-mode queue from a Markdown checkbox list, or appends to
+// it. Duo parses the list once here, so the array is the only source of truth and
+// no agent can move the cursor by editing text.
+func (s *State) SetSteps(agent protocol.AgentID, list string, appendOnly bool) (Snapshot, error) {
+	if agent != protocol.Austin && agent != protocol.Tony {
+		return Snapshot{}, ErrUnknownAgent
+	}
+	steps := ParseSteps(list)
+
+	s.mu.Lock()
+	if err := s.workflow().setSteps(s, steps, appendOnly); err != nil {
+		snap := s.snapshotLocked()
+		s.mu.Unlock()
+		return snap, err
+	}
+	snap, hook := s.snapshotLocked(), s.onChange
+	s.mu.Unlock()
+	notify(hook, snap)
+	return snap, nil
+}
+
+// LandStep records that the current step reached the user's repository and lets
+// the mode decide what that means: STEP returns to EXECUTE for the next step,
+// every other mode refuses.
+func (s *State) LandStep(head string) (Snapshot, Transition, error) {
+	s.mu.Lock()
+	previous := s.phase
+	transition, err := s.workflow().landStep(s, strings.TrimSpace(head))
+	if err != nil {
+		snap := s.snapshotLocked()
+		s.mu.Unlock()
+		return snap, Transition{}, err
+	}
+	transition.Previous = previous
+	transition.Next = s.phase
+	transition.Advanced = s.phase != previous
+	snap, hook := s.snapshotLocked(), s.onChange
+	s.mu.Unlock()
+	notify(hook, snap)
+	return snap, transition, nil
 }
 
 func (s *State) SetReady(agent protocol.AgentID, ready bool, note, evidence string) (Snapshot, Transition, error) {
@@ -459,6 +528,11 @@ func (s *State) Restore(snap Snapshot) error {
 	s.evidence[protocol.Tony] = snap.Evidence[protocol.Tony]
 	s.verification = snap.Verification
 	s.started = snap.Started
+	// The queue is Step-mode state, so it is restored verbatim. The cursor is
+	// re-derived from the queue: a snapshot written before the cursor existed, or
+	// hand-edited, then agrees with the queue it describes.
+	s.steps = append(Steps(nil), snap.Steps...)
+	s.step = FirstOpenStep(s.steps)
 	s.lastMutation = time.Now()
 	out, hook := s.snapshotLocked(), s.onChange
 	s.mu.Unlock()

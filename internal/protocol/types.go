@@ -54,6 +54,7 @@ const (
 	MsgHumanPrompt      MessageType = "human_prompt"
 	MsgResumePrompt     MessageType = "resume_prompt"
 	MsgSetPlan          MessageType = "set_plan"
+	MsgSetSteps         MessageType = "set_steps"
 	MsgSetStatus        MessageType = "set_status"
 	MsgSetVerification  MessageType = "set_verification"
 	MsgGetStatus        MessageType = "get_status"

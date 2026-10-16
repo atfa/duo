@@ -627,6 +627,9 @@ func (c *Coordinator) OnMessage(ctx context.Context, client *transport.Client, m
 	case protocol.MsgSetPlan:
 		c.handleSetPlan(ctx, client, message)
 
+	case protocol.MsgSetSteps:
+		c.handleSetSteps(ctx, client, message)
+
 	case protocol.MsgSetStatus:
 		c.handleSetStatus(ctx, client, message)
 
@@ -954,6 +957,58 @@ func (c *Coordinator) handleSetPlan(ctx context.Context, client *transport.Clien
 	)
 	if c.language == "zh" {
 		notice = fmt.Sprintf("[Duo plan update]\n%s 将共享计划更新为 v%d。\n\n%s\n\n请审查此精确版本，并通过 duo_send 讨论问题。批准后调用 duo_set_status ready=true。再次修改计划会使双方签署失效。PLAN 阶段允许在自己的 worktree 中探索性修改，但计划获双方批准前都属于临时工作。", client.Identity(), snap.PlanVersion, snap.Plan)
+	}
+	_ = c.sendToAgent(ctx, peer, protocol.Message{
+		Version:   1,
+		Type:      protocol.MsgDuoNotice,
+		From:      protocol.Duo,
+		To:        peer,
+		Text:      notice,
+		Timestamp: time.Now().UnixMilli(),
+	})
+}
+
+// handleSetSteps takes the Step-mode queue. The message carries the raw Markdown
+// checkbox list and the project package parses it once, so the queue an agent
+// authored and the queue Duo enforces are the same text.
+func (c *Coordinator) handleSetSteps(ctx context.Context, client *transport.Client, message protocol.Message) {
+	appendOnly := message.Text == "append"
+	snap, err := c.project.SetSteps(client.Identity(), message.Steps, appendOnly)
+	if err != nil {
+		_ = c.respond(ctx, client, message.RequestID, false, err.Error(), c.statusText(ctx))
+		return
+	}
+
+	c.tracker.Touch(client.Identity())
+	c.recordEvent("steps_updated", map[string]any{
+		"agent": string(client.Identity()),
+		"steps": len(snap.Steps),
+		"step":  snap.Step,
+	})
+	c.emit(events.KindSystem, client.Identity(), "", fmt.Sprintf("set the step queue: %d step(s), cursor at %d", len(snap.Steps), snap.Step))
+	_ = c.respond(ctx, client, message.RequestID, true,
+		fmt.Sprintf("Step queue set (%d step(s), cursor at %d):\n%s", len(snap.Steps), snap.Step, snap.Steps.Render()),
+		c.statusText(ctx))
+
+	peer := protocol.PeerOf(client.Identity())
+	if peer == "" {
+		return
+	}
+	c.sendStepNotice(ctx, peer, client.Identity(), snap)
+}
+
+// sendStepNotice tells the peer the queue changed, in the session's language.
+func (c *Coordinator) sendStepNotice(ctx context.Context, peer, who protocol.AgentID, snap project.Snapshot) {
+	queue := snap.Steps.Render()
+	notice := fmt.Sprintf(
+		"[Duo step queue]\n%s set the step queue: %d step(s), cursor at %d.\n\n%s\n\nIn STEP mode the queue is the PLAN artifact: review it, then call duo_set_status with ready=true to approve it. Duo owns the ticks; agents never edit the checkboxes.",
+		who, len(snap.Steps), snap.Step, queue,
+	)
+	if c.language == "zh" {
+		notice = fmt.Sprintf(
+			"[Duo 步骤队列]\n%s 设置了步骤队列：共 %d 步，当前在第 %d 步。\n\n%s\n\nSTEP 模式下队列就是 PLAN 阶段的产物：请审查后调用 duo_set_status ready=true 批准。勾选由 Duo 维护，agent 不要手改复选框。",
+			who, len(snap.Steps), snap.Step, queue,
+		)
 	}
 	_ = c.sendToAgent(ctx, peer, protocol.Message{
 		Version:   1,
