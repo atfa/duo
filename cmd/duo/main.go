@@ -68,6 +68,11 @@ func main() {
 				log.Fatal(err)
 			}
 			return
+		case "step-loop":
+			if err := runStepLoop(ctx, os.Args[2:]); err != nil && ctx.Err() == nil {
+				log.Fatal(err)
+			}
+			return
 		}
 	}
 
@@ -95,6 +100,12 @@ func main() {
 	}
 
 	if err := run(ctx, cfg); err != nil && ctx.Err() == nil {
+		// A self-upgrade request is not a failure: the session is preserved and the
+		// exit code is the signal a launcher acts on. It has to leave by exactly this
+		// code, so it cannot go through log.Fatal.
+		if errors.Is(err, errUpgradeRequested) {
+			os.Exit(upgradeExitCode)
+		}
 		log.Fatal(err)
 	}
 }
@@ -128,6 +139,23 @@ func run(ctx context.Context, cfg config) error {
 	}
 
 	end := svc.Close()
+	view := svc.View()
+
+	// A restart request is Duo's own instruction to stop so the session can
+	// continue on a new binary. It is written down before the process exits, so the
+	// launcher that sees the exit code always finds the session to resume.
+	if view.Restart.Reason != "" {
+		step := ""
+		if len(view.Project.Steps) > 0 {
+			step = fmt.Sprintf("%d/%d", view.Project.Step, len(view.Project.Steps))
+		}
+		repo := view.Worktrees.Repository
+		if err := writeUpgradeRequest(repo, view.SessionID, view.Restart.Reason, step, view.Restart.Install); err != nil {
+			fmt.Fprintf(os.Stderr, "Duo could not record the upgrade request: %v\n", err)
+		}
+		fmt.Printf("\nDuo stopped for a self-upgrade: %s\nSession %s was preserved at step %s; resume it with `duo resume %s`.\nAn upgrade launcher (scripts/duo-step-loop.sh) installs the new binary and continues the queue.\n", view.Restart.Reason, view.SessionID, step, view.SessionID)
+		return errUpgradeRequested
+	}
 
 	// A session that never started has been removed, so telling the human to
 	// resume it would hand them a command that fails and a session that `duo

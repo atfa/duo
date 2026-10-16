@@ -50,7 +50,19 @@ type View struct {
 	TestCommand string
 	Notices     []string
 
+	// Restart is non-empty when the session asked to continue on a new Duo binary.
+	// The interface stops and the CLI exits with the upgrade code so a launcher
+	// outside Duo can install and resume.
+	Restart RestartRequest
+
 	Agents map[protocol.AgentID]AgentView
+}
+
+// RestartRequest is one request to stop this Duo process so the session can
+// continue on a new binary.
+type RestartRequest struct {
+	Reason  string
+	Install bool
 }
 
 // EffectiveMode reports the mode actually in force, which for a resumed session

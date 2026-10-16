@@ -51,12 +51,23 @@ type SetLanguage struct {
 	Language string `json:"language"`
 }
 
+// RestartDuo asks Duo to stop so the session can continue on a new Duo binary.
+// It is the STEP-mode self-upgrade hook: the agent that asks for it is a child of
+// the Duo it is upgrading, so it cannot do the relaunch itself.
+type RestartDuo struct {
+	Reason string `json:"reason"`
+	// Install asks the launcher to build and install from the delivered base
+	// branch before resuming. Without it the loop only restarts the same binary.
+	Install bool `json:"install"`
+}
+
 func (SubmitTask) Kind() string     { return "submit_task" }
 func (EscalateToGoal) Kind() string { return "escalate_to_goal" }
 func (SetModel) Kind() string       { return "set_model" }
 func (CycleThinking) Kind() string  { return "cycle_thinking" }
 func (RestartAgent) Kind() string   { return "restart_agent" }
 func (SetLanguage) Kind() string    { return "set_language" }
+func (RestartDuo) Kind() string     { return "restart_duo" }
 
 func (SubmitTask) command()     {}
 func (EscalateToGoal) command() {}
@@ -64,3 +75,4 @@ func (SetModel) command()       {}
 func (CycleThinking) command()  {}
 func (RestartAgent) command()   {}
 func (SetLanguage) command()    {}
+func (RestartDuo) command()     {}

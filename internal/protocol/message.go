@@ -22,6 +22,10 @@ type Message struct {
 	// (internal/project), so an adapter is a pipe and cannot invent its own syntax.
 	Steps string `json:"steps,omitempty"`
 
+	// Install asks a MsgRestartDuo launcher to build and install from the delivered
+	// base branch before resuming, instead of restarting the same binary.
+	Install bool `json:"install,omitempty"`
+
 	// Provider and Model carry the target of a MsgSetModel request and the
 	// reported model of a MsgModelState. They are separate because a model ID
 	// may itself contain a slash.
