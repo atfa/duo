@@ -10,7 +10,7 @@ import (
 var parsedFlags = []string{
 	"--agent", "--austin-driver", "--all", "--all-repos",
 	"--dry-run",
-	"--force", "--help", "--host", "--language", "--mode", "--port",
+	"--force", "--gui-binary", "--help", "--host", "--language", "--mode", "--port",
 	"--session", "--test-cmd", "--token", "--tony-driver",
 	"--version", "-A", "-H", "-T", "-a", "-f", "-h", "-k", "-l", "-m", "-n", "-p", "-s", "-t",
 }

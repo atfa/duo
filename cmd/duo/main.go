@@ -68,6 +68,19 @@ func main() {
 				log.Fatal(err)
 			}
 			return
+		case "gui":
+			// The GUI shares the terminal interface's exit path, including the
+			// self-upgrade code: a frontend that handles only some of the ways a
+			// session can end is a frontend that silently drops the others.
+			err := runGUI(ctx, os.Args[2:])
+			switch {
+			case err == nil || ctx.Err() != nil:
+			case errors.Is(err, errUpgradeRequested):
+				os.Exit(upgradeExitCode)
+			default:
+				log.Fatal(err)
+			}
+			return
 		case "step-loop":
 			if err := runStepLoop(ctx, os.Args[2:]); err != nil && ctx.Err() == nil {
 				log.Fatal(err)
@@ -117,6 +130,28 @@ func main() {
 // internal/session, so this function differs from any other frontend only in the
 // interface it attaches and the lines it prints afterwards.
 func run(ctx context.Context, cfg config) error {
+	return runWith(ctx, cfg, func(ctx context.Context, svc *session.Service) error {
+		app := tui.New(svc)
+		// Drivers are built before the interface exists, so any diagnostic one of them
+		// reported is shown now, in its own words.
+		app.Notices(svc.Notices())
+		if err := app.Run(ctx); err != nil && ctx.Err() == nil {
+			log.Printf("Duo TUI: %v", err)
+		}
+		return nil
+	})
+}
+
+// runWith starts a session, attaches the interface this frontend chose, and owns
+// the one exit path every frontend shares.
+//
+// attach is where frontends differ and nothing else is: the restart request, the
+// session that never started, and the report the human reads afterwards live here
+// rather than in each frontend, because a second copy of them is how one frontend
+// ends up resuming a session the other already discarded. attach returning an
+// error is logged and does not change that path — a window that failed to open
+// still has to close the session it opened.
+func runWith(ctx context.Context, cfg config, attach func(context.Context, *session.Service) error) error {
 	svc := session.New(cfg.sessionOptions())
 
 	result, err := svc.Start(ctx)
@@ -130,12 +165,10 @@ func run(ctx context.Context, cfg config) error {
 		return nil
 	}
 
-	app := tui.New(svc)
-	// Drivers are built before the interface exists, so any diagnostic one of them
-	// reported is shown now, in its own words.
-	app.Notices(svc.Notices())
-	if err := app.Run(ctx); err != nil && ctx.Err() == nil {
-		log.Printf("Duo TUI: %v", err)
+	if attach != nil {
+		if err := attach(ctx, svc); err != nil && ctx.Err() == nil {
+			log.Printf("Duo interface: %v", err)
+		}
 	}
 
 	end := svc.Close()
@@ -208,6 +241,7 @@ func printUsage() {
 	fmt.Println("                       check Driver Plugins against the protocol; --all")
 	fmt.Println("                       checks every driver Duo can see, -v lists each check")
 	fmt.Println("  duo resume [id]        resume this repository's unfinished session or a specific session")
+	fmt.Println("  duo gui                start the same session in the GPUI graphical window (see docs/gui-protocol.md)")
 	fmt.Println()
 	fmt.Println("Environment:")
 	fmt.Println("  DUO_MODE               default mode for new sessions: fast, goal or step (an explicit --mode wins)")
@@ -220,6 +254,7 @@ func printUsage() {
 	fmt.Println("  DUO_PI_COMMAND         command used to launch a Pi agent (default: pi)")
 	fmt.Println("  DUO_DRIVER             default driver for both agents (`duo plugins` lists them)")
 	fmt.Println("  DUO_LISTEN             bridge listen address (default: 127.0.0.1:0)")
+	fmt.Println("  DUO_GPUI_BIN           the GPUI renderer `duo gui` launches (default: duo-gpui on PATH)")
 	fmt.Println("  DUO_HARNESS            enable the idle/stall watchdog (default: true)")
 	fmt.Println("  DUO_HARNESS_IDLE_SECONDS / _STALL_SECONDS / _COOLDOWN_SECONDS")
 	fmt.Println("                         watchdog thresholds")

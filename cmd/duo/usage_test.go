@@ -37,6 +37,7 @@ var parserCommands = map[string]string{
 	"parseMCPServerArgs":  "mcp-server",
 	"parseSessionsArgs":   "sessions",
 	"parsePluginTestArgs": "plugins",
+	"parseGUIArgs":        "gui",
 	"runPlugins":          "plugins",
 }
 
@@ -333,7 +334,7 @@ func dispatchedTokens(t *testing.T) map[string]bool {
 // parsersByCommand maps each documented command to the parser that owns it.
 var parsersByCommand = map[string]bool{
 	"duo": true, "resume": true, "apply": true, "sessions": true, "logs": true, "clean": true, "mcp-server": true,
-	"plugins": true,
+	"plugins": true, "gui": true,
 }
 
 // TestUsageAcceptsEveryDocumentedFlag feeds each documented flag to the parser
@@ -348,6 +349,7 @@ func TestUsageAcceptsEveryDocumentedFlag(t *testing.T) {
 		"clean":      {"--all", "-a", "--all-repos", "--force", "-f", "--dry-run", "-n", "-h", "--help"},
 		"mcp-server": {"--agent", "-a", "--session", "-s", "--token", "-k", "--host", "-H", "--port", "-p", "-h", "--help"},
 		"plugins":    {"--all", "-a", "-v", "--verbose", "-h", "--help"},
+		"gui":        {"--gui-binary", "-h", "--help"},
 	}
 	for command, flags := range perCommand {
 		for _, flag := range flags {
@@ -416,6 +418,16 @@ func accepts(t *testing.T, command string, args ...string) error {
 		return err
 	case "plugins":
 		_, err := parsePluginTestArgs(args)
+		return err
+	case "gui":
+		// parseGUIArgs strips the frontend's own flag and hands everything else to the
+		// shared session parser, so it must not be modelled as "gui accepts anything":
+		// that would make the reverse usage check vacuous. gui owns --gui-binary, and
+		// the help spellings are answered before any command runs.
+		if args[0] != "--gui-binary" && args[0] != "-h" && args[0] != "--help" {
+			return errors.New("gui does not own " + args[0])
+		}
+		_, _, err := parseGUIArgs(args)
 		return err
 	}
 	t.Fatalf("no parser for command %q", command)

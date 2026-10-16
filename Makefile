@@ -1,4 +1,4 @@
-.PHONY: test build vet fmt check
+.PHONY: test build vet fmt check gpui
 
 test:
 	go test ./...
@@ -19,3 +19,10 @@ fmt:
 	fi
 
 check: test vet build fmt
+
+# The graphical frontend is a separate Rust crate, so it is deliberately not part of
+# `check`: CI carries no Rust toolchain, and a missing cargo must not fail the Go
+# gate. `duo gui` looks for the binary this produces on PATH (or through
+# --gui-binary / DUO_GPUI_BIN).
+gpui:
+	cd gpui && cargo build --release
