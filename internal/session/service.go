@@ -79,6 +79,9 @@ type Service struct {
 	started bool
 	closed  bool
 
+	// restart is the pending request to continue on a new Duo binary.
+	restart RestartRequest
+
 	ctx    context.Context
 	cancel context.CancelFunc
 
@@ -533,6 +536,7 @@ func (s *Service) view() View {
 		Language:    effectiveLanguage(s.opts.Language),
 		TestCommand: s.opts.TestCommand,
 		Notices:     append([]string(nil), s.notices...),
+		Restart:     s.restart,
 	}
 	if s.state != nil {
 		v.Project = s.state.Snapshot()
@@ -649,9 +653,23 @@ func (s *Service) Do(ctx context.Context, cmd Command) error {
 		return nil
 	case SetLanguage:
 		return s.setLanguage(c)
+	case RestartDuo:
+		return s.requestRestart(c)
 	default:
 		return fmt.Errorf("unsupported command %T", cmd)
 	}
+}
+
+// requestRestart records that the session asked to continue on a new Duo binary.
+// The agent asking is a child of the Duo it is upgrading, so it cannot relaunch
+// itself: Duo stops, and a launcher outside Duo resumes the session on the new
+// binary. The request is in-memory on purpose — a restart that never happened is
+// recoverable with `duo resume`, a persisted one would restart a session forever.
+func (s *Service) requestRestart(c RestartDuo) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.restart = RestartRequest{Reason: strings.TrimSpace(c.Reason), Install: c.Install}
+	return nil
 }
 
 // setLanguage switches the language Duo writes in and makes the switch real

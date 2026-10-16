@@ -74,6 +74,11 @@ var commands = []Command{
 		Summary:   "list Driver Plugins, or check them against the protocol",
 	},
 	{
+		Name:      "step-loop",
+		Signature: "duo step-loop [duo arguments…]",
+		Summary:   "run a session, and continue it on a newly installed binary whenever it asks to be upgraded",
+	},
+	{
 		Name:      "mcp-server",
 		Signature: "duo mcp-server [--agent|-a <role>] [--session|-s <id>] [--token|-k <token>] [--host|-H <host>] [--port|-p <port>] | duo mcp-server config [--agent|-a <role>] [--session|-s <id>] [--token|-k <token>] [--host|-H <host>] [--port|-p <port>]",
 		Summary:   "serve MCP tools over stdio, or print client configuration",

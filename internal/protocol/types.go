@@ -55,11 +55,15 @@ const (
 	MsgResumePrompt     MessageType = "resume_prompt"
 	MsgSetPlan          MessageType = "set_plan"
 	MsgSetSteps         MessageType = "set_steps"
-	MsgSetStatus        MessageType = "set_status"
-	MsgSetVerification  MessageType = "set_verification"
-	MsgGetStatus        MessageType = "get_status"
-	MsgEscalate         MessageType = "escalate"
-	MsgResponse         MessageType = "response"
+	// MsgRestartDuo asks Duo to stop so the session continues on a new binary. The
+	// agent that sends it is a child of the Duo being upgraded, so the relaunch is
+	// done by a launcher outside Duo.
+	MsgRestartDuo      MessageType = "restart_duo"
+	MsgSetStatus       MessageType = "set_status"
+	MsgSetVerification MessageType = "set_verification"
+	MsgGetStatus       MessageType = "get_status"
+	MsgEscalate        MessageType = "escalate"
+	MsgResponse        MessageType = "response"
 
 	// MsgSetModel asks a Pi agent to switch its active model (Duo Core → bridge).
 	// MsgModelState reports the model an agent is actually on, either at startup

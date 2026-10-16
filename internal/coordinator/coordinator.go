@@ -44,6 +44,13 @@ type Coordinator struct {
 	testCommand   string
 	language      string
 
+	// restartMu guards a pending request to continue the session on a new Duo
+	// binary. It is in-memory on purpose: a restart that never happened is just a
+	// resumable session, whereas a persisted flag would restart forever.
+	restartMu      sync.RWMutex
+	restartReason  string
+	restartInstall bool
+
 	// Durable session state. EnableDurability must be called once, before the
 	// event loop starts, after any resume has restored the project state.
 	durable   snapshotStore
@@ -101,6 +108,23 @@ func (c *Coordinator) SetAgents(agents *agentpkg.Manager) {
 
 // SetLanguage selects the language for Duo-authored agent and human messages.
 func (c *Coordinator) SetLanguage(language string) { c.language = language }
+
+// RestartRequested reports the pending request to continue on a new Duo binary,
+// which the frontend reads to stop the session and exit with the upgrade code.
+func (c *Coordinator) RestartRequested() (reason string, install bool) {
+	c.restartMu.RLock()
+	defer c.restartMu.RUnlock()
+	return c.restartReason, c.restartInstall
+}
+
+// RequestRestart records that an agent asked Duo to continue on a new binary. It
+// takes the reason and whether the launcher should install first.
+func (c *Coordinator) RequestRestart(reason string, install bool) {
+	c.restartMu.Lock()
+	c.restartReason = strings.TrimSpace(reason)
+	c.restartInstall = install
+	c.restartMu.Unlock()
+}
 
 // IsAgentConnected reports whether an agent is connected via the bridge server
 // or running under the agent manager.
@@ -630,6 +654,9 @@ func (c *Coordinator) OnMessage(ctx context.Context, client *transport.Client, m
 	case protocol.MsgSetSteps:
 		c.handleSetSteps(ctx, client, message)
 
+	case protocol.MsgRestartDuo:
+		c.handleRestartDuo(ctx, client, message)
+
 	case protocol.MsgSetStatus:
 		c.handleSetStatus(ctx, client, message)
 
@@ -1024,8 +1051,12 @@ func (c *Coordinator) handleSetStatus(ctx context.Context, client *transport.Cli
 	// Dispatch once, at the top, by the session's mode. The Goal handler below
 	// stays byte-identical to the pre-Fast implementation, and Fast never has to
 	// weave conditionals through the sign-off logic.
-	if c.project.Snapshot().EffectiveMode() == project.ModeFast {
+	switch c.project.Snapshot().EffectiveMode() {
+	case project.ModeFast:
 		c.handleFastSetStatus(ctx, client, message)
+		return
+	case project.ModeStep:
+		c.handleStepSetStatus(ctx, client, message)
 		return
 	}
 	if message.Ready == nil {
@@ -1283,6 +1314,10 @@ func (c *Coordinator) reopenFastRoundForNewWork(ctx context.Context, client *tra
 // one structured verdict from Tony while the session is in VERIFY, bound to the
 // Austin HEAD that Austin asked to have verified.
 func (c *Coordinator) handleSetVerification(ctx context.Context, client *transport.Client, message protocol.Message) {
+	if c.project.Snapshot().EffectiveMode() == project.ModeStep {
+		c.handleStepVerification(ctx, client, message)
+		return
+	}
 	if c.project.Snapshot().EffectiveMode() != project.ModeFast {
 		_ = c.respond(ctx, client, message.RequestID, false,
 			"structured verification is only used in Fast mode", c.statusText(ctx))

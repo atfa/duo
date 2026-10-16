@@ -190,6 +190,15 @@ func (a *App) Run(ctx context.Context) error {
 		case <-tick.C:
 			a.spinnerTick()
 			a.expireQuitArm()
+			// A restart request is Duo's own instruction to stop: the session is
+			// resumable, so it never asks for the quit confirmation a human keypress
+			// would. The relaunch happens outside Duo, which is the only process that
+			// survives this one.
+			if a.live.Restart.Reason != "" {
+				a.setStatus("Duo is stopping so the session can continue on a new binary…", false)
+				a.renderer.flush()
+				return nil
+			}
 		}
 	}
 }
