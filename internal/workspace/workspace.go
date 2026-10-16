@@ -214,6 +214,9 @@ type Manager interface {
 	Head(context.Context, protocol.AgentID) (string, error)
 	CaptureArtifact(context.Context, protocol.AgentID) (Artifact, error)
 	IntegrateTonyIntoAustin(context.Context) (IntegrationResult, error)
+	// SyncTonyTo fast-forwards Tony's worktree onto the head of the step that just
+	// landed, so the verifier always reviews the tree the user received.
+	SyncTonyTo(context.Context, string) (StepSync, error)
 	// DuplicateCommits reports changes carried by both agent branches, which a
 	// cherry-pick leaves behind. The session reports them to the agents at the
 	// EXECUTE to REVIEW transition, before either branch is signed.

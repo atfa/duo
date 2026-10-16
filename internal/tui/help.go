@@ -107,6 +107,24 @@ func (a *App) helpLines(width int) []string {
 		"INTEGRATE: merge into Austin integration branch and final review.",
 		"DONE: final approved artifact has been delivered back to original repository.",
 	}
+	if a.live.EffectiveMode() == project.ModeStep {
+		quickStart = []string{
+			"1. Type the complex task in the Duo composer and press Enter.",
+			"2. Austin and Tony co-design the step queue: Austin publishes it with duo_set_steps, the prose design with duo_set_plan.",
+			"3. Both sign the queue with duo_set_status ready=true. Duo then runs one step at a time.",
+			"4. Per step: Austin implements and commits it, Tony verifies that exact HEAD with duo_set_verification.",
+			"5. A passed verification lands the step on the original branch and Duo advances the queue. issue_found returns the step to EXECUTE.",
+			"6. On the last step both agents sign INTEGRATE, and Duo marks DONE.",
+		}
+		lifecycle = []string{
+			"PLAN → (per step: EXECUTE → REVIEW → INTEGRATE → land the step) → DONE (Step mode)",
+			"PLAN: both agents approve the step queue; it is the contract of the session.",
+			"EXECUTE: Austin implements exactly the current step and puts his HEAD up for review.",
+			"REVIEW: Tony verifies that exact HEAD; passed lands the step, issue_found returns it.",
+			"INTEGRATE: Duo lands the step on the original branch, syncs Tony's worktree and advances the queue.",
+			"DONE: every step has landed and both agents signed the final one.",
+		}
+	}
 	if a.live.EffectiveMode() == project.ModeFast {
 		quickStart = []string{
 			"1. Type a task in the Duo composer and press Enter.",
@@ -133,6 +151,7 @@ func (a *App) helpLines(width int) []string {
 		{"Mode", []string{
 			"FAST (default): Austin drives, Tony independently verifies. No shared plan, no dual sign-off.",
 			"GOAL (duo --mode goal): shared plan + independent work + cross-review + dual sign-off.",
+			"STEP (duo --mode step): Goal's chain once per step of a queue, landing each step. The queue is dual-approved; each step is gated by Tony's verification of one exact HEAD.",
 			"Escalate FAST to GOAL on the fly: type /escalate [reason] or /mode goal in the composer, or agents call duo_escalate.",
 			"duo resume always uses the persisted mode.",
 		}},
