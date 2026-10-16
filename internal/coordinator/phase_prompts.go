@@ -222,7 +222,7 @@ func (c *Coordinator) stepPhasePrompt(
 	switch next {
 	case project.PhasePlan:
 		return fmt.Sprintf(
-			"[Duo phase transition: %s → PLAN]\nSTEP mode: the step queue is the contract of this session. Austin publishes the ordered queue with duo_set_steps (a markdown checkbox list) and the prose design with duo_set_plan. Each step must be a committable increment whose test command passes at its own HEAD.\n\nBoth agents sign the exact queue version with duo_set_status ready=true; Duo advances to EXECUTE only when both have signed, and any queue update creates a new version and resets both signatures.\n\nCurrent queue:\n%s\n\nShared plan v%d:\n%s",
+			"[Duo phase transition: %s → PLAN]\nSTEP mode: the step queue is the contract of this session. Austin publishes the ordered queue with duo_set_steps (a markdown checkbox list) and the prose design with duo_set_plan. Each step must be a committable increment whose test command passes at its own HEAD.\n\nBoth approve the queue with duo_set_status ready=true; Duo advances to EXECUTE only when both have signed, and any queue update resets both approvals, so the new queue must be approved again.\n\nCurrent queue:\n%s\n\nShared plan v%d:\n%s",
 			previous, queue, snap.PlanVersion, strings.TrimSpace(snap.Plan),
 		)
 
@@ -239,11 +239,14 @@ func (c *Coordinator) stepPhasePrompt(
 		)
 
 	case project.PhaseReview:
-		head := shortSHA(snap.Evidence[protocol.Austin])
-		if head == "" {
-			if status, err := c.workspace.Status(context.Background(), protocol.Austin); err == nil {
-				head = shortSHA(status.Head)
-			}
+		// The submitted artifact lives on the step record, never in Evidence: STEP
+		// keeps no per-step signature. Falling back to the worktree would name
+		// Austin's LIVE HEAD, so a commit after the submission would tell Tony to
+		// review a HEAD that was never submitted — the exact case the server-side
+		// rule refuses.
+		head := "(none)"
+		if snap.Step >= 1 && snap.Step <= total {
+			head = shortSHA(snap.Steps[snap.Step-1].Head)
 		}
 		if agent == protocol.Tony {
 			return fmt.Sprintf(
@@ -312,7 +315,7 @@ func (c *Coordinator) stepPhasePromptZh(agent protocol.AgentID, previous, next p
 	switch next {
 	case project.PhasePlan:
 		return fmt.Sprintf(
-			"[Duo 阶段变更：%s → PLAN]\nSTEP 模式：步骤队列就是本会话的契约。Austin 用 duo_set_steps 发布有序队列（markdown 复选框列表），并用 duo_set_plan 维护文字设计。每个步骤必须是可提交的增量，其测试命令在该 HEAD 上通过。\n\n双方用 duo_set_status ready=true 签署确切的队列版本；只有双方都签署后 Duo 才进入 EXECUTE，任何队列更新都会创建新版本并撤销双方签署。\n\n当前队列：\n%s\n\n共享计划 v%d：\n%s",
+			"[Duo 阶段变更：%s → PLAN]\nSTEP 模式：步骤队列就是本会话的契约。Austin 用 duo_set_steps 发布有序队列（markdown 复选框列表），并用 duo_set_plan 维护文字设计。每个步骤必须是可提交的增量，其测试命令在该 HEAD 上通过。\n\n双方用 duo_set_status ready=true 批准该队列；只有双方都批准后 Duo 才进入 EXECUTE，任何队列更新都会撤销双方批准，必须重新批准。\n\n当前队列：\n%s\n\n共享计划 v%d：\n%s",
 			previous, queue, snap.PlanVersion, strings.TrimSpace(snap.Plan),
 		)
 
@@ -329,11 +332,12 @@ func (c *Coordinator) stepPhasePromptZh(agent protocol.AgentID, previous, next p
 		)
 
 	case project.PhaseReview:
-		head := shortSHA(snap.Evidence[protocol.Austin])
-		if head == "" {
-			if status, err := c.workspace.Status(context.Background(), protocol.Austin); err == nil {
-				head = shortSHA(status.Head)
-			}
+		// 提交的产物记录在步骤条目上，从不在 Evidence 中：STEP 没有逐步签名。
+		// 回退到工作区会指向 Austin 的当前 HEAD，从而让 Tony 审查一个从未提交的
+		// HEAD——这正是服务端规则会拒绝的情况。
+		head := "（无）"
+		if snap.Step >= 1 && snap.Step <= total {
+			head = shortSHA(snap.Steps[snap.Step-1].Head)
 		}
 		if agent == protocol.Tony {
 			return fmt.Sprintf(

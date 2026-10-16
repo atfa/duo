@@ -116,7 +116,124 @@ func TestStepModeLandsEachStepEndToEnd(t *testing.T) {
 	}
 }
 
-// TestStepModeRefusesToLandWhenTheReviewedHeadMoved is the other half of the gate:
+// TestStepModeRefusesAnEmptyQueue pins the PLAN gate: the queue is the PLAN
+// artifact, so a plan with no steps must not be approvable. Without this, EXECUTE
+// would begin with no step to work on and the session would be stuck.
+func TestStepModeRefusesAnEmptyQueue(t *testing.T) {
+	ctx := context.Background()
+
+	runtime := startE2EWithMode(t, ctx, project.ModeStep)
+	state, server := runtime.state, runtime.server
+
+	austin := runtime.dialAgent(t, protocol.Austin)
+	tony := runtime.dialAgent(t, protocol.Tony)
+	waitFor(t, func() bool { return server.IsConnected(protocol.Austin) && server.IsConnected(protocol.Tony) }, "both agents to connect")
+
+	request(t, austin, protocol.Message{Version: protocol.Version, Type: protocol.MsgSetPlan, Plan: "prose only"})
+
+	ready := true
+	approve := func(c *testAgent) (protocol.Message, error) {
+		return c.request(protocol.Message{Version: protocol.Version, Type: protocol.MsgSetStatus, Ready: &ready})
+	}
+	if response, err := approve(austin); err == nil {
+		t.Fatalf("Austin approved PLAN with no queue: %+v", response)
+	}
+	if response, err := approve(tony); err == nil {
+		t.Fatalf("Tony approved PLAN with no queue: %+v", response)
+	}
+	if phase := state.Snapshot().Phase; phase != project.PhasePlan {
+		t.Fatalf("an empty queue must not leave PLAN, got %s", phase)
+	}
+}
+
+// TestStepModeOnlyAustinSubmitsAndTonyOnlyReports pins who may use which verb in a
+// step. A step is submitted by Austin and checked by Tony's verdict, so Tony
+// signing a step would be a weaker gate than the one this mode promises.
+func TestStepModeOnlyAustinSubmitsAndTonyOnlyReports(t *testing.T) {
+	ctx := context.Background()
+
+	runtime := startE2EWithMode(t, ctx, project.ModeStep)
+	set, state, server := runtime.set, runtime.state, runtime.server
+
+	austin := runtime.dialAgent(t, protocol.Austin)
+	tony := runtime.dialAgent(t, protocol.Tony)
+	waitFor(t, func() bool { return server.IsConnected(protocol.Austin) && server.IsConnected(protocol.Tony) }, "both agents to connect")
+
+	request(t, austin, protocol.Message{Version: protocol.Version, Type: protocol.MsgSetPlan, Plan: "two steps"})
+	request(t, austin, protocol.Message{Version: protocol.Version, Type: protocol.MsgSetSteps, Steps: "- [ ] one\n- [ ] two"})
+	sign(t, austin)
+	sign(t, tony)
+	waitPhase(t, state, project.PhaseExecute)
+
+	writeAndCommit(t, set.Austin.Path, "one.md", "one\n", "add one.md")
+
+	// Tony cannot submit the step by signing it.
+	if response, err := tony.request(protocol.Message{Version: protocol.Version, Type: protocol.MsgSetStatus, Ready: &[]bool{true}[0], Note: "looks fine"}); err == nil {
+		t.Fatalf("Tony submitted a step with a sign-off: %+v", response)
+	}
+	if phase := state.Snapshot().Phase; phase != project.PhaseExecute {
+		t.Fatalf("Tony's sign-off moved the session to %s", phase)
+	}
+
+	// And Austin's verdict is not a verdict either: the check belongs to Tony.
+	if response, err := austin.request(protocol.Message{Version: protocol.Version, Type: protocol.MsgSetVerification, Verification: "passed", Note: "self-approved"}); err == nil {
+		t.Fatalf("Austin reported a verification verdict: %+v", response)
+	}
+
+	// Austin's own submission still works, so the two refusals above are about the
+	// actor and not about a session that cannot move at all.
+	sign(t, austin)
+	waitPhase(t, state, project.PhaseReview)
+}
+
+// TestStepModeRefusesAMidQueueSignOff pins the Goal gate that STEP keeps only at
+// the end: with the queue unfinished, a sign-off may not finish the session.
+//
+// The delivery is blocked on purpose, by moving the base branch underneath the
+// session, so the mid-queue step actually stays in INTEGRATE. Leaving it to a
+// fresh repository would instead catch the transient INTEGRATE that exists
+// between the verdict and the landing, which is a race, not a state.
+func TestStepModeRefusesAMidQueueSignOff(t *testing.T) {
+	ctx := context.Background()
+
+	runtime := startE2EWithMode(t, ctx, project.ModeStep)
+	repo, set, state, server := runtime.repo, runtime.set, runtime.state, runtime.server
+
+	austin := runtime.dialAgent(t, protocol.Austin)
+	tony := runtime.dialAgent(t, protocol.Tony)
+	waitFor(t, func() bool { return server.IsConnected(protocol.Austin) && server.IsConnected(protocol.Tony) }, "both agents to connect")
+
+	request(t, austin, protocol.Message{Version: protocol.Version, Type: protocol.MsgSetPlan, Plan: "three steps"})
+	request(t, austin, protocol.Message{Version: protocol.Version, Type: protocol.MsgSetSteps, Steps: "- [ ] one\n- [ ] two\n- [ ] three"})
+	sign(t, austin)
+	sign(t, tony)
+	waitPhase(t, state, project.PhaseExecute)
+
+	writeAndCommit(t, set.Austin.Path, "one.md", "one\n", "add one.md")
+	sign(t, austin)
+	waitPhase(t, state, project.PhaseReview)
+
+	// Move the base branch so the landing cannot fast-forward. Delivery refuses
+	// rather than rewriting the user's history, which is what keeps this mid-queue
+	// step sitting in INTEGRATE for the sign-off attempt below.
+	writeAndCommit(t, repo, "diverge.md", "base moved\n", "move the base branch")
+
+	request(t, tony, protocol.Message{Version: protocol.Version, Type: protocol.MsgSetVerification, Verification: "passed", Note: "ok"})
+	waitPhase(t, state, project.PhaseIntegrate)
+	waitFor(t, func() bool { return gitHead(t, repo) != gitHead(t, set.Austin.Path) }, "the blocked landing to be observable")
+
+	// A mid-queue step is not the end of the session, so no sign-off may finish it.
+	if response, err := austin.request(protocol.Message{Version: protocol.Version, Type: protocol.MsgSetStatus, Ready: &[]bool{true}[0], Note: "finish"}); err == nil {
+		t.Fatalf("a mid-queue step accepted a sign-off: %+v", response)
+	}
+	if phase := state.Snapshot().Phase; phase == project.PhaseDone {
+		t.Fatal("a mid-queue step reached DONE")
+	}
+	if snap := state.Snapshot(); snap.Step != 1 {
+		t.Fatalf("a blocked mid-queue landing advanced the cursor to %d", snap.Step)
+	}
+}
+
 // a step whose HEAD moved after Tony's verdict must not be landed, even though the
 // verdict was for the same step. Landing it would put commits nobody reviewed into
 // the user's repository.

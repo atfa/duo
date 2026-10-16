@@ -18,7 +18,7 @@ export function registerStepsTool(pi: any, transport: DuoTransport, mode: DuoMod
     name: "duo_set_steps",
     label: "Duo Set Steps",
     description:
-      "Create or replace the STEP-mode step queue during PLAN. Send a markdown checkbox list, one step per line; every update creates a new version and invalidates both agents' signatures. Duo Core advances the queue after each step lands — agents never mark a step done by hand.",
+      "Create or replace the STEP-mode step queue during PLAN. Send a markdown checkbox list, one step per line; a PLAN update resets both agents' approvals, which must then be given again. Duo Core advances the queue after each step lands — agents never mark a step done by hand.",
     parameters: Type.Object({
       steps: Type.String({
         description:

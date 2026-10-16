@@ -24,7 +24,10 @@ func stepSnapshot(phase project.Phase) project.Snapshot {
 			{Title: "land each step", Done: false, Head: "2222222222222222"},
 			{Title: "restart on the new binary", Done: false},
 		},
-		Evidence: map[protocol.AgentID]string{protocol.Austin: "2222222222222222"},
+		// Evidence is a decoy on purpose: STEP keeps no per-step signature, so the
+		// submitted HEAD must come from the step record. A REVIEW prompt that named
+		// this value would be pointing at a HEAD nobody submitted.
+		Evidence: map[protocol.AgentID]string{protocol.Austin: "9999999999999999"},
 		Ready:    map[protocol.AgentID]bool{},
 	}
 }
@@ -77,6 +80,15 @@ func TestStepReviewPromptBindsTonyToTheExactHead(t *testing.T) {
 		if !strings.Contains(tony, want) {
 			t.Fatalf("Tony STEP REVIEW prompt missing %q:\n%s", want, tony)
 		}
+	}
+	// The reviewed HEAD comes from the step record, never from Evidence (which STEP
+	// does not set) and never from the worktree (which would name a later, unreviewed
+	// HEAD). Both traps are present in the fixture.
+	if strings.Contains(tony, "999999999999") {
+		t.Fatalf("Tony STEP REVIEW prompt used Evidence instead of the submitted step head:\n%s", tony)
+	}
+	if strings.Contains(tony, "/tmp/austin") {
+		t.Fatalf("Tony STEP REVIEW prompt must not derive the head from the worktree:\n%s", tony)
 	}
 	if strings.Contains(tony, "Sign ready=true") {
 		t.Fatalf("Tony must not sign a STEP step with duo_set_status:\n%s", tony)
