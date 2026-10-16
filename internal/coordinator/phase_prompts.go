@@ -42,6 +42,9 @@ func (c *Coordinator) phasePrompt(
 	if snap.EffectiveMode() == project.ModeFast {
 		return c.fastPhasePrompt(previous, next, snap)
 	}
+	if snap.EffectiveMode() == project.ModeStep {
+		return c.stepPhasePrompt(agent, previous, next, snap)
+	}
 	set := c.workspace.Set()
 	own, _ := set.For(agent)
 	peer, _ := set.For(protocol.PeerOf(agent))
@@ -101,6 +104,9 @@ func (c *Coordinator) phasePrompt(
 
 func (c *Coordinator) chinesePhasePrompt(agent protocol.AgentID, previous, next project.Phase, snap project.Snapshot, integrationText string) string {
 	set := c.workspace.Set()
+	if snap.EffectiveMode() == project.ModeStep {
+		return c.stepPhasePromptZh(agent, previous, next, snap)
+	}
 	if snap.EffectiveMode() == project.ModeFast {
 		if next != project.PhaseDone {
 			return fmt.Sprintf("[Duo] FAST 阶段已变为 %s。Austin 负责实现，Tony 独立验证；验证是交付前唯一门槛。", next)
@@ -180,6 +186,192 @@ func (c *Coordinator) fastPhasePrompt(previous, next project.Phase, snap project
 		"[Duo phase transition: %s → DONE]\nTony independently verified Austin's HEAD %s.\n\nDelivery complete:\n  original branch: %s\n  applied HEAD:    %s\n\nThe final Duo result is now available in the repository from which the user launched Duo.",
 		previous, verified, branch, applied,
 	)
+}
+
+// stepPhasePrompt is the STEP-mode phase notice. STEP runs Goal's phase chain
+// once per step of a queue Duo owns, so every notice names the step under work:
+// an agent that has to guess which step is current will work the wrong one. The
+// full queue is injected here, once per transition, because a step prompt is the
+// one place an agent needs to see what came before and what comes next.
+func (c *Coordinator) stepPhasePrompt(
+	agent protocol.AgentID,
+	previous, next project.Phase,
+	snap project.Snapshot,
+) string {
+	set := c.workspace.Set()
+	own, _ := set.For(agent)
+	target := strings.TrimSpace(c.CurrentDelivery().TargetBranch)
+	if target == "" {
+		target = set.BaseBranch
+	}
+	queue := strings.TrimSpace(snap.Steps.Render())
+	if queue == "" {
+		queue = "(no queue set: Austin publishes it with duo_set_steps)"
+	}
+	total := len(snap.Steps)
+	cursor := snap.Step
+	if cursor > total {
+		cursor = total
+	}
+	title := ""
+	if snap.Step >= 1 && snap.Step <= total {
+		title = snap.Steps[snap.Step-1].Title
+	}
+	isFinal := total > 0 && cursor == total
+
+	switch next {
+	case project.PhasePlan:
+		return fmt.Sprintf(
+			"[Duo phase transition: %s → PLAN]\nSTEP mode: the step queue is the contract of this session. Austin publishes the ordered queue with duo_set_steps (a markdown checkbox list) and the prose design with duo_set_plan. Each step must be a committable increment whose test command passes at its own HEAD.\n\nBoth agents sign the exact queue version with duo_set_status ready=true; Duo advances to EXECUTE only when both have signed, and any queue update creates a new version and resets both signatures.\n\nCurrent queue:\n%s\n\nShared plan v%d:\n%s",
+			previous, queue, snap.PlanVersion, strings.TrimSpace(snap.Plan),
+		)
+
+	case project.PhaseExecute:
+		who := "Austin implements this step; Tony stays read-only on the delivered artifact."
+		if agent == protocol.Austin {
+			who = "Implement exactly this step in your worktree (" + own.Path + ", branch " + own.Branch + "), commit it, keep the worktree clean, then call duo_set_status ready=true. That binds your HEAD and hands the step to Tony for verification. Do not start the next step, and do not tick a box: Duo owns the queue."
+		} else {
+			who = "You are read-only on the delivered artifact while a step is in flight: do not commit into it, and leave every fix to Austin. Inspect, build and test in your own worktree (" + own.Path + ", branch " + own.Branch + "), which Duo keeps fast-forwarded to the last landed step, and answer Austin with duo_send when he asks."
+		}
+		return fmt.Sprintf(
+			"[Duo phase transition: %s → EXECUTE]\nWorking step %d/%d: %s\n\n%s\n\nQueue:\n%s\n\nEach landed step goes to %s, the branch the user launched Duo from.",
+			previous, cursor, total, title, who, queue, target,
+		)
+
+	case project.PhaseReview:
+		head := shortSHA(snap.Evidence[protocol.Austin])
+		if head == "" {
+			if status, err := c.workspace.Status(context.Background(), protocol.Austin); err == nil {
+				head = shortSHA(status.Head)
+			}
+		}
+		if agent == protocol.Tony {
+			return fmt.Sprintf(
+				"[Duo phase transition: %s → REVIEW]\nVerify step %d/%d (%s) at Austin's exact HEAD %s. Inspect it from your own worktree with git show/diff; do not edit Austin's worktree. Check correctness, edge cases, destructive operations, repository hygiene and this step's own requirement.\n\nCall duo_set_verification with result=passed to land this step on %s and advance the queue, or result=issue_found with a concrete note naming the file/behavior and the required fix, which returns the step to EXECUTE. Never pass work you did not actually verify, and report the verdict once: Duo Core relays it to Austin.\n\nQueue:\n%s",
+				previous, cursor, total, title, head, target, queue,
+			)
+		}
+		return fmt.Sprintf(
+			"[Duo phase transition: %s → REVIEW]\nStep %d/%d (%s) is under Tony's verification at HEAD %s. Do not commit while it is under review: a new HEAD invalidates the verdict. If Tony reports issue_found, fix that concrete issue, commit, and call duo_set_status ready=true again.\n\nQueue:\n%s",
+			previous, cursor, total, title, head, queue,
+		)
+
+	case project.PhaseIntegrate:
+		if isFinal {
+			return fmt.Sprintf(
+				"[Duo phase transition: %s → INTEGRATE]\nThis is the FINAL step (%d/%d). Duo lands the verified HEAD on %s, and then both agents must sign INTEGRATE with duo_set_status ready=true before the session can reach DONE.\n\nAustin: run the full test command on the integration worktree and remove temporary collaboration artifacts before signing. Tony: independently check the landed result for correctness and repository hygiene, and reject the sign-off if the tree contains artifacts the user did not ask for. Your signature is bound to the exact HEAD you signed; Duo revokes it if that HEAD moves.\n\nQueue:\n%s",
+				previous, cursor, total, target, queue,
+			)
+		}
+		return fmt.Sprintf(
+			"[Duo phase transition: %s → INTEGRATE]\nTony's verification passed on step %d/%d. Duo is landing it on %s, fast-forwarding Tony's worktree to the landed HEAD, and advancing the queue to step %d. No agent action is needed; the next EXECUTE notice names the next step.\n\nQueue:\n%s",
+			previous, cursor, total, target, cursor+1, queue,
+		)
+
+	case project.PhaseDone:
+		d := c.CurrentDelivery()
+		applied := shortSHA(d.AppliedHead)
+		if applied == "" {
+			applied = shortSHA(d.FinalHead)
+		}
+		return fmt.Sprintf(
+			"[Duo phase transition: INTEGRATE → DONE]\nAll %d steps have landed on %s. Last applied HEAD: %s.\n\nThe queue is complete and the result is in the repository from which the user launched Duo.\n\nFinal queue:\n%s",
+			total, target, applied, queue,
+		)
+
+	default:
+		return "[Duo] Phase changed to " + string(next)
+	}
+}
+
+// stepPhasePromptZh is the Chinese STEP-mode phase notice. It carries the same
+// contract as the English one: the current step is always named, and the queue is
+// injected once per transition.
+func (c *Coordinator) stepPhasePromptZh(agent protocol.AgentID, previous, next project.Phase, snap project.Snapshot) string {
+	set := c.workspace.Set()
+	own, _ := set.For(agent)
+	target := strings.TrimSpace(c.CurrentDelivery().TargetBranch)
+	if target == "" {
+		target = set.BaseBranch
+	}
+	queue := strings.TrimSpace(snap.Steps.Render())
+	if queue == "" {
+		queue = "（尚未设置队列：Austin 用 duo_set_steps 发布）"
+	}
+	total := len(snap.Steps)
+	cursor := snap.Step
+	if cursor > total {
+		cursor = total
+	}
+	title := ""
+	if snap.Step >= 1 && snap.Step <= total {
+		title = snap.Steps[snap.Step-1].Title
+	}
+	isFinal := total > 0 && cursor == total
+
+	switch next {
+	case project.PhasePlan:
+		return fmt.Sprintf(
+			"[Duo 阶段变更：%s → PLAN]\nSTEP 模式：步骤队列就是本会话的契约。Austin 用 duo_set_steps 发布有序队列（markdown 复选框列表），并用 duo_set_plan 维护文字设计。每个步骤必须是可提交的增量，其测试命令在该 HEAD 上通过。\n\n双方用 duo_set_status ready=true 签署确切的队列版本；只有双方都签署后 Duo 才进入 EXECUTE，任何队列更新都会创建新版本并撤销双方签署。\n\n当前队列：\n%s\n\n共享计划 v%d：\n%s",
+			previous, queue, snap.PlanVersion, strings.TrimSpace(snap.Plan),
+		)
+
+	case project.PhaseExecute:
+		who := "Austin 实现本步骤；Tony 对交付物保持只读。"
+		if agent == protocol.Austin {
+			who = "只实现当前这个步骤（worktree " + own.Path + "，分支 " + own.Branch + "），提交并保持 worktree 干净，然后调用 duo_set_status ready=true。这会绑定你的 HEAD 并把该步骤交给 Tony 验证。不要提前开始下一步，也不要自己打勾：队列由 Duo 管理。"
+		} else {
+			who = "步骤进行中时你对交付物只读：不要提交，所有修复由 Austin 负责。可在自己的 worktree（" + own.Path + "，分支 " + own.Branch + "）检查、构建、测试，Duo 会把它快进到最新落地的 HEAD；Austin 用 duo_send 询问时具体作答。"
+		}
+		return fmt.Sprintf(
+			"[Duo 阶段变更：%s → EXECUTE]\n正在执行步骤 %d/%d：%s\n\n%s\n\n队列：\n%s\n\n每个落地的步骤都会进入 %s，即用户启动 Duo 的分支。",
+			previous, cursor, total, title, who, queue, target,
+		)
+
+	case project.PhaseReview:
+		head := shortSHA(snap.Evidence[protocol.Austin])
+		if head == "" {
+			if status, err := c.workspace.Status(context.Background(), protocol.Austin); err == nil {
+				head = shortSHA(status.Head)
+			}
+		}
+		if agent == protocol.Tony {
+			return fmt.Sprintf(
+				"[Duo 阶段变更：%s → REVIEW]\n请验证步骤 %d/%d（%s）的 Austin 精确 HEAD %s。只能在自己的 worktree 用 git show/diff 查看，不要修改队友 worktree。检查正确性、边界情况、破坏性操作、仓库整洁度以及该步骤自身的要求。\n\n调用 duo_set_verification：passed 会把该步骤落地到 %s 并推进队列；issue_found 必须附文件/行为及所需修复的具体说明，Duo 会把该步骤退回 EXECUTE。不要批准未实际验证的工作；报告一次即可，Duo Core 会转告 Austin。\n\n队列：\n%s",
+				previous, cursor, total, title, head, target, queue,
+			)
+		}
+		return fmt.Sprintf(
+			"[Duo 阶段变更：%s → REVIEW]\n步骤 %d/%d（%s）正在由 Tony 验证，HEAD %s。验证期间不要提交：新 HEAD 会使结论失效。若 Tony 报告 issue_found，请修复该具体问题、提交并重新调用 duo_set_status ready=true。\n\n队列：\n%s",
+			previous, cursor, total, title, head, queue,
+		)
+
+	case project.PhaseIntegrate:
+		if isFinal {
+			return fmt.Sprintf(
+				"[Duo 阶段变更：%s → INTEGRATE]\n这是最后一个步骤（%d/%d）。Duo 会把通过验证的 HEAD 落地到 %s，随后双方必须用 duo_set_status ready=true 签署 INTEGRATE，会话才能进入 DONE。\n\nAustin：签署前在集成 worktree 运行完整测试命令并清理临时协作产物。Tony：独立检查落地结果的正确性与仓库整洁度，若树中包含用户未要求的产物则拒绝签署。签署绑定到你签署的精确 HEAD；HEAD 改变时 Duo 会撤销它。\n\n队列：\n%s",
+				previous, cursor, total, target, queue,
+			)
+		}
+		return fmt.Sprintf(
+			"[Duo 阶段变更：%s → INTEGRATE]\nTony 已验证通过步骤 %d/%d。Duo 正在把它落地到 %s，将 Tony 的 worktree 快进到落地的 HEAD，并把队列推进到步骤 %d。无需 agent 操作；下一条 EXECUTE 提示会指明下一个步骤。\n\n队列：\n%s",
+			previous, cursor, total, target, cursor+1, queue,
+		)
+
+	case project.PhaseDone:
+		d := c.CurrentDelivery()
+		applied := shortSHA(d.AppliedHead)
+		if applied == "" {
+			applied = shortSHA(d.FinalHead)
+		}
+		return fmt.Sprintf(
+			"[Duo 阶段变更：INTEGRATE → DONE]\n全部 %d 个步骤已落地到 %s。最后应用的 HEAD：%s。\n\n队列已完成，结果已交付到用户启动 Duo 的仓库。\n\n最终队列：\n%s",
+			total, target, applied, queue,
+		)
+
+	default:
+		return "[Duo] 阶段已变为 " + string(next)
+	}
 }
 
 // broadcastFinalApproval tells both agents that the agent-facing lifecycle is
