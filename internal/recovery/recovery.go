@@ -109,6 +109,8 @@ func Compose(in ComposeInput) sessionstore.Snapshot {
 		Phase:         string(in.Project.Phase),
 		Plan:          in.Project.Plan,
 		PlanVersion:   in.Project.PlanVersion,
+		Step:          in.Project.Step,
+		Steps:         in.Project.Steps,
 		Started:       in.Project.Started,
 		Mode:          in.Project.EffectiveMode(),
 		Driver:        driverOf(in.Project.EffectiveMode()),
@@ -175,10 +177,12 @@ func Compose(in ComposeInput) sessionstore.Snapshot {
 }
 
 // driverOf records the mode's single driver for observability. It is derived
-// from the mode, never read back as state: Fast is always Austin-driven, and
-// Goal has no single driver because the mover changes per phase.
+// from the mode, never read back as state: Fast is always Austin-driven, Step is
+// Austin-driven per step (Tony's per-step verb is a verdict, not a phase move),
+// and Goal has no single driver because the mover changes per phase.
 func driverOf(mode project.Mode) string {
-	if mode == project.ModeFast {
+	switch mode {
+	case project.ModeFast, project.ModeStep:
 		return string(protocol.Austin)
 	}
 	return ""
@@ -191,6 +195,8 @@ func ProjectSnapshot(snap sessionstore.Snapshot) project.Snapshot {
 		Phase:        project.Phase(snap.Phase),
 		Plan:         snap.Plan,
 		PlanVersion:  snap.PlanVersion,
+		Step:         snap.Step,
+		Steps:        snap.Steps,
 		Started:      snap.Started,
 		Verification: snap.VerificationResult(),
 		Ready:        make(map[protocol.AgentID]bool, len(agents)),

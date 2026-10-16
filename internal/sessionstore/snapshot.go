@@ -37,6 +37,17 @@ const (
 	DeliveryBlocked = "blocked"
 )
 
+// StepDelivery records one landed step of a Step-mode session. A Step session
+// delivers per step, so the durable per-step record lives on the step itself
+// (project.Step.DeliveryHead); this type is the shape the delivery transaction
+// returns so the step record and the session record cannot disagree.
+type StepDelivery struct {
+	Step        int        `json:"step"`
+	FinalHead   string     `json:"finalHead"`
+	AppliedHead string     `json:"appliedHead"`
+	At          *time.Time `json:"at,omitempty"`
+}
+
 // Delivery is the durable checkpoint for handing the final Duo artifact back to
 // the repository the user launched Duo from. It is a small optional extension
 // to schema version 1: old snapshots simply decode to the zero value.
@@ -89,6 +100,13 @@ type Snapshot struct {
 	PlanVersion int    `json:"planVersion"`
 	Started     bool   `json:"started"`
 
+	// Step is the Step-mode queue cursor (1-based; len(Steps)+1 when the queue is
+	// finished) and Steps is the queue itself. Both are additive optional state, so
+	// the persisted schema version is unchanged and a snapshot written by an older
+	// Duo still loads.
+	Step  int           `json:"step,omitempty"`
+	Steps project.Steps `json:"steps,omitempty"`
+
 	// Mode is the session workflow, fixed for the session's lifetime. Driver is
 	// recorded for observability only: it is derived from the mode (Fast is
 	// always Austin-driven) and no reader branches on it. Both are omitted by
@@ -117,15 +135,12 @@ type Snapshot struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
-// EffectiveMode is the single normalization point for the persisted mode.
-// Only an explicitly recorded "fast" is Fast; a snapshot with no mode field,
-// and any unrecognized value, is Goal. Every reader goes through here so this
-// rule cannot drift between resolver, coordinator, harness and CLI.
+// EffectiveMode is the single normalization point for the persisted mode. It
+// delegates to project.Mode.Normalize so the rule — only an explicitly recorded
+// mode is honored, an absent mode and any unrecognized value are Goal — cannot
+// drift between resolver, coordinator, harness and CLI.
 func (s Snapshot) EffectiveMode() project.Mode {
-	if s.Mode == project.ModeFast {
-		return project.ModeFast
-	}
-	return project.ModeGoal
+	return s.Mode.Normalize()
 }
 
 // VerificationResult returns the persisted verification, or a zero value when
@@ -164,6 +179,19 @@ func (s Snapshot) NeedsDelivery() bool {
 	switch s.EffectiveMode() {
 	case project.ModeFast:
 		return s.Phase == string(project.PhaseVerify) && s.VerificationResult().Status == project.VerificationPassed
+	case project.ModeStep:
+		// A Step session delivers per step. INTEGRATE means "the reviewed step is
+		// ready to land", and once the queue is finished it means "the finished queue
+		// is ready to be signed off" — which is delivered by the same transaction.
+		if s.Phase != string(project.PhaseIntegrate) {
+			return false
+		}
+		for _, step := range s.Steps {
+			if !step.Done {
+				return true
+			}
+		}
+		return s.Ready[protocol.Austin] && s.Ready[protocol.Tony]
 	}
 	switch s.Phase {
 	case "INTEGRATE":

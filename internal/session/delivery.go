@@ -36,15 +36,25 @@ func DeliverAndPersist(
 	// Applied is monotonic for this final artifact. A stale caller must reconcile
 	// DONE, never replace it with a new pending checkpoint or re-run Git.
 	if snap.Delivery.Applied() {
-		if snap.Phase == string(project.PhaseIntegrate) || snap.Phase == string(project.PhaseVerify) {
-			if err := CompleteSnapshot(&snap); err != nil {
-				return DeliveryOutcome{Snapshot: snap}, err
+		// In STEP mode the record describes the last landed step, not the session, so
+		// "applied" only means "nothing to deliver" while it still describes the step
+		// the cursor is on. A newly submitted step is a new transaction.
+		if snap.EffectiveMode() == project.ModeStep && !currentStepLanded(snap) {
+			snap.Delivery = sessionstore.Delivery{
+				TargetRepo:   snap.Delivery.TargetRepo,
+				TargetBranch: snap.Delivery.TargetBranch,
 			}
-			if err := store.Save(snap); err != nil {
-				return DeliveryOutcome{Snapshot: snap}, fmt.Errorf("persist reconciled DONE checkpoint: %w", err)
+		} else {
+			if snap.Phase == string(project.PhaseIntegrate) || snap.Phase == string(project.PhaseVerify) {
+				if err := CompleteSnapshot(&snap); err != nil {
+					return DeliveryOutcome{Snapshot: snap}, err
+				}
+				if err := store.Save(snap); err != nil {
+					return DeliveryOutcome{Snapshot: snap}, fmt.Errorf("persist reconciled DONE checkpoint: %w", err)
+				}
 			}
+			return DeliveryOutcome{Snapshot: snap, Applied: true}, nil
 		}
-		return DeliveryOutcome{Snapshot: snap, Applied: true}, nil
 	}
 	finalHead, err := ResolveFinalHead(ctx, ws, snap)
 	if err != nil {
@@ -107,6 +117,19 @@ func DeliverAndPersist(
 	applied.CompletedAt = &now
 	snap.Delivery = applied
 
+	// A Step session lands one step at a time. The step record is the durable proof
+	// that the user received it, and the session-level record keeps meaning "the
+	// latest landing", so `duo apply`, NeedsDelivery and recovery read one shape.
+	if snap.EffectiveMode() == project.ModeStep {
+		if err := LandStepSnapshot(&snap, finalHead); err != nil {
+			return DeliveryOutcome{Snapshot: snap, Result: result}, err
+		}
+		if err := store.Save(snap); err != nil {
+			return DeliveryOutcome{Snapshot: snap, Result: result}, err
+		}
+		return DeliveryOutcome{Snapshot: snap, Result: result, Applied: true}, nil
+	}
+
 	// The artifact landed, so the project may now become DONE. Passing through the
 	// domain rule keeps the two signatures and their evidence intact.
 	if snap.Phase == string(project.PhaseIntegrate) || snap.Phase == string(project.PhaseVerify) {
@@ -118,6 +141,36 @@ func DeliverAndPersist(
 		return DeliveryOutcome{Snapshot: snap, Result: result}, err
 	}
 	return DeliveryOutcome{Snapshot: snap, Result: result, Applied: true}, nil
+}
+
+// currentStepLanded reports whether the session-level delivery record describes the
+// step the cursor is on. It is what scopes "already applied" to one step.
+func currentStepLanded(snap sessionstore.Snapshot) bool {
+	if snap.Delivery.FinalHead == "" {
+		return false
+	}
+	idx := snap.Step
+	if idx < 1 || idx > len(snap.Steps) {
+		return project.QueueFinished(snap.Steps) && snap.Delivery.FinalHead == snap.Delivery.AppliedHead
+	}
+	return snap.Steps[idx-1].Done && snap.Steps[idx-1].DeliveryHead == snap.Delivery.FinalHead
+}
+
+// LandStepSnapshot performs the step-landing transition through the domain rule,
+// so the queue, the cursor and the phase move by one rule and stay consistent.
+func LandStepSnapshot(snap *sessionstore.Snapshot, head string) error {
+	state := project.NewState()
+	if err := state.Restore(recovery.ProjectSnapshot(*snap)); err != nil {
+		return err
+	}
+	next, _, err := state.LandStep(head)
+	if err != nil {
+		return err
+	}
+	snap.Phase = string(next.Phase)
+	snap.Step = next.Step
+	snap.Steps = next.Steps
+	return nil
 }
 
 // FailedDelivery marks a delivery record pending with a reason.
@@ -193,6 +246,29 @@ func ReconcileDelivery(
 	journal *sessionstore.EventLog,
 	snap sessionstore.Snapshot,
 ) (DeliveryOutcome, bool, error) {
+	// A Step session that landed a step and crashed before the queue advanced is
+	// "step landed, continue", not "finished": this branch must be read before the
+	// Goal and Fast crash window, which mean DONE. Landing is idempotent on the step
+	// record, so a re-run cannot advance the queue twice.
+	if snap.EffectiveMode() == project.ModeStep && snap.Delivery.Applied() && snap.Phase == string(project.PhaseIntegrate) {
+		if !currentStepLanded(snap) {
+			if err := LandStepSnapshot(&snap, snap.Delivery.FinalHead); err != nil {
+				return DeliveryOutcome{Snapshot: snap}, false, err
+			}
+			if err := store.Save(snap); err != nil {
+				return DeliveryOutcome{Snapshot: snap}, false, err
+			}
+		}
+		journal.Record("step_landed", map[string]any{
+			"sessionId":   snap.SessionID,
+			"step":        snap.Step,
+			"finalHead":   snap.Delivery.FinalHead,
+			"appliedHead": snap.Delivery.AppliedHead,
+			"reconciled":  true,
+		})
+		return DeliveryOutcome{Snapshot: snap, Applied: true}, false, nil
+	}
+
 	// Crash window: delivery was persisted but the DONE transition was not.
 	if (snap.Phase == string(project.PhaseIntegrate) || snap.Phase == string(project.PhaseVerify)) && snap.Delivery.Applied() {
 		if err := CompleteSnapshot(&snap); err != nil {
