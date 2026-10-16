@@ -28,6 +28,9 @@ type workflow interface {
 	setSteps(s *State, steps Steps, appendOnly bool) error
 	// landStep records that the current step reached the user's repository.
 	landStep(s *State, head string) (Transition, error)
+	// revokeStep withdraws the current step's submission and review, returning the
+	// session to EXECUTE with nothing pending for that step.
+	revokeStep(s *State, reason string) (Transition, error)
 	// reopen starts a new round from a finished DONE session so a follow-up
 	// human task can be worked and verified again. The mode decides the
 	// starting phase, and every signature from the finished round is cleared.
@@ -106,14 +109,18 @@ func (goalWorkflow) setVerification(*State, protocol.AgentID, VerificationResult
 	return Transition{}, fmt.Errorf("%w: structured verification is only used in Fast mode", ErrModeMismatch)
 }
 
-// setSteps and landStep are Step-mode state. Goal has a plan, not a queue, so a
-// caller that reaches them has picked the wrong mode.
+// setSteps, landStep and revokeStep are Step-mode state. Goal has a plan, not a
+// queue, so a caller that reaches them has picked the wrong mode.
 func (goalWorkflow) setSteps(*State, Steps, bool) error {
 	return fmt.Errorf("%w: Goal mode has a plan, not a step queue (use `duo --mode step`)", ErrModeMismatch)
 }
 
 func (goalWorkflow) landStep(*State, string) (Transition, error) {
 	return Transition{}, fmt.Errorf("%w: only STEP mode lands steps", ErrModeMismatch)
+}
+
+func (goalWorkflow) revokeStep(*State, string) (Transition, error) {
+	return Transition{}, fmt.Errorf("%w: only STEP mode has step submissions", ErrModeMismatch)
 }
 
 // complete performs the explicit INTEGRATE → DONE transition after the final
@@ -165,6 +172,10 @@ func (fastWorkflow) setSteps(*State, Steps, bool) error {
 
 func (fastWorkflow) landStep(*State, string) (Transition, error) {
 	return Transition{}, fmt.Errorf("%w: only STEP mode lands steps", ErrModeMismatch)
+}
+
+func (fastWorkflow) revokeStep(*State, string) (Transition, error) {
+	return Transition{}, fmt.Errorf("%w: only STEP mode has step submissions", ErrModeMismatch)
 }
 
 func (fastWorkflow) setReady(s *State, agent protocol.AgentID, ready bool, note, evidence string) (Transition, error) {
@@ -387,9 +398,12 @@ func (stepWorkflow) setReady(s *State, agent protocol.AgentID, ready bool, note,
 
 	case PhaseIntegrate:
 		// The last step ends the session, and that is the one place a step needs
-		// both agents to agree it is finished.
-		if !QueueFinished(s.steps) {
-			return Transition{}, fmt.Errorf("%w: the step queue is not finished", ErrWrongPhase)
+		// both agents to agree it is finished. The test is the cursor, not the ticks:
+		// the final step is signed and landed together, so at sign-off time it is
+		// still unticked by definition. A non-final step reaching INTEGRATE means its
+		// delivery was blocked, and that is not something a signature resolves.
+		if s.step < len(s.steps) {
+			return Transition{}, fmt.Errorf("%w: step %d of %d has not landed yet; sign-off is only for the final step", ErrWrongPhase, s.step, len(s.steps))
 		}
 		s.ready[agent] = ready
 		s.notes[agent] = strings.TrimSpace(note)
@@ -522,6 +536,28 @@ func (stepWorkflow) reopen(s *State) error {
 	s.started = true
 	s.lastMutation = time.Now()
 	return nil
+}
+
+// revokeStep withdraws the current step's submission and its verdict. A review
+// describes one exact HEAD; when that HEAD is no longer the artifact under the
+// cursor, the review must not survive, or the step could land with a verdict about
+// a different artifact. Clearing Head as well as Verification keeps the rendering
+// honest: a step back in EXECUTE has nothing pending.
+func (stepWorkflow) revokeStep(s *State, reason string) (Transition, error) {
+	current := s.currentStepLocked()
+	if current == nil {
+		return Transition{}, fmt.Errorf("%w: the queue has no current step to revoke", ErrWrongPhase)
+	}
+	if s.phase != PhaseReview && s.phase != PhaseIntegrate {
+		return Transition{}, fmt.Errorf("%w: a step can only be withdrawn from REVIEW or INTEGRATE, not %s", ErrWrongPhase, s.phase)
+	}
+	previous := s.phase
+	current.Head = ""
+	current.Verification = Verification{}
+	s.notes[protocol.Austin] = strings.TrimSpace(reason)
+	s.phase = PhaseExecute
+	s.lastMutation = time.Now()
+	return Transition{Previous: previous, Next: PhaseExecute}, nil
 }
 
 // currentStepLocked returns the step the cursor points at, or nil.

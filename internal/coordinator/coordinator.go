@@ -1484,7 +1484,32 @@ func (c *Coordinator) deliverFinal(ctx context.Context, _ project.Snapshot) {
 	if snap.Phase == project.PhaseDone {
 		return
 	}
-	if currentDelivery.Applied() {
+	if currentDelivery.Applied() && !stepDeliveryStale(snap, currentDelivery) {
+		if snap.EffectiveMode() == project.ModeStep {
+			// The step already landed on the base branch but the session transition
+			// did not persist. Replay it through the domain rule, which is idempotent
+			// on the step record, then decide whether the queue is finished.
+			landed, moved, err := c.landStepIfNeeded(currentDelivery.FinalHead)
+			if err != nil {
+				c.logf("reconcile applied step landing: %v", err)
+				return
+			}
+			if moved {
+				if err := c.persistStrict("step landed"); err != nil {
+					c.logf("persist reconciled step landing: %v", err)
+				}
+				c.recordEvent("step_landed", map[string]any{
+					"step":        snap.Step,
+					"finalHead":   currentDelivery.FinalHead,
+					"appliedHead": currentDelivery.AppliedHead,
+					"reconciled":  true,
+				})
+			}
+			if !project.QueueFinished(landed.Steps) {
+				return
+			}
+			snap = landed
+		}
 		if snap.Phase == project.PhaseIntegrate || snap.Phase == project.PhaseVerify {
 			if _, err := c.project.Complete(); err != nil {
 				c.logf("complete applied delivery: %v", err)
@@ -1499,16 +1524,30 @@ func (c *Coordinator) deliverFinal(ctx context.Context, _ project.Snapshot) {
 	}
 
 	// The work must be complete and every approval must still describe the
-	// artifact about to be delivered. Fast has one gate (a verification bound to
-	// Austin's HEAD); Goal has another (dual INTEGRATE sign-off). Everything after
-	// this point is the same idempotent delivery transaction for both modes.
+	// artifact about to be delivered. Each mode has its own gate: Fast has one
+	// verification bound to Austin's HEAD, Goal has a dual INTEGRATE sign-off, and
+	// STEP lands each step on Tony's HEAD-bound verdict for that step — only the
+	// final step of the queue needs both agents to agree. Everything after this
+	// point is the same idempotent delivery transaction for all three.
 	fast := snap.EffectiveMode() == project.ModeFast
-	if fast {
+	switch snap.EffectiveMode() {
+	case project.ModeFast:
 		if snap.Phase != project.PhaseVerify {
 			return
 		}
-	} else if snap.Phase != project.PhaseIntegrate || !snap.Ready[protocol.Austin] || !snap.Ready[protocol.Tony] {
-		return
+	case project.ModeStep:
+		if snap.Phase != project.PhaseIntegrate {
+			return
+		}
+		// Requiring Ready mid-queue would be self-approval: the independent check
+		// on a step is Tony's verdict, which setVerification already enforced.
+		if stepIsFinal(snap) && (!snap.Ready[protocol.Austin] || !snap.Ready[protocol.Tony]) {
+			return
+		}
+	default:
+		if snap.Phase != project.PhaseIntegrate || !snap.Ready[protocol.Austin] || !snap.Ready[protocol.Tony] {
+			return
+		}
 	}
 	set := c.workspace.Set()
 
@@ -1527,7 +1566,9 @@ func (c *Coordinator) deliverFinal(ctx context.Context, _ project.Snapshot) {
 		return
 	}
 
-	if fast {
+	// Each mode compares the delivered HEAD with the artifact its gate approved.
+	switch snap.EffectiveMode() {
+	case project.ModeFast:
 		// Tony's verdict describes one exact Austin HEAD. If that HEAD moved after
 		// verification, the verdict no longer covers the artifact and delivery
 		// must not proceed: revoke it and return to RUNNING.
@@ -1542,7 +1583,31 @@ func (c *Coordinator) deliverFinal(ctx context.Context, _ project.Snapshot) {
 			}
 			return
 		}
-	} else {
+
+	case project.ModeStep:
+		// Mid-queue the reference artifact is the step's own submitted HEAD, never
+		// Austin's live HEAD: landing the live HEAD would deliver commits Tony never
+		// reviewed. The final step is the one signed INTEGRATE, so there the Goal
+		// rule applies.
+		if !stepIsFinal(snap) {
+			stepHead := ""
+			if snap.Step >= 1 && snap.Step <= len(snap.Steps) {
+				stepHead = strings.TrimSpace(snap.Steps[snap.Step-1].Head)
+			}
+			if stepHead == "" || stepHead != finalHead {
+				c.revokeStepSubmission(ctx, snap, stepHead, finalHead)
+				return
+			}
+			break
+		}
+		for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+			if strings.TrimSpace(snap.Evidence[agent]) != finalHead {
+				c.revokeIntegrateSignatures(ctx, snap, finalHead)
+				return
+			}
+		}
+
+	default:
 		// Whoever signed INTEGRATE signed this exact HEAD. If it moved between the
 		// two signatures, the approvals are no longer about one artifact.
 		for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
@@ -1615,6 +1680,38 @@ func (c *Coordinator) deliverFinal(ctx context.Context, _ project.Snapshot) {
 	}
 }
 
+// stepDeliveryStale reports whether an applied delivery record describes an
+// earlier step than the one under the cursor. A Step session delivers once per
+// step, so the record is stale by design on every step after the first — the exact
+// reason `Delivery.Applied()` cannot mean "the session is finished" in STEP mode.
+func stepDeliveryStale(snap project.Snapshot, record sessionstore.Delivery) bool {
+	if snap.EffectiveMode() != project.ModeStep || project.QueueFinished(snap.Steps) {
+		return false
+	}
+	if snap.Step < 1 || snap.Step > len(snap.Steps) {
+		return true
+	}
+	step := snap.Steps[snap.Step-1]
+	return !(step.Done && step.DeliveryHead == record.FinalHead)
+}
+
+// landStepIfNeeded ticks the step the cursor is on, and reports whether it moved.
+// It is idempotent on the step record, so a replayed delivery can never advance the
+// queue twice.
+func (c *Coordinator) landStepIfNeeded(head string) (project.Snapshot, bool, error) {
+	snap := c.project.Snapshot()
+	if snap.EffectiveMode() != project.ModeStep {
+		return snap, false, nil
+	}
+	if snap.Step >= 1 && snap.Step <= len(snap.Steps) {
+		if step := snap.Steps[snap.Step-1]; step.Done && step.DeliveryHead == head {
+			return snap, false, nil
+		}
+	}
+	landed, _, err := c.project.LandStep(head)
+	return landed, true, err
+}
+
 // markDeliveryPending records a blocked delivery without ever claiming DONE and
 // without modifying the user's working tree.
 func (c *Coordinator) markDeliveryPending(ctx context.Context, record sessionstore.Delivery, reason string) error {
@@ -1666,9 +1763,72 @@ func (c *Coordinator) completeDelivery(ctx context.Context, record sessionstore.
 		return err
 	}
 
-	// The phase the work was approved in is INTEGRATE in Goal and VERIFY in
-	// Fast; capture it before Complete so the DONE notice names the real edge.
+	// The phase the work was approved in is INTEGRATE in Goal and STEP and VERIFY
+	// in Fast; capture it before the transition so the notice names the real edge.
 	previous := c.project.Snapshot().Phase
+
+	// A STEP session lands one step per delivery. Landing ticks the step and
+	// returns to EXECUTE while the queue has work; only a finished queue completes
+	// the session, so this is the mode's loop-back rather than a second rule.
+	if pre := c.project.Snapshot(); pre.EffectiveMode() == project.ModeStep {
+		landed, moved, err := c.landStepIfNeeded(applied.FinalHead)
+		if err != nil {
+			if persistErr := c.markDeliveryPending(ctx, applied, "delivery applied but the step could not be landed: "+err.Error()); persistErr != nil {
+				return fmt.Errorf("land step: %w (persist pending: %v)", err, persistErr)
+			}
+			return fmt.Errorf("land step: %w", err)
+		}
+		if !moved {
+			c.logf("step %d already recorded as landed at %s", pre.Step, shortSHA(applied.FinalHead))
+		}
+		if err := c.persistStrict("step landed"); err != nil {
+			return err
+		}
+		c.recordEvent("step_landed", map[string]any{
+			"step":         pre.Step,
+			"finalHead":    applied.FinalHead,
+			"appliedHead":  applied.AppliedHead,
+			"targetBranch": applied.TargetBranch,
+		})
+		c.logf("landed step %d of %d at %s on %s", pre.Step, len(pre.Steps), shortSHA(applied.AppliedHead), applied.TargetBranch)
+		c.emit(events.KindSystem, protocol.Duo, "",
+			fmt.Sprintf("step %d of %d landed on %s@%s", pre.Step, len(pre.Steps), applied.TargetBranch, shortSHA(applied.AppliedHead)))
+		c.reportChanges(result.Changes)
+		// THE VERIFIER SYNC GOES HERE, and nowhere else: this is the first point at
+		// which the landing is durable, so it is the only point where the synced
+		// worktree is provably the tree the user received. §6 of the plan owns it.
+		if !project.QueueFinished(landed.Steps) {
+			c.broadcastPhaseAdvance(ctx, previous, landed.Phase, landed, "")
+			return nil
+		}
+		// The queue is finished, so the last step still needs the dual sign-off that
+		// stepQueueSignOff recorded before calling here.
+		done, err := c.project.Complete()
+		if err != nil {
+			if persistErr := c.markDeliveryPending(ctx, applied, "the queue is finished but the session could not complete: "+err.Error()); persistErr != nil {
+				return fmt.Errorf("complete delivery: %w (persist pending: %v)", err, persistErr)
+			}
+			return fmt.Errorf("complete delivery: %w", err)
+		}
+		if err := c.persistStrict("project complete"); err != nil {
+			return err
+		}
+		c.recordEvent("delivery_applied", map[string]any{
+			"finalHead":    applied.FinalHead,
+			"appliedHead":  applied.AppliedHead,
+			"targetRepo":   applied.TargetRepo,
+			"targetBranch": applied.TargetBranch,
+			"changedFiles": len(result.Changes),
+		})
+		c.logf("delivered %s to %s@%s (%d changed file(s))",
+			shortSHA(applied.AppliedHead), applied.TargetRepo, applied.TargetBranch, len(result.Changes))
+		c.emit(events.KindSystem, protocol.Duo, "",
+			fmt.Sprintf("delivery complete → %s@%s", applied.TargetBranch, shortSHA(applied.AppliedHead)))
+		c.broadcastPhaseAdvance(ctx, previous, project.PhaseDone, done, "")
+		c.requestFinalSummary(ctx)
+		return nil
+	}
+
 	done, err := c.project.Complete()
 	if err != nil {
 		if persistErr := c.markDeliveryPending(ctx, applied, "delivery applied but DONE transition failed: "+err.Error()); persistErr != nil {

@@ -325,6 +325,28 @@ func (s *State) LandStep(head string) (Snapshot, Transition, error) {
 	return snap, transition, nil
 }
 
+// RevokeStepSubmission withdraws the current step's submission and review and
+// returns the session to EXECUTE. It is what delivery calls when the reviewed HEAD
+// is no longer the artifact under the cursor: the verdict described something else,
+// so landing it would put unverified work in the user's repository.
+func (s *State) RevokeStepSubmission(reason string) (Snapshot, Transition, error) {
+	s.mu.Lock()
+	previous := s.phase
+	transition, err := s.workflow().revokeStep(s, reason)
+	if err != nil {
+		snap := s.snapshotLocked()
+		s.mu.Unlock()
+		return snap, Transition{}, err
+	}
+	transition.Previous = previous
+	transition.Next = s.phase
+	transition.Advanced = s.phase != previous
+	snap, hook := s.snapshotLocked(), s.onChange
+	s.mu.Unlock()
+	notify(hook, snap)
+	return snap, transition, nil
+}
+
 func (s *State) SetReady(agent protocol.AgentID, ready bool, note, evidence string) (Snapshot, Transition, error) {
 	if agent != protocol.Austin && agent != protocol.Tony {
 		return Snapshot{}, Transition{}, ErrUnknownAgent
