@@ -138,21 +138,43 @@ func runStepLoop(ctx context.Context, args []string) error {
 		fmt.Printf("duo step-loop: upgrade requested (%s) at step %s\n", req.Reason, req.Step)
 
 		if req.Install {
-			if err := installFromRepo(ctx, req.Repository); err != nil {
-				return fmt.Errorf("install the new Duo: %w", err)
+			if err := performUpgrade(ctx, req, checkSchemaCompatible, installFromRepo); err != nil {
+				return err
 			}
-		}
-		// The new binary must be able to read this session's state. A schema bump
-		// makes the snapshot unreadable, and installing it anyway would leave a
-		// session that neither binary can continue; the loop stops with a message
-		// instead of doing that.
-		if err := checkSchemaCompatible(req.Repository); err != nil {
-			return err
 		}
 
 		sessionArgs = []string{"resume", req.SessionID}
 		round++
 	}
+}
+
+// performUpgrade carries out the install half of a restart request, in the only
+// order that can work: the schema the new binary will be built from is compared
+// with the one this session was written by BEFORE anything is installed. Installing
+// first would replace the working binary with one that cannot read the session and
+// leave neither binary able to continue it, which is the state the guard exists to
+// prevent.
+//
+// The two actions are injected so the order and the conditions can be tested
+// without building or installing anything: the loop passes the real functions.
+func performUpgrade(
+	ctx context.Context,
+	req upgradeRequest,
+	check func(string) error,
+	install func(context.Context, string) error,
+) error {
+	if !req.Install {
+		// Nothing is installed, so the binary that resumes the session is the one
+		// already running: its schema matches by construction.
+		return nil
+	}
+	if err := check(req.Repository); err != nil {
+		return err
+	}
+	if err := install(ctx, req.Repository); err != nil {
+		return fmt.Errorf("install the new Duo: %w", err)
+	}
+	return nil
 }
 
 // installFromRepo builds and installs Duo from the repository's own checkout,
