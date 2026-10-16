@@ -2,3 +2,5 @@
 .DS_Store
 *.log
 node_modules/
+gpui/target/
+gpui/.target/

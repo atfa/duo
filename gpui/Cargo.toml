@@ -1,0 +1,26 @@
+[package]
+name = "duo-gpui"
+version = "0.11.0"
+edition = "2021"
+description = "Duo's GPUI graphical frontend (MVP): a renderer over the `duo gui` NDJSON protocol."
+license = "MIT"
+publish = false
+
+[[bin]]
+name = "duo-gpui"
+path = "src/main.rs"
+
+[dependencies]
+gpui = "0.2.2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+smol = "2"
+
+# libc is pinned on purpose and is not used directly. gpui -> gpui_http_client ->
+# zed-async-tar -> xattr 0.2.3 reads `libc::ENOATTR`, which libc stopped defining
+# in 0.2.180, so without this pin the crate does not build at all on a current
+# toolchain. Keep it until the xattr 0.2 line is gone from gpui's tree.
+libc = "=0.2.179"
+
+[profile.release]
+debug = false
