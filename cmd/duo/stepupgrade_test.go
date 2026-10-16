@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -92,4 +95,51 @@ func TestExitCodeOf(t *testing.T) {
 	if got := exitCodeOf(os.ErrNotExist); got != -1 {
 		t.Fatalf("a non-exit error = %d, want -1 so it is not mistaken for the upgrade code", got)
 	}
+}
+
+// TestPerformUpgradeChecksSchemaBeforeInstalling is the order the loop depends on,
+// and the defect it closes: the guard used to run after the install, so a schema
+// bump replaced the working binary first and only then refused to resume — leaving
+// a session neither binary could continue. Each piece passed its own unit test;
+// only the sequence was wrong.
+func TestPerformUpgradeChecksSchemaBeforeInstalling(t *testing.T) {
+	req := upgradeRequest{Repository: t.TempDir(), SessionID: "s-1", Install: true}
+
+	t.Run("check then install", func(t *testing.T) {
+		var calls []string
+		check := func(string) error { calls = append(calls, "check"); return nil }
+		install := func(context.Context, string) error { calls = append(calls, "install"); return nil }
+		if err := performUpgrade(context.Background(), req, check, install); err != nil {
+			t.Fatalf("performUpgrade: %v", err)
+		}
+		if got := strings.Join(calls, ","); got != "check,install" {
+			t.Fatalf("action order = %q, want check,install", got)
+		}
+	})
+
+	t.Run("a schema bump installs nothing", func(t *testing.T) {
+		var calls []string
+		check := func(string) error { calls = append(calls, "check"); return errors.New("schema 3 vs 2") }
+		install := func(context.Context, string) error { calls = append(calls, "install"); return nil }
+		if err := performUpgrade(context.Background(), req, check, install); err == nil {
+			t.Fatal("a schema bump must stop the upgrade")
+		}
+		if got := strings.Join(calls, ","); got != "check" {
+			t.Fatalf("actions on a schema bump = %q, want check only: nothing may be installed", got)
+		}
+	})
+
+	t.Run("a plain restart neither checks nor installs", func(t *testing.T) {
+		// With install=false the binary that resumes is the one already running, so a
+		// change in the delivered source must not block a restart.
+		var calls []string
+		check := func(string) error { calls = append(calls, "check"); return errors.New("unreachable") }
+		install := func(context.Context, string) error { calls = append(calls, "install"); return nil }
+		if err := performUpgrade(context.Background(), upgradeRequest{Repository: req.Repository}, check, install); err != nil {
+			t.Fatalf("a plain restart must not be refused: %v", err)
+		}
+		if len(calls) != 0 {
+			t.Fatalf("a plain restart performed %v, want nothing", calls)
+		}
+	})
 }
