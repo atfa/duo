@@ -150,3 +150,20 @@ func TestNeedsDeliveryStepCase(t *testing.T) {
 		t.Fatal("a Fast VERIFY without a passed verdict is not deliverable")
 	}
 }
+
+// TestRestartRequestReachesTheView is the self-upgrade plumbing: the CLI reads
+// the request off the view to write its handoff file and exit with the sentinel
+// code, so a request that never reaches the view would stop nothing.
+func TestRestartRequestReachesTheView(t *testing.T) {
+	svc := &Service{}
+	if svc.View().Restart.Reason != "" {
+		t.Fatal("a fresh session must not ask to restart")
+	}
+	if err := svc.requestRestart(RestartDuo{Reason: " install and continue the queue ", Install: true}); err != nil {
+		t.Fatalf("requestRestart: %v", err)
+	}
+	got := svc.View().Restart
+	if got.Reason != "install and continue the queue" || !got.Install {
+		t.Fatalf("restart request = %+v", got)
+	}
+}
