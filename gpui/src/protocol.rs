@@ -57,6 +57,12 @@ pub struct View {
     pub step_cursor: usize,
     #[serde(default)]
     pub delivery: String,
+    /// Fast-mode verification bound to the reviewed commit.
+    #[serde(default)]
+    pub verification: Verification,
+    /// Per-step verification and delivery evidence in queue order.
+    #[serde(default)]
+    pub step_evidence: Vec<StepVerification>,
     /// Driver diagnostics. They are state, not timeline entries: they are drawn
     /// from the last view, so repeating them is idempotent.
     #[serde(default)]
@@ -77,6 +83,12 @@ pub struct Agent {
     #[serde(default)]
     pub worktree_head: String,
     #[serde(default)]
+    pub diffstat: Diffstat,
+    #[serde(default)]
+    pub ready_note: String,
+    #[serde(default)]
+    pub ready_evidence: String,
+    #[serde(default)]
     pub connected: bool,
     #[serde(default)]
     pub process: String,
@@ -84,6 +96,8 @@ pub struct Agent {
     pub driver: String,
     #[serde(default)]
     pub model: String,
+    #[serde(default)]
+    pub live_model_switch: bool,
     #[serde(default)]
     pub thinking: String,
     #[serde(default)]
@@ -98,6 +112,56 @@ pub struct Agent {
     pub models_loaded: bool,
     #[serde(default)]
     pub models_error: String,
+}
+
+/// Git summary for an agent worktree. `state` is unavailable, loading, ready or
+/// error; an empty state is accepted from older hosts.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct Diffstat {
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub files: usize,
+    #[serde(default)]
+    pub insertions: usize,
+    #[serde(default)]
+    pub deletions: usize,
+    #[serde(default)]
+    pub untracked: usize,
+    #[serde(default)]
+    pub error: String,
+}
+
+/// Structured verifier result, including the exact commit and note.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct Verification {
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub head: String,
+    #[serde(default)]
+    pub note: String,
+    #[serde(default)]
+    pub at: String,
+}
+
+/// Verification and delivery evidence for one Step-mode queue entry.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct StepVerification {
+    #[serde(default)]
+    pub index: usize,
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub done: bool,
+    #[serde(default)]
+    pub head: String,
+    #[serde(default)]
+    pub verification: Verification,
+    #[serde(default)]
+    pub delivery_head: String,
+    #[serde(default)]
+    pub delivered_at: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
@@ -131,7 +195,11 @@ pub struct WorkPreview {
     #[serde(default)]
     pub turn_started: String,
     #[serde(default)]
+    pub turn_elapsed_ms: u64,
+    #[serde(default)]
     pub tool_started: String,
+    #[serde(default)]
+    pub tool_elapsed_ms: u64,
     #[serde(default)]
     pub token_speed_at: String,
     #[serde(default)]
@@ -292,13 +360,22 @@ mod tests {
             "steps_total": 6,
             "step_cursor": 1,
             "delivery": "",
+            "verification": {"status":"passed", "head":"abc123", "note":"checks passed", "at":"2026-10-16T10:37:37Z"},
+            "step_evidence": [{"index":1, "title":"implement parser", "done":true, "head":"stephead",
+                               "verification":{"status":"passed", "head":"stephead", "note":"reviewed"},
+                               "delivery_head":"landedhead", "delivered_at":"2026-10-16T10:00:00Z"}],
             "notices": ["no sqlite3"],
             "agents": {
-                "austin": {"present": true, "worktree_path":"/tmp/duo/austin", "worktree_branch":"duo/austin", "worktree_head":"aaa", "connected": true, "process": "running",
-                           "driver": "pi", "model": "deepseek/deepseek-flash",
+                "austin": {"present": true, "worktree_path":"/tmp/duo/austin", "worktree_branch":"duo/austin", "worktree_head":"aaa",
+                           "diffstat":{"state":"ready", "files":3, "insertions":12, "deletions":4, "untracked":1},
+                           "ready_note":"reviewed", "ready_evidence":"go test ./internal/guiipc",
+                           "connected": true, "process": "running",
+                           "driver": "pi", "model": "deepseek/deepseek-flash", "live_model_switch": true,
                            "thinking": "high", "busy": true, "activity": "Bash: make check",
                            "work": {"tool":"bash", "tool_detail":"make check", "context_tokens":123,
                                     "context_window":456, "tokens_per_second":7.5, "tools":2,
+                                    "turn_started":"2026-10-16T10:37:37Z", "turn_elapsed_ms":2500,
+                                    "tool_started":"2026-10-16T10:37:38Z", "tool_elapsed_ms":1500,
                                     "recent":[{"name":"read","detail":"src/main.rs","ok":true,"duration_ms":42}]},
                            "models":[{"provider":"p", "id":"m", "reference":"p/m", "thinking":true,"images":false}],
                            "models_loaded":true},
@@ -321,12 +398,30 @@ mod tests {
         assert_eq!(view.notices, vec!["no sqlite3".to_owned()]);
         assert_eq!(view.ready.get("austin"), Some(&true));
         assert_eq!(view.ready.get("tony"), Some(&false));
+        assert_eq!(view.verification.status, "passed");
+        assert_eq!(view.verification.head, "abc123");
+        assert_eq!(view.verification.at, "2026-10-16T10:37:37Z");
+        assert_eq!(view.step_evidence.len(), 1);
+        assert_eq!(view.step_evidence[0].index, 1);
+        assert!(view.step_evidence[0].done);
+        assert_eq!(view.step_evidence[0].verification.status, "passed");
+        assert_eq!(view.step_evidence[0].delivery_head, "landedhead");
         // Identity on the wire is lowercase; a host that sent "Austin" would make
         // the renderer's lookups miss, which is why the protocol fixes the spelling.
         assert_eq!(view.agents.get("austin").unwrap().driver, "pi");
         let austin = view.agents.get("austin").unwrap();
         assert_eq!(austin.worktree_branch, "duo/austin");
+        assert_eq!(austin.diffstat.state, "ready");
+        assert_eq!(austin.diffstat.files, 3);
+        assert_eq!(austin.diffstat.insertions, 12);
+        assert_eq!(austin.diffstat.deletions, 4);
+        assert_eq!(austin.diffstat.untracked, 1);
+        assert_eq!(austin.ready_note, "reviewed");
+        assert_eq!(austin.ready_evidence, "go test ./internal/guiipc");
+        assert!(austin.live_model_switch);
         assert_eq!(austin.work.context_tokens, 123);
+        assert_eq!(austin.work.turn_elapsed_ms, 2500);
+        assert_eq!(austin.work.tool_elapsed_ms, 1500);
         assert_eq!(austin.work.recent[0].duration_ms, 42);
         assert_eq!(austin.models[0].reference, "p/m");
         assert!(austin.models_loaded);
@@ -342,6 +437,24 @@ mod tests {
         assert_eq!(view.mode, "fast");
         assert!(view.agents.is_empty());
         assert!(view.notices.is_empty());
+        assert_eq!(view.verification, Verification::default());
+        assert!(view.step_evidence.is_empty());
+
+        // This payload shape is what an older Go host sends: the existing agent
+        // fields remain readable and all newly introduced values default cleanly.
+        let old_host = r#"{"type":"view","view":{"mode":"fast","agents":{"austin":{"present":true,"worktree_head":"abc"}}}}"#;
+        let ServerMessage::View { view } = serde_json::from_str(old_host).unwrap() else {
+            panic!("an old-host view frame did not parse as a view");
+        };
+        let austin = view.agents.get("austin").unwrap();
+        assert!(austin.present);
+        assert_eq!(austin.worktree_head, "abc");
+        assert_eq!(austin.diffstat, Diffstat::default());
+        assert!(austin.ready_note.is_empty());
+        assert!(austin.ready_evidence.is_empty());
+        assert!(!austin.live_model_switch);
+        assert_eq!(austin.work.turn_elapsed_ms, 0);
+        assert_eq!(austin.work.tool_elapsed_ms, 0);
     }
 
     #[test]

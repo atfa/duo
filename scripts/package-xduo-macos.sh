@@ -61,6 +61,34 @@ if ! project_root="$(/usr/bin/git -C "$project_dir" rev-parse --show-toplevel 2>
 fi
 cd "$project_root" || { show_error "Could not open the selected repository: $project_root"; exit 1; }
 export DUO_GPUI_BIN="$(cd "$(dirname "$0")" && pwd)/xduo-renderer"
+unfinished_ids="$("$resources/duo" sessions --unfinished-ids "$project_root" 2>/dev/null)" || {
+	show_error 'Could not read existing Duo sessions for this repository.'
+	exit 1
+}
+if [ -n "$unfinished_ids" ]; then
+	set --
+	while IFS= read -r session_id; do
+		[ -n "$session_id" ] && set -- "$@" "$session_id"
+	done <<EOF
+$unfinished_ids
+EOF
+	choice="$(/usr/bin/osascript \
+		-e 'on run argv' \
+		-e 'set options to {"Start a new session"}' \
+		-e 'repeat with sessionID in argv' \
+		-e 'set end of options to contents of sessionID' \
+		-e 'end repeat' \
+		-e 'set picked to choose from list options with title "Choose a Duo session" with prompt "Resume an unfinished session or start a new one."' \
+		-e 'if picked is false then return ""' \
+		-e 'return item 1 of picked' \
+		-e 'end run' "$@" 2>/dev/null)" || exit 0
+	[ -n "$choice" ] || exit 0
+	if [ "$choice" = 'Start a new session' ]; then
+		set --
+	else
+		set -- resume "$choice"
+	fi
+fi
 log_dir="$HOME/Library/Logs/Duo"
 umask 077
 if ! mkdir -p "$log_dir"; then
@@ -68,7 +96,7 @@ if ! mkdir -p "$log_dir"; then
 	exit 1
 fi
 log_file="$log_dir/xduo.log"
-if "$resources/duo" gui >"$log_file" 2>&1; then
+if "$resources/duo" gui "$@" >"$log_file" 2>&1; then
 	exit 0
 else
 	status=$?

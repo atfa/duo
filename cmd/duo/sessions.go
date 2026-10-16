@@ -10,12 +10,14 @@ import (
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/sessionstore"
 	"github.com/atfa/duo/internal/workspace"
+	"golang.org/x/sys/unix"
 )
 
 type sessionsArgs struct {
-	all        bool
-	repository string
-	help       bool
+	all           bool
+	unfinishedIDs bool
+	repository    string
+	help          bool
 }
 
 func parseSessionsArgs(args []string) (sessionsArgs, error) {
@@ -29,6 +31,8 @@ func parseSessionsArgs(args []string) (sessionsArgs, error) {
 			return out, nil
 		case arg == "--all" || arg == "-a":
 			out.all = true
+		case arg == "--unfinished-ids":
+			out.unfinishedIDs = true
 		case strings.HasPrefix(arg, "-"):
 			return out, fmt.Errorf("unknown flag %q (usage: %s)", arg, commandUsage("sessions"))
 		default:
@@ -37,6 +41,9 @@ func parseSessionsArgs(args []string) (sessionsArgs, error) {
 			}
 			out.repository = arg
 		}
+	}
+	if out.all && out.unfinishedIDs {
+		return out, fmt.Errorf("--all cannot be used with --unfinished-ids (usage: %s)", commandUsage("sessions"))
 	}
 	return out, nil
 }
@@ -81,7 +88,53 @@ func runSessions(ctx context.Context, args []string) error {
 	}
 	repoID := sessionstore.RepoID(root)
 
+	if parsed.unfinishedIDs {
+		return listRepoUnfinishedSessionIDs(baseDir, repoID)
+	}
 	return listRepoSessions(baseDir, repoID, root)
+}
+
+func writeUnfinishedSessionIDs(list []sessionstore.Summary) {
+	for _, item := range list {
+		if item.Unfinished() && safeSessionIDLine(item.SessionID) && !sessionIsActive(item.Dir) {
+			fmt.Println(item.SessionID)
+		}
+	}
+}
+
+// sessionIsActive probes the advisory lock without creating or modifying the
+// lock file. Sessions with an active owner cannot be resumed by a new launcher.
+func sessionIsActive(sessionDir string) bool {
+	file, err := os.Open(filepath.Join(sessionDir, "lock"))
+	if err != nil {
+		return !os.IsNotExist(err)
+	}
+	defer file.Close()
+	if err := unix.Flock(int(file.Fd()), unix.LOCK_SH|unix.LOCK_NB); err != nil {
+		return true
+	}
+	return unix.Flock(int(file.Fd()), unix.LOCK_UN) != nil
+}
+
+func safeSessionIDLine(value string) bool {
+	if value == "" || value == "." || value == ".." || strings.Trim(value, "-._") != value {
+		return false
+	}
+	for _, r := range value {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '_' || r == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+func listRepoUnfinishedSessionIDs(baseDir, repoID string) error {
+	list, err := sessionstore.List(baseDir, repoID)
+	if err != nil {
+		return err
+	}
+	writeUnfinishedSessionIDs(list)
+	return nil
 }
 
 func listRepoSessions(baseDir, repoID, root string) error {

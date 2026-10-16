@@ -16,12 +16,15 @@ func TestParseSessionsArgs(t *testing.T) {
 	cases := []struct {
 		args     []string
 		wantAll  bool
+		wantIDs  bool
 		wantRepo string
 		wantErr  bool
 	}{
 		{args: []string{}, wantAll: false, wantRepo: ""},
 		{args: []string{"--all"}, wantAll: true, wantRepo: ""},
 		{args: []string{"-a"}, wantAll: true, wantRepo: ""},
+		{args: []string{"--unfinished-ids"}, wantIDs: true},
+		{args: []string{"--all", "--unfinished-ids"}, wantErr: true},
 		{args: []string{"/path/to/repo"}, wantAll: false, wantRepo: "/path/to/repo"},
 		{args: []string{"--all", "/path"}, wantAll: true, wantRepo: "/path"},
 		{args: []string{"-unknown"}, wantErr: true},
@@ -34,10 +37,60 @@ func TestParseSessionsArgs(t *testing.T) {
 			t.Fatalf("parseSessionsArgs(%v) error = %v, wantErr %t", c.args, err, c.wantErr)
 		}
 		if !c.wantErr {
-			if got.all != c.wantAll || got.repository != c.wantRepo {
-				t.Fatalf("parseSessionsArgs(%v) = %+v, want all=%t repo=%q", c.args, got, c.wantAll, c.wantRepo)
+			if got.all != c.wantAll || got.unfinishedIDs != c.wantIDs || got.repository != c.wantRepo {
+				t.Fatalf("parseSessionsArgs(%v) = %+v, want all=%t ids=%t repo=%q", c.args, got, c.wantAll, c.wantIDs, c.wantRepo)
 			}
 		}
+	}
+}
+
+func TestListRepoUnfinishedSessionIDs(t *testing.T) {
+	baseDir := t.TempDir()
+	const repoID = "repo-ids"
+	for _, tc := range []struct {
+		id, phase string
+	}{
+		{id: "unfinished-1", phase: "RUNNING"},
+		{id: "active-1", phase: "RUNNING"},
+		{id: "done-1", phase: "DONE"},
+	} {
+		store, err := sessionstore.New(baseDir, repoID, tc.id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Save(sessionstore.Snapshot{SessionID: tc.id, RepoID: repoID, Phase: tc.phase}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	activeStore, err := sessionstore.Open(baseDir, repoID, "active-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := activeStore.Lock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Release()
+
+	var listErr error
+	output := captureStdout(t, func() {
+		listErr = listRepoUnfinishedSessionIDs(baseDir, repoID)
+	})
+	if listErr != nil {
+		t.Fatal(listErr)
+	}
+	if output != "unfinished-1\n" {
+		t.Fatalf("unfinished id output = %q, want one plain ID line", output)
+	}
+	unfinishedStore, err := sessionstore.Open(baseDir, repoID, "unfinished-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(unfinishedStore.LockPath()); !os.IsNotExist(err) {
+		t.Fatalf("listing created or changed lock file: %v", err)
+	}
+	if safeSessionIDLine("session-123") != true || safeSessionIDLine("../session\nother") || safeSessionIDLine("-option") {
+		t.Fatal("safe session ID line validation is incorrect")
 	}
 }
 

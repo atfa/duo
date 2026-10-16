@@ -86,7 +86,7 @@ def emit(frame):
 
 
 emit({"type": "view", "view": {
-    "version": "v0.12.0", "session": "smoke", "mode": "step", "phase": "EXECUTE",
+    "version": "v0.12.1", "session": "smoke", "mode": "step", "phase": "EXECUTE",
     "language": "zh", "repository": "/repo", "base_branch": "main",
     "base_commit": "d434ddbfc6", "status": "phase EXECUTE", "plan_version": 1,
     "plan": "# plan", "ready": {"austin": True, "tony": False},

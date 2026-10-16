@@ -1,11 +1,16 @@
 package guiipc
 
 import (
+	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/atfa/duo/internal/agent"
+	"github.com/atfa/duo/internal/driver"
 	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/models"
@@ -37,14 +42,20 @@ func testView() session.View {
 		SessionID: "20261016-103737-393c1e00",
 		Language:  "zh",
 		Project: project.Snapshot{
-			Started:     true,
-			Mode:        project.ModeStep,
-			Phase:       project.PhaseExecute,
-			Plan:        "the shared plan",
-			PlanVersion: 3,
-			Ready:       map[protocol.AgentID]bool{protocol.Austin: true},
-			Step:        2,
-			Steps:       project.Steps{{Title: "one"}, {Title: "two"}, {Title: "three"}},
+			Started:      true,
+			Mode:         project.ModeStep,
+			Phase:        project.PhaseExecute,
+			Plan:         "the shared plan",
+			PlanVersion:  3,
+			Ready:        map[protocol.AgentID]bool{protocol.Austin: true},
+			Notes:        map[protocol.AgentID]string{protocol.Austin: "reviewed"},
+			Evidence:     map[protocol.AgentID]string{protocol.Austin: "go test ./internal/core"},
+			Step:         2,
+			Verification: project.Verification{Status: project.VerificationPassed, Head: "abc123", Note: "all checks passed", At: &eventTime},
+			Steps: project.Steps{
+				{Title: "one", Done: true, Head: "step1", Verification: project.Verification{Status: project.VerificationPassed, Head: "step1", Note: "verified"}, DeliveryHead: "landed1", DeliveredAt: "2026-10-16T10:00:00Z"},
+				{Title: "two"}, {Title: "three"},
+			},
 		},
 		Worktrees: workspace.Set{
 			Repository: "/home/user/duo",
@@ -57,12 +68,13 @@ func testView() session.View {
 		Notices:  []string{"driver reported a diagnostic"},
 		Agents: map[protocol.AgentID]session.AgentView{
 			protocol.Austin: {
-				Present:   true,
-				Connected: true,
-				Process:   agent.ProcessRunning,
-				Driver:    "pi",
-				Model:     "claude-sonnet",
-				Thinking:  "high",
+				Present:      true,
+				Connected:    true,
+				Process:      agent.ProcessRunning,
+				Driver:       "pi",
+				Model:        "claude-sonnet",
+				Thinking:     "high",
+				Capabilities: driver.Capabilities{LiveModelSwitch: true},
 				Runtime: harness.AgentRuntime{
 					Busy:           true,
 					ProviderActive: true,
@@ -70,6 +82,7 @@ func testView() session.View {
 					Tool:           "edit",
 					ToolDetail:     "internal/guiipc/protocol.go",
 					TurnStarted:    eventTime,
+					ToolStarted:    eventTime.Add(-time.Second),
 					ContextTokens:  123, ContextWindow: 456, TokensPerSecond: 7.5, Tools: 2,
 					Recent: []harness.ToolNote{{Name: "read", Detail: "a.go", OK: true, Duration: 1500 * time.Millisecond}},
 				},
@@ -112,6 +125,12 @@ func TestFromViewProjectsEveryFrozenField(t *testing.T) {
 	if !got.Ready.Austin || got.Ready.Tony {
 		t.Errorf("ready = %+v; want austin only", got.Ready)
 	}
+	if got.Verification.Status != "passed" || got.Verification.Head != "abc123" || got.Verification.Note != "all checks passed" || got.Verification.At != eventTime.Format(time.RFC3339Nano) {
+		t.Errorf("verification = %+v", got.Verification)
+	}
+	if len(got.StepEvidence) != 3 || got.StepEvidence[0].Index != 1 || !got.StepEvidence[0].Done || got.StepEvidence[0].Verification.Status != "passed" || got.StepEvidence[0].DeliveryHead != "landed1" || got.StepEvidence[0].DeliveredAt != "2026-10-16T10:00:00Z" {
+		t.Errorf("step evidence = %+v", got.StepEvidence)
+	}
 
 	austin, ok := got.Agents["austin"]
 	if !ok {
@@ -123,8 +142,14 @@ func TestFromViewProjectsEveryFrozenField(t *testing.T) {
 	if austin.Driver != "pi" || austin.Model != "claude-sonnet" || austin.Thinking != "high" {
 		t.Errorf("austin driver/model/thinking = %q/%q/%q", austin.Driver, austin.Model, austin.Thinking)
 	}
+	if !austin.LiveModelSwitch {
+		t.Error("live_model_switch = false; want the session driver's capability")
+	}
 	if austin.WorktreePath != "/tmp/duo/austin" || austin.WorktreeBranch != "duo/austin" || austin.WorktreeHead != "aaa" {
 		t.Errorf("austin worktree = %q/%q/%q", austin.WorktreePath, austin.WorktreeBranch, austin.WorktreeHead)
+	}
+	if austin.ReadyNote != "reviewed" || austin.ReadyEvidence != "go test ./internal/core" {
+		t.Errorf("readiness evidence = %q/%q", austin.ReadyNote, austin.ReadyEvidence)
 	}
 	if !austin.Busy || austin.Activity != "internal/guiipc/protocol.go" {
 		t.Errorf("austin busy/activity = %v/%q", austin.Busy, austin.Activity)
@@ -137,6 +162,121 @@ func TestFromViewProjectsEveryFrozenField(t *testing.T) {
 	}
 	if tony, ok := got.Agents["tony"]; !ok || tony.Process != "stopping" || tony.Present != true {
 		t.Errorf("tony = %+v, present=%v", tony, ok)
+	}
+}
+
+func TestWorkPreviewProjectsElapsedMillisecondsFromSnapshotTime(t *testing.T) {
+	now := eventTime.Add(2500 * time.Millisecond)
+	rt := harness.AgentRuntime{
+		TurnStarted: eventTime,
+		ToolStarted: eventTime.Add(time.Second),
+	}
+
+	got := workPreviewAt(rt, now)
+	if got.TurnElapsedMS != 2500 || got.ToolElapsedMS != 1500 {
+		t.Fatalf("elapsed = turn %d ms, tool %d ms; want 2500/1500", got.TurnElapsedMS, got.ToolElapsedMS)
+	}
+	if got.TurnStarted != eventTime.Format(time.RFC3339Nano) || got.ToolStarted != eventTime.Add(time.Second).Format(time.RFC3339Nano) {
+		t.Fatalf("absolute starts = %q/%q", got.TurnStarted, got.ToolStarted)
+	}
+
+	zero := workPreviewAt(harness.AgentRuntime{}, now)
+	if zero.TurnElapsedMS != 0 || zero.ToolElapsedMS != 0 {
+		t.Fatalf("unset start elapsed = %d/%d; want zero", zero.TurnElapsedMS, zero.ToolElapsedMS)
+	}
+	future := workPreviewAt(harness.AgentRuntime{TurnStarted: now.Add(time.Second)}, now)
+	if future.TurnElapsedMS != 0 {
+		t.Fatalf("future turn start elapsed = %d; want zero", future.TurnElapsedMS)
+	}
+}
+
+func TestReadDiffstatIncludesTrackedChangesAndUntrackedFiles(t *testing.T) {
+	repo := t.TempDir()
+	runGit := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	runGit("init", "-q")
+	runGit("config", "user.email", "test@example.com")
+	runGit("config", "user.name", "Test")
+	tracked := filepath.Join(repo, "tracked.txt")
+	if err := os.WriteFile(tracked, []byte("old\nkeep\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGit("add", "tracked.txt")
+	runGit("commit", "-qm", "base")
+	base := runGit("rev-parse", "HEAD")
+	if err := os.WriteFile(tracked, []byte("new\nkeep\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "new.txt"), []byte("untracked\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := readDiffstat(context.Background(), repo, base)
+	if got.State != "ready" || got.Files != 1 || got.Insertions != 1 || got.Deletions != 1 || got.Untracked != 1 {
+		t.Fatalf("diffstat = %+v; want one changed file (+1/-1) and one untracked file", got)
+	}
+}
+
+func TestReadDiffstatDoesNotRunRepositoryFsmonitor(t *testing.T) {
+	repo := t.TempDir()
+	runGit := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	runGit("init", "-q")
+	runGit("config", "user.email", "test@example.com")
+	runGit("config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(repo, "tracked.txt"), []byte("base\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGit("add", "tracked.txt")
+	runGit("commit", "-qm", "base")
+	if err := os.WriteFile(filepath.Join(repo, "tracked.txt"), []byte("changed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	marker := filepath.Join(repo, "fsmonitor-ran")
+	hook := filepath.Join(repo, "fsmonitor")
+	script := "#!/bin/sh\ntouch '" + marker + "'\nprintf 'token\\n'\n"
+	if err := os.WriteFile(hook, []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	runGit("config", "core.fsmonitor", hook)
+
+	got := readDiffstat(context.Background(), repo, runGit("rev-parse", "HEAD"))
+	if got.State != "ready" || got.Files != 1 {
+		t.Fatalf("diffstat = %+v; want ready with one tracked file", got)
+	}
+	if _, err := os.Stat(marker); !os.IsNotExist(err) {
+		t.Fatalf("repository fsmonitor command ran during diffstat: stat error = %v", err)
+	}
+}
+
+func TestReadDiffstatReportsGitFailureAndProjectionWithoutWorktree(t *testing.T) {
+	if got := readDiffstat(context.Background(), filepath.Join(t.TempDir(), "missing"), "HEAD"); got.State != "error" || got.Error == "" {
+		t.Fatalf("missing worktree diffstat = %+v; want error", got)
+	}
+	view := fromView(session.View{}, "")
+	if got := view.Agents["austin"].Diffstat; got.State != "" {
+		t.Fatalf("pure projection diffstat = %+v; host should own Git reads", got)
+	}
+	got := NewHost(&fakeSession{}).projectView(context.Background(), session.View{}, "")
+	for _, id := range []string{"austin", "tony"} {
+		if state := got.Agents[id].Diffstat.State; state != "unavailable" {
+			t.Errorf("%s missing worktree state = %q; want unavailable", id, state)
+		}
 	}
 }
 

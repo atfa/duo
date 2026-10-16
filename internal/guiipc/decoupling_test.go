@@ -185,6 +185,8 @@ func TestHostDependsOnTheValuePackagesItClaims(t *testing.T) {
 		"encoding/json":                         true,
 		"fmt":                                   true,
 		"io":                                    true,
+		"os/exec":                               true,
+		"strconv":                               true,
 		"strings":                               true,
 		"sync":                                  true,
 		"time":                                  true,
@@ -193,6 +195,7 @@ func TestHostDependsOnTheValuePackagesItClaims(t *testing.T) {
 		"github.com/atfa/duo/internal/harness":  true,
 		"github.com/atfa/duo/internal/models":   true,
 		"github.com/atfa/duo/internal/protocol": true,
+		"github.com/atfa/duo/internal/project":  true,
 		"github.com/atfa/duo/internal/session":  true,
 		"github.com/atfa/duo/internal/sessionstore": true,
 	}

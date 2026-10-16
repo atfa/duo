@@ -6,6 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"os/exec"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -46,6 +49,8 @@ const (
 	// defaultBuffer matches the bus's own default. A slow renderer drops events
 	// rather than blocking the session, and the next view repairs the display.
 	defaultBuffer = 64
+	// diffstatTTL avoids running Git for every 500 ms view heartbeat.
+	diffstatTTL = 3 * time.Second
 	// maxCommandBytes bounds one command line so a frontend that never sends a
 	// newline cannot make the host buffer without limit.
 	maxCommandBytes = 1 << 20
@@ -65,6 +70,8 @@ type Host struct {
 	buffer    int
 	catalogMu sync.RWMutex
 	catalogs  map[protocol.AgentID]catalogResult
+	diffMu    sync.Mutex
+	diffstats map[protocol.AgentID]diffstatResult
 }
 
 type catalogResult struct {
@@ -73,9 +80,16 @@ type catalogResult struct {
 	err    string
 }
 
+type diffstatResult struct {
+	path, base string
+	value      Diffstat
+	updated    time.Time
+	loading    bool
+}
+
 // NewHost returns a host for one session.
 func NewHost(s Session) *Host {
-	return &Host{s: s, heartbeat: defaultHeartbeat, buffer: defaultBuffer, catalogs: make(map[protocol.AgentID]catalogResult)}
+	return &Host{s: s, heartbeat: defaultHeartbeat, buffer: defaultBuffer, catalogs: make(map[protocol.AgentID]catalogResult), diffstats: make(map[protocol.AgentID]diffstatResult)}
 }
 
 // Serve speaks the protocol until the frontend goes away, the session closes its
@@ -95,7 +109,7 @@ func (h *Host) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	sink := &frameSink{w: out}
 
 	// The view comes first so the window has headers before the backlog lands.
-	if err := sink.view(h.projectView(sub.View, h.s.StatusText(ctx))); err != nil {
+	if err := sink.view(h.projectView(ctx, sub.View, h.s.StatusText(ctx))); err != nil {
 		return err
 	}
 	// Then the conversation that led here. The store keeps it per pane rather
@@ -173,10 +187,10 @@ func (h *Host) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 // sendView projects and sends one view. It is the only place a view is built, so
 // the initial frame, the post-event frame and the heartbeat cannot disagree.
 func (h *Host) sendView(ctx context.Context, sink *frameSink) error {
-	return sink.view(h.projectView(h.s.View(), h.s.StatusText(ctx)))
+	return sink.view(h.projectView(ctx, h.s.View(), h.s.StatusText(ctx)))
 }
 
-func (h *Host) projectView(sv session.View, status string) View {
+func (h *Host) projectView(ctx context.Context, sv session.View, status string) View {
 	v := fromView(sv, status)
 	h.catalogMu.RLock()
 	for id, result := range h.catalogs {
@@ -185,7 +199,100 @@ func (h *Host) projectView(sv session.View, status string) View {
 		v.Agents[wireAgent(id)] = a
 	}
 	h.catalogMu.RUnlock()
+	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		a := v.Agents[wireAgent(id)]
+		a.Diffstat = h.worktreeDiffstat(ctx, id, a.WorktreePath, sv.Worktrees.BaseCommit)
+		v.Agents[wireAgent(id)] = a
+	}
 	return v
+}
+
+// worktreeDiffstat returns the latest cached summary and refreshes it in the
+// background when stale. Git work can take seconds on a large tree; never hold up
+// a protocol heartbeat or event view to wait for it.
+func (h *Host) worktreeDiffstat(ctx context.Context, id protocol.AgentID, path, base string) Diffstat {
+	if path == "" {
+		return Diffstat{State: "unavailable"}
+	}
+	now := time.Now()
+	h.diffMu.Lock()
+	entry := h.diffstats[id]
+	if entry.path != path || entry.base != base {
+		entry = diffstatResult{path: path, base: base, value: Diffstat{State: "loading"}}
+	}
+	if !entry.loading && (entry.updated.IsZero() || now.Sub(entry.updated) >= diffstatTTL) {
+		entry.loading = true
+		entry.value.State = "loading"
+		h.diffstats[id] = entry
+		go h.refreshDiffstat(ctx, id, path, base)
+	} else {
+		h.diffstats[id] = entry
+	}
+	value := entry.value
+	h.diffMu.Unlock()
+	return value
+}
+
+func (h *Host) refreshDiffstat(parent context.Context, id protocol.AgentID, path, base string) {
+	ctx, cancel := context.WithTimeout(parent, 2500*time.Millisecond)
+	defer cancel()
+	value := readDiffstat(ctx, path, base)
+	h.diffMu.Lock()
+	defer h.diffMu.Unlock()
+	entry := h.diffstats[id]
+	if entry.path != path || entry.base != base {
+		return
+	}
+	entry.value, entry.updated, entry.loading = value, time.Now(), false
+	h.diffstats[id] = entry
+}
+
+func readDiffstat(ctx context.Context, path, base string) Diffstat {
+	// A repository can configure core.fsmonitor to run an arbitrary command.
+	// Diffstat runs automatically on GUI heartbeats, so pin this setting off for
+	// every Git invocation rather than trusting the worktree's local config.
+	args := []string{
+		"-c", "core.fsmonitor=false", "-C", path, "diff", "--numstat",
+		"--no-ext-diff", "--no-textconv", "--no-renames",
+	}
+	if base == "" {
+		args = append(args, "HEAD")
+	} else {
+		args = append(args, base)
+	}
+	out, err := exec.CommandContext(ctx, "git", args...).Output()
+	if err != nil {
+		return Diffstat{State: "error", Error: truncateRunes(err.Error(), 300)}
+	}
+	stat := Diffstat{State: "ready"}
+	for _, line := range strings.Split(strings.TrimSuffix(string(out), "\n"), "\n") {
+		if line == "" {
+			continue
+		}
+		fields := strings.SplitN(line, "\t", 3)
+		if len(fields) != 3 {
+			continue
+		}
+		stat.Files++
+		if n, err := strconv.Atoi(fields[0]); err == nil {
+			stat.Insertions += n
+		}
+		if n, err := strconv.Atoi(fields[1]); err == nil {
+			stat.Deletions += n
+		}
+	}
+	statusCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+	defer cancel()
+	status, err := exec.CommandContext(statusCtx, "git", "-c", "core.fsmonitor=false", "-C", path, "status", "--porcelain", "--untracked-files=normal", "-z").Output()
+	if err != nil {
+		return Diffstat{State: "error", Error: truncateRunes(err.Error(), 300)}
+	}
+	for _, record := range strings.Split(string(status), "\x00") {
+		if strings.HasPrefix(record, "?? ") {
+			stat.Untracked++
+		}
+	}
+	return stat
 }
 
 func (h *Host) loadCatalog(ctx context.Context, id protocol.AgentID) {

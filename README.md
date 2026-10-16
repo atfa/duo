@@ -233,13 +233,30 @@ agent-helper binaries.
 The Linux desktop launcher uses `DUO_REPO` or the current Git repository when
 available. Otherwise it prefers a folder chooser (`zenity`, `kdialog`, or `yad`)
 and falls back to a path prompt in `x-terminal-emulator` or another common
-terminal. The current Linux release `xduo` binary requires glibc 2.34 or newer.
+terminal. After choosing a repository, the launcher offers unfinished sessions
+to resume or a new session. The current Linux release `xduo` binary requires
+glibc 2.34 or newer.
 The graphical renderer also needs a working Vulkan driver.
+
+The composer wraps long lines and supports keyboard selection. Select a timeline
+message with a click or the navigation keys, then copy its original text with
+`Ctrl+C`. The overview includes Git diffstat and verification evidence, while
+work previews show elapsed time and keep the current step visible. Use
+`scripts/xduo-window-smoke.sh` and [the desktop checklist](./docs/xduo-window-smoke.md)
+to inspect the native window on supported desktops.
+If a driver cannot change models live, the model picker asks for confirmation
+before restarting that agent and interrupting its current turn.
+F1 opens searchable keyboard help. Type `/` in the task composer to see common
+commands; unknown slash text is sent as an ordinary task.
 
 | Key | Action |
 | --- | --- |
 | `Enter` | Send the typed task through Duo. |
 | `Shift+Enter` | Insert a newline in the task. |
+| `Shift` + arrows / `Home` / `End` | Select text in the composer. |
+| `Ctrl+A` | Select all composer text. |
+| Arrows / `PageUp` / `PageDown` / `Home` / `End` | Navigate timeline messages when the composer is not focused. |
+| `Ctrl+C` | Copy the selected timeline message. |
 | `Esc` | Clear the input. |
 | `Ctrl+G` | Ask for Goal mode. Fast sessions only. |
 | `Ctrl+L` | Switch the language Duo writes in. |

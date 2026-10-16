@@ -2,6 +2,26 @@
 
 All notable project milestones are documented here.
 
+## v0.12.1 — unreleased
+
+### xduo desktop usability
+
+- The task composer wraps long lines and supports keyboard selection, including
+  Shift with the arrow, Home and End keys.
+- The timeline renders lightweight Markdown, supports message selection and
+  navigation, and copies the selected message's original text.
+- The session overview shows Git diffstat, readiness and verification evidence.
+  Work previews show elapsed time and keep the current step visible in long lists.
+- Switching a model on a driver that requires a process restart asks for explicit
+  confirmation and warns that the agent's current turn will be interrupted.
+- Keyboard help is searchable, and a slash-command palette offers common GUI
+  actions while keeping ordinary task text available to send.
+- Desktop launchers offer to resume an unfinished session in the chosen
+  repository. A window smoke script and platform checklist cover decorations.
+- Automatic Git diffstat refresh disables repository-configured fsmonitor commands.
+
+This version has not been tagged or published.
+
 ## v0.12.0 — 2026-10-16
 
 ### xduo desktop release

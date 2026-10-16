@@ -45,6 +45,53 @@ choose_directory() {
 	fi
 }
 
+choose_session() {
+	local session_list="$1" id choice
+	local ids=()
+	while IFS= read -r id; do
+		[[ -n "$id" ]] && ids+=("$id")
+	done <<<"$session_list"
+	if [[ "$terminal_mode" == true ]]; then
+		printf '\nUnfinished sessions:\n' >&2
+		printf '  0) Start a new session\n' >&2
+		local index=1
+		for id in "${ids[@]}"; do
+			printf '  %d) Resume %s\n' "$index" "$id" >&2
+			((index+=1))
+		done
+		printf 'Choose a session (0-%d), or leave blank to cancel: ' "${#ids[@]}" >&2
+		IFS= read -r choice || return 1
+		[[ -n "$choice" ]] || return 1
+		[[ "$choice" == 0 ]] && { printf 'new'; return 0; }
+		[[ "$choice" =~ ^[0-9]+$ ]] || return 1
+		choice=$((10#$choice))
+		((choice >= 1 && choice <= ${#ids[@]})) || return 1
+		printf '%s' "${ids[choice-1]}"
+		return 0
+	fi
+	local options=("Start a new session" "${ids[@]}")
+	if command -v zenity >/dev/null 2>&1; then
+		choice="$(zenity --list --title='Choose a Duo session' --text='Resume an unfinished session or start a new one.' --column='Session' "${options[@]}")" || return 1
+	elif command -v kdialog >/dev/null 2>&1; then
+		local menu=(new 'Start a new session')
+		for id in "${ids[@]}"; do menu+=("$id" "Resume $id"); done
+		choice="$(kdialog --title 'Choose a Duo session' --menu 'Resume an unfinished session or start a new one.' "${menu[@]}")" || return 1
+	elif command -v yad >/dev/null 2>&1; then
+		choice="$(yad --list --title='Choose a Duo session' --text='Resume an unfinished session or start a new one.' --column='Session' "${options[@]}")" || return 1
+	else
+		return 127
+	fi
+	case "$choice" in
+		new|'Start a new session') printf 'new' ;;
+		*)
+			for id in "${ids[@]}"; do
+				if [[ "$choice" == "$id" ]]; then printf '%s' "$id"; return 0; fi
+			done
+			return 1
+			;;
+	esac
+}
+
 launch_terminal_picker() {
 	if command -v x-terminal-emulator >/dev/null 2>&1; then
 		x-terminal-emulator -e "$0" --terminal-picker
@@ -77,10 +124,14 @@ if [[ -z "${DUO_GPUI_BIN:-}" || ! -x "$DUO_GPUI_BIN" ]]; then
 fi
 
 if [[ "$terminal_mode" == true ]]; then
-	printf 'Enter the path to a Git repository, or leave blank to cancel: '
-	IFS= read -r project_dir || project_dir=''
-	if [[ -z "$project_dir" ]]; then
-		exit 0
+	if [[ -n "${DUO_REPO:-}" ]]; then
+		project_dir="$DUO_REPO"
+	else
+		printf 'Enter the path to a Git repository, or leave blank to cancel: ' >&2
+		IFS= read -r project_dir || project_dir=''
+		if [[ -z "$project_dir" ]]; then
+			exit 0
+		fi
 	fi
 else
 	if [[ -n "${DUO_REPO:-}" ]]; then
@@ -129,6 +180,40 @@ if ! cd "$project_root"; then
 	exit 1
 fi
 
+unfinished_ids="$("$DUO_HOST_BIN" sessions --unfinished-ids "$project_root" 2>/dev/null)" || {
+	show_error 'Could not read existing Duo sessions for this repository.'
+	pause_terminal
+	exit 1
+}
+gui_args=()
+if [[ -n "$unfinished_ids" ]]; then
+	if selected_session="$(choose_session "$unfinished_ids")"; then
+		:
+	else
+		chooser_status=$?
+		if [[ $chooser_status -eq 127 ]]; then
+			if [[ -t 0 && -t 1 ]]; then
+				terminal_mode=true
+				if ! selected_session="$(choose_session "$unfinished_ids")"; then
+					exit 0
+				fi
+			elif (export DUO_REPO="$project_root"; launch_terminal_picker); then
+				exit 0
+			else
+				show_error 'No session chooser or terminal emulator is available. Install zenity, kdialog, or yad, or start xduo from a terminal.'
+				pause_terminal
+				exit 1
+			fi
+		else
+			# Closing the chooser, or an invalid terminal response, is cancellation.
+			exit 0
+		fi
+	fi
+	if [[ "$selected_session" != new ]]; then
+		gui_args=(resume "$selected_session")
+	fi
+fi
+
 umask 077
 log_dir="${XDG_STATE_HOME:-${HOME}/.local/state}/duo"
 if ! mkdir -p "$log_dir"; then
@@ -137,7 +222,7 @@ if ! mkdir -p "$log_dir"; then
 	exit 1
 fi
 log_file="$log_dir/xduo.log"
-if "$DUO_HOST_BIN" gui "$@" >"$log_file" 2>&1; then
+if "$DUO_HOST_BIN" gui "${gui_args[@]}" "$@" >"$log_file" 2>&1; then
 	exit 0
 else
 	status=$?

@@ -85,7 +85,7 @@ timeline in the right order without a second code path.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `version` | string | The Duo version, e.g. `v0.12.0`. |
+| `version` | string | The Duo version, e.g. `v0.12.1`. |
 | `session` | string | The session id. |
 | `mode` | string | `fast`, `goal` or `step`. |
 | `phase` | string | The workflow phase, e.g. `PLAN`, `EXECUTE`, `REVIEW`. |
@@ -101,6 +101,8 @@ timeline in the right order without a second code path.
 | `steps_total` | number | The size of the Step-mode queue. |
 | `step_cursor` | number | The 1-based Step cursor. |
 | `delivery` | string | The delivery status, e.g. `applied`, `pending`, or empty. |
+| `verification` | Verification | The Fast-mode verdict bound to its reviewed HEAD; empty fields mean no verdict. |
+| `step_evidence` | array of StepVerification | Per-step review and delivery records in queue order (empty when the session has no step queue). |
 | `notices` | array of string | Driver diagnostics buffered before the renderer attached. Rendered as state, so repeating them on every `view` is idempotent and the renderer must not append them to the timeline. |
 | `agents` | object of Agent | Keyed by agent id: `austin`, `tony`. |
 
@@ -112,10 +114,14 @@ timeline in the right order without a second code path.
 | `worktree_path` | string | The agent's session worktree path. |
 | `worktree_branch` | string | The agent's worktree branch. |
 | `worktree_head` | string | The worktree's projected HEAD. |
+| `diffstat` | Diffstat | Cached Git change counts against `base_commit`, refreshed asynchronously by the host. |
+| `ready_note` | string | The agent's current phase sign-off note, if any. |
+| `ready_evidence` | string | Evidence attached to the agent's current phase sign-off, if any. |
 | `connected` | bool | The agent currently holds the bridge endpoint. |
 | `process` | string | The process state, e.g. `running`, `exited`. |
 | `driver` | string | The driver name. |
 | `model` | string | The model the agent runs. |
+| `live_model_switch` | bool | Whether this driver's model change takes effect without restarting its process. |
 | `thinking` | string | The reasoning effort, empty when the driver has none. |
 | `busy` | bool | The harness reports the agent working. |
 | `activity` | string | A one-line description of what the agent is doing now. |
@@ -124,12 +130,35 @@ timeline in the right order without a second code path.
 | `models_loaded` | bool | The catalog request finished, whether successfully or with an error. |
 | `models_error` | string | Catalog error, including when the driver publishes no catalog. Omitted when successful. |
 
+### Diffstat, Verification and StepVerification
+
+`diffstat` has `state`, `files`, `insertions`, `deletions`, `untracked`, and
+optional `error`. `state` is `unavailable` when the agent has no worktree,
+`loading` while Git is being queried, `ready` when counts are available, and
+`error` when Git could not read the worktree. Counts describe tracked changes
+from `base_commit`; `untracked` separately counts untracked paths, whose line
+contents are not read. The host refreshes summaries asynchronously and caches
+them for at least three seconds, so Git latency does not delay a view heartbeat.
+
+`verification` has `status`, `head`, `note`, and optional RFC 3339 `at`. It is
+the existing Fast-mode verification record. `step_evidence` contains one record
+per step queue entry: `index` (1-based), `title`, `done`, submitted `head`, a
+nested `verification` with the same shape, `delivery_head`, and optional
+`delivered_at`. These records are read-only copies of project state. Readiness
+notes and evidence are carried per agent in `ready_note` and `ready_evidence`.
+Long evidence text is bounded on the wire (500 runes for notes and 1000 for
+evidence, verification notes, and step titles).
+
 ### WorkPreview and Model
 
 `work` carries `provider_active`, `tool_depth`, `human_attached`, `last_activity`,
 `tool`, `tool_detail`, `tool_failed`, `stream_tail`, `last_error`,
 `context_tokens`, `context_window`, `tokens_per_second`, `tools`, `turn_started`,
-`tool_started`, `token_speed_at`, `failures`, and `recent`.
+`turn_elapsed_ms`, `tool_started`, `tool_elapsed_ms`, `token_speed_at`, `failures`,
+and `recent`. The elapsed values are nonnegative milliseconds from the corresponding
+start time to the time that view was projected. An unset start time produces zero;
+the host refreshes these values with each view heartbeat. The absolute RFC 3339
+start values remain available for clients that need them.
 Each recent tool note has `name`, `detail`, `ok`, and `duration_ms`. These values
 are copied from `session.View`; zero and empty values mean the driver has no data.
 Text in this preview is bounded on the wire (tool names 100 runes, tool details
@@ -203,6 +232,10 @@ Absent optional fields are omitted rather than sent as `null`.
 that has no catalog reports that through `models_error`; the renderer must not
 invent model choices. `cycle_thinking` follows the driver's session semantics and
 may restart an agent when that driver cannot change effort live.
+
+`live_model_switch` is copied from the driver's declared capability. When false, a
+model change restarts that agent's process to apply the selected model; when true,
+the running process applies it without a restart.
 
 ## Why this shape
 

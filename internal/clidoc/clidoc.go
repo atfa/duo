@@ -60,8 +60,8 @@ var commands = []Command{
 	},
 	{
 		Name:      "sessions",
-		Signature: "duo sessions [--all|-a] [repository]",
-		Summary:   "list sessions for this repository (--all for every repository)",
+		Signature: "duo sessions [--all|-a] [--unfinished-ids] [repository]",
+		Summary:   "list sessions or emit unfinished session IDs for a launcher",
 	},
 	{
 		Name:      "logs",

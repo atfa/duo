@@ -21,6 +21,7 @@ import (
 	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/models"
+	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/session"
 	"github.com/atfa/duo/internal/sessionstore"
@@ -59,21 +60,25 @@ type Ready struct {
 // Agent is the wire projection of one agent's session.AgentView. Activity is a
 // short summary; Work carries bounded structured runtime data for the preview.
 type Agent struct {
-	Present        bool        `json:"present"`
-	WorktreePath   string      `json:"worktree_path"`
-	WorktreeBranch string      `json:"worktree_branch"`
-	WorktreeHead   string      `json:"worktree_head"`
-	Connected      bool        `json:"connected"`
-	Process        string      `json:"process"`
-	Driver         string      `json:"driver"`
-	Model          string      `json:"model"`
-	Thinking       string      `json:"thinking"`
-	Busy           bool        `json:"busy"`
-	Activity       string      `json:"activity"`
-	Work           WorkPreview `json:"work"`
-	Models         []Model     `json:"models"`
-	ModelsLoaded   bool        `json:"models_loaded"`
-	ModelsError    string      `json:"models_error,omitempty"`
+	Present         bool        `json:"present"`
+	WorktreePath    string      `json:"worktree_path"`
+	WorktreeBranch  string      `json:"worktree_branch"`
+	WorktreeHead    string      `json:"worktree_head"`
+	Diffstat        Diffstat    `json:"diffstat"`
+	ReadyNote       string      `json:"ready_note"`
+	ReadyEvidence   string      `json:"ready_evidence"`
+	Connected       bool        `json:"connected"`
+	Process         string      `json:"process"`
+	Driver          string      `json:"driver"`
+	Model           string      `json:"model"`
+	LiveModelSwitch bool        `json:"live_model_switch"`
+	Thinking        string      `json:"thinking"`
+	Busy            bool        `json:"busy"`
+	Activity        string      `json:"activity"`
+	Work            WorkPreview `json:"work"`
+	Models          []Model     `json:"models"`
+	ModelsLoaded    bool        `json:"models_loaded"`
+	ModelsError     string      `json:"models_error,omitempty"`
 }
 
 type WorkPreview struct {
@@ -91,10 +96,45 @@ type WorkPreview struct {
 	TokensPerSecond float64    `json:"tokens_per_second"`
 	Tools           int        `json:"tools"`
 	TurnStarted     string     `json:"turn_started,omitempty"`
+	TurnElapsedMS   uint64     `json:"turn_elapsed_ms"`
 	ToolStarted     string     `json:"tool_started,omitempty"`
+	ToolElapsedMS   uint64     `json:"tool_elapsed_ms"`
 	TokenSpeedAt    string     `json:"token_speed_at,omitempty"`
 	Failures        int        `json:"failures"`
 	Recent          []ToolNote `json:"recent"`
+}
+
+// Diffstat is a bounded summary of an agent worktree compared with the session
+// base commit. State is unavailable when no worktree is configured, loading while
+// the host reads Git, ready on success, and error when Git could not answer.
+type Diffstat struct {
+	State      string `json:"state"`
+	Files      int    `json:"files"`
+	Insertions int    `json:"insertions"`
+	Deletions  int    `json:"deletions"`
+	Untracked  int    `json:"untracked"`
+	Error      string `json:"error,omitempty"`
+}
+
+// Verification is the structured verification record already owned by the
+// project state machine. At is omitted when no verdict has been recorded.
+type Verification struct {
+	Status string `json:"status"`
+	Head   string `json:"head"`
+	Note   string `json:"note"`
+	At     string `json:"at,omitempty"`
+}
+
+// StepVerification retains the evidence binding and delivery record for each
+// Step-mode item without sending its full plan prose.
+type StepVerification struct {
+	Index        int          `json:"index"`
+	Title        string       `json:"title"`
+	Done         bool         `json:"done"`
+	Head         string       `json:"head"`
+	Verification Verification `json:"verification"`
+	DeliveryHead string       `json:"delivery_head"`
+	DeliveredAt  string       `json:"delivered_at,omitempty"`
 }
 
 type ToolNote struct {
@@ -117,24 +157,26 @@ type Model struct {
 // diagnostics a session buffered before any frontend existed, so the GUI shows
 // them the way the terminal interface does rather than losing them.
 type View struct {
-	Version     string           `json:"version"`
-	Session     string           `json:"session"`
-	Mode        string           `json:"mode"`
-	Phase       string           `json:"phase"`
-	Started     bool             `json:"started"`
-	Language    string           `json:"language"`
-	Repository  string           `json:"repository"`
-	BaseBranch  string           `json:"base_branch"`
-	BaseCommit  string           `json:"base_commit"`
-	Status      string           `json:"status"`
-	Plan        string           `json:"plan"`
-	PlanVersion int              `json:"plan_version"`
-	Ready       Ready            `json:"ready"`
-	StepsTotal  int              `json:"steps_total"`
-	StepCursor  int              `json:"step_cursor"`
-	Delivery    string           `json:"delivery"`
-	Notices     []string         `json:"notices"`
-	Agents      map[string]Agent `json:"agents"`
+	Version      string             `json:"version"`
+	Session      string             `json:"session"`
+	Mode         string             `json:"mode"`
+	Phase        string             `json:"phase"`
+	Started      bool               `json:"started"`
+	Language     string             `json:"language"`
+	Repository   string             `json:"repository"`
+	BaseBranch   string             `json:"base_branch"`
+	BaseCommit   string             `json:"base_commit"`
+	Status       string             `json:"status"`
+	Plan         string             `json:"plan"`
+	PlanVersion  int                `json:"plan_version"`
+	Ready        Ready              `json:"ready"`
+	StepsTotal   int                `json:"steps_total"`
+	StepCursor   int                `json:"step_cursor"`
+	Delivery     string             `json:"delivery"`
+	Verification Verification       `json:"verification"`
+	StepEvidence []StepVerification `json:"step_evidence"`
+	Notices      []string           `json:"notices"`
+	Agents       map[string]Agent   `json:"agents"`
 }
 
 // Event is one timeline line. Live session events and replayed history records
@@ -217,44 +259,76 @@ func fromView(v session.View, status string) View {
 			Austin: v.Project.Ready[protocol.Austin],
 			Tony:   v.Project.Ready[protocol.Tony],
 		},
-		StepsTotal: len(v.Project.Steps),
-		StepCursor: v.Project.Step,
-		Delivery:   v.Delivery.Status,
-		Notices:    append([]string{}, v.Notices...),
-		Agents:     map[string]Agent{},
+		StepsTotal:   len(v.Project.Steps),
+		StepCursor:   v.Project.Step,
+		Delivery:     v.Delivery.Status,
+		Verification: fromVerification(v.Project.Verification),
+		StepEvidence: make([]StepVerification, 0, len(v.Project.Steps)),
+		Notices:      append([]string{}, v.Notices...),
+		Agents:       map[string]Agent{},
 	}
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
 		av := v.Agents[id]
 		worktree, _ := v.Worktrees.For(id)
 		out.Agents[wireAgent(id)] = Agent{
-			Present:        av.Present,
-			WorktreePath:   worktree.Path,
-			WorktreeBranch: worktree.Branch,
-			WorktreeHead:   worktree.Head,
-			Connected:      av.Connected,
-			Process:        av.Process.String(),
-			Driver:         av.Driver,
-			Model:          av.Model,
-			Thinking:       av.Thinking,
-			Busy:           av.Runtime.Busy,
-			Activity:       activityLine(av.Runtime),
-			Work:           workPreview(av.Runtime),
-			Models:         []Model{},
+			Present:         av.Present,
+			WorktreePath:    worktree.Path,
+			WorktreeBranch:  worktree.Branch,
+			WorktreeHead:    worktree.Head,
+			ReadyNote:       truncateRunes(v.Project.Notes[id], 500),
+			ReadyEvidence:   truncateRunes(v.Project.Evidence[id], 1000),
+			Connected:       av.Connected,
+			Process:         av.Process.String(),
+			Driver:          av.Driver,
+			Model:           av.Model,
+			LiveModelSwitch: av.Capabilities.LiveModelSwitch,
+			Thinking:        av.Thinking,
+			Busy:            av.Runtime.Busy,
+			Activity:        activityLine(av.Runtime),
+			Work:            workPreview(av.Runtime),
+			Models:          []Model{},
 		}
+	}
+	for i, step := range v.Project.Steps {
+		out.StepEvidence = append(out.StepEvidence, StepVerification{
+			Index: i + 1, Title: truncateRunes(step.Title, 500), Done: step.Done,
+			Head: step.Head, Verification: fromVerification(step.Verification),
+			DeliveryHead: step.DeliveryHead, DeliveredAt: step.DeliveredAt,
+		})
+	}
+	return out
+}
+
+func fromVerification(v project.Verification) Verification {
+	out := Verification{Status: string(v.Status), Head: v.Head, Note: truncateRunes(v.Note, 1000)}
+	if v.At != nil {
+		out.At = v.At.Format(time.RFC3339Nano)
 	}
 	return out
 }
 
 func workPreview(rt harness.AgentRuntime) WorkPreview {
+	return workPreviewAt(rt, time.Now())
+}
+
+func workPreviewAt(rt harness.AgentRuntime, now time.Time) WorkPreview {
 	out := WorkPreview{ProviderActive: rt.ProviderActive, ToolDepth: rt.ToolDepth, HumanAttached: rt.HumanAttached,
 		LastActivity: wireTime(rt.LastActivity), Tool: truncateRunes(rt.Tool, 100), ToolDetail: truncateRunes(rt.ToolDetail, 500), ToolFailed: rt.ToolFailed, StreamTail: truncateRunes(rt.StreamTail, 1200),
 		LastError: truncateRunes(rt.LastError, 500), ContextTokens: rt.ContextTokens, ContextWindow: rt.ContextWindow,
-		TokensPerSecond: rt.TokensPerSecond, Tools: rt.Tools, TurnStarted: wireTime(rt.TurnStarted), ToolStarted: wireTime(rt.ToolStarted),
+		TokensPerSecond: rt.TokensPerSecond, Tools: rt.Tools, TurnStarted: wireTime(rt.TurnStarted), TurnElapsedMS: elapsedMilliseconds(rt.TurnStarted, now),
+		ToolStarted: wireTime(rt.ToolStarted), ToolElapsedMS: elapsedMilliseconds(rt.ToolStarted, now),
 		TokenSpeedAt: wireTime(rt.TokenSpeedAt), Failures: rt.Failures, Recent: make([]ToolNote, 0, len(rt.Recent))}
 	for _, note := range rt.Recent {
 		out.Recent = append(out.Recent, ToolNote{Name: truncateRunes(note.Name, 100), Detail: truncateRunes(note.Detail, 300), OK: note.OK, DurationMS: note.Duration.Milliseconds()})
 	}
 	return out
+}
+
+func elapsedMilliseconds(start, now time.Time) uint64 {
+	if start.IsZero() || !now.After(start) {
+		return 0
+	}
+	return uint64(now.Sub(start) / time.Millisecond)
 }
 
 func wireTime(t time.Time) string {

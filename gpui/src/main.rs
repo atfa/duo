@@ -6,7 +6,9 @@
 //! `docs/gui-protocol.md`.
 
 mod app;
+mod commands;
 mod protocol;
+mod timeline;
 
 use std::io::BufRead;
 
