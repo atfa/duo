@@ -71,20 +71,25 @@ duo gui resume <session-id>   # open the window on the session already in flight
 
 | Key | Action |
 | --- | --- |
-| `Enter` | Send the typed task to Austin. |
+| `Enter` | Send the typed task through Duo. |
+| `Shift+Enter` | Insert a newline in the task. |
 | `Esc` | Clear the input. |
 | `Ctrl+G` | Ask for Goal mode. Fast sessions only; the host refuses it elsewhere. |
 | `Ctrl+L` | Switch the language Duo writes in. |
 | `Ctrl+R` | Restart Austin's process. |
+| `Ctrl+Y` | Restart Tony's process. |
+| `Ctrl+O` | Show or hide the session status and Plan. |
 | `Ctrl+Q` | Quit the window. |
 
 ## What the MVP does not do
 
-No agent terminal stream, no model or thinking picker, no shared-plan editor, no
-mouse, and no text selection or IME. The window shows the mode, the phase, both
-agents, the driver diagnostics and the timeline, and it sends the five human
-commands. A picker built from a model catalogue this frontend never fetches would
-be a menu that silently does nothing, which is worse than not having the menu.
+No agent terminal stream, no model or thinking picker, no shared-plan editor, or
+mouse-based text selection. The task composer uses GPUI's native text input bridge
+for IME composition and pasted text, with keyboard cursor movement and deletion.
+The window shows the mode, the phase, both agents, the driver diagnostics, the
+session status and Plan, and the timeline. A picker built from a model
+catalogue this frontend never fetches would be a menu that silently does nothing,
+which is worse than not having the menu.
 
 ## Tests
 

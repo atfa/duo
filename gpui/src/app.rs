@@ -6,11 +6,14 @@
 //! view, exactly like a terminal interface.
 
 use std::io::Write as _;
+use std::ops::Range;
 
 use gpui::prelude::*;
 use gpui::{
-    div, px, rgb, AnyElement, Context, FocusHandle, Focusable, FontWeight, KeyDownEvent, Render,
-    Rgba, StatefulInteractiveElement, Window, WindowAppearance,
+    div, px, relative, rgb, AnyElement, App, Bounds, Context, Element, ElementInputHandler, Entity,
+    EntityInputHandler, FocusHandle, Focusable, FontWeight, GlobalElementId, KeyDownEvent,
+    LayoutId, Render, Rgba, StatefulInteractiveElement, Style, UTF16Selection, Window,
+    WindowAppearance,
 };
 use smol::channel::Receiver;
 
@@ -117,9 +120,12 @@ pub struct DuoApp {
     view: Option<View>,
     events: Vec<Event>,
     input: String,
+    selection: Range<usize>,
+    marked_range: Option<Range<usize>>,
     /// The last rejected command or the reason the session ended.
     banner: Option<String>,
     closed: bool,
+    overview_open: bool,
     focus: FocusHandle,
 }
 
@@ -140,8 +146,11 @@ impl DuoApp {
             view: None,
             events: Vec::new(),
             input: String::new(),
+            selection: 0..0,
+            marked_range: None,
             banner: None,
             closed: false,
+            overview_open: false,
             focus: cx.focus_handle(),
         }
     }
@@ -196,6 +205,8 @@ impl DuoApp {
                     }
                 }
                 "r" => self.send(ClientMessage::restart_agent(AGENT_AUSTIN)),
+                "y" => self.send(ClientMessage::restart_agent(AGENT_TONY)),
+                "o" => self.overview_open = !self.overview_open,
                 "l" => {
                     // Toggle, because the human cannot type the target language into a
                     // window that has no menu; the host records the choice for later
@@ -213,29 +224,37 @@ impl DuoApp {
         }
 
         match keystroke.key.as_str() {
+            "enter" if self.marked_range.is_some() => {
+                // Let the active IME confirm its candidate before a later Enter
+                // submits the resulting task.
+            }
+            "enter" if keystroke.modifiers.shift => {
+                replace_selection(&mut self.input, &mut self.selection, "\n");
+            }
             "enter" => {
                 let text = self.input.trim().to_owned();
                 if !text.is_empty() {
                     self.input.clear();
+                    self.selection = 0..0;
                     self.send(ClientMessage::submit_task(text));
                 }
             }
-            "escape" => self.input.clear(),
+            "escape" => {
+                self.input.clear();
+                self.selection = 0..0;
+                self.marked_range = None;
+            }
             "backspace" => {
-                self.input.pop();
-            }
-            "space" => self.input.push(' '),
-            _ => {
-                // A modified key is a binding, not text; alt-graph and IME input
-                // arrive through key_char on an unmodified keystroke.
-                if !keystroke.modifiers.alt && !keystroke.modifiers.platform {
-                    if let Some(ch) = keystroke.key_char.as_deref() {
-                        if !ch.is_empty() && !ch.chars().any(char::is_control) {
-                            self.input.push_str(ch);
-                        }
-                    }
+                if self.selection.is_empty() && self.selection.start > 0 {
+                    self.selection.start = previous_boundary(&self.input, self.selection.start);
                 }
+                replace_selection(&mut self.input, &mut self.selection, "");
             }
+            "left" => move_cursor(self, false),
+            "right" => move_cursor(self, true),
+            // Text, including spaces and IME commits, arrives through GPUI's
+            // InputHandler bridge. Handling key_char here would insert it twice.
+            _ => {}
         }
         cx.notify();
     }
@@ -263,16 +282,260 @@ impl Render for DuoApp {
             )
             .child(self.header(theme))
             .child(self.agents_row(theme))
+            .children(self.overview_open.then(|| self.overview(theme)))
             .child(self.timeline(theme))
             .child(self.status_row(theme))
-            .child(self.input_row(theme))
+            .child(self.input_row(theme, cx))
     }
+}
+
+/// Registers GPUI's native text input bridge during paint. Text is rendered by the
+/// row above; this small element exists to expose IME and clipboard input.
+struct InputHandlerElement {
+    app: Entity<DuoApp>,
+    focus: FocusHandle,
+}
+
+impl gpui::IntoElement for InputHandlerElement {
+    type Element = Self;
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl Element for InputHandlerElement {
+    type RequestLayoutState = ();
+    type PrepaintState = ();
+
+    fn id(&self) -> Option<gpui::ElementId> {
+        None
+    }
+    fn source_location(&self) -> Option<&'static core::panic::Location<'static>> {
+        None
+    }
+    fn request_layout(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&gpui::InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (LayoutId, ()) {
+        let mut style = Style::default();
+        style.size.width = relative(1.).into();
+        style.size.height = px(1.).into();
+        (window.request_layout(style, [], cx), ())
+    }
+    fn prepaint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&gpui::InspectorElementId>,
+        _: Bounds<gpui::Pixels>,
+        _: &mut (),
+        _: &mut Window,
+        _: &mut App,
+    ) {
+    }
+    fn paint(
+        &mut self,
+        _: Option<&GlobalElementId>,
+        _: Option<&gpui::InspectorElementId>,
+        bounds: Bounds<gpui::Pixels>,
+        _: &mut (),
+        _: &mut (),
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        window.handle_input(
+            &self.focus,
+            ElementInputHandler::new(bounds, self.app.clone()),
+            cx,
+        );
+    }
+}
+
+impl EntityInputHandler for DuoApp {
+    fn text_for_range(
+        &mut self,
+        range: Range<usize>,
+        adjusted: &mut Option<Range<usize>>,
+        _: &mut Window,
+        _: &mut Context<Self>,
+    ) -> Option<String> {
+        let range = utf8_range(&self.input, range);
+        *adjusted = Some(utf16_range(&self.input, range.clone()));
+        Some(self.input[range].to_owned())
+    }
+    fn selected_text_range(
+        &mut self,
+        _: bool,
+        _: &mut Window,
+        _: &mut Context<Self>,
+    ) -> Option<UTF16Selection> {
+        Some(UTF16Selection {
+            range: utf16_range(&self.input, self.selection.clone()),
+            reversed: false,
+        })
+    }
+    fn marked_text_range(&self, _: &mut Window, _: &mut Context<Self>) -> Option<Range<usize>> {
+        self.marked_range
+            .clone()
+            .map(|range| utf16_range(&self.input, range))
+    }
+    fn unmark_text(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        self.marked_range = None;
+        cx.notify();
+    }
+    fn replace_text_in_range(
+        &mut self,
+        range: Option<Range<usize>>,
+        text: &str,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let target = range
+            .map(|range| utf8_range(&self.input, range))
+            .or_else(|| self.marked_range.clone())
+            .unwrap_or_else(|| self.selection.clone());
+        self.input.replace_range(target.clone(), text);
+        let end = target.start + text.len();
+        self.selection = end..end;
+        self.marked_range = None;
+        cx.notify();
+    }
+    fn replace_and_mark_text_in_range(
+        &mut self,
+        range: Option<Range<usize>>,
+        text: &str,
+        selected: Option<Range<usize>>,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let target = range
+            .map(|range| utf8_range(&self.input, range))
+            .or_else(|| self.marked_range.clone())
+            .unwrap_or_else(|| self.selection.clone());
+        let start = target.start;
+        self.input.replace_range(target, text);
+        self.marked_range = (!text.is_empty()).then_some(start..start + text.len());
+        self.selection = selected
+            .map(|range| {
+                let range = utf8_range(text, range);
+                start + range.start..start + range.end
+            })
+            .unwrap_or(start + text.len()..start + text.len());
+        cx.notify();
+    }
+    fn bounds_for_range(
+        &mut self,
+        _: Range<usize>,
+        bounds: Bounds<gpui::Pixels>,
+        _: &mut Window,
+        _: &mut Context<Self>,
+    ) -> Option<Bounds<gpui::Pixels>> {
+        Some(bounds)
+    }
+    fn character_index_for_point(
+        &mut self,
+        _: gpui::Point<gpui::Pixels>,
+        _: &mut Window,
+        _: &mut Context<Self>,
+    ) -> Option<usize> {
+        Some(self.input.encode_utf16().count())
+    }
+}
+
+fn utf8_range(text: &str, range: Range<usize>) -> Range<usize> {
+    let offset = |units| {
+        let mut count = 0;
+        for (byte, ch) in text.char_indices() {
+            if count >= units {
+                return byte;
+            }
+            count += ch.len_utf16();
+        }
+        text.len()
+    };
+    offset(range.start)..offset(range.end)
+}
+
+fn utf16_range(text: &str, range: Range<usize>) -> Range<usize> {
+    let units = |byte: usize| text[..byte.min(text.len())].encode_utf16().count();
+    units(range.start)..units(range.end)
+}
+
+fn replace_selection(text: &mut String, selection: &mut Range<usize>, replacement: &str) {
+    text.replace_range(selection.clone(), replacement);
+    let cursor = selection.start + replacement.len();
+    *selection = cursor..cursor;
+}
+
+fn previous_boundary(text: &str, offset: usize) -> usize {
+    text[..offset]
+        .char_indices()
+        .last()
+        .map(|(index, _)| index)
+        .unwrap_or(0)
+}
+
+fn move_cursor(app: &mut DuoApp, right: bool) {
+    let cursor = if app.selection.is_empty() {
+        if right {
+            app.input[app.selection.end..]
+                .chars()
+                .next()
+                .map(|ch| app.selection.end + ch.len_utf8())
+                .unwrap_or(app.selection.end)
+        } else {
+            previous_boundary(&app.input, app.selection.start)
+        }
+    } else if right {
+        app.selection.end
+    } else {
+        app.selection.start
+    };
+    app.selection = cursor..cursor;
 }
 
 // Rendering helpers. Each returns AnyElement so a row can be built from mixed
 // children without making the element type of `render` depend on its contents.
 
 impl DuoApp {
+    fn overview(&self, theme: Theme) -> AnyElement {
+        let mut rows = Vec::new();
+        if let Some(view) = self.view.as_ref() {
+            rows.push(format!("Session {} · {}", view.session, view.repository));
+            rows.push(format!(
+                "{} @ {} · {} · {}",
+                view.base_branch, view.base_commit, view.mode, view.phase
+            ));
+            if !view.status.is_empty() {
+                rows.push(view.status.clone());
+            }
+            if !view.plan.is_empty() {
+                rows.push(format!("Plan v{}\n{}", view.plan_version, view.plan));
+            }
+        } else {
+            rows.push("Waiting for Duo…".to_owned());
+        }
+        div()
+            .id("xduo-overview")
+            .flex_none()
+            .max_h(px(180.))
+            .overflow_y_scroll()
+            .px_3()
+            .py_2()
+            .border_b_1()
+            .border_color(theme.border)
+            .bg(theme.surface)
+            .child(
+                div()
+                    .font_weight(FontWeight::BOLD)
+                    .child("Session overview"),
+            )
+            .child(div().flex().flex_col().gap_1().text_sm().children(rows))
+            .into_any_element()
+    }
+
     fn header(&self, theme: Theme) -> AnyElement {
         let mut children: Vec<AnyElement> = Vec::new();
 
@@ -379,7 +642,12 @@ impl DuoApp {
 
         let (detail, activity, state) = match agent {
             Some(agent) => (
-                format!("{} · {} · {}", agent.driver, or_dash(&agent.model), agent.process),
+                format!(
+                    "{} · {} · {}",
+                    agent.driver,
+                    or_dash(&agent.model),
+                    agent.process
+                ),
                 if agent.activity.is_empty() {
                     String::new()
                 } else {
@@ -395,7 +663,11 @@ impl DuoApp {
                     "○ not configured".to_owned()
                 },
             ),
-            None => ("waiting for the session".to_owned(), String::new(), "○ unknown".to_owned()),
+            None => (
+                "waiting for the session".to_owned(),
+                String::new(),
+                "○ unknown".to_owned(),
+            ),
         };
 
         let mut rows: Vec<AnyElement> = vec![
@@ -410,12 +682,7 @@ impl DuoApp {
                         .font_weight(FontWeight::BOLD)
                         .child(title.to_owned()),
                 )
-                .child(
-                    div()
-                        .text_color(theme.muted)
-                        .text_sm()
-                        .child(state),
-                )
+                .child(div().text_color(theme.muted).text_sm().child(state))
                 .into_any_element(),
             div()
                 .text_color(theme.muted)
@@ -577,14 +844,13 @@ impl DuoApp {
             .into_any_element()
     }
 
-    fn input_row(&self, theme: Theme) -> AnyElement {
+    fn input_row(&self, theme: Theme, cx: &Context<Self>) -> AnyElement {
         let empty = self.input.is_empty();
         let text = if empty {
             "Type a task and press Enter…".to_owned()
         } else {
-            // A caret stands in for a text cursor: the MVP has no IME or selection,
-            // and pretending otherwise would be worse than showing none.
-            format!("{}▏", self.input)
+            let cursor = self.selection.end;
+            format!("{}▏{}", &self.input[..cursor], &self.input[cursor..])
         };
         div()
             .flex_none()
@@ -604,6 +870,10 @@ impl DuoApp {
                     })
                     .child(text),
             )
+            .child(InputHandlerElement {
+                app: cx.entity(),
+                focus: self.focus.clone(),
+            })
             .child(
                 div()
                     .text_xs()
@@ -625,11 +895,16 @@ fn or_dash(value: &str) -> &str {
 /// hint_line names the keys this session actually answers. Goal escalation is left
 /// out of every other mode, because the key would only ever be refused there.
 fn hint_line(view: Option<&View>) -> String {
-    let mut keys = vec!["Enter send", "Esc clear"];
+    let mut keys = vec!["Enter send", "Shift+Enter newline", "Esc clear"];
     if view.map(|view| view.mode.as_str()) == Some(MODE_FAST) {
         keys.push("Ctrl+G goal");
     }
-    keys.extend(["Ctrl+L language", "Ctrl+R restart Austin", "Ctrl+Q quit"]);
+    keys.extend([
+        "Ctrl+L language",
+        "Ctrl+R/Y restart Austin/Tony",
+        "Ctrl+O overview",
+        "Ctrl+Q quit",
+    ]);
     keys.join(" · ")
 }
 
@@ -655,7 +930,7 @@ fn event_speaker(event: &Event, theme: Theme) -> (String, Rgba) {
 
 #[cfg(test)]
 mod tests {
-    use super::Theme;
+    use super::{replace_selection, utf16_range, utf8_range, Theme};
     use gpui::WindowAppearance;
 
     #[test]
@@ -667,5 +942,18 @@ mod tests {
         assert_ne!(light.foreground, dark.foreground);
         assert_ne!(light.surface, dark.surface);
         assert_ne!(light.speaker("austin"), dark.speaker("austin"));
+    }
+
+    #[test]
+    fn composer_ranges_and_replacement_preserve_unicode_boundaries() {
+        let text = "a界🙂z";
+        assert_eq!(utf8_range(text, 1..4), 1.."a界🙂".len());
+        assert_eq!(utf16_range(text, "a界".len()..text.len()), 2..5);
+
+        let mut text = text.to_owned();
+        let mut selection = 1.."a界".len();
+        replace_selection(&mut text, &mut selection, "文");
+        assert_eq!(text, "a文🙂z");
+        assert_eq!(selection, "a文".len().."a文".len());
     }
 }

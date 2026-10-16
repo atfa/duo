@@ -226,11 +226,14 @@ to install the Dock icon.
 
 | Key | Action |
 | --- | --- |
-| `Enter` | Send the typed task to Austin. |
+| `Enter` | Send the typed task through Duo. |
+| `Shift+Enter` | Insert a newline in the task. |
 | `Esc` | Clear the input. |
 | `Ctrl+G` | Ask for Goal mode. Fast sessions only. |
 | `Ctrl+L` | Switch the language Duo writes in. |
 | `Ctrl+R` | Restart Austin's process. |
+| `Ctrl+Y` | Restart Tony's process. |
+| `Ctrl+O` | Show or hide the session status and Plan. |
 | `Ctrl+Q` | Quit the window. |
 
 Duo Core is unchanged by this frontend: `internal/session` is still the only seam
