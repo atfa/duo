@@ -20,14 +20,23 @@ import (
 
 const recentLimit = 1 << 20
 
-// modeEnv normalizes the session mode for an Agent Adapter. Duo Core always sets
-// it, and only fast|goal is ever exported: an adapter treats a missing value as
-// legacy Goal, but an empty or unknown value would be ambiguous.
+// modeEnv normalizes the session mode for an Agent Adapter.
+//
+// Every mode Duo Core knows must arrive unchanged, because the adapter chooses
+// its tool set and its policy from this value. Folding step into goal is what
+// deadlocked a STEP session: the adapter registered the Goal tools, which do not
+// include duo_set_steps, so neither agent could publish the queue PLAN requires.
+// An empty or unknown value still reads as the legacy Goal, which is why the
+// fallback stays rather than returning the raw string.
 func modeEnv(mode string) string {
-	if strings.TrimSpace(mode) == "fast" {
+	switch strings.TrimSpace(mode) {
+	case "fast":
 		return "fast"
+	case "step":
+		return "step"
+	default:
+		return "goal"
 	}
-	return "goal"
 }
 
 func languageEnv(language string) string {
