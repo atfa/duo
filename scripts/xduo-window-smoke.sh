@@ -50,7 +50,7 @@ trap cleanup EXIT INT TERM
 cat >"$work/host.py" <<'PY'
 import json, sys, time
 view = {"type":"view", "view": {
-    "version":"v0.12.1", "session":"window-smoke", "mode":"step",
+    "version":"v0.12.2", "session":"window-smoke", "mode":"step",
     "phase":"EXECUTE", "language":"en", "repository":"/smoke/repo",
     "base_branch":"main", "base_commit":"0123456789ab",
     "status":"xduo desktop window smoke", "plan_version":1,

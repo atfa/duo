@@ -31,6 +31,22 @@ pub enum Block {
     Code(String),
 }
 
+/// Return timeline indexes whose message text contains the query, ignoring case.
+/// The caller bounds the source window; this helper does one pass and preserves
+/// event order so the result can be navigated predictably.
+pub fn search_matches<'a>(texts: impl IntoIterator<Item = &'a str>, query: &str) -> Vec<usize> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Vec::new();
+    }
+    let query = query.to_lowercase();
+    texts
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, text)| text.to_lowercase().contains(&query).then_some(index))
+        .collect()
+}
+
 /// Parse the supported display subset: ATX headings, unordered list items,
 /// fenced code blocks, and inline emphasis/code/links. Unsupported syntax and
 /// raw HTML remain ordinary text. An unmatched marker is also kept verbatim.
@@ -251,7 +267,7 @@ fn plain_span(text: String) -> Span {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_markdown, Block, TextStyle};
+    use super::{parse_markdown, search_matches, Block, TextStyle};
 
     fn displayed(blocks: &[Block]) -> String {
         let mut output = String::new();
@@ -338,5 +354,24 @@ mod tests {
     fn preserves_unicode_and_explicit_line_breaks() {
         let source = "one 界🙂\ntwo\n\nthree";
         assert_eq!(displayed(&parse_markdown(source)), "one 界🙂\ntwo\nthree");
+    }
+
+    #[test]
+    fn search_is_case_insensitive_ordered_and_handles_unicode() {
+        let events = ["first", "HELLO world", "界🙂", "hello again"];
+        assert_eq!(search_matches(events.iter().copied(), "hello"), vec![1, 3]);
+        assert_eq!(search_matches(events.iter().copied(), "界🙂"), vec![2]);
+        assert!(search_matches(events.iter().copied(), "  ").is_empty());
+    }
+
+    #[test]
+    fn search_scans_a_bounded_timeline_without_reordering_matches() {
+        let events: Vec<_> = (0..500)
+            .map(|index| if index % 97 == 0 { "needle" } else { "other" })
+            .collect();
+        assert_eq!(
+            search_matches(events.iter().copied(), "needle"),
+            vec![0, 97, 194, 291, 388, 485]
+        );
     }
 }

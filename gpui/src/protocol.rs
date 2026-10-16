@@ -85,6 +85,8 @@ pub struct Agent {
     #[serde(default)]
     pub diffstat: Diffstat,
     #[serde(default)]
+    pub diff_preview: DiffPreview,
+    #[serde(default)]
     pub ready_note: String,
     #[serde(default)]
     pub ready_evidence: String,
@@ -128,6 +130,19 @@ pub struct Diffstat {
     pub deletions: usize,
     #[serde(default)]
     pub untracked: usize,
+    #[serde(default)]
+    pub error: String,
+}
+
+/// Bounded, read-only patch excerpt for an agent worktree.
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct DiffPreview {
+    #[serde(default)]
+    pub state: String,
+    #[serde(default)]
+    pub text: String,
+    #[serde(default)]
+    pub truncated: bool,
     #[serde(default)]
     pub error: String,
 }
@@ -368,6 +383,7 @@ mod tests {
             "agents": {
                 "austin": {"present": true, "worktree_path":"/tmp/duo/austin", "worktree_branch":"duo/austin", "worktree_head":"aaa",
                            "diffstat":{"state":"ready", "files":3, "insertions":12, "deletions":4, "untracked":1},
+                           "diff_preview":{"state":"ready", "text":"-before\n+after\n", "truncated":true},
                            "ready_note":"reviewed", "ready_evidence":"go test ./internal/guiipc",
                            "connected": true, "process": "running",
                            "driver": "pi", "model": "deepseek/deepseek-flash", "live_model_switch": true,
@@ -416,6 +432,9 @@ mod tests {
         assert_eq!(austin.diffstat.insertions, 12);
         assert_eq!(austin.diffstat.deletions, 4);
         assert_eq!(austin.diffstat.untracked, 1);
+        assert_eq!(austin.diff_preview.state, "ready");
+        assert!(austin.diff_preview.text.contains("+after"));
+        assert!(austin.diff_preview.truncated);
         assert_eq!(austin.ready_note, "reviewed");
         assert_eq!(austin.ready_evidence, "go test ./internal/guiipc");
         assert!(austin.live_model_switch);
@@ -450,6 +469,7 @@ mod tests {
         assert!(austin.present);
         assert_eq!(austin.worktree_head, "abc");
         assert_eq!(austin.diffstat, Diffstat::default());
+        assert_eq!(austin.diff_preview, DiffPreview::default());
         assert!(austin.ready_note.is_empty());
         assert!(austin.ready_evidence.is_empty());
         assert!(!austin.live_model_switch);

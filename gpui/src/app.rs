@@ -26,7 +26,7 @@ use crate::commands::{
     classify_submission, search_help, slash_completions, SlashAction, SlashCommand, Submission,
 };
 use crate::protocol::{Agent, ClientMessage, Event, Model, ServerMessage, View, WorkPreview};
-use crate::timeline::{parse_markdown, Block, Span};
+use crate::timeline::{parse_markdown, search_matches, Block, Span};
 
 /// The lowercase wire spellings. The host normalizes identity once, at its own
 /// boundary, so this side uses these constants and never re-cases a value it
@@ -69,6 +69,23 @@ enum CatalogState {
     Empty,
     NoMatches,
     Ready,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DiffPreviewDisplay {
+    Loading,
+    Ready,
+    Error,
+    Unavailable,
+}
+
+fn diff_preview_display(state: &str) -> DiffPreviewDisplay {
+    match state.to_ascii_lowercase().as_str() {
+        "ready" => DiffPreviewDisplay::Ready,
+        "error" => DiffPreviewDisplay::Error,
+        "unavailable" => DiffPreviewDisplay::Unavailable,
+        _ => DiffPreviewDisplay::Loading,
+    }
 }
 
 fn matching_models(agent: &Agent, filter: &str) -> Vec<Model> {
@@ -228,6 +245,11 @@ pub struct DuoApp {
     selected_event: Option<usize>,
     timeline_focused: bool,
     timeline_scroll: ScrollHandle,
+    timeline_search: Option<String>,
+    search_matches: Vec<usize>,
+    search_current: Option<usize>,
+    search_selection: Range<usize>,
+    search_marked: Option<Range<usize>>,
     input: String,
     selection: Range<usize>,
     marked_range: Option<Range<usize>>,
@@ -252,6 +274,7 @@ pub struct DuoApp {
     model_picker: Option<ModelPicker>,
     pending_model_change: Option<PendingModelChange>,
     work_preview_open: bool,
+    diff_preview_agent: Option<String>,
     focus: FocusHandle,
 }
 
@@ -274,6 +297,11 @@ impl DuoApp {
             selected_event: None,
             timeline_focused: false,
             timeline_scroll: ScrollHandle::new(),
+            timeline_search: None,
+            search_matches: Vec::new(),
+            search_current: None,
+            search_selection: 0..0,
+            search_marked: None,
             input: String::new(),
             selection: 0..0,
             marked_range: None,
@@ -297,6 +325,7 @@ impl DuoApp {
             model_picker: None,
             pending_model_change: None,
             work_preview_open: false,
+            diff_preview_agent: None,
             focus: cx.focus_handle(),
         }
     }
@@ -306,10 +335,12 @@ impl DuoApp {
             ServerMessage::View { view } => self.view = Some(view),
             ServerMessage::Event { event } => {
                 self.events.push(event);
+                self.refresh_timeline_search();
                 if self.events.len() > MAX_EVENTS {
                     let excess = self.events.len() - MAX_EVENTS;
                     self.events.drain(..excess);
                     self.selected_event = selection_after_front_drain(self.selected_event, excess);
+                    self.refresh_timeline_search();
                 }
             }
             ServerMessage::Error { text } => self.banner = Some(text),
@@ -348,6 +379,12 @@ impl DuoApp {
             return;
         }
 
+        if self.diff_preview_agent.is_some() && keystroke.key.eq_ignore_ascii_case("escape") {
+            self.diff_preview_agent = None;
+            cx.notify();
+            return;
+        }
+
         if self.model_picker.is_some() {
             self.on_model_picker_key(event, cx);
             return;
@@ -355,6 +392,83 @@ impl DuoApp {
 
         if self.help_open {
             self.on_help_key(event, cx);
+            return;
+        }
+
+        if self.timeline_search.is_some() {
+            if (keystroke.modifiers.control || keystroke.modifiers.platform)
+                && keystroke.key.eq_ignore_ascii_case("a")
+            {
+                let len = self.timeline_search.as_ref().map_or(0, String::len);
+                self.search_selection = 0..len;
+                cx.notify();
+                return;
+            }
+            match keystroke.key.as_str() {
+                "escape" => {
+                    self.timeline_search = None;
+                    self.search_selection = 0..0;
+                    self.search_marked = None;
+                    self.search_matches.clear();
+                    self.search_current = None;
+                    cx.notify();
+                    return;
+                }
+                "enter" => {
+                    self.move_search_match(!keystroke.modifiers.shift);
+                    cx.notify();
+                    return;
+                }
+                "up" => {
+                    self.move_search_match(false);
+                    cx.notify();
+                    return;
+                }
+                "down" => {
+                    self.move_search_match(true);
+                    cx.notify();
+                    return;
+                }
+                "backspace" | "delete" => {
+                    if let Some(query) = self.timeline_search.as_mut() {
+                        delete_search_text(
+                            query,
+                            &mut self.search_selection,
+                            keystroke.key == "backspace",
+                        );
+                        self.search_marked = None;
+                    }
+                    self.refresh_timeline_search();
+                    cx.notify();
+                    return;
+                }
+                _ if !keystroke.modifiers.control
+                    && !keystroke.modifiers.platform
+                    && !keystroke.modifiers.alt =>
+                {
+                    if self.search_marked.is_none() {
+                        if let Some(chars) = keystroke.key_char.as_deref() {
+                            if !chars.is_empty() {
+                                cx.notify();
+                                return;
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        if (keystroke.modifiers.control || keystroke.modifiers.platform)
+            && keystroke.key.eq_ignore_ascii_case("f")
+        {
+            self.timeline_search = Some(String::new());
+            self.search_selection = 0..0;
+            self.search_marked = None;
+            self.timeline_focused = true;
+            self.search_matches.clear();
+            self.search_current = None;
+            cx.notify();
             return;
         }
 
@@ -691,6 +805,43 @@ impl DuoApp {
             timeline_navigation_target(self.selected_event, self.events.len(), delta);
         if let Some(index) = self.selected_event {
             let notice_count = self.view.as_ref().map_or(0, |view| view.notices.len());
+            self.timeline_scroll.scroll_to_item(notice_count + index);
+        }
+    }
+
+    fn refresh_timeline_search(&mut self) {
+        self.search_matches = search_matches(
+            self.events.iter().map(|event| event.text.as_str()),
+            self.timeline_search.as_deref().unwrap_or_default(),
+        );
+        self.search_current = self.selected_event.and_then(|selected| {
+            self.search_matches
+                .iter()
+                .position(|index| *index == selected)
+        });
+        if self.search_current.is_none() && !self.search_matches.is_empty() {
+            self.search_current = Some(0);
+            self.selected_event = self.search_matches.first().copied();
+        }
+    }
+
+    fn move_search_match(&mut self, forward: bool) {
+        if self.search_matches.is_empty() {
+            self.search_current = None;
+            return;
+        }
+        let current = self.search_current.unwrap_or(0);
+        let next = if forward {
+            (current + 1) % self.search_matches.len()
+        } else {
+            current
+                .checked_sub(1)
+                .unwrap_or(self.search_matches.len() - 1)
+        };
+        self.search_current = Some(next);
+        self.selected_event = self.search_matches.get(next).copied();
+        let notice_count = self.view.as_ref().map_or(0, |view| view.notices.len());
+        if let Some(index) = self.selected_event {
             self.timeline_scroll.scroll_to_item(notice_count + index);
         }
     }
@@ -1652,6 +1803,25 @@ fn encode_history_entry(task: &str) -> String {
     task.replace('\n', "\\n") + "\n"
 }
 
+fn replace_composition_text(
+    text: &mut String,
+    selection: &mut Range<usize>,
+    marked: &mut Option<Range<usize>>,
+    range: Option<Range<usize>>,
+    replacement: &str,
+    mark: bool,
+) {
+    let target = range
+        .map(|range| utf8_range(text, range))
+        .or_else(|| marked.clone())
+        .unwrap_or_else(|| selection.clone());
+    let start = target.start;
+    text.replace_range(target, replacement);
+    let end = start + replacement.len();
+    *selection = end..end;
+    *marked = (mark && !replacement.is_empty()).then_some(start..end);
+}
+
 impl Focusable for DuoApp {
     fn focus_handle(&self, _: &gpui::App) -> FocusHandle {
         self.focus.clone()
@@ -1701,6 +1871,11 @@ impl Render for DuoApp {
                 .child(self.header(theme, !client_chrome))
                 .child(self.agents_row(theme, cx))
                 .children(self.overview_open.then(|| self.overview(theme)))
+                .children(
+                    self.diff_preview_agent
+                        .is_some()
+                        .then(|| self.diff_preview_panel(theme, cx)),
+                )
                 .children(self.help_open.then(|| self.help_overlay(theme)))
                 .children(self.slash_menu_open().then(|| self.slash_palette(theme)))
                 .children(
@@ -1723,9 +1898,10 @@ impl EntityInputHandler for DuoApp {
         _: &mut Window,
         _: &mut Context<Self>,
     ) -> Option<String> {
-        let range = utf8_range(&self.input, range);
-        *adjusted = Some(utf16_range(&self.input, range.clone()));
-        Some(self.input[range].to_owned())
+        let text = self.timeline_search.as_ref().unwrap_or(&self.input);
+        let range = utf8_range(text, range);
+        *adjusted = Some(utf16_range(text, range.clone()));
+        Some(text[range].to_owned())
     }
     fn selected_text_range(
         &mut self,
@@ -1733,18 +1909,34 @@ impl EntityInputHandler for DuoApp {
         _: &mut Window,
         _: &mut Context<Self>,
     ) -> Option<UTF16Selection> {
+        let (text, selection) = self
+            .timeline_search
+            .as_ref()
+            .map_or((&self.input, &self.selection), |query| {
+                (query, &self.search_selection)
+            });
         Some(UTF16Selection {
-            range: utf16_range(&self.input, self.selection.clone()),
+            range: utf16_range(text, selection.clone()),
             reversed: false,
         })
     }
     fn marked_text_range(&self, _: &mut Window, _: &mut Context<Self>) -> Option<Range<usize>> {
-        self.marked_range
-            .clone()
-            .map(|range| utf16_range(&self.input, range))
+        if self.timeline_search.is_some() {
+            self.search_marked.clone().map(|range| {
+                utf16_range(self.timeline_search.as_deref().unwrap_or_default(), range)
+            })
+        } else {
+            self.marked_range
+                .clone()
+                .map(|range| utf16_range(&self.input, range))
+        }
     }
     fn unmark_text(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        self.marked_range = None;
+        if self.timeline_search.is_some() {
+            self.search_marked = None;
+        } else {
+            self.marked_range = None;
+        }
         cx.notify();
     }
     fn replace_text_in_range(
@@ -1754,6 +1946,19 @@ impl EntityInputHandler for DuoApp {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if let Some(query) = self.timeline_search.as_mut() {
+            replace_composition_text(
+                query,
+                &mut self.search_selection,
+                &mut self.search_marked,
+                range,
+                text,
+                false,
+            );
+            self.refresh_timeline_search();
+            cx.notify();
+            return;
+        }
         self.reset_history_navigation();
         let target = range
             .map(|range| utf8_range(&self.input, range))
@@ -1778,6 +1983,19 @@ impl EntityInputHandler for DuoApp {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if let Some(query) = self.timeline_search.as_mut() {
+            replace_composition_text(
+                query,
+                &mut self.search_selection,
+                &mut self.search_marked,
+                range,
+                text,
+                true,
+            );
+            self.refresh_timeline_search();
+            cx.notify();
+            return;
+        }
         self.reset_history_navigation();
         let target = range
             .map(|range| utf8_range(&self.input, range))
@@ -1879,6 +2097,21 @@ fn replace_selection(text: &mut String, selection: &mut Range<usize>, replacemen
     *selection = cursor..cursor;
 }
 
+fn delete_search_text(text: &mut String, selection: &mut Range<usize>, backwards: bool) {
+    if selection.start == selection.end {
+        let cursor = selection.start.min(text.len());
+        if backwards {
+            selection.start = previous_boundary(text, cursor);
+        } else {
+            selection.end = text[cursor..]
+                .chars()
+                .next()
+                .map_or(cursor, |ch| cursor + ch.len_utf8());
+        }
+    }
+    replace_selection(text, selection, "");
+}
+
 fn previous_boundary(text: &str, offset: usize) -> usize {
     text[..offset]
         .char_indices()
@@ -1946,6 +2179,122 @@ fn move_to_line_edge(app: &mut DuoApp, end: bool, extend: bool) {
 // children without making the element type of `render` depend on its contents.
 
 impl DuoApp {
+    fn diff_preview_panel(&self, theme: Theme, cx: &Context<Self>) -> AnyElement {
+        let Some(id) = self.diff_preview_agent.as_deref() else {
+            return div().into_any_element();
+        };
+        let name = if id == AGENT_AUSTIN { "Austin" } else { "Tony" };
+        let preview = self
+            .view
+            .as_ref()
+            .and_then(|view| view.agents.get(id))
+            .map(|agent| &agent.diff_preview);
+        let mut body: Vec<AnyElement> = Vec::new();
+        match preview {
+            None => body.push(
+                div()
+                    .text_color(theme.muted)
+                    .child("Waiting for agent data…")
+                    .into_any_element(),
+            ),
+            Some(preview) => {
+                match diff_preview_display(&preview.state) {
+                    DiffPreviewDisplay::Loading => body.push(
+                        div()
+                            .text_color(theme.muted)
+                            .child("Loading changes…")
+                            .into_any_element(),
+                    ),
+                    DiffPreviewDisplay::Error => body.push(
+                        div()
+                            .text_color(theme.error)
+                            .child(format!(
+                                "Could not load changes: {}",
+                                or_dash(&preview.error)
+                            ))
+                            .into_any_element(),
+                    ),
+                    DiffPreviewDisplay::Unavailable => body.push(
+                        div()
+                            .text_color(theme.muted)
+                            .child("Changes are unavailable because this agent has no worktree.")
+                            .into_any_element(),
+                    ),
+                    DiffPreviewDisplay::Ready => {
+                        if preview.text.is_empty() {
+                            body.push(
+                                div()
+                                    .text_color(theme.muted)
+                                    .child("No tracked changes.")
+                                    .into_any_element(),
+                            );
+                        } else {
+                            let text = preview.text.clone();
+                            let copy_text = text.clone();
+                            let copied_agent = name.to_owned();
+                            body.push(
+                                div()
+                                    .id("xduo-diff-preview-text")
+                                    .max_h(px(360.))
+                                    .overflow_y_scroll()
+                                    .bg(theme.background)
+                                    .rounded_sm()
+                                    .px_2()
+                                    .py_2()
+                                    .text_sm()
+                                    .text_color(theme.secondary)
+                                    .child(text)
+                                    .into_any_element(),
+                            );
+                            body.push(div().flex().flex_row().gap_2().items_center()
+                            .child(div().text_xs().text_color(theme.hint).child(if preview.truncated { "Patch excerpt truncated at 12 KiB." } else { "Patch excerpt complete." }))
+                            .child(div().cursor(CursorStyle::PointingHand).px_2().py_1().rounded_md().bg(theme.background).text_sm().child("Copy patch")
+                                .on_mouse_down(MouseButton::Left, cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                                    cx.write_to_clipboard(ClipboardItem::new_string(copy_text.clone()));
+                                    this.banner = Some(format!("Copied {copied_agent} patch to the clipboard."));
+                                    cx.notify();
+                                }))).into_any_element());
+                        }
+                    }
+                }
+            }
+        }
+        div()
+            .flex_none()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .px_3()
+            .py_2()
+            .max_h(px(440.))
+            .border_1()
+            .border_color(theme.border)
+            .rounded_md()
+            .bg(theme.surface)
+            .child(
+                div()
+                    .flex()
+                    .justify_between()
+                    .font_weight(FontWeight::BOLD)
+                    .child(format!("{name} changes"))
+                    .child(
+                        div()
+                            .cursor(CursorStyle::PointingHand)
+                            .text_color(theme.muted)
+                            .child("Close · Esc")
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                                    this.diff_preview_agent = None;
+                                    cx.notify();
+                                }),
+                            ),
+                    ),
+            )
+            .children(body)
+            .into_any_element()
+    }
+
     fn overview(&self, theme: Theme) -> AnyElement {
         let rows = self
             .view
@@ -2266,6 +2615,46 @@ impl DuoApp {
             thinking_control.text_color(theme.faint)
         };
         controls = controls.child(thinking_control);
+        if let Some(agent) = agent {
+            controls = controls.child(
+                div()
+                    .px_2()
+                    .py_1()
+                    .rounded_md()
+                    .bg(theme.background)
+                    .text_sm()
+                    .text_color(if agent.present {
+                        theme.foreground
+                    } else {
+                        theme.faint
+                    })
+                    .when(
+                        agent.present && !agent.worktree_path.is_empty(),
+                        |element| {
+                            let diff_agent = id.to_owned();
+                            element.cursor(CursorStyle::PointingHand).on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                                    this.diff_preview_agent = Some(diff_agent.clone());
+                                    cx.notify();
+                                }),
+                            )
+                        },
+                    )
+                    .child(format!("Inspect {title} changes")),
+            );
+            rows.push(
+                div()
+                    .text_xs()
+                    .text_color(theme.hint)
+                    .child(if agent.live_model_switch {
+                        "Model changes apply live"
+                    } else {
+                        "Model changes restart agent"
+                    })
+                    .into_any_element(),
+            );
+        }
         rows.push(controls.into_any_element());
         if !activity.is_empty() {
             rows.push(
@@ -2301,6 +2690,26 @@ impl DuoApp {
 
     fn timeline(&self, theme: Theme, cx: &Context<Self>) -> AnyElement {
         let mut children: Vec<AnyElement> = Vec::new();
+
+        if let Some(query) = self.timeline_search.as_ref() {
+            let count = self.search_matches.len();
+            let position = self.search_current.map_or(0, |index| index + 1);
+            let status = if query.is_empty() {
+                "Type to search · Enter/Shift+Enter next/previous · Esc close".to_owned()
+            } else if count == 0 {
+                format!("No matches for ‘{query}’ · Enter/Shift+Enter next/previous · Esc close")
+            } else {
+                format!("{position}/{count} matches for ‘{query}’ · Enter/Shift+Enter next/previous · Esc close")
+            };
+            children.push(
+                div()
+                    .flex_none()
+                    .text_sm()
+                    .text_color(theme.secondary)
+                    .child(status)
+                    .into_any_element(),
+            );
+        }
 
         // Notices are state, not history: they come from the last view, so they are
         // drawn every frame rather than appended once.
@@ -3230,6 +3639,7 @@ fn hint_line(view: Option<&View>) -> String {
         "Alt+Ctrl+T / Shift+Ctrl+T thinking",
         "Ctrl+T timestamps",
         "Ctrl+X copy Austin",
+        "Ctrl+F timeline search · Enter/Shift+Enter matches · Esc close",
         "Click message · arrows/Page/Home/End navigate · Ctrl+C copy selection",
         "F1 help",
         "Ctrl+Q quit",
@@ -3331,15 +3741,16 @@ fn inline_line(spans: &[Span], theme: Theme) -> AnyElement {
 #[cfg(test)]
 mod tests {
     use super::{
-        catalog_state, confirm_quit, decode_history, encode_history_entry, format_duration,
-        latest_austin_message, line_index_for_offset, line_range, matching_models,
-        model_restart_warning, model_selection_command, model_switch_decision,
-        needs_quit_confirmation, overview_rows, range_index_for_offset, replace_selection,
-        reset_slash_palette_after_text_edit, resize_edge, selected_event_text,
-        selection_after_front_drain, step_evidence_window, timeline_navigation_target,
-        truncate_text, utf16_range, utf8_range, visual_ranges_from_boundaries, work_elapsed_label,
-        Agent, CatalogState, Model, ModelSwitchDecision, Theme, AGENT_AUSTIN, AGENT_TONY,
-        PLAN_TEXT_LIMIT, QUIT_CONFIRM_WINDOW, STEP_EVIDENCE_LIMIT,
+        catalog_state, confirm_quit, decode_history, delete_search_text, diff_preview_display,
+        encode_history_entry, format_duration, latest_austin_message, line_index_for_offset,
+        line_range, matching_models, model_restart_warning, model_selection_command,
+        model_switch_decision, needs_quit_confirmation, overview_rows, range_index_for_offset,
+        replace_composition_text, replace_selection, reset_slash_palette_after_text_edit,
+        resize_edge, selected_event_text, selection_after_front_drain, step_evidence_window,
+        timeline_navigation_target, truncate_text, utf16_range, utf8_range,
+        visual_ranges_from_boundaries, work_elapsed_label, Agent, CatalogState, DiffPreviewDisplay,
+        Model, ModelSwitchDecision, Theme, AGENT_AUSTIN, AGENT_TONY, PLAN_TEXT_LIMIT,
+        QUIT_CONFIRM_WINDOW, STEP_EVIDENCE_LIMIT,
     };
     use crate::protocol::{Diffstat, Event, StepVerification, Verification, View, WorkPreview};
     use gpui::{point, px, size, ResizeEdge, WindowAppearance};
@@ -3384,6 +3795,45 @@ mod tests {
         replace_selection(&mut text, &mut selection, "文");
         assert_eq!(text, "a文🙂z");
         assert_eq!(selection, "a文".len().."a文".len());
+    }
+
+    #[test]
+    fn search_ime_replaces_marked_text_and_respects_utf16_ranges() {
+        let mut query = "界a".to_owned();
+        let mut selection = 4..4;
+        let mut marked = Some(3..4);
+        replace_composition_text(&mut query, &mut selection, &mut marked, None, "🙂", true);
+        assert_eq!(query, "界🙂");
+        assert_eq!(selection, query.len()..query.len());
+        assert_eq!(marked, Some("界".len()..query.len()));
+        replace_composition_text(
+            &mut query,
+            &mut selection,
+            &mut marked,
+            Some(0..1),
+            "x",
+            false,
+        );
+        assert_eq!(query, "x🙂");
+        assert_eq!(marked, None);
+    }
+
+    #[test]
+    fn search_deletion_respects_selection_and_unicode_boundaries() {
+        let mut query = "a界🙂z".to_owned();
+        let mut selection = "a界".len().."a界".len();
+        delete_search_text(&mut query, &mut selection, true);
+        assert_eq!(query, "a🙂z");
+        assert_eq!(selection, 1..1);
+
+        delete_search_text(&mut query, &mut selection, false);
+        assert_eq!(query, "az");
+        assert_eq!(selection, 1..1);
+
+        selection = 0..1;
+        delete_search_text(&mut query, &mut selection, false);
+        assert_eq!(query, "z");
+        assert_eq!(selection, 0..0);
     }
 
     #[test]
@@ -3434,6 +3884,18 @@ mod tests {
         );
         assert_eq!(catalog_state(Some(&agent), "MODEL-7"), CatalogState::Ready);
         assert_eq!(matching_models(&agent, "provider-x").len(), 1);
+    }
+
+    #[test]
+    fn diff_preview_states_map_to_loading_ready_error_and_unavailable_feedback() {
+        assert_eq!(diff_preview_display(""), DiffPreviewDisplay::Loading);
+        assert_eq!(diff_preview_display("loading"), DiffPreviewDisplay::Loading);
+        assert_eq!(diff_preview_display("READY"), DiffPreviewDisplay::Ready);
+        assert_eq!(diff_preview_display("error"), DiffPreviewDisplay::Error);
+        assert_eq!(
+            diff_preview_display("unavailable"),
+            DiffPreviewDisplay::Unavailable
+        );
     }
 
     #[test]

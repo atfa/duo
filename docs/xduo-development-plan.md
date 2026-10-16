@@ -2,20 +2,20 @@
 
 xduo and the terminal interface drive the same `internal/session` service. Their
 workflow modes, verification gates, delivery and resume behavior match. Version
-0.12.1 improves desktop usability; the remaining differences are in the human
-interface.
+0.12.2 adds in-window inspection and improves session selection; the remaining
+differences are in the human interface.
 
-| Area | Available in xduo 0.12.1 | Remaining gap and priority |
+| Area | Available in xduo 0.12.2 | Remaining gap and priority |
 | --- | --- | --- |
 | Task composer | IME, Unicode editing, mouse and keyboard selection, long-line wrapping, multiline tasks, and shared task history | P3: richer editing shortcuts and accessibility review. |
-| Conversation | Chronological timeline, timestamps, lightweight Markdown, message selection, keyboard navigation and copy of original text | P2: search and finer text selection within a message. |
-| Session overview | Mode, phase, Plan, readiness, steps, delivery, agent worktrees, Git diffstat and verification evidence | P2: inspect full diff and detailed verification logs from the window. |
-| Work preview | Both agents' tools, streamed text, errors, context usage, throughput, recent results, elapsed time and current step | P2: richer scrolling and filtering for long output. |
-| Models and thinking | Per-agent catalog picker, thinking controls and restart confirmation when the driver cannot switch live | P2: make pending model changes and driver capabilities visible in the agent card. |
+| Conversation | Chronological timeline, timestamps, lightweight Markdown, message selection and copy, keyboard navigation, and bounded search | P2: finer text selection within a message and search beyond the current 500-message window. |
+| Session overview | Mode, phase, Plan, readiness, steps, delivery, agent worktrees, Git diffstat and verification evidence | P2: inspect full diffs and detailed verification logs from the window; the current tracked patch preview is capped at 12 KiB. |
+| Work preview | Both agents' tools, streamed text, errors, context usage, throughput, recent results, elapsed time and current step | P2: filtering and richer scrolling for long output. |
+| Models and thinking | Per-agent catalog picker, thinking controls, live-switch capability shown in agent cards, and restart confirmation when needed | P3: expose pending model changes persistently until the host confirms them. |
 | Session safety | Unfinished-session quit confirmation and a [desktop window smoke guide](xduo-window-smoke.md) | P1: execute visual smoke tests on macOS and common Linux X11/Wayland desktops before publishing. |
 | Help and commands | Searchable keyboard help and common slash commands | P3: evaluate additional commands against actual GUI usage. |
 | Agent access | Agent health and restart | P3: native interactive attach requires a PTY transport and terminal emulator to preserve agent behavior. |
-| Session management | Start or resume from `duo gui`; launchers offer unfinished sessions in a chosen repository | P3: consider graphical session listing and maintenance; CLI `duo sessions`, `logs`, `apply`, `clean` and `plugins` remain available. |
+| Session management | Start or resume from `duo gui`; launchers offer unfinished sessions; TUI `duo resume` offers a terminal chooser when several inactive sessions exist | P3: consider graphical session listing and maintenance; CLI `duo sessions`, `logs`, `apply`, `clean` and `plugins` remain available. |
 
 Native agent attach is a separate transport project. The GUI protocol currently
 carries Duo state and human session commands. An interactive agent terminal also

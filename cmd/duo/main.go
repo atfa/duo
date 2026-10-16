@@ -108,6 +108,9 @@ func main() {
 		printUsage()
 		return
 	}
+	if err := maybeChooseResumeSession(ctx, &cfg); err != nil {
+		log.Fatal(err)
+	}
 	if err := cfg.validate(); err != nil {
 		log.Fatal(err)
 	}

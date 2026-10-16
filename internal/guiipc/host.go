@@ -51,6 +51,9 @@ const (
 	defaultBuffer = 64
 	// diffstatTTL avoids running Git for every 500 ms view heartbeat.
 	diffstatTTL = 3 * time.Second
+	// maxDiffPreviewBytes keeps a malicious or generated patch from inflating
+	// every GUI view or consuming unbounded host memory.
+	maxDiffPreviewBytes = 12 * 1024
 	// maxCommandBytes bounds one command line so a frontend that never sends a
 	// newline cannot make the host buffer without limit.
 	maxCommandBytes = 1 << 20
@@ -83,6 +86,7 @@ type catalogResult struct {
 type diffstatResult struct {
 	path, base string
 	value      Diffstat
+	preview    DiffPreview
 	updated    time.Time
 	loading    bool
 }
@@ -201,7 +205,7 @@ func (h *Host) projectView(ctx context.Context, sv session.View, status string) 
 	h.catalogMu.RUnlock()
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
 		a := v.Agents[wireAgent(id)]
-		a.Diffstat = h.worktreeDiffstat(ctx, id, a.WorktreePath, sv.Worktrees.BaseCommit)
+		a.Diffstat, a.DiffPreview = h.worktreeEvidence(ctx, id, a.WorktreePath, sv.Worktrees.BaseCommit)
 		v.Agents[wireAgent(id)] = a
 	}
 	return v
@@ -210,19 +214,20 @@ func (h *Host) projectView(ctx context.Context, sv session.View, status string) 
 // worktreeDiffstat returns the latest cached summary and refreshes it in the
 // background when stale. Git work can take seconds on a large tree; never hold up
 // a protocol heartbeat or event view to wait for it.
-func (h *Host) worktreeDiffstat(ctx context.Context, id protocol.AgentID, path, base string) Diffstat {
+func (h *Host) worktreeEvidence(ctx context.Context, id protocol.AgentID, path, base string) (Diffstat, DiffPreview) {
 	if path == "" {
-		return Diffstat{State: "unavailable"}
+		return Diffstat{State: "unavailable"}, DiffPreview{State: "unavailable"}
 	}
 	now := time.Now()
 	h.diffMu.Lock()
 	entry := h.diffstats[id]
 	if entry.path != path || entry.base != base {
-		entry = diffstatResult{path: path, base: base, value: Diffstat{State: "loading"}}
+		entry = diffstatResult{path: path, base: base, value: Diffstat{State: "loading"}, preview: DiffPreview{State: "loading"}}
 	}
 	if !entry.loading && (entry.updated.IsZero() || now.Sub(entry.updated) >= diffstatTTL) {
 		entry.loading = true
 		entry.value.State = "loading"
+		entry.preview.State = "loading"
 		h.diffstats[id] = entry
 		go h.refreshDiffstat(ctx, id, path, base)
 	} else {
@@ -230,24 +235,29 @@ func (h *Host) worktreeDiffstat(ctx context.Context, id protocol.AgentID, path, 
 	}
 	value := entry.value
 	h.diffMu.Unlock()
-	return value
+	return value, entry.preview
 }
 
 func (h *Host) refreshDiffstat(parent context.Context, id protocol.AgentID, path, base string) {
 	ctx, cancel := context.WithTimeout(parent, 2500*time.Millisecond)
 	defer cancel()
-	value := readDiffstat(ctx, path, base)
+	value, preview := readWorktreeEvidence(ctx, path, base)
 	h.diffMu.Lock()
 	defer h.diffMu.Unlock()
 	entry := h.diffstats[id]
 	if entry.path != path || entry.base != base {
 		return
 	}
-	entry.value, entry.updated, entry.loading = value, time.Now(), false
+	entry.value, entry.preview, entry.updated, entry.loading = value, preview, time.Now(), false
 	h.diffstats[id] = entry
 }
 
 func readDiffstat(ctx context.Context, path, base string) Diffstat {
+	stat, _ := readWorktreeEvidence(ctx, path, base)
+	return stat
+}
+
+func readWorktreeEvidence(ctx context.Context, path, base string) (Diffstat, DiffPreview) {
 	// A repository can configure core.fsmonitor to run an arbitrary command.
 	// Diffstat runs automatically on GUI heartbeats, so pin this setting off for
 	// every Git invocation rather than trusting the worktree's local config.
@@ -262,7 +272,8 @@ func readDiffstat(ctx context.Context, path, base string) Diffstat {
 	}
 	out, err := exec.CommandContext(ctx, "git", args...).Output()
 	if err != nil {
-		return Diffstat{State: "error", Error: truncateRunes(err.Error(), 300)}
+		failure := truncateRunes(err.Error(), 300)
+		return Diffstat{State: "error", Error: failure}, DiffPreview{State: "error", Error: failure}
 	}
 	stat := Diffstat{State: "ready"}
 	for _, line := range strings.Split(strings.TrimSuffix(string(out), "\n"), "\n") {
@@ -285,14 +296,60 @@ func readDiffstat(ctx context.Context, path, base string) Diffstat {
 	defer cancel()
 	status, err := exec.CommandContext(statusCtx, "git", "-c", "core.fsmonitor=false", "-C", path, "status", "--porcelain", "--untracked-files=normal", "-z").Output()
 	if err != nil {
-		return Diffstat{State: "error", Error: truncateRunes(err.Error(), 300)}
+		failure := truncateRunes(err.Error(), 300)
+		return Diffstat{State: "error", Error: failure}, DiffPreview{State: "error", Error: failure}
 	}
 	for _, record := range strings.Split(string(status), "\x00") {
 		if strings.HasPrefix(record, "?? ") {
 			stat.Untracked++
 		}
 	}
-	return stat
+	previewCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+	defer cancel()
+	args = []string{"-c", "core.fsmonitor=false", "-C", path, "diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--no-color", "--no-prefix"}
+	if base == "" {
+		args = append(args, "HEAD")
+	} else {
+		args = append(args, base)
+	}
+	args = append(args, "--")
+	buffer := &boundedBuffer{limit: maxDiffPreviewBytes}
+	cmd := exec.CommandContext(previewCtx, "git", args...)
+	cmd.Stdout = buffer
+	cmd.Stderr = io.Discard
+	if err := cmd.Run(); err != nil {
+		failure := truncateRunes(err.Error(), 300)
+		return stat, DiffPreview{State: "error", Error: failure}
+	}
+	return stat, DiffPreview{State: "ready", Text: buffer.String(), Truncated: buffer.truncated}
+}
+
+// boundedBuffer retains only the first limit bytes while continuing to drain
+// child output, so large diffs cannot grow memory or block the child on a full
+// pipe. UTF-8 cleanup happens when the preview is serialized below.
+type boundedBuffer struct {
+	buf       bytes.Buffer
+	limit     int
+	truncated bool
+}
+
+func (b *boundedBuffer) Write(p []byte) (int, error) {
+	remaining := b.limit - b.buf.Len()
+	if remaining > 0 {
+		if len(p) > remaining {
+			_, _ = b.buf.Write(p[:remaining])
+			b.truncated = true
+		} else {
+			_, _ = b.buf.Write(p)
+		}
+	} else if len(p) > 0 {
+		b.truncated = true
+	}
+	return len(p), nil
+}
+
+func (b *boundedBuffer) String() string {
+	return strings.ToValidUTF8(b.buf.String(), "�")
 }
 
 func (h *Host) loadCatalog(ctx context.Context, id protocol.AgentID) {

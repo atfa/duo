@@ -85,7 +85,7 @@ timeline in the right order without a second code path.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `version` | string | The Duo version, e.g. `v0.12.1`. |
+| `version` | string | The Duo version, e.g. `v0.12.2`. |
 | `session` | string | The session id. |
 | `mode` | string | `fast`, `goal` or `step`. |
 | `phase` | string | The workflow phase, e.g. `PLAN`, `EXECUTE`, `REVIEW`. |
@@ -115,6 +115,7 @@ timeline in the right order without a second code path.
 | `worktree_branch` | string | The agent's worktree branch. |
 | `worktree_head` | string | The worktree's projected HEAD. |
 | `diffstat` | Diffstat | Cached Git change counts against `base_commit`, refreshed asynchronously by the host. |
+| `diff_preview` | DiffPreview | Cached, bounded tracked patch excerpt against `base_commit`, refreshed asynchronously by the host. |
 | `ready_note` | string | The agent's current phase sign-off note, if any. |
 | `ready_evidence` | string | Evidence attached to the agent's current phase sign-off, if any. |
 | `connected` | bool | The agent currently holds the bridge endpoint. |
@@ -139,6 +140,18 @@ optional `error`. `state` is `unavailable` when the agent has no worktree,
 from `base_commit`; `untracked` separately counts untracked paths, whose line
 contents are not read. The host refreshes summaries asynchronously and caches
 them for at least three seconds, so Git latency does not delay a view heartbeat.
+
+`diff_preview` has `state`, `text`, `truncated`, and optional `error`. It follows
+the same availability and loading states as `diffstat`. When ready, `text`
+contains at most the first 12 KiB of the tracked patch against `base_commit`;
+`truncated` tells the renderer when more patch output existed. Untracked file
+contents are excluded. The host disables fsmonitor, external diff drivers,
+textconv, and color for these automatic Git reads, applies a command timeout, and
+continues draining output after the preview limit so a large patch stays bounded
+without blocking a heartbeat. A renderer can offer a per-agent “Inspect changes”
+view and display the returned text in a scrollable area; it should show a
+truncation marker when `truncated` is true and use the existing state/error fields
+for loading and failure feedback.
 
 `verification` has `status`, `head`, `note`, and optional RFC 3339 `at`. It is
 the existing Fast-mode verification record. `step_evidence` contains one record

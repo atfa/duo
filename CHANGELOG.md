@@ -2,6 +2,21 @@
 
 All notable project milestones are documented here.
 
+## v0.12.2 — unreleased
+
+### Session selection and xduo inspection
+
+- `duo resume` now offers a numbered choice when several inactive unfinished
+  sessions exist and a terminal is available. Duo reads its own session store
+  directly and shows phase, scope and update time; explicit IDs and batch usage
+  retain their previous behavior.
+- xduo can search its timeline and navigate matches from the keyboard.
+- An agent's tracked changes are available as a bounded, scrollable diff
+  preview. The host caches the preview asynchronously and marks truncated text.
+- Agent cards show whether their driver can change models without restarting.
+
+This version has not been tagged or published.
+
 ## v0.12.1 — unreleased
 
 ### xduo desktop usability

@@ -1,6 +1,6 @@
 [package]
 name = "xduo"
-version = "0.12.1"
+version = "0.12.2"
 edition = "2021"
 description = "Duo's native graphical frontend: a renderer over the `duo gui` NDJSON protocol."
 license = "MIT"

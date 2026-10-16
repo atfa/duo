@@ -65,6 +65,7 @@ type Agent struct {
 	WorktreeBranch  string      `json:"worktree_branch"`
 	WorktreeHead    string      `json:"worktree_head"`
 	Diffstat        Diffstat    `json:"diffstat"`
+	DiffPreview     DiffPreview `json:"diff_preview"`
 	ReadyNote       string      `json:"ready_note"`
 	ReadyEvidence   string      `json:"ready_evidence"`
 	Connected       bool        `json:"connected"`
@@ -114,6 +115,15 @@ type Diffstat struct {
 	Deletions  int    `json:"deletions"`
 	Untracked  int    `json:"untracked"`
 	Error      string `json:"error,omitempty"`
+}
+
+// DiffPreview is a bounded, read-only patch excerpt for the worktree. Text is
+// empty until the host finishes its asynchronous Git read.
+type DiffPreview struct {
+	State     string `json:"state"`
+	Text      string `json:"text"`
+	Truncated bool   `json:"truncated"`
+	Error     string `json:"error,omitempty"`
 }
 
 // Verification is the structured verification record already owned by the

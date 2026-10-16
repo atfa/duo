@@ -224,6 +224,52 @@ func TestReadDiffstatIncludesTrackedChangesAndUntrackedFiles(t *testing.T) {
 	}
 }
 
+func TestReadWorktreeEvidenceProvidesBoundedTrackedPatch(t *testing.T) {
+	repo := t.TempDir()
+	runGit := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", append([]string{"-C", repo}, args...)...)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	runGit("init", "-q")
+	runGit("config", "user.email", "test@example.com")
+	runGit("config", "user.name", "Test")
+	path := filepath.Join(repo, "tracked.txt")
+	if err := os.WriteFile(path, []byte("before\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runGit("add", "tracked.txt")
+	runGit("commit", "-qm", "base")
+	base := runGit("rev-parse", "HEAD")
+	if err := os.WriteFile(path, []byte("after\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "untracked.txt"), []byte("secret untracked body\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	stat, preview := readWorktreeEvidence(context.Background(), repo, base)
+	if stat.State != "ready" || stat.Files != 1 || stat.Untracked != 1 {
+		t.Fatalf("stat = %+v", stat)
+	}
+	if preview.State != "ready" || !strings.Contains(preview.Text, "-before") || !strings.Contains(preview.Text, "+after") {
+		t.Fatalf("preview = %+v; want tracked patch", preview)
+	}
+	if strings.Contains(preview.Text, "secret untracked body") {
+		t.Fatalf("preview included untracked contents: %q", preview.Text)
+	}
+
+	buffer := &boundedBuffer{limit: 8}
+	_, _ = buffer.Write([]byte("0123456789"))
+	if buffer.String() != "01234567" || !buffer.truncated {
+		t.Fatalf("bounded output = %q truncated=%t", buffer.String(), buffer.truncated)
+	}
+}
+
 func TestReadDiffstatDoesNotRunRepositoryFsmonitor(t *testing.T) {
 	repo := t.TempDir()
 	runGit := func(args ...string) string {
