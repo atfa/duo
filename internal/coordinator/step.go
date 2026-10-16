@@ -9,6 +9,7 @@ import (
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/recovery"
+	"github.com/atfa/duo/internal/sessionstore"
 	"github.com/atfa/duo/internal/transport"
 )
 
@@ -48,8 +49,11 @@ func (c *Coordinator) handleStepSetStatus(ctx context.Context, client *transport
 			return
 		}
 	case project.PhaseIntegrate:
-		// The finished queue is the only thing signed at INTEGRATE.
-		if project.QueueFinished(snap.Steps) {
+		// The final step is the one place a step needs both agents to agree it is
+		// finished. Note this is keyed on the cursor reaching the last step, not on the
+		// queue being ticked: the verdict leaves the final step in INTEGRATE *before*
+		// it lands, precisely so the sign-off and the landing happen together.
+		if stepIsFinal(snap) {
 			c.stepQueueSignOff(ctx, client, message)
 			return
 		}
@@ -182,7 +186,14 @@ func (c *Coordinator) handleStepVerification(ctx context.Context, client *transp
 	// reviewed on a fresh request.
 	current, err := recovery.FastVerificationTarget(ctx, c.workspace)
 	if err != nil || current != target {
-		c.project.SetReady(protocol.Austin, false, "the artifact changed after the step review was requested", "")
+		// Withdraw the submission through the domain rule: the step returns to
+		// EXECUTE with its HEAD and verdict cleared, so the next submission is a fresh
+		// review and the rendering cannot show a pending artifact that is gone.
+		if _, tr, revokeErr := c.project.RevokeStepSubmission("the artifact changed after the step review was requested; submit the new HEAD"); revokeErr != nil {
+			c.logf("could not withdraw the stale step review: %v", revokeErr)
+		} else if tr.Advanced {
+			c.recordEvent("phase_transition", map[string]any{"from": string(tr.Previous), "to": string(tr.Next)})
+		}
 		c.recordEvent("step_review_revoked", map[string]any{"step": snap.Step, "requested": target, "current": current})
 		reason := "Austin's HEAD changed after the step review was requested, so the review was withdrawn. Austin must submit the new HEAD."
 		if err != nil {
@@ -208,6 +219,17 @@ func (c *Coordinator) handleStepVerification(ctx context.Context, client *transp
 		}
 		c.recordEvent("verification", map[string]any{"result": "passed", "head": target, "step": snap.Step})
 		c.recordEvent("phase_transition", map[string]any{"from": string(tr.Previous), "to": string(tr.Next)})
+		// The final step is delivered only after both agents sign the finished
+		// queue: that sign-off is the Goal gate the mode keeps, so this verdict must
+		// not land it on its own.
+		if stepIsFinal(snap) {
+			c.emit(events.KindSystem, protocol.Duo, "", fmt.Sprintf("Tony verified the final step at %s → passed; both agents must sign INTEGRATE to finish", shortSHA(target)))
+			_ = c.respond(ctx, client, message.RequestID, true,
+				fmt.Sprintf("Final step verified. All %d steps are done; both agents must now sign INTEGRATE with duo_set_status ready=true before Duo delivers and completes the session.", len(snap.Steps)),
+				c.statusText(ctx))
+			c.notifyFinalStepSignOff(ctx, snap)
+			return
+		}
 		c.emit(events.KindSystem, protocol.Duo, "", fmt.Sprintf("Tony verified step %d at %s → passed; landing it", snap.Step, shortSHA(target)))
 		_ = c.respond(ctx, client, message.RequestID, true,
 			fmt.Sprintf("Step %d verified. Duo is landing it on %s and starting the next step.", snap.Step, c.stepTargetBranch()),
@@ -288,6 +310,67 @@ func (c *Coordinator) handleRestartDuo(ctx context.Context, client *transport.Cl
 	_ = c.respond(ctx, client, message.RequestID, true,
 		fmt.Sprintf("Restart recorded at step %d/%d. This Duo process is stopping; the launcher installs the new binary and resumes the session, and the queue continues at step %d.", snap.Step, len(snap.Steps), snap.Step),
 		c.statusText(ctx))
+}
+
+// notifyFinalStepSignOff tells both agents the queue is finished and that the
+// session now needs their INTEGRATE signatures.
+func (c *Coordinator) notifyFinalStepSignOff(ctx context.Context, snap project.Snapshot) {
+	text := fmt.Sprintf(
+		"[Duo step queue]\nAll %d steps have landed and the final step was verified. Both agents must now sign INTEGRATE with duo_set_status ready=true; Duo delivers and completes the session when both signatures describe the same HEAD.",
+		len(snap.Steps),
+	)
+	if c.language == "zh" {
+		text = fmt.Sprintf("[Duo 步骤队列]\n%d 个步骤已全部落地，最后一步已通过审查。现在需要双方用 duo_set_status ready=true 签署 INTEGRATE；当两个签名指向同一个 HEAD 时，Duo 交付并结束会话。", len(snap.Steps))
+	}
+	for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		c.sendFastNotice(ctx, agent, text)
+	}
+}
+
+// stepIsFinal reports whether the verified HEAD under the cursor is the last step
+// of the queue. In STEP mode the final step is the one place a step needs both
+// agents to agree it is finished; every other step lands on Tony's verdict.
+func stepIsFinal(snap project.Snapshot) bool {
+	return len(snap.Steps) == 0 || snap.Step >= len(snap.Steps)
+}
+
+// revokeStepSubmission withdraws a step whose reviewed HEAD is no longer the
+// artifact to land. The step returns to EXECUTE with nothing pending, so Austin
+// must commit and submit it again rather than seeing a verdict about old code.
+func (c *Coordinator) revokeStepSubmission(ctx context.Context, snap project.Snapshot, stepHead, finalHead string) {
+	if _, tr, err := c.project.RevokeStepSubmission("the reviewed HEAD is no longer the artifact under review; the step returns to EXECUTE"); err != nil {
+		c.logf("could not revoke step %d submission: %v", snap.Step, err)
+	} else if tr.Advanced {
+		c.recordEvent("phase_transition", map[string]any{"from": string(tr.Previous), "to": string(tr.Next)})
+		c.emit(events.KindSystem, protocol.Duo, "", fmt.Sprintf("step %d returned to EXECUTE: the reviewed HEAD changed", snap.Step))
+	}
+	c.recordEvent("step_submission_revoked", map[string]any{
+		"step":     snap.Step,
+		"reviewed": stepHead,
+		"current":  finalHead,
+	})
+	if err := c.markDeliveryPending(ctx, sessionstore.Delivery{}, "the reviewed HEAD changed before the step could land; Austin must submit the step again"); err != nil {
+		c.logf("persist revoked step submission: %v", err)
+	}
+}
+
+// revokeIntegrateSignatures revokes both INTEGRATE signatures when the HEAD they
+// signed is no longer the artifact to land on the final step.
+func (c *Coordinator) revokeIntegrateSignatures(ctx context.Context, snap project.Snapshot, finalHead string) {
+	for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		if strings.TrimSpace(snap.Evidence[agent]) == finalHead {
+			continue
+		}
+		c.project.RevokeReady(agent, "final integrated HEAD changed before delivery; readiness revoked")
+		c.recordEvent("signature_revoked", map[string]any{
+			"agent":  string(agent),
+			"phase":  string(project.PhaseIntegrate),
+			"reason": "final integrated HEAD changed before delivery",
+		})
+	}
+	if err := c.markDeliveryPending(ctx, sessionstore.Delivery{}, "the final integrated HEAD changed before delivery; both agents must sign again"); err != nil {
+		c.logf("persist revoked delivery: %v", err)
+	}
 }
 
 // runTestGateIfSet runs the configured test command, and is a no-op when the

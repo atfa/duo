@@ -120,9 +120,17 @@ func DeliverAndPersist(
 	// A Step session lands one step at a time. The step record is the durable proof
 	// that the user received it, and the session-level record keeps meaning "the
 	// latest landing", so `duo apply`, NeedsDelivery and recovery read one shape.
+	// A finished queue has no step left to land, so it only needs completing.
 	if snap.EffectiveMode() == project.ModeStep {
-		if err := LandStepSnapshot(&snap, finalHead); err != nil {
-			return DeliveryOutcome{Snapshot: snap, Result: result}, err
+		if !project.QueueFinished(snap.Steps) {
+			if err := LandStepSnapshot(&snap, finalHead); err != nil {
+				return DeliveryOutcome{Snapshot: snap, Result: result}, err
+			}
+		}
+		if project.QueueFinished(snap.Steps) {
+			if err := CompleteSnapshot(&snap); err != nil {
+				return DeliveryOutcome{Snapshot: snap, Result: result}, err
+			}
 		}
 		if err := store.Save(snap); err != nil {
 			return DeliveryOutcome{Snapshot: snap, Result: result}, err

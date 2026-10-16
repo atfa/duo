@@ -282,3 +282,112 @@ func TestStepStateSurvivesRestore(t *testing.T) {
 		t.Fatalf("the landed step record did not survive restore: %+v", got.Steps[0])
 	}
 }
+
+// TestRevokeStepSubmissionClearsTheStep is the rule delivery relies on when the
+// reviewed HEAD is no longer the artifact under the cursor: the withdrawn step must
+// carry neither a HEAD nor a verdict, or the next rendering claims something is
+// pending when nothing is.
+func TestRevokeStepSubmissionClearsTheStep(t *testing.T) {
+	st := NewStateFor(ModeStep)
+	if _, err := st.SetPlan(protocol.Austin, "plan"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SetSteps(protocol.Austin, "- [ ] one\n- [ ] two", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.SetReady(protocol.Austin, true, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.SetReady(protocol.Tony, true, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.SetReady(protocol.Austin, true, "submitted", "reviews-me"); err != nil {
+		t.Fatal(err)
+	}
+	if got := st.Snapshot().Steps[0].Head; got != "reviews-me" {
+		t.Fatalf("submitted HEAD = %q", got)
+	}
+
+	got, tr, err := st.RevokeStepSubmission("the reviewed HEAD moved")
+	if err != nil {
+		t.Fatalf("RevokeStepSubmission: %v", err)
+	}
+	if !tr.Advanced || tr.Next != PhaseExecute {
+		t.Fatalf("revocation into %s (advanced=%t), want EXECUTE", tr.Next, tr.Advanced)
+	}
+	step := got.Steps[0]
+	if step.Head != "" || step.Verification.Status != "" {
+		t.Fatalf("a withdrawn step must keep no submission or verdict: %+v", step)
+	}
+	if step.Done || got.Step != 1 {
+		t.Fatalf("withdrawal must not advance or land the step: %+v", got.Steps)
+	}
+	if rendered := got.Steps.Render(); strings.Contains(rendered, "submitted") {
+		t.Fatalf("the rendering must not show a withdrawn submission:\n%s", rendered)
+	}
+
+	// The final step is also revocable: it is signed and landed together, so a
+	// withdrawal from INTEGRATE has to be able to take it back.
+	if _, _, err := st.SetReady(protocol.Austin, true, "again", "reviews-me"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.SetVerification(protocol.Tony, VerificationPassed, "ok", "reviews-me"); err != nil {
+		t.Fatal(err)
+	}
+	if snap := st.Snapshot(); snap.Phase != PhaseIntegrate || snap.Step != 1 {
+		t.Fatalf("precondition: phase=%s cursor=%d", snap.Phase, snap.Step)
+	}
+	if _, _, err := st.RevokeStepSubmission("the HEAD moved before landing"); err != nil {
+		t.Fatalf("revocation from INTEGRATE: %v", err)
+	}
+	if got := st.Snapshot(); got.Phase != PhaseExecute || got.Steps[0].Head != "" {
+		t.Fatalf("after revocation: phase=%s step=%+v", got.Phase, got.Steps[0])
+	}
+}
+
+// TestFinalStepIsSignedAndLandedTogether pins the ordering the delivery gate
+// depends on: the verdict leaves the final step in INTEGRATE while it is still
+// unticked, so "the queue is finished" cannot be the test for accepting the
+// INTEGRATE sign-off — the cursor has to be.
+func TestFinalStepIsSignedAndLandedTogether(t *testing.T) {
+	st := NewStateFor(ModeStep)
+	if _, err := st.SetPlan(protocol.Austin, "plan"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SetSteps(protocol.Austin, "- [ ] only", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.SetReady(protocol.Austin, true, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.SetReady(protocol.Tony, true, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.SetReady(protocol.Austin, true, "", "head"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.SetVerification(protocol.Tony, VerificationPassed, "ok", "head"); err != nil {
+		t.Fatal(err)
+	}
+	snap := st.Snapshot()
+	if snap.Phase != PhaseIntegrate || QueueFinished(snap.Steps) {
+		t.Fatalf("the final step must wait for sign-off while unticked: phase=%s steps=%+v", snap.Phase, snap.Steps)
+	}
+	if _, tr, err := st.SetReady(protocol.Austin, true, "signing", "head"); err != nil || tr.ReadyForDelivery {
+		t.Fatalf("one signature must not trigger delivery (ready=%t err=%v)", tr.ReadyForDelivery, err)
+	}
+	if _, tr, err := st.SetReady(protocol.Tony, true, "signing", "head"); err != nil || !tr.ReadyForDelivery {
+		t.Fatalf("both signatures must trigger delivery (ready=%t err=%v)", tr.ReadyForDelivery, err)
+	}
+	// The landing ticks the final step and leaves the session INTEGRATE for the
+	// completion step that follows it.
+	if _, _, err := st.LandStep("head"); err != nil {
+		t.Fatalf("landStep on the final step: %v", err)
+	}
+	if got := st.Snapshot(); !QueueFinished(got.Steps) || got.Phase != PhaseIntegrate {
+		t.Fatalf("after landing the final step: phase=%s steps=%+v", got.Phase, got.Steps)
+	}
+	if got, err := st.Complete(); err != nil || got.Phase != PhaseDone {
+		t.Fatalf("complete = %s, %v; want DONE", got.Phase, err)
+	}
+}
