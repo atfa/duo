@@ -171,7 +171,7 @@ func fromView(v session.View, status string) View {
 		StepsTotal: len(v.Project.Steps),
 		StepCursor: v.Project.Step,
 		Delivery:   v.Delivery.Status,
-		Notices:    append([]string(nil), v.Notices...),
+		Notices:    append([]string{}, v.Notices...),
 		Agents:     map[string]Agent{},
 	}
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {

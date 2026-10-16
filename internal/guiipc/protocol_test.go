@@ -138,6 +138,9 @@ func TestFromViewAlwaysCarriesBothAgents(t *testing.T) {
 	if got.Ready.Austin || got.Ready.Tony {
 		t.Errorf("zero ready = %+v; want both unset", got.Ready)
 	}
+	if got.Notices == nil {
+		t.Error("zero notices = nil; want an empty slice so JSON encodes []")
+	}
 }
 
 // TestFromViewCopiesNotices keeps the projection a value. The terminal interface
