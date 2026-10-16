@@ -8,8 +8,8 @@ The core should enforce only what benefits from deterministic coordination:
 
 - agent identity;
 - peer routing;
-- session mode (Fast or Goal) and mode-scoped phase transitions;
-- shared Plan versioning (Goal);
+- session mode (Fast, Goal or Step) and mode-scoped phase transitions;
+- shared Plan versioning (Goal) and step-queue versioning (Step);
 - verification, signatures and evidence;
 - Git worktree isolation;
 - stale-verification and stale-signature detection;
@@ -24,14 +24,14 @@ Everything else should remain flexible enough for the models to collaborate natu
 
 | Area | Owns | Boundary to preserve |
 |---|---|---|
-| `internal/project` | Mode, phase, Plan (Goal), verification (Fast), signatures and evidence | The authoritative state machine; UI and adapters do not keep competing copies. |
+| `internal/project` | Mode, phase, Plan (Goal), step queue (Step), verification (Fast, and the Step per-step gate), signatures and evidence | The authoritative state machine; UI and adapters do not keep competing copies. |
 | `internal/coordinator` | Wire requests, gates, phase transitions, peer routing and notices | Apply mode policy once and validate claims against Git evidence. |
 | `internal/transport`, `internal/protocol`, `internal/mcp` | Local bridge messages, stable identities and stdio MCP transport | Transport carries requests; it does not own workflow policy. |
 | `internal/driver`, `plugins/`, `internal/agent` | Plugin contract/discovery, per-agent CLI behavior and process/PTY lifecycle | Core has no driver-name branches; plugins own CLI flags, identity and capabilities. |
 | `internal/models` | A driver's model catalog and how a reported reference is spelled | The catalog arrives over the plugin protocol; Core never builds a catalog command of its own, and a driver without one is reported rather than guessed at. |
-| `internal/workspace` | Isolated worktrees, commit evidence and Goal integration | Austin and Tony never edit the same worktree; conflicts remain visible for resolution. |
+| `internal/workspace` | Isolated worktrees, commit evidence, Goal integration and the Step verifier sync | Austin and Tony never edit the same worktree; conflicts remain visible for resolution. |
 | `internal/recovery`, `internal/sessionstore` | Snapshot reconciliation, journal, transcript replay and session lock | Revoke unverifiable approvals before agents start; never discard user files or rewrite user history. |
-| `internal/delivery` | Read-only safety decision and final handoff | Move only the recorded branch by a provably safe fast-forward; otherwise refuse without changing the checkout. |
+| `internal/delivery` | Read-only safety decision and final handoff, repeated once per landed Step step | Move only the recorded branch by a provably safe fast-forward; otherwise refuse without changing the checkout. |
 | `internal/harness`, `internal/events` | Runtime activity tracking, nudges and event fan-out | Harness observes runtime state; events are non-blocking and do not become project state. |
 | `internal/session` | The composition root, session lock, agent bridge, lifecycle observer and delivery handoff, behind `Options`, `View`, `Command` and `Subscribe` | Every frontend drives a session only through this seam; a frontend that re-implements part of it will disagree with the others. |
 | `internal/tui` | Input, rendering, help and timeline | A projection of project state, never another source of truth. It depends on the `session.Session` interface and holds no core handle; a parser check in the package enforces both. |
