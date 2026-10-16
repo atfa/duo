@@ -11,7 +11,7 @@ export type DuoMessageType =
   | "peer_message" | "steer" | "duo_notice" | "harness_prompt" | "human_prompt"
   | "resume_prompt" | "set_plan" | "set_status" | "get_status" | "response"
   | "set_verification" | "set_steps" | "escalate" | "set_model" | "model_state" | "cycle_thinking"
-  | "thinking_state";
+  | "thinking_state" | "restart_duo";
 
 /**
  * Structured verification result used by FAST mode. Austin is the driver; Tony
@@ -37,6 +37,9 @@ export type DuoMessage = {
   /** STEP mode: the raw markdown checkbox list for the step queue. Parsing is
    * done by the Go runtime, never by the bridge, so there is one parser. */
   steps?: string;
+  /** STEP mode: asks the launcher to build and install from the delivered branch
+   * before resuming on the new binary. */
+  install?: boolean;
   note?: string;
   ready?: boolean;
   verification?: VerificationResult;

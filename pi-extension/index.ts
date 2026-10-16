@@ -10,6 +10,7 @@ import { registerSendTool } from "./tools/send";
 import { registerStatusTool } from "./tools/status";
 import { registerStepsTool } from "./tools/steps";
 import { registerVerificationTool } from "./tools/verification";
+import { registerRestartTool } from "./tools/restart";
 import { registerEscalateTool } from "./tools/escalate";
 
 export default function (pi: any) {
@@ -44,6 +45,7 @@ export default function (pi: any) {
   registerStatusTool(pi, transport, mode);
   registerProjectStatusTool(pi, transport);
   registerVerificationTool(pi, transport, mode, AGENT);
+  registerRestartTool(pi, transport, mode);
   registerEscalateTool(pi, transport, mode);
 
   pi.registerCommand("duo-test", {

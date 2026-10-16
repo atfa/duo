@@ -213,6 +213,11 @@ func (c *Coordinator) handleStepVerification(ctx context.Context, client *transp
 			fmt.Sprintf("Step %d verified. Duo is landing it on %s and starting the next step.", snap.Step, c.stepTargetBranch()),
 			c.statusText(ctx))
 		c.deliverFinal(ctx, snap)
+		// The landing just moved the user's branch, so move the verifier with it:
+		// the next step would otherwise be reviewed and built on a tree missing
+		// every step before it. Nothing happens unless the delivery actually
+		// applied, and a dirty or already-current worktree is reported, not forced.
+		c.syncVerifierToLandedStep(ctx)
 
 	case project.VerificationIssueFound:
 		c.recordEvent("verification", map[string]any{"result": "issue_found", "note": message.Note, "step": snap.Step})

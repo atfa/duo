@@ -22,7 +22,7 @@ export function parseDuoLanguage(value: string | undefined): DuoLanguage {
 }
 
 /** Tools that exist only in some modes. */
-export type DuoModeTool = "plan" | "steps" | "verification" | "escalate";
+export type DuoModeTool = "plan" | "steps" | "verification" | "escalate" | "restart";
 
 export function parseDuoMode(value: string | undefined): DuoMode {
   switch (value?.trim().toLowerCase()) {
@@ -45,6 +45,8 @@ export function parseDuoMode(value: string | undefined): DuoMode {
  * - `duo_set_steps` is STEP only: it is the step queue itself.
  * - `duo_set_verification` is FAST and STEP: in STEP it is the per-step gate.
  * - `duo_escalate` is FAST only: STEP is chosen at start, never escalated into.
+ * - `duo_restart_duo` is STEP only: it stops Duo so the launcher can resume the
+ *   durable queue on a newly installed binary, which only STEP can continue.
  */
 export function isToolEnabledForMode(tool: DuoModeTool, mode: DuoMode): boolean {
   switch (tool) {
@@ -56,6 +58,8 @@ export function isToolEnabledForMode(tool: DuoModeTool, mode: DuoMode): boolean 
       return mode === "fast" || mode === "step";
     case "escalate":
       return mode === "fast";
+    case "restart":
+      return mode === "step";
     default:
       // An unknown tool name is offered nowhere: Duo Core is the authority that
       // accepts or refuses it, and it refuses.

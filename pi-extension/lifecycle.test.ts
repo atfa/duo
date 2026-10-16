@@ -55,6 +55,15 @@ test("STEP gates its tools: plan and queue and verification, never escalate", ()
   expect(isToolEnabledForMode("steps", "fast")).toBe(false);
 });
 
+// The restart stops Duo so the launcher can resume the queue on a new binary, so
+// it is offered only where a durable queue exists to resume into. STEP is the one
+// mode that can continue across a restart; Goal and Fast cannot.
+test("only STEP offers the self-restart", () => {
+  expect(isToolEnabledForMode("restart", "step")).toBe(true);
+  expect(isToolEnabledForMode("restart", "goal")).toBe(false);
+  expect(isToolEnabledForMode("restart", "fast")).toBe(false);
+});
+
 test("STEP tells Austin to drive one step and never tick the queue", () => {
   const austin = buildDuoPrompt("Austin", "step", "/repo", ".");
   expect(austin).toContain("EXECUTE -> REVIEW -> INTEGRATE -> land the step");

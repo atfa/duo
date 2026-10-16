@@ -199,5 +199,36 @@ export function buildDuoTools(
     });
   }
 
+  if (isToolEnabledForMode("restart", mode)) {
+    tools.duo_restart_duo = tool({
+      description:
+        "STEP mode only. Ask Duo to stop so the launcher can resume this session on a newly installed binary. Both agents are killed and restarted; the durable step queue continues at the same step. Use it between steps, as the last action of a round, not while a step is under review.",
+      args: {
+        reason: z
+          .string()
+          .describe(
+            "Why the restart is wanted now, e.g. the step landed a change to Duo itself.",
+          ),
+        install: z
+          .boolean()
+          .optional()
+          .describe(
+            "true = also build and install from the delivered branch before resuming. Omit or false to restart on the binary already installed.",
+          ),
+      },
+      async execute(args) {
+        const reason = args.reason.trim();
+        if (!reason) return "a reason is required";
+        try {
+          return ok(
+            await transport.request("restart_duo", { note: reason, install: args.install === true }),
+          );
+        } catch (error) {
+          return failed("Duo restart failed", error);
+        }
+      },
+    });
+  }
+
   return tools;
 }
