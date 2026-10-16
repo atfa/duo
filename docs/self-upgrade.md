@@ -1,6 +1,10 @@
-# Self-upgrade: Duo restarting itself mid-session
+# Self-upgrade: how Duo restarts itself mid-session
 
-Exploration, not a specification. The question was whether Duo can run the loop
+**Status: implemented.** STEP mode plus `duo step-loop` (entered through
+`scripts/duo-step-loop.sh`) run this loop; the sections below are the design record.
+The measurements and the two hard facts still explain why it is built this way, and
+the parts that read as recommendations are the pre-implementation notes they were
+written as. The question was whether Duo can run the loop
 
 > human gives one task → split it into small tasks → develop one → install the new
 > version locally → quit the running Duo → start the new Duo → next small task
@@ -11,23 +15,29 @@ this document) or **read** (from the source at the cited line).
 
 ## Conclusion
 
-The loop is feasible, and most of it already exists: the session state is durable and
-restart-safe, `duo resume` re-establishes phase, plan, worktrees and agent sessions,
-recovery revalidates signatures against Git, and the harness already grants a grace
-period after a resume. What does not exist is the restart itself, and Duo cannot
-supply it: the agent that installs the new version is a **descendant** of the Duo it
-is upgrading, so it dies with it. The relaunch has to come from a process that is not
-Duo.
+The loop is feasible, and it is now built: `duo --mode step` runs a dual-approved
+queue of steps, each one reviewed against an exact HEAD and landed before the next
+starts, and `duo step-loop` turns the self-upgrade into one more step — install from
+the delivered checkout, resume on the new binary, continue the queue. The one part
+Duo cannot supply is the relaunch itself: the agent that installs the new version is
+a **descendant** of the Duo it is upgrading, so it dies with it. That is why the
+loop lives in `duo step-loop`, outside the session, and why the session requests the
+restart with an exit code instead of performing it.
 
-The minimum that makes the loop work is four small pieces, none of them a refactor:
+The four pieces the exploration called the minimum, as they actually exist:
 
-1. a sentinel exit code from `duo` meaning "relaunch me";
-2. one session command that lets Austin request it (the `SetLanguage` shape);
-3. a ~15-line wrapper script that owns the terminal and re-execs `duo resume`;
-4. a schema guard that refuses a self-upgrade the next binary cannot read.
+1. a sentinel exit code from `duo` (`upgradeExitCode = 77`), written out as
+   `errUpgradeRequested` and returned from `run()` so `main` exits with it rather
+   than through `log.Fatal`;
+2. a session command that lets an agent request it (`RestartDuo`, the `SetLanguage`
+   shape) reaching the TUI through `session.View.Restart`;
+3. a launcher that owns the terminal, re-execs `duo resume` on the new binary, and
+   does not die with the session (`duo step-loop`, entered by
+   `scripts/duo-step-loop.sh`);
+4. a schema guard that refuses an upgrade the next binary cannot read — and, after
+   review caught it, one that compares **before** installing rather than after.
 
-Recommended policy, given the cost below: upgrade **per delivered release**, not per
-micro-task.
+Recommended policy, unchanged: upgrade **per delivered release**, not per micro-task.
 
 ## What is already in place
 
@@ -57,7 +67,9 @@ micro-task.
 - **The task queue has a carrier.** In Goal mode the plan is a versioned Markdown
   string persisted in the snapshot (`project.Snapshot.Plan`, `PlanVersion`) and
   re-injected on resume, so "remaining small tasks" survive the restart with no new
-  storage. Fast mode has no plan, so the loop belongs to Goal mode. **read**
+  storage. Fast mode has no plan; the loop shipped as a third mode (STEP) whose queue
+  is structured state (`project.Steps` plus a Duo-owned cursor), because a cursor an
+  agent could move by editing plan text would be a second source of truth. **read**
 
 ## The two hard facts
 
@@ -97,35 +109,40 @@ kept running. `scripts/install.sh` builds with `go build -o` and
 work while Duo is live**. The running process keeps its old inode; the new binary is
 used by the next start.
 
-## Design that fits the existing shape
+## What the implementation looks like
 
 ```text
-duo-loop.sh (the only new process; owns the terminal)
-  loop:
-    duo --mode goal ...                 # exit 0  -> finished, stop
-                                        # exit 77 -> upgrade requested
-                                        # else    -> stop, show output
-    on 77: read .duo/upgrade.json, exec duo resume <id>
+scripts/duo-step-loop.sh            the only process that survives an upgrade
+  exec duo step-loop --mode step …  loop:
+    run the session                 exit 0  -> finished, stop
+                                    exit 77 -> upgrade requested
+                                    else    -> stop, show the output
+    on 77: read .duo/upgrade.json
+           install: check schema, then install from the delivered checkout
+           resume:  exec self resume <sessionId>
 ```
 
-- Austin's per-task step: develop → commit → `duo_set_status ready=true` → Tony
-  verifies → delivery lands on `main` → install from `main` → request the restart as
-  the **last action of the round**.
-- The new Duo resumes, the resume wake fires, Austin reads the plan's next unchecked
-  step and continues.
-- Install should be a `duo` subcommand that runs the existing installer body against
-  the delivered `main`, so the loop does not shell out to a script path that may
-  itself have changed.
+- Austin's per-step action: implement → commit → `duo_set_status ready=true` → Tony
+  verifies that HEAD → the step lands on the base branch → the **last action of a
+  round** may request the restart.
+- The new Duo resumes, the resume wake fires with the STEP resume prompt (which
+  re-injects the queue and forbids re-landing a ticked step), and the queue continues
+  at the same step.
+- The install source is the repository the human launched Duo from, i.e. the branch
+  the steps are landing on, never an agent's feature worktree.
+- The per-session facts (exit code, session id, schema) stay in Go: a shell script
+  would have to parse them out of JSON to act on them.
 
 ## Constraints and risks, in order of how much they hurt
 
 1. **Schema bump breaks the chain.** `sessionstore.Load` compares `SchemaVersion` for
    equality and returns a `SchemaError` on any mismatch
    (`internal/sessionstore/store.go:107`), so a new Duo that bumps the schema cannot
-   read the state the old one wrote and the loop stops mid-task. The loop must
-   compare the new binary's schema version before installing, and stop with a message
-   rather than install an unreadable state. A migration path is the larger, later
-   fix.
+   read the state the old one wrote. `duo step-loop` therefore compares the schema
+   constant in the delivered source with the one this session was written by before
+   it installs anything (`performUpgrade` in `cmd/duo/stepupgrade.go`), and stops with
+   a message if they differ — installing first would leave the session with no binary
+   that can continue it. A migration path is still the larger, later fix.
 2. **Install source.** Installing from Austin's feature worktree puts the running
    coordinator on unmerged code. Install from the delivered `main` only.
 3. **Install is not atomic today.** `install.sh` installs the two bridges, runs the
@@ -133,7 +150,8 @@ duo-loop.sh (the only new process; owns the terminal)
    bridges over the old coordinator, for instance. Driver protocol
    (`internal/driver/protocol.go:24` = 1) and bridge protocol
    (`pi-extension/protocol.ts:7` = 1) are version-gated, so the mismatch is detected
-   rather than silent — the loop must treat a failed install as "do not restart".
+   rather than silent, and `duo step-loop` treats a failed install as "do not
+   restart": it returns instead of resuming.
 4. **Every restart costs both agents' context.** The agent processes are killed, and
    the new agents rebuild from `duo_status`, the plan and the transcripts. A restart
    per micro-task pays that cost per micro-task; batching tasks per release pays it
@@ -145,13 +163,24 @@ duo-loop.sh (the only new process; owns the terminal)
    kill between commit and deliver is safe. A kill between install and resume leaves a
    new binary over an old session — resume handles it, schema permitting (risk 1).
 7. **Version identity.** The installed version is a compile-time constant
-   (`internal/version/version.go`), so a self-built binary from a worktree reports the
-   version of its source, not of the commit it was built from. The loop should record
-   the built commit in `.duo/upgrade.json`, not trust `duo --version`.
+   (`internal/version/version.go`), so a self-built binary reports the version of its
+   source, not of the commit it was built from. `.duo/upgrade.json` therefore records
+   the reporting binary's version and schema, and the loop installs from the
+   repository checkout it was launched in: the commit that reaches the machine is that
+   checkout's HEAD, which the request does not record. Recording the built commit is
+   the obvious next improvement, not something to read out of `duo --version`.
 
-## Cheapest spike
+## What is not proven yet
 
-Exit code + wrapper + schema guard, no install subcommand, no queue automation: run
-`duo-loop.sh` against one Goal session whose plan has two trivial steps, and measure
-what a restart actually costs in agent context and wall-clock time. That number, not
-the design, decides whether the loop is worth automating further.
+The exploration ended with a proposed "cheapest spike": exit code + launcher +
+schema guard, no install subcommand, no queue automation. That spike is what shipped,
+with the queue automation included because STEP mode needed the queue anyway — so
+what remains unmeasured is not the design but the cost.
+
+The pieces are tested: the exit-code path, the handoff file, the schema guard **and
+its order**, the queue's domain rules, per-step landing over real Git worktrees, the
+mid-queue resume, and the verifier sync. What has **not** been run is the whole loop
+live — one session that lands a step changing Duo itself, restarts on the installed
+binary, and finishes the queue on the other side. That measurement still decides the
+practical question: what a restart actually costs in agent context and wall-clock
+time, and therefore whether a queue should be sized per release or per micro-task.
