@@ -1,6 +1,7 @@
 package session
 
 import (
+	"context"
 	"testing"
 
 	"github.com/atfa/duo/internal/project"
@@ -165,5 +166,98 @@ func TestRestartRequestReachesTheView(t *testing.T) {
 	got := svc.View().Restart
 	if got.Reason != "install and continue the queue" || !got.Install {
 		t.Fatalf("restart request = %+v", got)
+	}
+}
+
+// TestResumeKeepsAMidStepSessionResumable is the restart path for the ordinary
+// case: a session in the middle of a queue must come back to the same step with no
+// re-delivery, because `duo resume` is also how a self-upgrade continues.
+func TestResumeKeepsAMidStepSessionResumable(t *testing.T) {
+	store, err := sessionstore.New(t.TempDir(), "repo-resume", "20261016-070818-abcd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap := stepSnapshot(project.PhaseExecute, 1)
+	snap.SessionID = "20261016-070818-abcd"
+	snap.Repository = t.TempDir()
+	snap.BaseBranch = "main"
+	snap.Delivery = sessionstore.Delivery{
+		Status: sessionstore.DeliveryApplied, FinalHead: "landed0", AppliedHead: "landed0",
+		TargetRepo: snap.Repository, TargetBranch: "main",
+	}
+	snap.Steps[1].Head = "head-two"
+	if err := store.Save(snap); err != nil {
+		t.Fatal(err)
+	}
+
+	outcome, stop, err := ReconcileDelivery(context.Background(), store, nil, store.OpenEvents(), snap)
+	if err != nil {
+		t.Fatalf("reconcile a mid-step session: %v", err)
+	}
+	if stop {
+		t.Fatal("a session with open steps must continue on resume, not finish")
+	}
+	got := outcome.Snapshot
+	if got.Step != 2 || got.Phase != string(project.PhaseExecute) {
+		t.Fatalf("resumed cursor/phase = %d / %s, want 2 / EXECUTE", got.Step, got.Phase)
+	}
+	if !got.Steps[0].Done || got.Steps[0].DeliveryHead != "landed0" {
+		t.Fatalf("the landed step did not survive resume: %+v", got.Steps[0])
+	}
+	if got.Steps[1].Head != "head-two" {
+		t.Fatalf("the in-flight step lost its submitted HEAD: %+v", got.Steps[1])
+	}
+}
+
+// TestReconcileAdvancesAQueueInterruptedBetweenLandingAndAdvance covers the crash
+// window: the step reached the user's repository but the queue never moved. The
+// resume must advance the queue instead of declaring the session finished, and a
+// second reconcile must not advance it again.
+func TestReconcileAdvancesAQueueInterruptedBetweenLandingAndAdvance(t *testing.T) {
+	store, err := sessionstore.New(t.TempDir(), "repo-crash", "20261016-070818-ef01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap := stepSnapshot(project.PhaseIntegrate, 0)
+	snap.SessionID = "20261016-070818-ef01"
+	snap.Repository = t.TempDir()
+	snap.BaseBranch = "main"
+	snap.Delivery = sessionstore.Delivery{
+		Status: sessionstore.DeliveryApplied, FinalHead: "landed0", AppliedHead: "landed0",
+	}
+	if err := store.Save(snap); err != nil {
+		t.Fatal(err)
+	}
+
+	outcome, stop, err := ReconcileDelivery(context.Background(), store, nil, store.OpenEvents(), snap)
+	if err != nil {
+		t.Fatalf("reconcile an interrupted landing: %v", err)
+	}
+	if stop {
+		t.Fatal("the session has a second step to run, so resume must not finish it")
+	}
+	if got := outcome.Snapshot; !got.Steps[0].Done || got.Step != 2 || got.Phase != string(project.PhaseExecute) {
+		t.Fatalf("reconciled queue = %+v (cursor %d, phase %s), want step 1 landed and EXECUTE at step 2",
+			got.Steps, got.Step, got.Phase)
+	}
+	if !outcome.Applied {
+		t.Fatal("the step had already been delivered, so the outcome must report it applied")
+	}
+
+	// Replaying the same reconcile must be a no-op: the record is the only proof
+	// that the step landed, and it must not be able to advance the queue twice.
+	reloaded, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, stop, err := ReconcileDelivery(context.Background(), store, nil, store.OpenEvents(), reloaded)
+	if err != nil {
+		t.Fatalf("replay: %v", err)
+	}
+	if stop {
+		t.Fatal("the replay must still let the session continue")
+	}
+	if got := again.Snapshot; got.Step != 2 || !got.Steps[0].Done {
+		t.Fatalf("the replay moved the queue again: cursor %d, steps %+v", got.Step, got.Steps)
 	}
 }
