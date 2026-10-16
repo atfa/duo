@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=xduo
-Comment=Graphical window for a Duo coding session
+Comment=Choose a Git repository and start a graphical Duo session
 Exec=xduo-launcher
 Icon=xduo
 Terminal=false

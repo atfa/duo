@@ -20,6 +20,7 @@ import (
 
 	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/harness"
+	"github.com/atfa/duo/internal/models"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/session"
 	"github.com/atfa/duo/internal/sessionstore"
@@ -44,6 +45,8 @@ const (
 	KindEscalateToGoal = "escalate_to_goal"
 	KindRestartAgent   = "restart_agent"
 	KindSetLanguage    = "set_language"
+	KindSetModel       = "set_model"
+	KindCycleThinking  = "cycle_thinking"
 	KindQuit           = "quit"
 )
 
@@ -54,18 +57,60 @@ type Ready struct {
 }
 
 // Agent is the wire projection of one agent's session.AgentView. Activity is a
-// single best-effort line (the running tool, else streamed text, else the last
-// error); a frontend that needs the unflattened runtime should ask for protocol
-// v2 rather than parse it back out of this string.
+// short summary; Work carries bounded structured runtime data for the preview.
 type Agent struct {
-	Present   bool   `json:"present"`
-	Connected bool   `json:"connected"`
-	Process   string `json:"process"`
-	Driver    string `json:"driver"`
-	Model     string `json:"model"`
-	Thinking  string `json:"thinking"`
-	Busy      bool   `json:"busy"`
-	Activity  string `json:"activity"`
+	Present        bool        `json:"present"`
+	WorktreePath   string      `json:"worktree_path"`
+	WorktreeBranch string      `json:"worktree_branch"`
+	WorktreeHead   string      `json:"worktree_head"`
+	Connected      bool        `json:"connected"`
+	Process        string      `json:"process"`
+	Driver         string      `json:"driver"`
+	Model          string      `json:"model"`
+	Thinking       string      `json:"thinking"`
+	Busy           bool        `json:"busy"`
+	Activity       string      `json:"activity"`
+	Work           WorkPreview `json:"work"`
+	Models         []Model     `json:"models"`
+	ModelsLoaded   bool        `json:"models_loaded"`
+	ModelsError    string      `json:"models_error,omitempty"`
+}
+
+type WorkPreview struct {
+	ProviderActive  bool       `json:"provider_active"`
+	ToolDepth       int        `json:"tool_depth"`
+	HumanAttached   bool       `json:"human_attached"`
+	LastActivity    string     `json:"last_activity,omitempty"`
+	Tool            string     `json:"tool"`
+	ToolDetail      string     `json:"tool_detail"`
+	ToolFailed      bool       `json:"tool_failed"`
+	StreamTail      string     `json:"stream_tail"`
+	LastError       string     `json:"last_error"`
+	ContextTokens   int        `json:"context_tokens"`
+	ContextWindow   int        `json:"context_window"`
+	TokensPerSecond float64    `json:"tokens_per_second"`
+	Tools           int        `json:"tools"`
+	TurnStarted     string     `json:"turn_started,omitempty"`
+	ToolStarted     string     `json:"tool_started,omitempty"`
+	TokenSpeedAt    string     `json:"token_speed_at,omitempty"`
+	Failures        int        `json:"failures"`
+	Recent          []ToolNote `json:"recent"`
+}
+
+type ToolNote struct {
+	Name       string `json:"name"`
+	Detail     string `json:"detail"`
+	OK         bool   `json:"ok"`
+	DurationMS int64  `json:"duration_ms"`
+}
+
+// Model is one option reported by the agent's driver catalog.
+type Model struct {
+	Provider  string `json:"provider"`
+	ID        string `json:"id"`
+	Reference string `json:"reference"`
+	Thinking  bool   `json:"thinking"`
+	Images    bool   `json:"images"`
 }
 
 // View is the wire projection of session.View. Notices carries the driver
@@ -76,6 +121,7 @@ type View struct {
 	Session     string           `json:"session"`
 	Mode        string           `json:"mode"`
 	Phase       string           `json:"phase"`
+	Started     bool             `json:"started"`
 	Language    string           `json:"language"`
 	Repository  string           `json:"repository"`
 	BaseBranch  string           `json:"base_branch"`
@@ -111,6 +157,8 @@ type Command struct {
 	Text     string `json:"text,omitempty"`
 	Agent    string `json:"agent,omitempty"`
 	Language string `json:"language,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
 }
 
 // writeFrame is the single envelope for everything Go sends, so the GUI decodes
@@ -157,6 +205,7 @@ func fromView(v session.View, status string) View {
 		Session:     v.SessionID,
 		Mode:        string(v.EffectiveMode()),
 		Phase:       string(v.Phase()),
+		Started:     v.Project.Started,
 		Language:    v.Language,
 		Repository:  v.Worktrees.Repository,
 		BaseBranch:  v.Worktrees.BaseBranch,
@@ -176,16 +225,49 @@ func fromView(v session.View, status string) View {
 	}
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
 		av := v.Agents[id]
+		worktree, _ := v.Worktrees.For(id)
 		out.Agents[wireAgent(id)] = Agent{
-			Present:   av.Present,
-			Connected: av.Connected,
-			Process:   av.Process.String(),
-			Driver:    av.Driver,
-			Model:     av.Model,
-			Thinking:  av.Thinking,
-			Busy:      av.Runtime.Busy,
-			Activity:  activityLine(av.Runtime),
+			Present:        av.Present,
+			WorktreePath:   worktree.Path,
+			WorktreeBranch: worktree.Branch,
+			WorktreeHead:   worktree.Head,
+			Connected:      av.Connected,
+			Process:        av.Process.String(),
+			Driver:         av.Driver,
+			Model:          av.Model,
+			Thinking:       av.Thinking,
+			Busy:           av.Runtime.Busy,
+			Activity:       activityLine(av.Runtime),
+			Work:           workPreview(av.Runtime),
+			Models:         []Model{},
 		}
+	}
+	return out
+}
+
+func workPreview(rt harness.AgentRuntime) WorkPreview {
+	out := WorkPreview{ProviderActive: rt.ProviderActive, ToolDepth: rt.ToolDepth, HumanAttached: rt.HumanAttached,
+		LastActivity: wireTime(rt.LastActivity), Tool: truncateRunes(rt.Tool, 100), ToolDetail: truncateRunes(rt.ToolDetail, 500), ToolFailed: rt.ToolFailed, StreamTail: truncateRunes(rt.StreamTail, 1200),
+		LastError: truncateRunes(rt.LastError, 500), ContextTokens: rt.ContextTokens, ContextWindow: rt.ContextWindow,
+		TokensPerSecond: rt.TokensPerSecond, Tools: rt.Tools, TurnStarted: wireTime(rt.TurnStarted), ToolStarted: wireTime(rt.ToolStarted),
+		TokenSpeedAt: wireTime(rt.TokenSpeedAt), Failures: rt.Failures, Recent: make([]ToolNote, 0, len(rt.Recent))}
+	for _, note := range rt.Recent {
+		out.Recent = append(out.Recent, ToolNote{Name: truncateRunes(note.Name, 100), Detail: truncateRunes(note.Detail, 300), OK: note.OK, DurationMS: note.Duration.Milliseconds()})
+	}
+	return out
+}
+
+func wireTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339Nano)
+}
+
+func fromModels(ms []models.Model) []Model {
+	out := make([]Model, 0, len(ms))
+	for _, m := range ms {
+		out = append(out, Model{Provider: m.Provider, ID: m.ID, Reference: m.Reference(), Thinking: m.Thinking, Images: m.Images})
 	}
 	return out
 }
@@ -278,6 +360,21 @@ func decodeCommand(line []byte) (session.Command, bool, error) {
 			return nil, false, errors.New("set_language carries no language")
 		}
 		return session.SetLanguage{Language: cmd.Language}, false, nil
+	case KindSetModel:
+		agent, err := parseAgent(cmd.Agent)
+		if err != nil {
+			return nil, false, err
+		}
+		if strings.TrimSpace(cmd.Model) == "" {
+			return nil, false, errors.New("set_model carries no model")
+		}
+		return session.SetModel{Agent: agent, Provider: cmd.Provider, Model: cmd.Model}, false, nil
+	case KindCycleThinking:
+		agent, err := parseAgent(cmd.Agent)
+		if err != nil {
+			return nil, false, err
+		}
+		return session.CycleThinking{Agent: agent}, false, nil
 	case KindQuit:
 		return nil, true, nil
 	default:

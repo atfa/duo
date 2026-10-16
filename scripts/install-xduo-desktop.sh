@@ -24,10 +24,14 @@ mkdir -p "$applications" "$icons"
 install -m 0644 "$root/resources/xduo.desktop" "$applications/xduo.desktop"
 install -m 0644 "$root/resources/xduo.png" "$icons/xduo.png"
 launcher="$applications/xduo-launcher"
+launcher_core="$applications/xduo-launcher-core"
+install -m 0755 "$root/resources/xduo-launcher.sh" "$launcher_core"
 {
 	echo '#!/usr/bin/env bash'
+	printf 'export PATH=%q:"$PATH"\n' "$(dirname "$duo_bin")"
 	printf 'export DUO_GPUI_BIN=%q\n' "$renderer_bin"
-	printf 'exec %q gui\n' "$duo_bin"
+	printf 'export DUO_HOST_BIN=%q\n' "$duo_bin"
+	printf 'exec %q "$@"\n' "$launcher_core"
 } >"$launcher"
 chmod 0755 "$launcher"
 # Desktop sessions often start with a shorter PATH than an interactive shell,

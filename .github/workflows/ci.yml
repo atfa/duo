@@ -40,3 +40,30 @@ jobs:
         run: go vet ./...
       - name: Build
         run: go build ./cmd/duo
+
+  xduo:
+    name: xduo / ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            runner: ubuntu-latest
+          - os: macos-latest
+            runner: macos-latest
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libfontconfig1-dev libfreetype6-dev \
+            libwayland-dev libx11-dev libx11-xcb-dev libxcb-render0-dev \
+            libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev \
+            libxkbcommon-x11-dev libvulkan-dev pkg-config
+      - name: Test
+        run: cd gpui && cargo test --locked
+      - name: Build
+        run: cd gpui && cargo build --release --locked

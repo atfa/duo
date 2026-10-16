@@ -191,6 +191,7 @@ func TestHostDependsOnTheValuePackagesItClaims(t *testing.T) {
 		"errors":                                true,
 		"github.com/atfa/duo/internal/events":   true,
 		"github.com/atfa/duo/internal/harness":  true,
+		"github.com/atfa/duo/internal/models":   true,
 		"github.com/atfa/duo/internal/protocol": true,
 		"github.com/atfa/duo/internal/session":  true,
 		"github.com/atfa/duo/internal/sessionstore": true,

@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/atfa/duo/internal/models"
+	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/session"
 	"github.com/atfa/duo/internal/sessionstore"
 )
@@ -28,6 +30,8 @@ type Session interface {
 	Subscribe(buffer int) (session.Subscription, func())
 	// Do performs one human verb.
 	Do(ctx context.Context, cmd session.Command) error
+	// Models reads the driver's published catalog. Host calls it asynchronously.
+	Models(ctx context.Context, agent protocol.AgentID) ([]models.Model, error)
 	// StatusText renders the workflow status line.
 	StatusText(ctx context.Context) string
 	// History returns the interface entries recorded before a resume.
@@ -59,11 +63,19 @@ type Host struct {
 	// heartbeat and buffer are the defaults above, overridden only by tests.
 	heartbeat time.Duration
 	buffer    int
+	catalogMu sync.RWMutex
+	catalogs  map[protocol.AgentID]catalogResult
+}
+
+type catalogResult struct {
+	models []Model
+	loaded bool
+	err    string
 }
 
 // NewHost returns a host for one session.
 func NewHost(s Session) *Host {
-	return &Host{s: s, heartbeat: defaultHeartbeat, buffer: defaultBuffer}
+	return &Host{s: s, heartbeat: defaultHeartbeat, buffer: defaultBuffer, catalogs: make(map[protocol.AgentID]catalogResult)}
 }
 
 // Serve speaks the protocol until the frontend goes away, the session closes its
@@ -83,7 +95,7 @@ func (h *Host) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	sink := &frameSink{w: out}
 
 	// The view comes first so the window has headers before the backlog lands.
-	if err := sink.view(fromView(sub.View, h.s.StatusText(ctx))); err != nil {
+	if err := sink.view(h.projectView(sub.View, h.s.StatusText(ctx))); err != nil {
 		return err
 	}
 	// Then the conversation that led here. The store keeps it per pane rather
@@ -92,6 +104,9 @@ func (h *Host) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 		if err := sink.event(fromHistory(entry)); err != nil {
 			return err
 		}
+	}
+	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		go h.loadCatalog(ctx, id)
 	}
 
 	done := make(chan struct{})
@@ -158,7 +173,30 @@ func (h *Host) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 // sendView projects and sends one view. It is the only place a view is built, so
 // the initial frame, the post-event frame and the heartbeat cannot disagree.
 func (h *Host) sendView(ctx context.Context, sink *frameSink) error {
-	return sink.view(fromView(h.s.View(), h.s.StatusText(ctx)))
+	return sink.view(h.projectView(h.s.View(), h.s.StatusText(ctx)))
+}
+
+func (h *Host) projectView(sv session.View, status string) View {
+	v := fromView(sv, status)
+	h.catalogMu.RLock()
+	for id, result := range h.catalogs {
+		a := v.Agents[wireAgent(id)]
+		a.Models, a.ModelsLoaded, a.ModelsError = append([]Model{}, result.models...), result.loaded, result.err
+		v.Agents[wireAgent(id)] = a
+	}
+	h.catalogMu.RUnlock()
+	return v
+}
+
+func (h *Host) loadCatalog(ctx context.Context, id protocol.AgentID) {
+	models, err := h.s.Models(ctx, id)
+	result := catalogResult{models: fromModels(models), loaded: true}
+	if err != nil {
+		result.err = err.Error()
+	}
+	h.catalogMu.Lock()
+	h.catalogs[id] = result
+	h.catalogMu.Unlock()
 }
 
 // readCommands is the only writer to the session. It runs until the command

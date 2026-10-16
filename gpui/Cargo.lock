@@ -1404,17 +1404,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 
 [[package]]
-name = "xduo"
-version = "0.11.0"
-dependencies = [
- "gpui",
- "libc",
- "serde",
- "serde_json",
- "smol",
-]
-
-[[package]]
 name = "dwrote"
 version = "0.11.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6754,6 +6743,17 @@ name = "xcursor"
 version = "0.3.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "163b33ed8786455e2fa5d72f554057ce3f3182425434f756cd39c99839d88e23"
+
+[[package]]
+name = "xduo"
+version = "0.12.0"
+dependencies = [
+ "gpui",
+ "libc",
+ "serde",
+ "serde_json",
+ "smol",
+]
 
 [[package]]
 name = "xim-ctext"

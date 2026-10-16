@@ -32,6 +32,8 @@ pub struct View {
     #[serde(default)]
     pub phase: String,
     #[serde(default)]
+    pub started: bool,
+    #[serde(default)]
     pub language: String,
     #[serde(default)]
     pub repository: String,
@@ -69,6 +71,12 @@ pub struct Agent {
     #[serde(default)]
     pub present: bool,
     #[serde(default)]
+    pub worktree_path: String,
+    #[serde(default)]
+    pub worktree_branch: String,
+    #[serde(default)]
+    pub worktree_head: String,
+    #[serde(default)]
     pub connected: bool,
     #[serde(default)]
     pub process: String,
@@ -82,6 +90,80 @@ pub struct Agent {
     pub busy: bool,
     #[serde(default)]
     pub activity: String,
+    #[serde(default)]
+    pub work: WorkPreview,
+    #[serde(default)]
+    pub models: Vec<Model>,
+    #[serde(default)]
+    pub models_loaded: bool,
+    #[serde(default)]
+    pub models_error: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct WorkPreview {
+    #[serde(default)]
+    pub provider_active: bool,
+    #[serde(default)]
+    pub tool_depth: usize,
+    #[serde(default)]
+    pub human_attached: bool,
+    #[serde(default)]
+    pub last_activity: String,
+    #[serde(default)]
+    pub tool: String,
+    #[serde(default)]
+    pub tool_detail: String,
+    #[serde(default)]
+    pub tool_failed: bool,
+    #[serde(default)]
+    pub stream_tail: String,
+    #[serde(default)]
+    pub last_error: String,
+    #[serde(default)]
+    pub context_tokens: usize,
+    #[serde(default)]
+    pub context_window: usize,
+    #[serde(default)]
+    pub tokens_per_second: f64,
+    #[serde(default)]
+    pub tools: usize,
+    #[serde(default)]
+    pub turn_started: String,
+    #[serde(default)]
+    pub tool_started: String,
+    #[serde(default)]
+    pub token_speed_at: String,
+    #[serde(default)]
+    pub failures: usize,
+    #[serde(default)]
+    pub recent: Vec<ToolNote>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct ToolNote {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub detail: String,
+    #[serde(default)]
+    pub ok: bool,
+    #[serde(default)]
+    pub duration_ms: u64,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct Model {
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub reference: String,
+    #[serde(default)]
+    pub thinking: bool,
+    #[serde(default)]
+    pub images: bool,
 }
 
 /// One timeline entry.
@@ -114,6 +196,10 @@ pub struct ClientMessage {
     pub agent: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 impl ClientMessage {
@@ -126,6 +212,8 @@ impl ClientMessage {
             text: None,
             agent: None,
             language: None,
+            provider: None,
+            model: None,
         }
     }
 
@@ -157,6 +245,26 @@ impl ClientMessage {
     pub fn quit() -> Self {
         Self::new("quit")
     }
+
+    pub fn set_model(
+        agent: impl Into<String>,
+        provider: impl Into<String>,
+        model: impl Into<String>,
+    ) -> Self {
+        Self {
+            agent: Some(agent.into()),
+            provider: Some(provider.into()),
+            model: Some(model.into()),
+            ..Self::new("set_model")
+        }
+    }
+
+    pub fn cycle_thinking(agent: impl Into<String>) -> Self {
+        Self {
+            agent: Some(agent.into()),
+            ..Self::new("cycle_thinking")
+        }
+    }
 }
 
 #[cfg(test)]
@@ -172,6 +280,7 @@ mod tests {
             "session": "20261016-103737-393c1e00",
             "mode": "step",
             "phase": "EXECUTE",
+            "started": true,
             "language": "zh",
             "repository": "/home/atfa/ai/Projects/duo",
             "base_branch": "main",
@@ -185,9 +294,14 @@ mod tests {
             "delivery": "",
             "notices": ["no sqlite3"],
             "agents": {
-                "austin": {"present": true, "connected": true, "process": "running",
+                "austin": {"present": true, "worktree_path":"/tmp/duo/austin", "worktree_branch":"duo/austin", "worktree_head":"aaa", "connected": true, "process": "running",
                            "driver": "pi", "model": "deepseek/deepseek-flash",
-                           "thinking": "high", "busy": true, "activity": "Bash: make check"},
+                           "thinking": "high", "busy": true, "activity": "Bash: make check",
+                           "work": {"tool":"bash", "tool_detail":"make check", "context_tokens":123,
+                                    "context_window":456, "tokens_per_second":7.5, "tools":2,
+                                    "recent":[{"name":"read","detail":"src/main.rs","ok":true,"duration_ms":42}]},
+                           "models":[{"provider":"p", "id":"m", "reference":"p/m", "thinking":true,"images":false}],
+                           "models_loaded":true},
                 "tony": {"present": true, "connected": false, "process": "running",
                          "driver": "pi", "model": "", "thinking": "", "busy": false, "activity": ""}
             }
@@ -201,6 +315,7 @@ mod tests {
         };
         assert_eq!(view.version, "v0.11.0");
         assert_eq!(view.mode, "step");
+        assert!(view.started);
         assert_eq!(view.step_cursor, 1);
         assert_eq!(view.steps_total, 6);
         assert_eq!(view.notices, vec!["no sqlite3".to_owned()]);
@@ -209,6 +324,12 @@ mod tests {
         // Identity on the wire is lowercase; a host that sent "Austin" would make
         // the renderer's lookups miss, which is why the protocol fixes the spelling.
         assert_eq!(view.agents.get("austin").unwrap().driver, "pi");
+        let austin = view.agents.get("austin").unwrap();
+        assert_eq!(austin.worktree_branch, "duo/austin");
+        assert_eq!(austin.work.context_tokens, 123);
+        assert_eq!(austin.work.recent[0].duration_ms, 42);
+        assert_eq!(austin.models[0].reference, "p/m");
+        assert!(austin.models_loaded);
         assert!(view.agents.get("Austin").is_none());
     }
 
@@ -236,12 +357,16 @@ mod tests {
         let closed = r#"{"type":"closed","text":"session ended"}"#;
         assert_eq!(
             serde_json::from_str::<ServerMessage>(closed).unwrap(),
-            ServerMessage::Closed { text: "session ended".to_owned() }
+            ServerMessage::Closed {
+                text: "session ended".to_owned()
+            }
         );
         let error = r#"{"type":"error","text":"submit_task needs text"}"#;
         assert_eq!(
             serde_json::from_str::<ServerMessage>(error).unwrap(),
-            ServerMessage::Error { text: "submit_task needs text".to_owned() }
+            ServerMessage::Error {
+                text: "submit_task needs text".to_owned()
+            }
         );
     }
 
@@ -265,6 +390,14 @@ mod tests {
             (
                 ClientMessage::set_language("zh"),
                 r#"{"type":"command","kind":"set_language","language":"zh"}"#,
+            ),
+            (
+                ClientMessage::set_model("tony", "p", "m"),
+                r#"{"type":"command","kind":"set_model","agent":"tony","provider":"p","model":"m"}"#,
+            ),
+            (
+                ClientMessage::cycle_thinking("austin"),
+                r#"{"type":"command","kind":"cycle_thinking","agent":"austin"}"#,
             ),
             (ClientMessage::quit(), r#"{"type":"command","kind":"quit"}"#),
         ] {

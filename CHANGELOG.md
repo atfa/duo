@@ -2,6 +2,34 @@
 
 All notable project milestones are documented here.
 
+## v0.12.0 — 2026-10-16
+
+### xduo desktop release
+
+The graphical frontend now ships in the Linux and macOS release archives for
+amd64 and arm64. Linux installs a desktop launcher and icon; macOS includes an
+`xduo.app` bundle with Duo and its agent helpers. The launcher asks which Git
+repository to open, so it also works when started from a desktop menu or Finder.
+The window uses native decorations and follows the system light or dark theme.
+
+- The task composer supports IME composition, Unicode cursor movement, mouse
+  selection, multiline tasks and persistent history shared with the terminal UI.
+- The session overview shows each agent's worktree branch, HEAD and path. The
+  timeline can show timestamps and copy Austin's latest message to the human.
+  Keyboard help and a second confirmation for closing unfinished sessions make
+  the window safer to use during a long task.
+- The session host exposes bounded structured agent activity and the real model
+  catalogs reported by each agent's driver. xduo can show work in progress and
+  send model and thinking changes through the existing human session commands.
+  Model listing now inherits the agent's PATH, so user-installed CLIs remain
+  available when the catalog is queried.
+- CI builds and tests the Rust renderer on Linux and macOS. The release workflow
+  builds native xduo packages for both architectures on each platform.
+
+Direct attachment to an agent's native terminal remains a future feature. It
+needs a real terminal transport and emulator to preserve interactive agent
+behavior; agent sessions remain accessible through the terminal interface.
+
 ## v0.11.0 — 2026-10-16
 
 ### GPUI graphical frontend — `duo gui` (MVP)

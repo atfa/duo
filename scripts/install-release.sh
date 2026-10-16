@@ -31,6 +31,8 @@ extension_dir="${HOME}/.pi/agent/extensions/duo"
 opencode_plugin_dir="${HOME}/.config/opencode/plugin"
 mkdir -p "$bin_dir" "$(dirname "$extension_dir")" "$opencode_plugin_dir"
 install -m 0755 "$tmp/duo" "$bin_dir/duo"
+install -m 0755 "$tmp/xduo" "$bin_dir/xduo"
+install -m 0755 "$tmp/xduo-launcher-core" "$bin_dir/xduo-launcher-core"
 # Everything else in the archive is a per-driver launch shim or plugin executable.
 # Installing whatever the release actually contains is what keeps this script from
 # becoming another list of drivers to remember. `duo.tar.gz` sits alongside these
@@ -41,6 +43,61 @@ for binary in "$tmp"/duo-*; do
 done
 rm -rf "$extension_dir"
 cp -R "$tmp/pi-extension" "$extension_dir"
+
+if [ "$os" = "darwin" ]; then
+	applications="${HOME}/Applications"
+	mkdir -p "$applications"
+	app_id="com.atfa.xduo"
+	app_destination="$applications/xduo.app"
+	installed_app_id() {
+		/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$1/Contents/Info.plist" 2>/dev/null || true
+	}
+	if [ -e "$app_destination" ] && [ "$(installed_app_id "$app_destination")" != "$app_id" ]; then
+		app_destination="$applications/xduo Duo.app"
+		suffix=2
+		while [ -e "$app_destination" ] && [ "$(installed_app_id "$app_destination")" != "$app_id" ]; do
+			app_destination="$applications/xduo Duo $suffix.app"
+			suffix=$((suffix + 1))
+		done
+	fi
+	if [ -e "$app_destination" ]; then
+		[ "$(installed_app_id "$app_destination")" = "$app_id" ] || {
+			echo "error: refusing to replace unrelated app: $app_destination" >&2
+			exit 1
+		}
+		rm -rf "$app_destination"
+	fi
+	cp -R "$tmp/xduo.app" "$app_destination"
+	echo "Installed xduo app to $app_destination"
+else
+	data_home="${XDG_DATA_HOME:-${HOME}/.local/share}"
+	applications="$data_home/applications"
+	icons="$data_home/icons/hicolor/512x512/apps"
+	mkdir -p "$applications" "$icons"
+	install -m 0644 "$tmp/xduo.png" "$icons/xduo.png"
+	launcher="$applications/xduo-launcher"
+	{
+		echo '#!/usr/bin/env bash'
+		printf 'export PATH=%q:"$PATH"\n' "$bin_dir"
+		printf 'export DUO_GPUI_BIN=%q\n' "$bin_dir/xduo"
+		printf 'export DUO_HOST_BIN=%q\n' "$bin_dir/duo"
+		printf 'exec %q "$@"\n' "$bin_dir/xduo-launcher-core"
+	} >"$launcher"
+	chmod 0755 "$launcher"
+	cat >"$applications/xduo.desktop" <<DESKTOP
+[Desktop Entry]
+Type=Application
+Name=xduo
+Comment=Graphical window for a Duo coding session
+Exec="$launcher"
+Icon=xduo
+Terminal=false
+Categories=Development;IDE;
+StartupNotify=true
+StartupWMClass=xduo
+DESKTOP
+	echo "Installed xduo desktop entry and icon under $data_home"
+fi
 
 # opencode bridge: a plugin entry point that re-exports the bridge directory.
 rm -rf "$opencode_plugin_dir/duo"

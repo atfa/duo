@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/atfa/duo/internal/events"
+	"github.com/atfa/duo/internal/models"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/session"
 	"github.com/atfa/duo/internal/sessionstore"
@@ -27,9 +28,11 @@ type fakeSession struct {
 	history []sessionstore.TUIEntry
 	bus     *events.Bus
 
-	cancels []func()
-	got     []session.Command
-	doErr   error
+	cancels     []func()
+	got         []session.Command
+	doErr       error
+	modelResult []models.Model
+	modelErr    error
 }
 
 func newFakeSession() *fakeSession {
@@ -67,6 +70,12 @@ func (f *fakeSession) History() []sessionstore.TUIEntry {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]sessionstore.TUIEntry(nil), f.history...)
+}
+
+func (f *fakeSession) Models(context.Context, protocol.AgentID) ([]models.Model, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]models.Model(nil), f.modelResult...), f.modelErr
 }
 
 func (f *fakeSession) emit(e events.Event) { f.bus.Emit(e) }
@@ -266,6 +275,43 @@ func TestServeSendsViewThenHistoryThenEvents(t *testing.T) {
 	}
 }
 
+func TestServeLoadsDriverCatalogAndPublishesItAsynchronously(t *testing.T) {
+	fake := newFakeSession()
+	fake.modelResult = []models.Model{{Provider: "provider", ID: "model-id", Thinking: true}}
+	h := startHost(t, fake, func(host *Host) { host.heartbeat = 5 * time.Millisecond })
+	frames := h.waitFrames(2)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		frames = h.rec.snapshot()
+		found := false
+		for _, frame := range frames {
+			if frame.View != nil {
+				a := frame.View.Agents["austin"]
+				if a.ModelsLoaded && len(a.Models) == 1 {
+					found = true
+					if a.Models[0].Reference != "provider/model-id" || !a.Models[0].Thinking {
+						t.Errorf("catalog option = %+v", a.Models[0])
+					}
+				}
+			}
+		}
+		if found {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("catalog was not published; frames=%+v", frames)
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if frames[0].View == nil || frames[0].Type != typeView {
+		t.Fatalf("initial frame = %+v", frames[0])
+	}
+	h.send(`{"type":"command","kind":"quit"}`)
+	if err := h.wait(); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+}
+
 func TestServeDispatchesCommandsAndReportsFailures(t *testing.T) {
 	fake := newFakeSession()
 	h := startHost(t, fake, quiet)
@@ -283,7 +329,7 @@ func TestServeDispatchesCommandsAndReportsFailures(t *testing.T) {
 
 	// A frame the protocol does not know is reported, not fatal: the window
 	// stays open so the human can see why their keystroke did nothing.
-	h.send(`{"type":"command","kind":"set_model","agent":"austin"}`)
+	h.send(`{"type":"command","kind":"unknown_kind"}`)
 	frames := h.waitFrames(2)
 	if frames[1].Type != typeError || !strings.Contains(frames[1].Text, "unknown command kind") {
 		t.Errorf("bad frame produced %+v", frames[1])

@@ -1,6 +1,6 @@
 # Duo
 
-**Two peer coding agents in one terminal, coordinated through isolated Git worktrees.**
+**Two peer coding agents in a terminal or graphical window, coordinated through isolated Git worktrees.**
 
 Duo runs two coding agents as *peers* rather than as a planner and a subordinate worker, in one of three fixed workflows:
 
@@ -36,17 +36,20 @@ Requirements:
 
 ## Install
 
-**Released binaries** (macOS/Linux, amd64/arm64; installs `~/.local/bin/duo` plus one launch shim and plugin executable per driver, along with the agent-side bridges):
+**Released binaries** (macOS/Linux, amd64/arm64; installs `duo`, `xduo`, driver helpers and agent bridges, plus a Linux desktop entry or macOS app bundle):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash
 ```
 
-**From source** (runs the test suite first, then installs the same pieces; requires Go 1.22+):
+**From source** (runs the Go test suite and installs Duo and its driver bridges; requires Go 1.22+):
 
 ```bash
 ./scripts/install.sh
 ```
+
+Build the graphical renderer separately with `make gpui`. Install its desktop
+entry on Linux with `scripts/install-xduo-desktop.sh`.
 
 Restart any running Pi or opencode processes after installing the bridges.
 
@@ -203,9 +206,8 @@ Help is a full alternate-screen view; scroll it with `↑`/`k`, `↓`/`j`, `PgUp
 
 `duo gui` starts the same session `duo` does and attaches a native window instead
 of the terminal. The window is built with [GPUI](https://gpui.rs), the Rust UI
-framework Zed uses, and it is an MVP: it shows the mode and phase, both agents,
-the driver diagnostics and the shared timeline, and it sends the verbs a human
-performs.
+framework Zed uses. It shows session state and work previews, and it sends the
+same human commands as the terminal interface.
 
 ```sh
 duo gui                       # a new Fast session, in the window
@@ -218,11 +220,21 @@ Build the renderer once — `make gpui`, which needs cargo — and `duo gui` fin
 next to the `duo` binary. When it cannot find one it says so, naming every place
 it looked, before it starts a session.
 
-The GUI follows the system light/dark appearance and uses the system titlebar
-and window borders, with a d² mark in the window. On Linux, run
+The GUI follows the system light/dark appearance. macOS uses its native titlebar;
+Linux requests client-side decorations and draws a titlebar with minimize,
+maximize and close controls plus resize borders when GPUI reports client
+decorations active, leaving server-side decorations to the compositor when they
+are negotiated. On Linux, run
 `scripts/install-xduo-desktop.sh` to register the app icon and launcher. On
-macOS, build the app bundle with `scripts/package-xduo-macos.sh <output.app>`
-to install the Dock icon.
+macOS, the release archive includes an `xduo.app` with the Dock icon. For a
+source bundle, use `scripts/package-xduo-macos.sh` with matching Duo, xduo and
+agent-helper binaries.
+
+The Linux desktop launcher uses `DUO_REPO` or the current Git repository when
+available. Otherwise it prefers a folder chooser (`zenity`, `kdialog`, or `yad`)
+and falls back to a path prompt in `x-terminal-emulator` or another common
+terminal. The current Linux release `xduo` binary requires glibc 2.34 or newer.
+The graphical renderer also needs a working Vulkan driver.
 
 | Key | Action |
 | --- | --- |
@@ -233,8 +245,14 @@ to install the Dock icon.
 | `Ctrl+L` | Switch the language Duo writes in. |
 | `Ctrl+R` | Restart Austin's process. |
 | `Ctrl+Y` | Restart Tony's process. |
-| `Ctrl+O` | Show or hide the session status and Plan. |
-| `Ctrl+Q` | Quit the window. |
+| `Ctrl+O` | Show or hide the session status, Plan, and agent worktree paths, branches, and HEADs. |
+| `Ctrl+P` | Show or hide both agents' structured work previews. |
+| `Ctrl+M` / `Ctrl+Shift+M` | Open Austin's / Tony's model picker. Type to filter, use Up/Down to choose, Enter to apply, Tab to switch agents, and Esc to close. |
+| `Ctrl+Alt+T` / `Ctrl+Shift+T` | Cycle Austin's / Tony's thinking level. Each agent card also has model and thinking controls. |
+| `Ctrl+T` | Show or hide timeline timestamps. |
+| `Ctrl+X` | Copy Austin's latest message to the human to the clipboard. |
+| `F1` / `Ctrl+H` | Show or hide keyboard help. |
+| `Ctrl+Q` / window close | Quit; an unfinished session asks for a second confirmation within 3 seconds. |
 
 Duo Core is unchanged by this frontend: `internal/session` is still the only seam
 a frontend drives, the terminal interface gains nothing, and the two frontends do

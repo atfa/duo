@@ -35,7 +35,9 @@ func RunModelList(ctx context.Context, command string, parse ModelParser) (*Mode
 	ctx, cancel := context.WithTimeout(ctx, ModelListTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "sh", "-lc", command)
+	// Inherit the same PATH used to probe and launch the agent. A login shell
+	// may reset PATH and hide a CLI installed outside the system directories.
+	cmd := exec.CommandContext(ctx, "sh", "-c", command)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

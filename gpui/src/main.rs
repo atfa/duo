@@ -1,4 +1,4 @@
-//! Duo's GPUI frontend (MVP).
+//! Duo's GPUI frontend.
 //!
 //! It is a renderer, not a session. It reads NDJSON frames from stdin, draws one
 //! window, and writes the commands a human pressed to stdout. Everything about the
@@ -31,11 +31,15 @@ fn main() {
                 title: Some("xduo".into()),
                 ..Default::default()
             }),
-            // Keep system-drawn controls and resize borders on macOS and ask the
-            // Linux compositor/window manager for server-side decorations. This
-            // lets GNOME, KDE, Xfce and other desktops use their own titlebar
-            // layout and button style instead of relying on client-side chrome.
-            window_decorations: Some(WindowDecorations::Server),
+            // Linux uses client decorations because Wayland compositors without
+            // xdg-decoration support may silently leave the window undecorated
+            // after a server-side request. Duo draws controls only if GPUI reports
+            // that client decorations are active. macOS keeps native decorations.
+            window_decorations: Some(if cfg!(target_os = "linux") {
+                WindowDecorations::Client
+            } else {
+                WindowDecorations::Server
+            }),
             is_resizable: true,
             is_minimizable: true,
             app_id: Some("xduo".into()),
@@ -47,6 +51,10 @@ fn main() {
                 cx.observe_window_appearance(window, |_, window, _| window.refresh())
                     .detach();
                 DuoApp::new(rx, cx)
+            });
+            let close_app = app.clone();
+            window.on_window_should_close(cx, move |_, cx| {
+                close_app.update(cx, |app, cx| app.on_window_close(cx))
             });
             let focus = app.read(cx).focus_handle(cx);
             window.focus(&focus);

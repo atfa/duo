@@ -1,9 +1,8 @@
 # Duo GUI protocol (v1)
 
 This document is the complete contract between Duo Core and the GPUI graphical
-frontend. It is deliberately small: the graphical frontend is an MVP, and a
-protocol that only carries what a screen shows is a protocol that does not have to
-change when the screen does.
+frontend. It is deliberately small: it carries the state the window displays and
+the commands a human can issue, while the session remains authoritative.
 
 The graphical frontend is not a second source of project state and it does not
 reach into Core. It reads a projection of one session and sends the verbs a human
@@ -86,10 +85,11 @@ timeline in the right order without a second code path.
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `version` | string | The Duo version, e.g. `v0.11.0`. |
+| `version` | string | The Duo version, e.g. `v0.12.0`. |
 | `session` | string | The session id. |
 | `mode` | string | `fast`, `goal` or `step`. |
 | `phase` | string | The workflow phase, e.g. `PLAN`, `EXECUTE`, `REVIEW`. |
+| `started` | bool | Whether the session has started its task; xduo uses this with `phase` for quit confirmation. |
 | `language` | string | `zh` or `en`. |
 | `repository` | string | The repository the session runs in. |
 | `base_branch` | string | The branch Duo recorded at session start. |
@@ -109,6 +109,9 @@ timeline in the right order without a second code path.
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `present` | bool | The session has a driver for this agent at all. |
+| `worktree_path` | string | The agent's session worktree path. |
+| `worktree_branch` | string | The agent's worktree branch. |
+| `worktree_head` | string | The worktree's projected HEAD. |
 | `connected` | bool | The agent currently holds the bridge endpoint. |
 | `process` | string | The process state, e.g. `running`, `exited`. |
 | `driver` | string | The driver name. |
@@ -116,6 +119,28 @@ timeline in the right order without a second code path.
 | `thinking` | string | The reasoning effort, empty when the driver has none. |
 | `busy` | bool | The harness reports the agent working. |
 | `activity` | string | A one-line description of what the agent is doing now. |
+| `work` | WorkPreview | Structured fields for the native work preview, copied from the agent runtime. |
+| `models` | array of Model | Options returned by this agent's driver catalog; empty while loading or when no options were returned. |
+| `models_loaded` | bool | The catalog request finished, whether successfully or with an error. |
+| `models_error` | string | Catalog error, including when the driver publishes no catalog. Omitted when successful. |
+
+### WorkPreview and Model
+
+`work` carries `provider_active`, `tool_depth`, `human_attached`, `last_activity`,
+`tool`, `tool_detail`, `tool_failed`, `stream_tail`, `last_error`,
+`context_tokens`, `context_window`, `tokens_per_second`, `tools`, `turn_started`,
+`tool_started`, `token_speed_at`, `failures`, and `recent`.
+Each recent tool note has `name`, `detail`, `ok`, and `duration_ms`. These values
+are copied from `session.View`; zero and empty values mean the driver has no data.
+Text in this preview is bounded on the wire (tool names 100 runes, tool details
+500 runes, streamed text 1200 runes, error text 500 runes, and recent note text
+300 runes) so a long stream tail cannot inflate every heartbeat frame.
+
+A model option carries `provider`, `id`, `reference`, `thinking`, and `images`.
+The reference is the driver's canonical selectable spelling, including its bare
+reference behavior. The host asks each driver's existing catalog concurrently;
+heartbeats continue while a catalog command is running, and the result appears in
+the next view heartbeat. The catalog is never assembled from a built-in list.
 
 ### Event
 
@@ -151,7 +176,7 @@ are deliberately dropped: `model` and `thinking`. They are not lost — a driver
 model and effort are read into `Agent.model` and `Agent.thinking` on every `view`
 (`internal/session/service.go`), so the 500 ms heartbeat already refreshes them, and
 a renderer that dropped every `model` event would still show the right model after
-one heartbeat. That is what makes dropping them an MVP boundary rather than a bug.
+one heartbeat. Dropping these timeline events does not hide the model change.
 
 ## Renderer → session
 
@@ -163,6 +188,8 @@ Every message is an object with `type: "command"` and a `kind` discriminator.
 | `escalate_to_goal` | — | Ask Core to move a Fast session into Goal. |
 | `restart_agent` | `agent` | Restart one agent's process. |
 | `set_language` | `language` | Switch the language Duo writes in. |
+| `set_model` | `agent`, `provider`, `model` | Select a model option returned by that agent's driver catalog. |
+| `cycle_thinking` | `agent` | Advance that agent's reasoning effort using the session command. |
 | `quit` | — | The human closed the window; the host closes the session. |
 
 `escalate_to_goal` is only meaningful in Fast. Goal and Step refuse it, because a
@@ -172,9 +199,10 @@ refused rather than a state change.
 
 Absent optional fields are omitted rather than sent as `null`.
 
-Two commands a later version may add are deliberately absent: `set_model` and
-`cycle_thinking`. Both need a driver's model catalog, and a picker built from a
-catalog the MVP does not fetch would be a menu that silently does nothing.
+`set_model` should be offered from the matching agent's returned catalog. A driver
+that has no catalog reports that through `models_error`; the renderer must not
+invent model choices. `cycle_thinking` follows the driver's session semantics and
+may restart an agent when that driver cannot change effort live.
 
 ## Why this shape
 

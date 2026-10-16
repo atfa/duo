@@ -8,6 +8,7 @@ import (
 	"github.com/atfa/duo/internal/agent"
 	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/harness"
+	"github.com/atfa/duo/internal/models"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/session"
@@ -36,6 +37,7 @@ func testView() session.View {
 		SessionID: "20261016-103737-393c1e00",
 		Language:  "zh",
 		Project: project.Snapshot{
+			Started:     true,
 			Mode:        project.ModeStep,
 			Phase:       project.PhaseExecute,
 			Plan:        "the shared plan",
@@ -48,6 +50,8 @@ func testView() session.View {
 			Repository: "/home/user/duo",
 			BaseBranch: "main",
 			BaseCommit: "d434ddbfc6",
+			Austin:     workspace.Worktree{Path: "/tmp/duo/austin", Branch: "duo/austin", Head: "aaa"},
+			Tony:       workspace.Worktree{Path: "/tmp/duo/tony", Branch: "duo/tony", Head: "bbb"},
 		},
 		Delivery: sessionstore.Delivery{Status: sessionstore.DeliveryPending},
 		Notices:  []string{"driver reported a diagnostic"},
@@ -60,9 +64,14 @@ func testView() session.View {
 				Model:     "claude-sonnet",
 				Thinking:  "high",
 				Runtime: harness.AgentRuntime{
-					Busy:       true,
-					Tool:       "edit",
-					ToolDetail: "internal/guiipc/protocol.go",
+					Busy:           true,
+					ProviderActive: true,
+					ToolDepth:      1,
+					Tool:           "edit",
+					ToolDetail:     "internal/guiipc/protocol.go",
+					TurnStarted:    eventTime,
+					ContextTokens:  123, ContextWindow: 456, TokensPerSecond: 7.5, Tools: 2,
+					Recent: []harness.ToolNote{{Name: "read", Detail: "a.go", OK: true, Duration: 1500 * time.Millisecond}},
 				},
 			},
 			protocol.Tony: {Present: true, Process: agent.ProcessStopping},
@@ -78,6 +87,9 @@ func TestFromViewProjectsEveryFrozenField(t *testing.T) {
 	}
 	if got.Mode != "step" || got.Phase != "EXECUTE" {
 		t.Errorf("mode/phase = %q/%q; want step/EXECUTE", got.Mode, got.Phase)
+	}
+	if !got.Started {
+		t.Error("started = false; want true")
 	}
 	if got.Language != "zh" || got.Status != "status line" {
 		t.Errorf("language/status = %q/%q", got.Language, got.Status)
@@ -111,14 +123,27 @@ func TestFromViewProjectsEveryFrozenField(t *testing.T) {
 	if austin.Driver != "pi" || austin.Model != "claude-sonnet" || austin.Thinking != "high" {
 		t.Errorf("austin driver/model/thinking = %q/%q/%q", austin.Driver, austin.Model, austin.Thinking)
 	}
+	if austin.WorktreePath != "/tmp/duo/austin" || austin.WorktreeBranch != "duo/austin" || austin.WorktreeHead != "aaa" {
+		t.Errorf("austin worktree = %q/%q/%q", austin.WorktreePath, austin.WorktreeBranch, austin.WorktreeHead)
+	}
 	if !austin.Busy || austin.Activity != "internal/guiipc/protocol.go" {
 		t.Errorf("austin busy/activity = %v/%q", austin.Busy, austin.Activity)
+	}
+	if austin.Work.Tool != "edit" || austin.Work.ToolDetail != "internal/guiipc/protocol.go" || !austin.Work.ProviderActive || austin.Work.ToolDepth != 1 || austin.Work.TurnStarted != eventTime.Format(time.RFC3339Nano) || austin.Work.ContextTokens != 123 || austin.Work.ContextWindow != 456 || austin.Work.TokensPerSecond != 7.5 || austin.Work.Tools != 2 || len(austin.Work.Recent) != 1 || austin.Work.Recent[0].DurationMS != 1500 {
+		t.Errorf("structured work preview = %+v", austin.Work)
 	}
 	if _, ok := got.Agents["Austin"]; ok {
 		t.Error("agents uses a title-case key; the wire spelling must be lower case")
 	}
 	if tony, ok := got.Agents["tony"]; !ok || tony.Process != "stopping" || tony.Present != true {
 		t.Errorf("tony = %+v, present=%v", tony, ok)
+	}
+}
+
+func TestFromModelsKeepsDriverReferences(t *testing.T) {
+	got := fromModels([]models.Model{{Provider: "real-provider", ID: "real/model", Thinking: true, Images: true, Bare: true}})
+	if len(got) != 1 || got[0].Reference != "real/model" || got[0].Provider != "real-provider" || !got[0].Thinking || !got[0].Images {
+		t.Fatalf("catalog projection = %+v", got)
 	}
 }
 
@@ -188,6 +213,17 @@ func TestActivityLinePicksOneBoundedLine(t *testing.T) {
 	}
 }
 
+func TestWorkPreviewBoundsTextWithoutSplittingUnicode(t *testing.T) {
+	original := strings.Repeat("界", 1300)
+	got := workPreview(harness.AgentRuntime{StreamTail: original})
+	if n := len([]rune(got.StreamTail)); n != 1200 {
+		t.Fatalf("stream tail length = %d runes; want 1200", n)
+	}
+	if !strings.HasPrefix(got.StreamTail, "界") || original != strings.Repeat("界", 1300) {
+		t.Fatal("preview clipping split text or changed source data")
+	}
+}
+
 func TestFromEventUsesTheWireAgentSpelling(t *testing.T) {
 	got := fromEvent(events.Event{
 		Time:  eventTime,
@@ -247,6 +283,8 @@ func TestDecodeCommandRoundTripsEachKind(t *testing.T) {
 		{line: `{"type":"command","kind":"restart_agent","agent":"austin"}`, want: session.RestartAgent{Agent: protocol.Austin}},
 		{line: `{"type":"command","kind":"restart_agent","agent":"Tony"}`, want: session.RestartAgent{Agent: protocol.Tony}},
 		{line: `{"type":"command","kind":"set_language","language":"en"}`, want: session.SetLanguage{Language: "en"}},
+		{line: `{"type":"command","kind":"set_model","agent":"tony","provider":"p","model":"m"}`, want: session.SetModel{Agent: protocol.Tony, Provider: "p", Model: "m"}},
+		{line: `{"type":"command","kind":"cycle_thinking","agent":"austin"}`, want: session.CycleThinking{Agent: protocol.Austin}},
 		{line: `{"type":"command","kind":"quit"}`, quit: true},
 	}
 	for _, tc := range cases {
@@ -275,7 +313,9 @@ func TestDecodeCommandRejectsBadFrames(t *testing.T) {
 	}{
 		{name: "not json", line: `{`},
 		{name: "wrong envelope", line: `{"type":"view","kind":"quit"}`},
-		{name: "unknown kind", line: `{"type":"command","kind":"set_model"}`},
+		{name: "unknown kind", line: `{"type":"command","kind":"not_a_command"}`},
+		{name: "set_model without model", line: `{"type":"command","kind":"set_model","agent":"austin"}`},
+		{name: "cycle thinking unknown agent", line: `{"type":"command","kind":"cycle_thinking","agent":"duo"}`},
 		{name: "submit without text", line: `{"type":"command","kind":"submit_task","text":"   "}`},
 		{name: "set_language without language", line: `{"type":"command","kind":"set_language"}`},
 		{name: "restart unknown agent", line: `{"type":"command","kind":"restart_agent","agent":"duo"}`},
