@@ -25,11 +25,20 @@ performs.
   an agent.
 - **The MVP is narrower than the TUI on purpose**: submit a task, escalate to Goal,
   restart an agent, switch language. No agent PTY stream, model picker, plan editor
-  or mouse. The smallest window that is genuinely usable is the right first one.
+  or mouse, and no way to render a session's restart request: a session that asks to
+  continue on a new binary waits for the human to close the window, and `duo gui`
+  then records the upgrade request and exits with the same code the terminal
+  interface uses. The smallest window that is genuinely usable is the right first
+  one.
 - **Build it with `make gpui`** (`cargo build --release` in `gpui/`). The crate pins
   `libc = "=0.2.179"`: gpui's transitive `xattr 0.2.3` reads `libc::ENOATTR`, which
   libc stopped defining in 0.2.180, and without the pin the crate does not build on a
-  current toolchain. Rust is not part of `make check`, because CI carries no Rust
+  current toolchain. Its build tree is `gpui/.target` rather than cargo's default,
+  because `go test ./...` walks the repository and fails if it touches a Cargo
+  target directory while cargo is rewriting it. `scripts/gui-smoke.sh` is where the
+  graphical frontend is checked end to end: the fake frontend over the real host and
+  the renderer's protocol tests run headless, and the window feed runs when a display
+  is available. Rust is not part of `make check`, because CI carries no Rust
   toolchain.
 
 ### Step mode — `duo --mode step`
@@ -79,6 +88,16 @@ PLAN → (per step: EXECUTE → REVIEW → INTEGRATE → land the step) → DONE
   that value, and the Goal set has no `duo_set_steps`, so a Step session could not
   publish the queue it requires and stayed in PLAN. Every mode now reaches both the
   adapter and the driver unchanged.
+
+  A session already running on the old binary cannot be repaired in place: its
+  agents are the processes that already read the wrong value. It can still be
+  unblocked, because publishing the queue is an agent-side verb — the agent sends
+  `set_steps` to the bridge itself, with its own identity and token, over the same
+  connection Duo's own MCP client uses (`clientType: "mcp"`, which carries the
+  identity without evicting the running adapter). That is a workaround for one
+  stuck session rather than a second interface: installing this fix and resuming is
+  the path that leaves nothing behind, and the agents of a resumed session are told
+  the real mode from the start.
 
 ## v0.10.2 — 2026-10-15
 

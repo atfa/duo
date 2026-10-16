@@ -199,6 +199,41 @@ Mouse selection copies through terminal OSC 52 escape sequences (works seamlessl
 
 Help is a full alternate-screen view; scroll it with `↑`/`k`, `↓`/`j`, `PgUp`, `PgDn`, `Home`/`g`, `End`/`G`, and close it with `Esc` or `Ctrl+/`. It covers the keybindings, the slash commands and the model picker above, plus a **Command Line** section listing every `duo` subcommand and flag; run `duo --help` for the full usage, every environment variable and each command's own detail.
 
+## Graphical frontend (`duo gui`)
+
+`duo gui` starts the same session `duo` does and attaches a native window instead
+of the terminal. The window is built with [GPUI](https://gpui.rs), the Rust UI
+framework Zed uses, and it is an MVP: it shows the mode and phase, both agents,
+the driver diagnostics and the shared timeline, and it sends the verbs a human
+performs.
+
+```sh
+duo gui                       # a new Fast session, in the window
+duo gui --mode step           # every session flag works the same way
+duo gui resume <session-id>   # open the window on a session already in flight
+```
+
+Build the renderer once — `make gpui`, which needs cargo — and `duo gui` finds
+`duo-gpui` through `--gui-binary <path>`, then `DUO_GPUI_BIN`, then `PATH`, then
+next to the `duo` binary. When it cannot find one it says so, naming every place
+it looked, before it starts a session.
+
+| Key | Action |
+| --- | --- |
+| `Enter` | Send the typed task to Austin. |
+| `Esc` | Clear the input. |
+| `Ctrl+G` | Ask for Goal mode. Fast sessions only. |
+| `Ctrl+L` | Switch the language Duo writes in. |
+| `Ctrl+R` | Restart Austin's process. |
+| `Ctrl+Q` | Quit the window. |
+
+Duo Core is unchanged by this frontend: `internal/session` is still the only seam
+a frontend drives, the terminal interface gains nothing, and the two frontends do
+not import each other. The contract between the window and the session is
+[gui-protocol.md](./docs/gui-protocol.md), the build details are in
+[gpui/README.md](./gpui/README.md), and `scripts/gui-smoke.sh` proves the two
+halves still meet — headless, plus the window itself when a display is available.
+
 ## Configuration
 
 Everything has a working default; `duo` needs no configuration to run.
@@ -479,6 +514,7 @@ and publishes macOS/Linux archives for amd64/arm64.
 - [Architecture and invariants](./docs/architecture.md)
 - [Driver plugin protocol](./docs/driver-plugin-protocol.md) and [development guide](./docs/plugin-development-guide.md)
 - [Bridge protocol](./docs/duo-bridge-protocol.md)
+- [GUI protocol](./docs/gui-protocol.md)
 - [Security boundaries](./SECURITY.md)
 - [Release history](./CHANGELOG.md)
 
