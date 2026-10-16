@@ -1794,9 +1794,11 @@ func (c *Coordinator) completeDelivery(ctx context.Context, record sessionstore.
 		c.emit(events.KindSystem, protocol.Duo, "",
 			fmt.Sprintf("step %d of %d landed on %s@%s", pre.Step, len(pre.Steps), applied.TargetBranch, shortSHA(applied.AppliedHead)))
 		c.reportChanges(result.Changes)
-		// THE VERIFIER SYNC GOES HERE, and nowhere else: this is the first point at
-		// which the landing is durable, so it is the only point where the synced
-		// worktree is provably the tree the user received. §6 of the plan owns it.
+		// The landing is now durable, which is the only point where the verifier's
+		// worktree can be proven to match the tree the user received. Doing it here,
+		// on the delivery itself, covers every path that can land a step rather than
+		// only the one that submitted the verdict.
+		c.syncVerifierToLandedStep(ctx, applied.AppliedHead)
 		if !project.QueueFinished(landed.Steps) {
 			c.broadcastPhaseAdvance(ctx, previous, landed.Phase, landed, "")
 			return nil

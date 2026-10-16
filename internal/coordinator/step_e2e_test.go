@@ -2,6 +2,8 @@ package coordinator
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -286,5 +288,53 @@ func TestStepModeRefusesToLandWhenTheReviewedHeadMoved(t *testing.T) {
 	}
 	if got := gitHead(t, repo); got == moved || got == reviewed {
 		t.Fatalf("nothing may land from a withdrawn step, but repo HEAD = %s", got)
+	}
+}
+
+// TestStepModeSyncsTheVerifierOntoTheLandedStep pins the verifier-visibility rule
+// at the live coordinator, not only in the recovery replay.
+//
+// Every landed step goes to the user's branch, so a verifier left on the previous
+// step would review and build the next one on a tree that never reached the user,
+// and each step's merge would re-conflict against the original session base. The
+// fast-forward happens at the durable landing, so it must be observable here and
+// not only after a resume.
+func TestStepModeSyncsTheVerifierOntoTheLandedStep(t *testing.T) {
+	ctx := context.Background()
+
+	runtime := startE2EWithMode(t, ctx, project.ModeStep)
+	set, state, server := runtime.set, runtime.state, runtime.server
+
+	austin := runtime.dialAgent(t, protocol.Austin)
+	tony := runtime.dialAgent(t, protocol.Tony)
+	waitFor(t, func() bool { return server.IsConnected(protocol.Austin) && server.IsConnected(protocol.Tony) }, "both agents to connect")
+
+	tonyBefore := gitHead(t, set.Tony.Path)
+
+	request(t, austin, protocol.Message{Version: protocol.Version, Type: protocol.MsgSetPlan, Plan: "two steps"})
+	request(t, austin, protocol.Message{Version: protocol.Version, Type: protocol.MsgSetSteps, Steps: "- [ ] one\n- [ ] two"})
+	sign(t, austin)
+	sign(t, tony)
+	waitPhase(t, state, project.PhaseExecute)
+
+	writeAndCommit(t, set.Austin.Path, "one.md", "one\n", "add one.md")
+	stepHead := gitHead(t, set.Austin.Path)
+	if stepHead == tonyBefore {
+		t.Fatal("test setup: Tony was already on the step head")
+	}
+	sign(t, austin)
+	waitPhase(t, state, project.PhaseReview)
+	request(t, tony, protocol.Message{Version: protocol.Version, Type: protocol.MsgSetVerification, Verification: "passed", Note: "ok"})
+	waitFor(t, func() bool {
+		snap := state.Snapshot()
+		return len(snap.Steps) > 0 && snap.Steps[0].Done
+	}, "step 1 to land")
+
+	waitFor(t, func() bool { return gitHead(t, set.Tony.Path) == stepHead }, "the verifier worktree to be fast-forwarded onto the landed step")
+
+	// The landed content, not just the ref, must be in Tony's worktree: that is what
+	// he reviews and builds against.
+	if _, err := os.Stat(filepath.Join(set.Tony.Path, "one.md")); err != nil {
+		t.Fatalf("the landed step is missing from the verifier worktree: %v", err)
 	}
 }
