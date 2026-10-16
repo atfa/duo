@@ -120,19 +120,32 @@ export function buildDuoTools(
   if (isToolEnabledForMode("steps", mode)) {
     tools.duo_set_steps = tool({
       description:
-        "Create or replace the STEP-mode step queue during PLAN. Send a markdown checkbox list, one step per line; every update creates a new version and invalidates both agents' signatures. Duo Core advances the queue after each step lands — agents never mark a step done by hand.",
+        "STEP mode. Publish the step queue in PLAN, or extend it later with append=true. Send a markdown checkbox list, one step per line, using '- [ ]' for every step: Duo owns the ticks. A PLAN update resets both agents' signatures; after PLAN the queue can only grow.",
       args: {
         steps: z
           .string()
           .describe(
-            "The complete ordered queue as a markdown checkbox list, e.g. '- [ ] add ModeStep\\n- [ ] land per-step delivery'. Send the whole list, not a patch.",
+            "The queue as a markdown checkbox list, e.g. '- [ ] add ModeStep\\n- [ ] land per-step delivery'. Send the whole list, not a patch.",
+          ),
+        append: z
+          .boolean()
+          .optional()
+          .describe(
+            "true = add these steps to the END of the existing queue instead of replacing it. This is the only way to change the queue after PLAN, and it cannot disturb steps already landed.",
           ),
       },
       async execute(args) {
         const steps = args.steps.trim();
         if (!steps) return "Steps were empty and were not sent.";
         try {
-          return ok(await transport.request("set_steps", { steps }));
+          return ok(
+            await transport.request("set_steps", {
+              steps,
+              // The coordinator reads an "append" marker to allow growing the
+              // queue after PLAN; without it a mid-loop edit is rejected outright.
+              text: args.append === true ? "append" : "",
+            }),
+          );
         } catch (error) {
           return failed("Duo set steps failed", error);
         }
