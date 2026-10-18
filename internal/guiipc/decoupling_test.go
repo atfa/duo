@@ -49,6 +49,11 @@ var liveNames = map[string][]string{
 	"github.com/atfa/duo/internal/agent":        {"Manager", "NewManager", "NewSession", "Session"},
 	"github.com/atfa/duo/internal/harness":      {"NewTracker", "Tracker"},
 	"github.com/atfa/duo/internal/project":      {"State", "NewState", "NewStateFor"},
+	// The host is handed a desktop agent registry, the same way it is handed a
+	// session, and reads desktopagents.State, which is a value. Opening one from the
+	// render path is what this entry keeps out: scanning the user's shells is a
+	// side effect, and the host owns no scan.
+	"github.com/atfa/duo/internal/desktopagents": {"Open"},
 }
 
 // source is one parsed file together with the local name it gave each import, so a
@@ -179,29 +184,31 @@ func TestTerminalInterfaceDoesNotImportTheHost(t *testing.T) {
 // green.
 func TestHostDependsOnTheValuePackagesItClaims(t *testing.T) {
 	allowed := map[string]bool{
-		"bufio":                                 true,
-		"bytes":                                 true,
-		"context":                               true,
-		"encoding/binary":                       true,
-		"encoding/json":                         true,
-		"fmt":                                   true,
-		"io":                                    true,
-		"net":                                   true,
-		"os":                                    true,
-		"os/exec":                               true,
-		"path/filepath":                         true,
-		"strconv":                               true,
-		"strings":                               true,
-		"sync":                                  true,
-		"time":                                  true,
-		"errors":                                true,
-		"github.com/atfa/duo/internal/events":   true,
-		"github.com/atfa/duo/internal/harness":  true,
-		"github.com/atfa/duo/internal/models":   true,
-		"github.com/atfa/duo/internal/protocol": true,
-		"github.com/atfa/duo/internal/project":  true,
-		"github.com/atfa/duo/internal/session":  true,
-		"github.com/atfa/duo/internal/sessionstore": true,
+		"bufio":           true,
+		"bytes":           true,
+		"context":         true,
+		"encoding/binary": true,
+		"encoding/json":   true,
+		"fmt":             true,
+		"io":              true,
+		"net":             true,
+		"os":              true,
+		"os/exec":         true,
+		"path/filepath":   true,
+		"sort":            true,
+		"strconv":         true,
+		"strings":         true,
+		"sync":            true,
+		"time":            true,
+		"errors":          true,
+		"github.com/atfa/duo/internal/desktopagents": true,
+		"github.com/atfa/duo/internal/events":        true,
+		"github.com/atfa/duo/internal/harness":       true,
+		"github.com/atfa/duo/internal/models":        true,
+		"github.com/atfa/duo/internal/protocol":      true,
+		"github.com/atfa/duo/internal/project":       true,
+		"github.com/atfa/duo/internal/session":       true,
+		"github.com/atfa/duo/internal/sessionstore":  true,
 	}
 	for _, src := range parseDir(t, ".") {
 		for _, imp := range src.file.Imports {
