@@ -1240,6 +1240,7 @@ impl DuoApp {
         }
     }
 
+    #[cfg(target_os = "macos")]
     pub fn confirm_application_quit(&mut self, cx: &mut Context<Self>) -> bool {
         if self.request_quit(Instant::now()) {
             self.send(ClientMessage::quit());
@@ -1277,6 +1278,7 @@ fn latest_austin_message(events: &[Event]) -> Option<&Event> {
     })
 }
 
+#[cfg(test)]
 fn selected_event_text(events: &[Event], selected: Option<usize>) -> Option<&str> {
     events.get(selected?).map(|event| event.text.as_str())
 }
@@ -5079,30 +5081,6 @@ fn format_duration(duration_ms: u64) -> String {
         let tenths = duration_ms.saturating_add(50) / 100;
         format!("{:.1} s", tenths as f64 / 10.0)
     }
-}
-
-/// hint_line names the keys this session actually answers. Goal escalation is left
-/// out of every other mode, because the key would only ever be refused there.
-fn hint_line(view: Option<&View>) -> String {
-    let mut keys = vec!["Enter send", "Shift+Enter newline", "Esc clear"];
-    if view.map(|view| view.mode.as_str()) == Some(MODE_FAST) {
-        keys.push("Ctrl+G goal");
-    }
-    keys.extend([
-        "Ctrl+L language",
-        "Ctrl+R/Y restart Austin/Tony",
-        "Ctrl+O overview",
-        "Ctrl+P work preview",
-        "Ctrl+M / Shift+Ctrl+M model picker",
-        "Alt+Ctrl+T / Shift+Ctrl+T thinking",
-        "Ctrl+T timestamps",
-        "Ctrl+X copy Austin",
-        "Ctrl+F timeline search · Enter/Shift+Enter matches · Esc close",
-        "Click message · arrows/Page/Home/End navigate · Ctrl+C copy selection",
-        "F1 help",
-        "Ctrl+Q quit",
-    ]);
-    keys.join(" · ")
 }
 
 fn ready_mark(view: &View, agent: &str) -> &'static str {

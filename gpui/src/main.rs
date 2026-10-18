@@ -8,9 +8,10 @@ mod timeline;
 use app::DuoApp;
 use gpui::{
     actions, px, size, AnyWindowHandle, App, AppContext, Application, Bounds, Entity, Focusable,
-    KeyBinding, Menu, MenuItem, SystemMenuType, TitlebarOptions, WindowBounds, WindowDecorations,
-    WindowOptions,
+    TitlebarOptions, WindowBounds, WindowDecorations, WindowOptions,
 };
+#[cfg(target_os = "macos")]
+use gpui::{KeyBinding, Menu, MenuItem, SystemMenuType};
 use protocol::ServerMessage;
 use smol::channel;
 use std::{cell::RefCell, io::BufRead, rc::Rc};

@@ -34,6 +34,7 @@ pub enum Block {
 /// Return timeline indexes whose message text contains the query, ignoring case.
 /// The caller bounds the source window; this helper does one pass and preserves
 /// event order so the result can be navigated predictably.
+#[cfg(test)]
 pub fn search_matches<'a>(texts: impl IntoIterator<Item = &'a str>, query: &str) -> Vec<usize> {
     let query = query.trim();
     if query.is_empty() {
