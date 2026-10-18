@@ -147,7 +147,8 @@ scripts/duo-step-loop.sh            the only process that survives an upgrade
    coordinator on unmerged code. Install from the delivered `main` only.
 3. **Install is not atomic today.** `install.sh` installs the two bridges, runs the
    tests, then builds the binaries. A failure in the middle leaves a mix — new
-   bridges over the old coordinator, for instance. Driver protocol
+   bridges over the old coordinator, for instance. The `xduo` renderer is built and
+   installed last, so a Rust failure cannot leave the Go install half-replaced. Driver protocol
    (`internal/driver/protocol.go:24` = 1) and bridge protocol
    (`pi-extension/protocol.ts:7` = 1) are version-gated, so the mismatch is detected
    rather than silent, and `duo step-loop` treats a failed install as "do not

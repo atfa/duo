@@ -42,14 +42,17 @@ Requirements:
 curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash
 ```
 
-**From source** (runs the Go test suite and installs Duo and its driver bridges; requires Go 1.22+):
+**From source** (runs the Go test suite, then installs Duo, its driver bridges and
+the `xduo` renderer with its desktop entry or macOS app bundle; requires Go 1.22+,
+and cargo for the renderer):
 
 ```bash
 ./scripts/install.sh
 ```
 
-Build the graphical renderer separately with `make gpui`. Install its desktop
-entry on Linux with `scripts/install-xduo-desktop.sh`.
+Without cargo the terminal install still succeeds and the renderer is skipped with
+a notice. `make gpui` is the renderer build on its own, and
+`scripts/install-xduo-desktop.sh` registers the Linux desktop entry on its own.
 
 Restart any running Pi or opencode processes after installing the bridges.
 
@@ -224,7 +227,7 @@ The GUI follows the system light/dark appearance. macOS uses its native titlebar
 Linux requests client-side decorations and draws a titlebar with minimize,
 maximize and close controls plus resize borders when GPUI reports client
 decorations active, leaving server-side decorations to the compositor when they
-are negotiated. On Linux, run
+are negotiated. On Linux, `install.sh` runs
 `scripts/install-xduo-desktop.sh` to register the app icon and launcher. On
 macOS, the release archive includes an `xduo.app` with the Dock icon. For a
 source bundle, use `scripts/package-xduo-macos.sh` with matching Duo, xduo and
