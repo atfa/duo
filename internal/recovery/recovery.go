@@ -295,7 +295,20 @@ func Reconcile(ctx context.Context, ws *workspace.GitManager, snap sessionstore.
 		return Result{}, err
 	}
 
+	// The rules below rebuild the integration merge, which is the Fast and Goal
+	// gate between REVIEW and INTEGRATE. STEP mode has no such merge step: Austin
+	// merges Tony's per-step work inside EXECUTE, and a step is gated by Tony's
+	// per-step verdict, so promoting a STEP session to INTEGRATE on merge evidence
+	// would land a step that was never reviewed.
+	stepMode := snap.EffectiveMode() == project.ModeStep
+
 	switch {
+	case mergeState.InProgress && stepMode:
+		// Austin was merging Tony's work for the step he is building. The merge is
+		// his in-flight work, not a finished integration, so the recorded phase
+		// stands and the agent is told to finish it.
+		report.Notes = append(report.Notes, "an interrupted merge was found in Austin's worktree; finish or abort it before submitting the step")
+
 	case mergeState.InProgress:
 		head, err := ws.Head(ctx, protocol.Austin)
 		if err != nil {
@@ -312,7 +325,7 @@ func Reconcile(ctx context.Context, ws *workspace.GitManager, snap sessionstore.
 			MergedTony: mergeState.MergeHead,
 		}
 
-	case snap.Phase == string(project.PhaseReview) || snap.Phase == string(project.PhaseIntegrate):
+	case !stepMode && (snap.Phase == string(project.PhaseReview) || snap.Phase == string(project.PhaseIntegrate)):
 		// A crash may have happened after `git merge` committed Tony's work but
 		// before the result was persisted. Tony's HEAD being an ancestor of
 		// Austin's HEAD is the proof that the merge already landed.
@@ -366,6 +379,28 @@ func Reconcile(ctx context.Context, ws *workspace.GitManager, snap sessionstore.
 		}
 	}
 
+	// STEP sessions reach INTEGRATE only through Tony's per-step verdict, which is
+	// bound to one exact Austin HEAD. A checkpoint that claims INTEGRATE without a
+	// verdict binding Austin's current artifact is a phase record that outlived the
+	// gate that created it, and INTEGRATE is the phase that lands a step, so the
+	// step would land on the user's branch unreviewed. The finished queue has no
+	// current step and its gate is the two signatures, so it stands.
+	if out.EffectiveMode() == project.ModeStep && out.Phase == string(project.PhaseIntegrate) {
+		if cur := stepUnderCursor(out.Steps, out.Step); cur != nil && !cur.Done {
+			head, err := FastVerificationTarget(ctx, ws)
+			if err != nil || cur.Verification.Status != project.VerificationPassed || !cur.Verification.Targets(head) {
+				steps := make(project.Steps, len(out.Steps))
+				copy(steps, out.Steps)
+				steps[out.Step-1].Verification = project.Verification{}
+				out.Steps = steps
+				out.Phase = string(project.PhaseReview)
+				report.Phase = project.PhaseReview
+				report.Notes = append(report.Notes,
+					fmt.Sprintf("step %d has no verdict binding Austin's current HEAD; it is under review again", out.Step))
+			}
+		}
+	}
+
 	// Revoke any signature whose evidence no longer matches Git. A dirty
 	// worktree makes CaptureArtifact fail, which revokes exactly the signatures
 	// that require a clean artifact and leaves the session usable.
@@ -410,6 +445,15 @@ func Reconcile(ctx context.Context, ws *workspace.GitManager, snap sessionstore.
 	}
 
 	return Result{Snapshot: out, Report: report}, nil
+}
+
+// stepUnderCursor returns the step the queue cursor points at, or nil when the
+// queue is finished (or has no cursor), which is the case the two signatures gate.
+func stepUnderCursor(steps project.Steps, cursor int) *project.Step {
+	if cursor < 1 || cursor > len(steps) {
+		return nil
+	}
+	return &steps[cursor-1]
 }
 
 // lastLandedStepHead returns the delivery head of the newest step that reached
