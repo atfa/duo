@@ -71,6 +71,17 @@ func DeliverAndPersist(
 		)
 	}
 
+	// A STEP landing is gated by Tony's verdict for that step, bound to one exact
+	// HEAD. The same re-check belongs here: `duo apply` runs this transaction on
+	// its own, so a checkpoint that claims INTEGRATE without a verdict binding the
+	// HEAD must not land unreviewed work. A finished queue has no step left to gate.
+	if snap.EffectiveMode() == project.ModeStep && !project.QueueFinished(snap.Steps) && !stepVerdictBinds(snap, finalHead) {
+		return DeliveryOutcome{Snapshot: snap}, fmt.Errorf(
+			"session %s: step %d has no passed verdict binding the HEAD to deliver; Tony must verify the step before apply",
+			snap.SessionID, snap.Step,
+		)
+	}
+
 	manager := ManagerFor(snap, finalHead)
 
 	now := time.Now().UTC()
@@ -162,6 +173,37 @@ func currentStepLanded(snap sessionstore.Snapshot) bool {
 		return project.QueueFinished(snap.Steps) && snap.Delivery.FinalHead == snap.Delivery.AppliedHead
 	}
 	return snap.Steps[idx-1].Done && snap.Steps[idx-1].DeliveryHead == snap.Delivery.FinalHead
+}
+
+// stepUnderCursor returns the step the queue cursor points at, or nil when the
+// queue is finished and there is no step left to land.
+func stepUnderCursor(steps project.Steps, cursor int) *project.Step {
+	if cursor < 1 || cursor > len(steps) {
+		return nil
+	}
+	return &steps[cursor-1]
+}
+
+// stepDeliveryIsCurrent reports whether an applied delivery record describes the
+// step under the cursor: that step is open, it was submitted, and the recorded
+// final HEAD is exactly that submission. This is the crash window where the
+// landing reached the user's repository and the queue never advanced.
+func stepDeliveryIsCurrent(snap sessionstore.Snapshot) bool {
+	current := stepUnderCursor(snap.Steps, snap.Step)
+	if current == nil || current.Done {
+		return false
+	}
+	head := strings.TrimSpace(current.Head)
+	return head != "" && strings.EqualFold(head, strings.TrimSpace(snap.Delivery.FinalHead))
+}
+
+// stepVerdictBinds reports whether the step under the cursor carries Tony's passed
+// verdict for exactly the HEAD about to be delivered.
+func stepVerdictBinds(snap sessionstore.Snapshot, head string) bool {
+	current := stepUnderCursor(snap.Steps, snap.Step)
+	return current != nil &&
+		current.Verification.Status == project.VerificationPassed &&
+		current.Verification.Targets(head)
 }
 
 // LandStepSnapshot performs the step-landing transition through the domain rule,
@@ -259,22 +301,47 @@ func ReconcileDelivery(
 	// Goal and Fast crash window, which mean DONE. Landing is idempotent on the step
 	// record, so a re-run cannot advance the queue twice.
 	if snap.EffectiveMode() == project.ModeStep && snap.Delivery.Applied() && snap.Phase == string(project.PhaseIntegrate) {
-		if !currentStepLanded(snap) {
+		switch {
+		case currentStepLanded(snap):
+			journal.Record("step_landed", map[string]any{
+				"sessionId":   snap.SessionID,
+				"step":        snap.Step,
+				"finalHead":   snap.Delivery.FinalHead,
+				"appliedHead": snap.Delivery.AppliedHead,
+				"reconciled":  true,
+			})
+			return DeliveryOutcome{Snapshot: snap, Applied: true}, false, nil
+
+		case stepDeliveryIsCurrent(snap) && stepVerdictBinds(snap, snap.Delivery.FinalHead):
+			// The record is this step's own landing, interrupted before the queue
+			// moved: finish the transaction the crash left half-done.
 			if err := LandStepSnapshot(&snap, snap.Delivery.FinalHead); err != nil {
 				return DeliveryOutcome{Snapshot: snap}, false, err
 			}
 			if err := store.Save(snap); err != nil {
 				return DeliveryOutcome{Snapshot: snap}, false, err
 			}
+			journal.Record("step_landed", map[string]any{
+				"sessionId":   snap.SessionID,
+				"step":        snap.Step,
+				"finalHead":   snap.Delivery.FinalHead,
+				"appliedHead": snap.Delivery.AppliedHead,
+				"reconciled":  true,
+			})
+			return DeliveryOutcome{Snapshot: snap, Applied: true}, false, nil
 		}
-		journal.Record("step_landed", map[string]any{
-			"sessionId":   snap.SessionID,
-			"step":        snap.Step,
-			"finalHead":   snap.Delivery.FinalHead,
-			"appliedHead": snap.Delivery.AppliedHead,
-			"reconciled":  true,
-		})
-		return DeliveryOutcome{Snapshot: snap, Applied: true}, false, nil
+		// Either the record is an earlier step's landing - the session-level record
+		// keeps meaning "the latest landing", so it survives the queue advancing - or
+		// it describes this step with no verdict binding it. The step under the cursor
+		// has never been delivered, and landing the recorded head would land the
+		// previous step a second time and abort resume, so the record is dropped and
+		// the step goes through the ordinary transaction below, which re-checks the
+		// verdict gate before it touches the user's repository.
+		snap.Delivery = sessionstore.Delivery{
+			FinalBranch:  snap.Delivery.FinalBranch,
+			TargetRepo:   snap.Delivery.TargetRepo,
+			TargetBranch: snap.Delivery.TargetBranch,
+		}
 	}
 
 	// Crash window: delivery was persisted but the DONE transition was not.

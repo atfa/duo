@@ -2,6 +2,10 @@ package session
 
 import (
 	"context"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/atfa/duo/internal/project"
@@ -222,6 +226,8 @@ func TestReconcileAdvancesAQueueInterruptedBetweenLandingAndAdvance(t *testing.T
 	snap.SessionID = "20261016-070818-ef01"
 	snap.Repository = t.TempDir()
 	snap.BaseBranch = "main"
+	snap.Steps[0].Head = "landed0"
+	snap.Steps[0].Verification = project.Verification{Status: project.VerificationPassed, Head: "landed0"}
 	snap.Delivery = sessionstore.Delivery{
 		Status: sessionstore.DeliveryApplied, FinalHead: "landed0", AppliedHead: "landed0",
 	}
@@ -259,5 +265,194 @@ func TestReconcileAdvancesAQueueInterruptedBetweenLandingAndAdvance(t *testing.T
 	}
 	if got := again.Snapshot; got.Step != 2 || !got.Steps[0].Done {
 		t.Fatalf("the replay moved the queue again: cursor %d, steps %+v", got.Step, got.Steps)
+	}
+}
+
+// stepAwaitingDelivery builds the state a STEP session leaves when step 1 has
+// landed and step 2 is submitted, in a real user repository: main is the base
+// commit and Austin's branch carries the step-2 artifact. It returns the snapshot
+// and that artifact's HEAD. This is where the reported resume failure began: the
+// session-level delivery record still described step 1.
+func stepAwaitingDelivery(t *testing.T, id string) (sessionstore.Snapshot, string) {
+	t.Helper()
+	repo := t.TempDir()
+	git := func(args ...string) string {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return string(out)
+	}
+	write := func(name, content string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(repo, name), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	git("init", "-b", "main")
+	git("config", "user.email", "duo@example.invalid")
+	git("config", "user.name", "Duo Test")
+	write("base.txt", "base\n")
+	git("add", "base.txt")
+	git("commit", "-m", "base")
+	base := strings.TrimSpace(git("rev-parse", "HEAD"))
+
+	git("checkout", "-b", "duo/"+id+"/austin")
+	write("step2.txt", "two\n")
+	git("add", "step2.txt")
+	git("commit", "-m", "step two")
+	stepHead := strings.TrimSpace(git("rev-parse", "HEAD"))
+	git("checkout", "main")
+
+	snap := stepSnapshot(project.PhaseIntegrate, 1)
+	snap.SessionID = id
+	snap.Repository = repo
+	snap.BaseBranch = "main"
+	snap.BaseCommit = base
+	snap.Steps[0].Head = "landed0"
+	snap.Steps[0].Verification = project.Verification{Status: project.VerificationPassed, Head: "landed0"}
+	snap.Steps[1].Head = stepHead
+	snap.Delivery = sessionstore.Delivery{
+		Status: sessionstore.DeliveryApplied, FinalHead: "landed0", AppliedHead: "landed0",
+		FinalBranch: "duo/" + id + "/austin", TargetRepo: repo, TargetBranch: "main",
+	}
+	snap.Integration = sessionstore.Integration{Head: stepHead}
+	return snap, stepHead
+}
+
+func mainHead(t *testing.T, repo string) string {
+	t.Helper()
+	out, err := exec.Command("git", "-C", repo, "rev-parse", "main").CombinedOutput()
+	if err != nil {
+		t.Fatalf("git rev-parse main: %v\n%s", err, out)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// TestReconcileDoesNotLandAnEarlierStepsRecord is the reported failure. The
+// session-level record is the latest landing, so it survives the queue advancing;
+// reading it as the current step's landing tried to land step 1 a second time,
+// the domain rule refused, and resume aborted before the agents started.
+func TestReconcileDoesNotLandAnEarlierStepsRecord(t *testing.T) {
+	store, err := sessionstore.New(t.TempDir(), "repo-stale", "20261018-105749-e5d4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, stepHead := stepAwaitingDelivery(t, "20261018-105749-e5d4")
+	base := snap.BaseCommit
+	snap.Steps[1].Verification = project.Verification{Status: project.VerificationPassed, Head: stepHead}
+	if err := store.Save(snap); err != nil {
+		t.Fatal(err)
+	}
+
+	outcome, _, err := ReconcileDelivery(context.Background(), store, nil, store.OpenEvents(), snap)
+	if err != nil {
+		t.Fatalf("reconcile with a record from the previous step: %v", err)
+	}
+	got := outcome.Snapshot
+	if !got.Steps[0].Done || got.Steps[0].DeliveryHead != "landed0" {
+		t.Fatalf("the landed step changed: %+v", got.Steps[0])
+	}
+	if !got.Steps[1].Done || got.Steps[1].DeliveryHead != stepHead {
+		t.Fatalf("the current step was not landed at its own HEAD: %+v", got.Steps[1])
+	}
+	if got.Delivery.FinalHead != stepHead {
+		t.Fatalf("the delivery record is %q, want the current step's HEAD", got.Delivery.FinalHead)
+	}
+	if mainHead(t, snap.Repository) != stepHead {
+		t.Fatalf("the user's branch is %s, want the step's HEAD %s", mainHead(t, snap.Repository), stepHead)
+	}
+	if mainHead(t, snap.Repository) == base {
+		t.Fatal("nothing reached the user's repository")
+	}
+}
+
+// TestDeliverRefusesAStepWithoutABindingVerdict is the STEP mirror of the Fast
+// verification re-check: `duo apply` runs this transaction on its own, so a
+// checkpoint claiming INTEGRATE with no verdict for the HEAD must not land work
+// Tony never reviewed.
+func TestDeliverRefusesAStepWithoutABindingVerdict(t *testing.T) {
+	store, err := sessionstore.New(t.TempDir(), "repo-noverdict", "20261018-105749-aabb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, _ := stepAwaitingDelivery(t, "20261018-105749-aabb")
+	base := snap.BaseCommit
+	if err := store.Save(snap); err != nil {
+		t.Fatal(err)
+	}
+
+	outcome, stop, err := ReconcileDelivery(context.Background(), store, nil, store.OpenEvents(), snap)
+	if err == nil {
+		t.Fatalf("an unverified step was delivered: %+v", outcome)
+	}
+	if !strings.Contains(err.Error(), "no passed verdict") {
+		t.Fatalf("unexpected refusal: %v", err)
+	}
+	if stop {
+		t.Fatal("the session must come back for Tony's verdict, not stop")
+	}
+	if outcome.Snapshot.Steps[1].Done {
+		t.Fatalf("the unverified step landed: %+v", outcome.Snapshot.Steps[1])
+	}
+	if mainHead(t, snap.Repository) != base {
+		t.Fatalf("the refusal touched the user's repository: %s", mainHead(t, snap.Repository))
+	}
+	// The refusal happens before Git is touched, so no pending checkpoint is left.
+	reloaded, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reloaded.Delivery.Status != sessionstore.DeliveryApplied || reloaded.Delivery.FinalHead != "landed0" {
+		t.Fatalf("the refused delivery rewrote the checkpoint: %+v", reloaded.Delivery)
+	}
+}
+
+// TestDeliverRefusesAStepWhoseVerdictBindsAnotherHead covers the other half of the
+// binding: a passed verdict about a HEAD that is not the artifact to deliver.
+func TestDeliverRefusesAStepWhoseVerdictBindsAnotherHead(t *testing.T) {
+	store, err := sessionstore.New(t.TempDir(), "repo-staleverdict", "20261018-105749-ccdd")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, _ := stepAwaitingDelivery(t, "20261018-105749-ccdd")
+	base := snap.BaseCommit
+	snap.Steps[1].Verification = project.Verification{Status: project.VerificationPassed, Head: "an-old-head"}
+	if err := store.Save(snap); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := ReconcileDelivery(context.Background(), store, nil, store.OpenEvents(), snap); err == nil {
+		t.Fatal("a verdict about another HEAD must not deliver this step")
+	}
+	if mainHead(t, snap.Repository) != base {
+		t.Fatalf("the refusal touched the user's repository: %s", mainHead(t, snap.Repository))
+	}
+}
+
+// TestDeliverLandsAStepWhoseVerdictBindsTheDeliveredHead proves the gate lets the
+// legitimate case through: with Tony's verdict bound to the step's own HEAD, the
+// transaction delivers that HEAD and lands the step.
+func TestDeliverLandsAStepWhoseVerdictBindsTheDeliveredHead(t *testing.T) {
+	store, err := sessionstore.New(t.TempDir(), "repo-verified", "20261018-105749-eeff")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, stepHead := stepAwaitingDelivery(t, "20261018-105749-eeff")
+	snap.Steps[1].Verification = project.Verification{Status: project.VerificationPassed, Head: stepHead}
+	if err := store.Save(snap); err != nil {
+		t.Fatal(err)
+	}
+
+	outcome, _, err := ReconcileDelivery(context.Background(), store, nil, store.OpenEvents(), snap)
+	if err != nil {
+		t.Fatalf("a verified step must be delivered: %v", err)
+	}
+	if !outcome.Applied || outcome.Snapshot.Delivery.FinalHead != stepHead {
+		t.Fatalf("delivery outcome = %+v", outcome)
 	}
 }
