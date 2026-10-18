@@ -1,6 +1,8 @@
 package project
 
 import (
+	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -389,5 +391,80 @@ func TestFinalStepIsSignedAndLandedTogether(t *testing.T) {
 	}
 	if got, err := st.Complete(); err != nil || got.Phase != PhaseDone {
 		t.Fatalf("complete = %s, %v; want DONE", got.Phase, err)
+	}
+}
+
+// stepSessionWithLandedSteps walks a STEP session through `landed` steps —
+// submit, verdict, land — and leaves it on the next step in INTEGRATE with that
+// step's verdict passed: the shape a resume meets after a landing.
+func stepSessionWithLandedSteps(t *testing.T, landed, total int) *State {
+	t.Helper()
+	st := NewStateFor(ModeStep)
+	var queue strings.Builder
+	for i := 1; i <= total; i++ {
+		fmt.Fprintf(&queue, "- [ ] step %d\n", i)
+	}
+	if _, err := st.SetSteps(protocol.Austin, queue.String(), false); err != nil {
+		t.Fatalf("SetSteps: %v", err)
+	}
+	if _, err := st.SetPlan(protocol.Austin, "the plan"); err != nil {
+		t.Fatalf("SetPlan: %v", err)
+	}
+	if _, _, err := st.SetReady(protocol.Austin, true, "austin", ""); err != nil {
+		t.Fatalf("austin sign: %v", err)
+	}
+	if _, _, err := st.SetReady(protocol.Tony, true, "tony", ""); err != nil {
+		t.Fatalf("tony sign: %v", err)
+	}
+	for i := 1; i <= landed; i++ {
+		head := fmt.Sprintf("head%d", i)
+		if _, _, err := st.SetReady(protocol.Austin, true, "done", head); err != nil {
+			t.Fatalf("step %d submit: %v", i, err)
+		}
+		if _, _, err := st.SetVerification(protocol.Tony, VerificationPassed, "clean", head); err != nil {
+			t.Fatalf("step %d verdict: %v", i, err)
+		}
+		if _, _, err := st.LandStep(fmt.Sprintf("landed%d", i)); err != nil {
+			t.Fatalf("step %d land: %v", i, err)
+		}
+	}
+	head := fmt.Sprintf("head%d", landed+1)
+	if _, _, err := st.SetReady(protocol.Austin, true, "done", head); err != nil {
+		t.Fatalf("step %d submit: %v", landed+1, err)
+	}
+	if _, _, err := st.SetVerification(protocol.Tony, VerificationPassed, "clean", head); err != nil {
+		t.Fatalf("step %d verdict: %v", landed+1, err)
+	}
+	return st
+}
+
+// TestLandStepRefusalNamesTheStepThatLandedTheHead is the message the user read:
+// "6b65ff3cdcb5 already landed as step 4" named the queue cursor for a head that
+// landed as step 3, so it pointed at the step being landed and hid the record that
+// made the landing redundant.
+func TestLandStepRefusalNamesTheStepThatLandedTheHead(t *testing.T) {
+	st := stepSessionWithLandedSteps(t, 3, 6)
+	snap := st.Snapshot()
+	if snap.Step != 4 || snap.Phase != PhaseIntegrate {
+		t.Fatalf("fixture: cursor=%d phase=%s, want 4 INTEGRATE", snap.Step, snap.Phase)
+	}
+
+	for i := 1; i <= 3; i++ {
+		head := fmt.Sprintf("landed%d", i)
+		_, _, err := st.LandStep(head)
+		if err == nil {
+			t.Fatalf("landing %s, which already landed, must be refused", head)
+		}
+		if !strings.Contains(err.Error(), fmt.Sprintf("%s already landed as step %d", head, i)) {
+			t.Fatalf("refusal = %v; want it to name step %d, the step that landed the head", err, i)
+		}
+		if !errors.Is(err, ErrWrongPhase) {
+			t.Fatalf("refusal = %v; want ErrWrongPhase", err)
+		}
+	}
+
+	// The refusal is not a mutation: the queue and the cursor are untouched.
+	if got := st.Snapshot(); got.Step != 4 || got.Steps[3].Done {
+		t.Fatalf("a refused landing moved the queue: cursor=%d step4=%+v", got.Step, got.Steps[3])
 	}
 }

@@ -500,10 +500,13 @@ func (stepWorkflow) landStep(s *State, head string) (Transition, error) {
 		return Transition{}, fmt.Errorf("%w: the queue has no current step to land", ErrWrongPhase)
 	}
 	// Landing is idempotent on the step record: a head that is already recorded as
-	// landed on any step must not advance the queue a second time.
-	for _, landed := range s.steps {
+	// landed on any step must not advance the queue a second time. The refusal names
+	// the step that owns the artifact, not the cursor: "already landed as step 4" for
+	// a head that landed as step 3 points the reader at the step being landed and
+	// hides the record that made the landing redundant.
+	for i, landed := range s.steps {
 		if landed.DeliveryHead != "" && landed.DeliveryHead == head {
-			return Transition{}, fmt.Errorf("%w: %s already landed as step %d", ErrWrongPhase, shortHash(head), s.step)
+			return Transition{}, fmt.Errorf("%w: %s already landed as step %d", ErrWrongPhase, shortHash(head), i+1)
 		}
 	}
 	if current.DeliveryHead != "" && current.DeliveryHead != head {
