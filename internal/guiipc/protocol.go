@@ -28,20 +28,21 @@ import (
 	"github.com/atfa/duo/internal/sessionstore"
 )
 
-// Frame types on the wire. Go sends view/event/error/closed; the GUI sends
-// command.
+// Frame types on the wire. Go sends session view/event/error/closed frames and
+// bounded terminal output/error frames; the GUI sends commands.
 const (
-	typeView    = "view"
-	typeEvent   = "event"
-	typeError   = "error"
-	typeClosed  = "closed"
-	typeCommand = "command"
+	typeView           = "view"
+	typeEvent          = "event"
+	typeError          = "error"
+	typeClosed         = "closed"
+	typeCommand        = "command"
+	typeTerminalOutput = "terminal_output"
+	typeTerminalError  = "terminal_error"
 )
 
-// Command kinds the GUI may send. This is deliberately the set of human verbs,
-// not the set of session.Command values: the model and thinking pickers need the
-// driver's model catalogue, which is outside the MVP, so set_model and
-// cycle_thinking are not on the wire yet.
+// Command kinds the GUI may send. Workflow commands are human verbs rather than
+// the full session.Command surface. Terminal commands operate only on an
+// explicitly attached local PTY and do not become workflow commands.
 const (
 	KindSubmitTask     = "submit_task"
 	KindEscalateToGoal = "escalate_to_goal"
@@ -55,6 +56,10 @@ const (
 	KindBackToWelcome  = "back_to_welcome"
 	KindOpenNative     = "open_native"
 	KindCloseNative    = "close_native"
+	KindTerminalOpen   = "terminal_open"
+	KindTerminalClose  = "terminal_close"
+	KindTerminalInput  = "terminal_input"
+	KindTerminalResize = "terminal_resize"
 	KindRefreshAgents  = "refresh_agents"
 	KindAddAgent       = "add_agent"
 	KindQuit           = "quit"
@@ -258,6 +263,9 @@ type Command struct {
 	Driver    string `json:"driver,omitempty"`
 	Path      string `json:"path,omitempty"`
 	SessionID string `json:"session_id,omitempty"`
+	Data      string `json:"data,omitempty"` // Base64 terminal_input bytes.
+	Cols      int    `json:"cols,omitempty"` // terminal_resize columns.
+	Rows      int    `json:"rows,omitempty"` // terminal_resize rows.
 }
 
 // writeFrame is the single envelope for everything Go sends, so the GUI decodes
@@ -267,6 +275,8 @@ type writeFrame struct {
 	View  *View  `json:"view,omitempty"`
 	Event *Event `json:"event,omitempty"`
 	Text  string `json:"text,omitempty"`
+	Agent string `json:"agent,omitempty"`
+	Data  []byte `json:"data,omitempty"` // JSON encodes PTY output as base64.
 }
 
 // wireAgent is the canonical wire spelling of an agent identity.

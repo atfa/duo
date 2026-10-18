@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -73,6 +74,13 @@ const (
 	// maxCommandBytes bounds one command line so a frontend that never sends a
 	// newline cannot make the host buffer without limit.
 	maxCommandBytes = 1 << 20
+	// PTY bytes are framed and base64-encoded in NDJSON. Keep each chunk short
+	// enough that even its encoded form remains a small protocol line.
+	terminalOutputChunkBytes = 16 * 1024
+	terminalOutputQueueDepth = 64
+	terminalReplayMaxBytes   = 1 << 20
+	terminalInputMaxBytes    = 64 * 1024
+	terminalMaxDimension     = 512
 )
 
 // Host serves the frozen NDJSON protocol over a Gpio pair, driving one session.
@@ -109,11 +117,23 @@ type nativeAttachment struct {
 	listener  net.Listener
 	conn      net.Conn
 	stream    *nativeFrameWriter
+	terminal  bool
+	output    *terminalOutputWriter
 	cancel    context.CancelFunc
 	done      chan struct{}
 	attached  bool
 	closed    bool
 }
+
+type terminalOutputWriter struct {
+	ctx    context.Context
+	chunks chan []byte
+	failed chan error
+	mu     sync.Mutex
+	err    error
+}
+
+var errTerminalOutputBacklog = errors.New("embedded terminal output backlog exceeded; terminal detached")
 
 type catalogResult struct {
 	models []Model
@@ -488,6 +508,10 @@ func (h *Host) readCommands(ctx context.Context, in *bufio.Reader, sink *frameSi
 				}
 				continue
 			}
+			if isTerminalCommand(envelope.Kind) {
+				h.handleTerminalCommand(ctx, envelope, sink)
+				continue
+			}
 			if envelope.Kind == KindOpenProject {
 				if h.openProject == nil {
 					_ = sink.failure(errors.New("project picker is unavailable"))
@@ -524,6 +548,67 @@ func (h *Host) readCommands(ctx context.Context, in *bufio.Reader, sink *frameSi
 			go h.loadCatalog(ctx, changed.Agent)
 		}
 	}
+}
+
+func isTerminalCommand(kind string) bool {
+	switch kind {
+	case KindTerminalOpen, KindTerminalClose, KindTerminalInput, KindTerminalResize:
+		return true
+	default:
+		return false
+	}
+}
+
+func (h *Host) handleTerminalCommand(ctx context.Context, command Command, sink *frameSink) {
+	id, err := parseAgent(command.Agent)
+	if err != nil {
+		_ = sink.failure(err)
+		return
+	}
+	switch command.Kind {
+	case KindTerminalOpen:
+		go func() {
+			err := h.openTerminal(ctx, id, sink)
+			if err != nil && !errors.Is(err, context.Canceled) && !errors.Is(err, errTerminalOutputBacklog) {
+				_ = sink.failure(err)
+			}
+			_ = h.sendView(ctx, sink)
+		}()
+	case KindTerminalClose:
+		h.closeTerminal(id)
+		_ = h.sendView(ctx, sink)
+	case KindTerminalInput:
+		data, err := decodeTerminalInput(command.Data)
+		if err != nil {
+			_ = sink.failure(err)
+			return
+		}
+		if err := h.writeTerminalInput(id, data); err != nil {
+			h.failTerminal(ctx, id, err, sink)
+		}
+	case KindTerminalResize:
+		if command.Cols < 1 || command.Cols > terminalMaxDimension || command.Rows < 1 || command.Rows > terminalMaxDimension {
+			_ = sink.failure(fmt.Errorf("terminal size must be between 1 and %d columns and rows", terminalMaxDimension))
+			return
+		}
+		if err := h.resizeTerminal(id, command.Cols, command.Rows); err != nil {
+			h.failTerminal(ctx, id, err, sink)
+		}
+	}
+}
+
+func decodeTerminalInput(encoded string) ([]byte, error) {
+	if len(encoded) > base64.StdEncoding.EncodedLen(terminalInputMaxBytes) {
+		return nil, errors.New("terminal input exceeds 64 KiB")
+	}
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return nil, fmt.Errorf("terminal input is not valid base64: %w", err)
+	}
+	if len(data) > terminalInputMaxBytes {
+		return nil, errors.New("terminal input exceeds 64 KiB")
+	}
+	return data, nil
 }
 
 func (h *Host) updateDesktopView() {
@@ -744,6 +829,204 @@ func (h *Host) openNative(ctx context.Context, id protocol.AgentID, sink *frameS
 	}
 }
 
+func (h *Host) openTerminal(ctx context.Context, id protocol.AgentID, sink *frameSink) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	ns, ok := h.s.(nativeSession)
+	if !ok {
+		return errors.New("terminal attach is unavailable")
+	}
+	if !ns.NativeRunning(id) {
+		return fmt.Errorf("%s agent process has exited; restart it before opening its terminal", id)
+	}
+	nctx, cancel := context.WithCancel(ctx)
+	output := &terminalOutputWriter{
+		ctx:    nctx,
+		chunks: make(chan []byte, terminalOutputQueueDepth),
+		failed: make(chan error, 1),
+	}
+	link := &nativeAttachment{terminal: true, output: output, cancel: cancel, done: make(chan struct{})}
+	h.nativeMu.Lock()
+	if h.native == nil {
+		h.native = make(map[protocol.AgentID]*nativeAttachment)
+	}
+	if h.native[id] != nil {
+		h.nativeMu.Unlock()
+		cancel()
+		return fmt.Errorf("%s already has a native terminal open", id)
+	}
+	if err := nctx.Err(); err != nil {
+		h.nativeMu.Unlock()
+		cancel()
+		return err
+	}
+	h.native[id] = link
+	h.nativeMu.Unlock()
+	_ = h.sendView(ctx, sink)
+	defer h.finishNative(id, link)
+	go func() {
+		<-nctx.Done()
+		h.closeNativeTransport(link)
+	}()
+
+	// Attach while holding the same locks used by closeNativeTransport's map
+	// lookup so a close cannot detach before the writer has been installed.
+	h.nativeMu.Lock()
+	if h.native[id] != link {
+		h.nativeMu.Unlock()
+		return context.Canceled
+	}
+	link.mu.Lock()
+	if link.closed || nctx.Err() != nil {
+		link.mu.Unlock()
+		h.nativeMu.Unlock()
+		return context.Canceled
+	}
+	recent, err := ns.Attach(id, output)
+	if err == nil {
+		link.attached = true
+	}
+	link.mu.Unlock()
+	h.nativeMu.Unlock()
+	if err != nil {
+		return err
+	}
+	if len(recent) > terminalReplayMaxBytes {
+		return fmt.Errorf("terminal replay exceeds %d bytes", terminalReplayMaxBytes)
+	}
+	if err := sendTerminalOutput(sink, id, recent); err != nil {
+		return err
+	}
+	return h.relayTerminalOutput(nctx, id, output, sink)
+}
+
+func sendTerminalOutput(sink *frameSink, id protocol.AgentID, data []byte) error {
+	for len(data) > 0 {
+		size := min(len(data), terminalOutputChunkBytes)
+		if err := sink.terminalOutput(id, data[:size]); err != nil {
+			return err
+		}
+		data = data[size:]
+	}
+	return nil
+}
+
+func (h *Host) relayTerminalOutput(ctx context.Context, id protocol.AgentID, output *terminalOutputWriter, sink *frameSink) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case chunk := <-output.chunks:
+			if err := sink.terminalOutput(id, chunk); err != nil {
+				return err
+			}
+		case err := <-output.failed:
+			// Preserve every complete queued chunk before reporting a terminal
+			// failure. The writer stops accepting bytes once it signals failure.
+			for {
+				select {
+				case chunk := <-output.chunks:
+					if writeErr := sink.terminalOutput(id, chunk); writeErr != nil {
+						return writeErr
+					}
+				default:
+					if writeErr := sink.terminalError(id, err.Error()); writeErr != nil {
+						return writeErr
+					}
+					return err
+				}
+			}
+		}
+	}
+}
+
+func (w *terminalOutputWriter) Write(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.err != nil {
+		return 0, w.err
+	}
+	written := 0
+	for len(p) > 0 {
+		if err := w.ctx.Err(); err != nil {
+			return written, err
+		}
+		size := min(len(p), terminalOutputChunkBytes)
+		chunk := append([]byte(nil), p[:size]...)
+		select {
+		case w.chunks <- chunk:
+			written += size
+			p = p[size:]
+		default:
+			w.err = errTerminalOutputBacklog
+			w.failed <- w.err
+			return written, w.err
+		}
+	}
+	return written, nil
+}
+
+func (h *Host) findTerminalLink(id protocol.AgentID) *nativeAttachment {
+	h.nativeMu.Lock()
+	defer h.nativeMu.Unlock()
+	link := h.native[id]
+	if link == nil || !link.terminal {
+		return nil
+	}
+	return link
+}
+
+func (h *Host) terminalLink(id protocol.AgentID) *nativeAttachment {
+	link := h.findTerminalLink(id)
+	if link == nil {
+		return nil
+	}
+	link.mu.Lock()
+	active := !link.closed && link.attached
+	link.mu.Unlock()
+	if !active {
+		return nil
+	}
+	return link
+}
+
+func (h *Host) writeTerminalInput(id protocol.AgentID, data []byte) error {
+	if h.terminalLink(id) == nil {
+		return fmt.Errorf("%s embedded terminal is not open", id)
+	}
+	return h.s.(nativeSession).Write(id, data)
+}
+
+func (h *Host) resizeTerminal(id protocol.AgentID, cols, rows int) error {
+	if h.terminalLink(id) == nil {
+		return fmt.Errorf("%s embedded terminal is not open", id)
+	}
+	return h.s.(nativeSession).Resize(cols, rows)
+}
+
+func (h *Host) failTerminal(ctx context.Context, id protocol.AgentID, err error, sink *frameSink) {
+	if h.terminalLink(id) == nil {
+		_ = sink.failure(err)
+		return
+	}
+	_ = sink.terminalError(id, err.Error())
+	h.closeTerminal(id)
+	_ = h.sendView(ctx, sink)
+}
+
+func (h *Host) closeTerminal(id protocol.AgentID) {
+	link := h.findTerminalLink(id)
+	if link == nil {
+		return
+	}
+	h.closeNativeTransport(link)
+	<-link.done
+}
+
 func (h *Host) closeNative(id protocol.AgentID) {
 	h.nativeMu.Lock()
 	link := h.native[id]
@@ -765,7 +1048,9 @@ func (h *Host) closeNativeTransport(link *nativeAttachment) {
 			_ = stream.WriteFrame('C', nil)
 		}
 		link.cancel()
-		_ = link.listener.Close()
+		if link.listener != nil {
+			_ = link.listener.Close()
+		}
 		if conn != nil {
 			_ = conn.Close()
 		}
@@ -884,6 +1169,14 @@ type frameSink struct {
 func (s *frameSink) view(v View) error { return s.write(writeFrame{Type: typeView, View: &v}) }
 
 func (s *frameSink) event(e Event) error { return s.write(writeFrame{Type: typeEvent, Event: &e}) }
+
+func (s *frameSink) terminalOutput(id protocol.AgentID, data []byte) error {
+	return s.write(writeFrame{Type: typeTerminalOutput, Agent: wireAgent(id), Data: data})
+}
+
+func (s *frameSink) terminalError(id protocol.AgentID, text string) error {
+	return s.write(writeFrame{Type: typeTerminalError, Agent: wireAgent(id), Text: text})
+}
 
 func (s *frameSink) failure(err error) error {
 	return s.write(writeFrame{Type: typeError, Text: err.Error()})

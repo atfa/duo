@@ -3,6 +3,7 @@ package guiipc
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
 	"errors"
@@ -158,6 +159,8 @@ type fakeNativeSession struct {
 	resizes    [][2]int
 	attachedCh chan struct{}
 	detachedCh chan struct{}
+	inputCh    chan struct{}
+	resizeCh   chan struct{}
 	running    bool
 	replay     []byte
 }
@@ -168,6 +171,8 @@ func newFakeNativeSession() *fakeNativeSession {
 		running:     true,
 		attachedCh:  make(chan struct{}, 4),
 		detachedCh:  make(chan struct{}, 4),
+		inputCh:     make(chan struct{}, 8),
+		resizeCh:    make(chan struct{}, 8),
 	}
 }
 
@@ -201,6 +206,10 @@ func (f *fakeNativeSession) Write(_ protocol.AgentID, data []byte) error {
 	f.muNative.Lock()
 	f.input = append(f.input, append([]byte(nil), data...))
 	f.muNative.Unlock()
+	select {
+	case f.inputCh <- struct{}{}:
+	default:
+	}
 	return nil
 }
 
@@ -208,6 +217,10 @@ func (f *fakeNativeSession) Resize(cols, rows int) error {
 	f.muNative.Lock()
 	f.resizes = append(f.resizes, [2]int{cols, rows})
 	f.muNative.Unlock()
+	select {
+	case f.resizeCh <- struct{}{}:
+	default:
+	}
 	return nil
 }
 
@@ -357,6 +370,204 @@ func TestNativeAttachReplayInputResizeCloseAndDetach(t *testing.T) {
 	h.send(`{"type":"command","kind":"quit"}`)
 	if err := h.wait(); err != nil {
 		t.Fatalf("Serve: %v", err)
+	}
+}
+
+func TestEmbeddedTerminalRelayReplaysChunksForwardsInputAndResizes(t *testing.T) {
+	fake := newFakeNativeSession()
+	replay := bytes.Repeat([]byte("r"), terminalOutputChunkBytes*2+3)
+	fake.replay = replay
+	launcherCalls := 0
+	h := startHostSession(t, fake.fakeSession, fake, quiet, func(host *Host) {
+		host.SetNativeLauncher(func(context.Context, string, string) error {
+			launcherCalls++
+			return nil
+		})
+	})
+	h.waitFrames(1)
+	h.send(`{"type":"command","kind":"terminal_open","agent":"austin"}`)
+	waitSignal(t, fake.attachedCh, "embedded terminal attach")
+	h.waitFrames(5) // initial view, open view, then three bounded replay frames
+
+	frames := h.rec.snapshot()
+	var gotReplay []byte
+	var outputFrames int
+	for _, frame := range frames {
+		if frame.Type != typeTerminalOutput {
+			continue
+		}
+		outputFrames++
+		if frame.Agent != "austin" || len(frame.Data) > terminalOutputChunkBytes {
+			t.Fatalf("invalid terminal output frame: agent=%q bytes=%d", frame.Agent, len(frame.Data))
+		}
+		gotReplay = append(gotReplay, frame.Data...)
+	}
+	if outputFrames != 3 || !bytes.Equal(gotReplay, replay) {
+		t.Fatalf("replay was sent in %d frames (%d bytes); want 3 frames and %d bytes", outputFrames, len(gotReplay), len(replay))
+	}
+
+	// A second embedded open is refused without replacing the live writer or
+	// falling back to the legacy external launcher.
+	h.send(`{"type":"command","kind":"terminal_open","agent":"austin"}`)
+	frames = h.waitFrames(7)
+	foundOpenError := false
+	for _, frame := range frames {
+		foundOpenError = foundOpenError || frame.Type == typeError
+	}
+	if !foundOpenError {
+		t.Fatalf("duplicate terminal open was not rejected: %+v", frames)
+	}
+	if attached, detached := fake.nativeCounts(); attached != 1 || detached != 0 {
+		t.Fatalf("duplicate terminal open changed attach/detach count to %d/%d", attached, detached)
+	}
+
+	input := []byte("echo embedded\r")
+	encoded := base64.StdEncoding.EncodeToString(input)
+	h.send(`{"type":"command","kind":"terminal_input","agent":"austin","data":"` + encoded + `"}`)
+	h.send(`{"type":"command","kind":"terminal_resize","agent":"austin","cols":120,"rows":40}`)
+	waitSignal(t, fake.inputCh, "terminal input forwarding")
+	waitSignal(t, fake.resizeCh, "terminal resize forwarding")
+	fake.muNative.Lock()
+	if len(fake.input) != 1 || !bytes.Equal(fake.input[0], input) {
+		t.Fatalf("terminal input = %q; want %q", fake.input, input)
+	}
+	if len(fake.resizes) != 1 || fake.resizes[0] != [2]int{120, 40} {
+		t.Fatalf("terminal resize = %v; want 120x40", fake.resizes)
+	}
+	writer := fake.writer
+	fake.muNative.Unlock()
+
+	live := bytes.Repeat([]byte("o"), terminalOutputChunkBytes*2+7)
+	if _, err := writer.Write(live); err != nil {
+		t.Fatalf("write live terminal output: %v", err)
+	}
+	h.waitFrames(10) // duplicate-open frames, replay, then two chunks and a tail
+	frames = h.rec.snapshot()
+	var gotLive []byte
+	for _, frame := range frames {
+		if frame.Type == typeTerminalOutput {
+			gotLive = append(gotLive, frame.Data...)
+		}
+	}
+	if !bytes.Equal(gotLive, append(append([]byte(nil), replay...), live...)) {
+		t.Fatalf("terminal output was not losslessly chunked: got %d bytes", len(gotLive))
+	}
+
+	h.send(`{"type":"command","kind":"terminal_close","agent":"austin"}`)
+	waitSignal(t, fake.detachedCh, "embedded terminal close")
+	frames = h.waitFrames(11)
+	if frames[len(frames)-1].View == nil || frames[len(frames)-1].View.Agents["austin"].NativeOpen {
+		t.Fatalf("terminal close did not clear native_open: %+v", frames[len(frames)-1])
+	}
+	if attached, detached := fake.nativeCounts(); attached != 1 || detached != 1 {
+		t.Fatalf("embedded terminal attach/detach count = %d/%d", attached, detached)
+	}
+	fake.muNative.Lock()
+	stillRunning := fake.running
+	fake.muNative.Unlock()
+	if !stillRunning {
+		t.Fatal("closing the terminal stopped the agent")
+	}
+	if launcherCalls != 0 {
+		t.Fatalf("embedded attach called the legacy launcher %d times", launcherCalls)
+	}
+	h.send(`{"type":"command","kind":"quit"}`)
+	if err := h.wait(); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+}
+
+func TestEmbeddedTerminalRejectsOversizedReplay(t *testing.T) {
+	fake := newFakeNativeSession()
+	fake.replay = make([]byte, terminalReplayMaxBytes+1)
+	h := startHostSession(t, fake.fakeSession, fake, quiet)
+	h.waitFrames(1)
+	h.send(`{"type":"command","kind":"terminal_open","agent":"austin"}`)
+	waitSignal(t, fake.attachedCh, "oversized replay attach")
+	waitSignal(t, fake.detachedCh, "oversized replay detach")
+	frames := h.waitFrames(4)
+	foundError := false
+	for _, frame := range frames {
+		if frame.Type == typeTerminalOutput {
+			t.Fatal("oversized replay was sent to the renderer")
+		}
+		if frame.Type == typeError && strings.Contains(frame.Text, "terminal replay exceeds") {
+			foundError = true
+		}
+	}
+	if !foundError {
+		t.Fatalf("oversized replay did not produce an error: %+v", frames)
+	}
+	h.send(`{"type":"command","kind":"quit"}`)
+	if err := h.wait(); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+}
+
+func TestHostShutdownDetachesEmbeddedTerminal(t *testing.T) {
+	fake := newFakeNativeSession()
+	h := startHostSession(t, fake.fakeSession, fake, quiet)
+	h.waitFrames(1)
+	h.send(`{"type":"command","kind":"terminal_open","agent":"austin"}`)
+	waitSignal(t, fake.attachedCh, "embedded terminal attach before shutdown")
+
+	h.cancel()
+	waitSignal(t, fake.detachedCh, "embedded terminal detach on host shutdown")
+	if err := h.wait(); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Serve after shutdown = %v; want context.Canceled", err)
+	}
+	if attached, detached := fake.nativeCounts(); attached != 1 || detached != 1 {
+		t.Fatalf("shutdown attach/detach count = %d/%d", attached, detached)
+	}
+}
+
+func TestTerminalOutputQueueFailsClosedWithoutDroppingQueuedFrames(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.TODO())
+	defer cancel()
+	output := &terminalOutputWriter{
+		ctx:    ctx,
+		chunks: make(chan []byte, terminalOutputQueueDepth),
+		failed: make(chan error, 1),
+	}
+	payload := bytes.Repeat([]byte("x"), terminalOutputChunkBytes*(terminalOutputQueueDepth+1))
+	written, err := output.Write(payload)
+	if !errors.Is(err, errTerminalOutputBacklog) {
+		t.Fatalf("overflow write error = %v; want terminal backlog failure", err)
+	}
+	if want := terminalOutputChunkBytes * terminalOutputQueueDepth; written != want {
+		t.Fatalf("overflow write accepted %d bytes; want exactly the bounded %d", written, want)
+	}
+	if len(output.chunks) != terminalOutputQueueDepth {
+		t.Fatalf("queued chunks = %d; want bounded depth %d", len(output.chunks), terminalOutputQueueDepth)
+	}
+
+	var wire bytes.Buffer
+	sink := &frameSink{w: &wire}
+	host := NewHost(newFakeSession())
+	if err := host.relayTerminalOutput(ctx, protocol.Austin, output, sink); !errors.Is(err, errTerminalOutputBacklog) {
+		t.Fatalf("relay error = %v; want backlog failure", err)
+	}
+	decoder := json.NewDecoder(&wire)
+	var received []byte
+	for i := 0; i < terminalOutputQueueDepth; i++ {
+		var frame writeFrame
+		if err := decoder.Decode(&frame); err != nil {
+			t.Fatalf("decode queued terminal frame %d: %v", i, err)
+		}
+		if frame.Type != typeTerminalOutput || len(frame.Data) != terminalOutputChunkBytes {
+			t.Fatalf("queued frame %d = type %q, bytes %d", i, frame.Type, len(frame.Data))
+		}
+		received = append(received, frame.Data...)
+	}
+	var failure writeFrame
+	if err := decoder.Decode(&failure); err != nil {
+		t.Fatalf("decode terminal error frame: %v", err)
+	}
+	if failure.Type != typeTerminalError || failure.Agent != "austin" || !strings.Contains(failure.Text, "backlog") {
+		t.Fatalf("overflow failure frame = %+v", failure)
+	}
+	if !bytes.Equal(received, payload[:len(received)]) {
+		t.Fatal("queued terminal output was dropped or reordered before the failure")
 	}
 }
 

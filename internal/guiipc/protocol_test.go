@@ -2,6 +2,8 @@ package guiipc
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -490,6 +492,39 @@ func TestDecodeCommandRoundTripsEachKind(t *testing.T) {
 				t.Errorf("command = %#v; want %#v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestTerminalWireUsesBoundedBase64Payloads(t *testing.T) {
+	input := []byte("echo \u4f60\u597d\r")
+	encoded := base64.StdEncoding.EncodeToString(input)
+	got, err := decodeTerminalInput(encoded)
+	if err != nil || string(got) != string(input) {
+		t.Fatalf("decode terminal input = %q, %v", got, err)
+	}
+	if _, err := decodeTerminalInput("not base64!"); err == nil {
+		t.Fatal("accepted malformed terminal input")
+	}
+	oversized := base64.StdEncoding.EncodeToString(make([]byte, terminalInputMaxBytes+1))
+	if _, err := decodeTerminalInput(oversized); err == nil {
+		t.Fatal("accepted terminal input larger than the protocol limit")
+	}
+
+	data := []byte{0x00, 0xff, 0x1b, 'x'}
+	line, err := json.Marshal(writeFrame{Type: typeTerminalOutput, Agent: "austin", Data: data})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire struct {
+		Type  string `json:"type"`
+		Agent string `json:"agent"`
+		Data  string `json:"data"`
+	}
+	if err := json.Unmarshal(line, &wire); err != nil {
+		t.Fatal(err)
+	}
+	if wire.Type != typeTerminalOutput || wire.Agent != "austin" || wire.Data != base64.StdEncoding.EncodeToString(data) {
+		t.Fatalf("terminal output wire frame = %+v", wire)
 	}
 }
 

@@ -187,6 +187,7 @@ func TestHostDependsOnTheValuePackagesItClaims(t *testing.T) {
 		"bufio":           true,
 		"bytes":           true,
 		"context":         true,
+		"encoding/base64": true,
 		"encoding/binary": true,
 		"encoding/json":   true,
 		"fmt":             true,
