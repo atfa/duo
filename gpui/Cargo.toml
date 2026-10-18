@@ -15,6 +15,7 @@ gpui = "0.2.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 smol = "2"
+vt100 = "0.17"
 
 # libc is pinned on purpose and is not used directly. gpui -> gpui_http_client ->
 # zed-async-tar -> xattr 0.2.3 reads `libc::ENOATTR`, which libc stopped defining

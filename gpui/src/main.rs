@@ -3,6 +3,7 @@
 mod app;
 mod commands;
 mod protocol;
+pub mod terminal;
 mod timeline;
 
 use app::DuoApp;
