@@ -262,7 +262,7 @@ func printUsage() {
 	fmt.Println("  DUO_PI_COMMAND         command used to launch a Pi agent (default: pi)")
 	fmt.Println("  DUO_DRIVER             default driver for both agents (`duo plugins` lists them)")
 	fmt.Println("  DUO_LISTEN             bridge listen address (default: 127.0.0.1:0)")
-	fmt.Println("  DUO_GPUI_BIN           the GPUI renderer `duo gui` launches (default: xduo on PATH)")
+	fmt.Println("  DUO_GPUI_BIN           the GPUI renderer `duo gui` launches (default: xduo-renderer on PATH)")
 	fmt.Println("  DUO_HARNESS            enable the idle/stall watchdog (default: true)")
 	fmt.Println("  DUO_HARNESS_IDLE_SECONDS / _STALL_SECONDS / _COOLDOWN_SECONDS")
 	fmt.Println("                         watchdog thresholds")

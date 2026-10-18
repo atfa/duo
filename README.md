@@ -43,7 +43,7 @@ curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-relea
 ```
 
 **From source** (runs the Go test suite, then installs Duo, its driver bridges and
-the `xduo` renderer with its desktop entry or macOS app bundle; requires Go 1.22+,
+the `xduo` app with its desktop entry or macOS app bundle; requires Go 1.22+,
 and cargo for the renderer):
 
 ```bash
@@ -219,9 +219,10 @@ duo gui resume <session-id>   # open the window on a session already in flight
 ```
 
 Build the renderer once — `make gpui`, which needs cargo — and `duo gui` finds
-`xduo` through `--gui-binary <path>`, then `DUO_GPUI_BIN`, then `PATH`, then
-next to the `duo` binary. When it cannot find one it says so, naming every place
-it looked, before it starts a session.
+`xduo-renderer` through `--gui-binary <path>`, then `DUO_GPUI_BIN`, then `PATH`,
+then next to the `duo` binary. Run `xduo` to open the full welcome app; it starts
+the matching Duo host and renderer, or opens the installed macOS app bundle so
+the Dock uses the designed icon.
 
 The GUI follows the system light/dark appearance. macOS uses its native titlebar;
 Linux requests client-side decorations and draws a titlebar with minimize,
@@ -230,15 +231,11 @@ decorations active, leaving server-side decorations to the compositor when they
 are negotiated. On Linux, `install.sh` runs
 `scripts/install-xduo-desktop.sh` to register the app icon and launcher. On
 macOS, the release archive includes an `xduo.app` with the Dock icon. For a
-source bundle, use `scripts/package-xduo-macos.sh` with matching Duo, xduo and
-agent-helper binaries.
+source bundle, use `scripts/package-xduo-macos.sh` with matching Duo,
+`xduo-renderer` and agent-helper binaries.
 
-The Linux desktop launcher uses `DUO_REPO` or the current Git repository when
-available. Otherwise it prefers a folder chooser (`zenity`, `kdialog`, or `yad`)
-and falls back to a path prompt in `x-terminal-emulator` or another common
-terminal. After choosing a repository, the launcher offers unfinished sessions
-to resume or a new session. The current Linux release `xduo` binary requires
-glibc 2.34 or newer.
+`xduo` opens the welcome window, where you can choose a repository and resume an
+unfinished session. The Linux release renderer requires glibc 2.34 or newer.
 The graphical renderer also needs a working Vulkan driver.
 
 The composer wraps long lines and supports keyboard selection. Select a timeline

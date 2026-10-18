@@ -32,7 +32,7 @@ opencode_plugin_dir="${HOME}/.config/opencode/plugin"
 mkdir -p "$bin_dir" "$(dirname "$extension_dir")" "$opencode_plugin_dir"
 install -m 0755 "$tmp/duo" "$bin_dir/duo"
 install -m 0755 "$tmp/xduo" "$bin_dir/xduo"
-install -m 0755 "$tmp/xduo-launcher-core" "$bin_dir/xduo-launcher-core"
+install -m 0755 "$tmp/xduo-renderer" "$bin_dir/xduo-renderer"
 # Everything else in the archive is a per-driver launch shim or plugin executable.
 # Installing whatever the release actually contains is what keeps this script from
 # becoming another list of drivers to remember. `duo.tar.gz` sits alongside these
@@ -68,6 +68,7 @@ if [ "$os" = "darwin" ]; then
 		rm -rf "$app_destination"
 	fi
 	cp -R "$tmp/xduo.app" "$app_destination"
+	printf '%s' "$app_destination" >"$bin_dir/xduo.app-path"
 	echo "Installed xduo app to $app_destination"
 else
 	data_home="${XDG_DATA_HOME:-${HOME}/.local/share}"
@@ -79,9 +80,7 @@ else
 	{
 		echo '#!/usr/bin/env bash'
 		printf 'export PATH=%q:"$PATH"\n' "$bin_dir"
-		printf 'export DUO_GPUI_BIN=%q\n' "$bin_dir/xduo"
-		printf 'export DUO_HOST_BIN=%q\n' "$bin_dir/duo"
-		printf 'exec %q "$@"\n' "$bin_dir/xduo-launcher-core"
+		printf 'exec %q "$@"\n' "$bin_dir/xduo"
 	} >"$launcher"
 	chmod 0755 "$launcher"
 	cat >"$applications/xduo.desktop" <<DESKTOP

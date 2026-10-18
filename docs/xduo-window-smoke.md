@@ -6,7 +6,7 @@ logged-in desktop session after `make gpui`, or pass a renderer path:
 
 ```sh
 scripts/xduo-window-smoke.sh
-scripts/xduo-window-smoke.sh --interactive /path/to/xduo
+scripts/xduo-window-smoke.sh --interactive /path/to/xduo-renderer
 ```
 
 An interactive terminal automatically enables the checklist pause. In CI,

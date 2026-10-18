@@ -69,7 +69,7 @@ fi
 
 say "Build the renderer"
 (cd "$root" && make gpui >/dev/null)
-renderer="$root/gpui/.target/release/xduo"
+renderer="$root/gpui/.target/release/xduo-renderer"
 [ -x "$renderer" ] || die "make gpui did not produce $renderer"
 
 # The fake host writes the frames docs/gui-protocol.md specifies, in the order the

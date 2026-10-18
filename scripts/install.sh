@@ -25,7 +25,7 @@ done
 # skipped with a notice instead of failing the install. `make gpui` is the same
 # build for anyone who wants it explicitly.
 install_xduo() {
-	local built="$ROOT/gpui/.target/release/xduo"
+	local built="$ROOT/gpui/.target/release/xduo-renderer"
 	if command -v cargo >/dev/null 2>&1; then
 		# The explicit test is load-bearing: a function called as an `if` condition
 		# runs with `set -e` off, so a failed build would otherwise fall through.
@@ -39,11 +39,11 @@ install_xduo() {
 		echo "cargo not found and no built renderer: xduo is skipped. Install Rust and re-run for the GUI." >&2
 		return 1
 	fi
-	if ! install -m 0755 "$built" "$BIN_DIR/xduo"; then
-		echo "error: could not install $built to $BIN_DIR/xduo" >&2
+	if ! install -m 0755 "$built" "$BIN_DIR/xduo-renderer"; then
+		echo "error: could not install $built to $BIN_DIR/xduo-renderer" >&2
 		return 1
 	fi
-	echo "Installed xduo renderer to $BIN_DIR/xduo"
+	echo "Installed xduo renderer to $BIN_DIR/xduo-renderer"
 }
 
 if install_xduo; then
@@ -57,7 +57,8 @@ if install_xduo; then
 	Darwin)
 		mkdir -p "${HOME}/Applications"
 		rm -rf "${HOME}/Applications/xduo.app"
-		"$ROOT/scripts/package-xduo-macos.sh" "${HOME}/Applications/xduo.app" "$BIN_DIR/xduo" "$BIN_DIR/duo" "$BIN_DIR"
+		"$ROOT/scripts/package-xduo-macos.sh" "${HOME}/Applications/xduo.app" "$BIN_DIR/xduo-renderer" "$BIN_DIR/duo" "$BIN_DIR"
+		printf '%s' "${HOME}/Applications/xduo.app" >"$BIN_DIR/xduo.app-path"
 		;;
 	esac
 fi
@@ -66,7 +67,7 @@ echo
 echo "Installed Duo binaries to $BIN_DIR:"
 echo "  duo        the coordinator, TUI and bridge"
 echo "  duo-*      one launch shim and plugin executable per driver"
-echo "  xduo       the graphical renderer for 'duo gui'"
+echo "  xduo       launch the graphical app"
 echo "Run 'duo plugins' to list the drivers that are installed, and"
 echo "'duo plugins test --all' to check each one against the protocol."
 echo "Ensure $BIN_DIR is in PATH, then run:"

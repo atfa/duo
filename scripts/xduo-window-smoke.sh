@@ -3,22 +3,22 @@ set -euo pipefail
 
 # Run in a real desktop session after building xduo. Decorations, icon artwork,
 # and light/dark palettes are visual checks; only observable window state is
-# automated. Usage: scripts/xduo-window-smoke.sh [--interactive] [path-to-xduo]
+# automated. Usage: scripts/xduo-window-smoke.sh [--interactive] [path-to-xduo-renderer]
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 interactive=0
 renderer=""
 while (($#)); do
 	case "$1" in
 		--interactive) interactive=1 ;;
-		-h|--help) printf 'usage: %s [--interactive] [path-to-xduo]\n' "$0"; exit 0 ;;
+		-h|--help) printf 'usage: %s [--interactive] [path-to-xduo-renderer]\n' "$0"; exit 0 ;;
 		-*) printf 'error: unknown option: %s\n' "$1" >&2; exit 2 ;;
 		*) [[ -z "$renderer" ]] || { echo 'error: only one renderer path is accepted' >&2; exit 2; }; renderer="$1" ;;
 	esac
 	shift
 done
-renderer="${renderer:-$root/gpui/.target/release/xduo}"
+renderer="${renderer:-$root/gpui/.target/release/xduo-renderer}"
 if [[ ! -x "$renderer" ]]; then
-	printf 'error: xduo is not executable: %s\nBuild it with `make gpui` or pass its path.\n' "$renderer" >&2
+	printf 'error: xduo-renderer is not executable: %s\nBuild it with `make gpui` or pass its path.\n' "$renderer" >&2
 	exit 1
 fi
 if [[ "$interactive" -eq 0 && -t 0 ]]; then interactive=1; fi
@@ -124,7 +124,7 @@ case "$backend" in
 		echo 'PASS: closing the window ended xduo.'
 		;;
 	macOS)
-		if osascript -e 'tell application "System Events" to get name of every window of process "xduo"' >"$work/windows" 2>"$work/access.err"; then
+		if osascript -e 'tell application "System Events" to get name of every window of process "xduo-renderer"' >"$work/windows" 2>"$work/access.err"; then
 			grep -qi xduo "$work/windows" || fail 'Accessibility did not report an xduo window'
 			printf 'PASS: macOS Accessibility reports window: %s\n' "$(cat "$work/windows")"
 		else

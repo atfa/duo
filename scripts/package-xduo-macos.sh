@@ -7,12 +7,12 @@ if [[ "$(uname -s)" != "Darwin" ]]; then
 	exit 1
 fi
 if [[ $# -lt 1 || $# -gt 4 ]]; then
-	echo "usage: $0 <output.app> [path-to-xduo] [path-to-duo] [path-to-duo-binaries]" >&2
+	echo "usage: $0 <output.app> [path-to-xduo-renderer] [path-to-duo] [path-to-duo-binaries]" >&2
 	exit 2
 fi
 
 bundle="$1"
-binary="${2:-$root/gpui/.target/release/xduo}"
+binary="${2:-$root/gpui/.target/release/xduo-renderer}"
 duo_binary="${3:-}"
 duo_bin_dir="${4:-}"
 if [[ -z "$duo_binary" && -x "$root/duo" ]]; then
@@ -67,7 +67,7 @@ if ! mkdir -p "$log_dir"; then
 	exit 1
 fi
 log_file="$log_dir/xduo.log"
-if "$resources/duo" gui --welcome >"$log_file" 2>&1; then
+if "$resources/duo" gui --welcome "$@" >"$log_file" 2>&1; then
 	exit 0
 else
 	status=$?

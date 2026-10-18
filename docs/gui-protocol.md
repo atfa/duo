@@ -20,7 +20,7 @@ nothing else; every diagnostic, log line and panic message goes to stderr. A `lo
 or `tracing` subscriber that defaults to stdout would corrupt the parent's parser on
 its first line, so this is a MUST rather than a style preference.
 
-- Go (`duo gui`) spawns the Rust renderer (`xduo`) and keeps its stdin and
+- Go (`duo gui`) spawns the Rust renderer (`xduo-renderer`) and keeps its stdin and
   stdout. The parent is the session host; the child is a renderer.
 - **Go → renderer** is the child's **stdin**. **Renderer → Go** is the child's
   **stdout**. stderr is not part of the protocol and carries diagnostics.

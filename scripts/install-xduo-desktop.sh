@@ -11,34 +11,33 @@ command -v duo >/dev/null 2>&1 || {
 	exit 1
 }
 duo_bin="$(command -v duo)"
-if command -v xduo >/dev/null 2>&1; then
-	renderer_bin="$(command -v xduo)"
-elif [[ -x "$root/gpui/.target/release/xduo" ]]; then
-	renderer_bin="$root/gpui/.target/release/xduo"
+if command -v xduo-renderer >/dev/null 2>&1; then
+	renderer_bin="$(command -v xduo-renderer)"
+elif [[ -x "$root/gpui/.target/release/xduo-renderer" ]]; then
+	renderer_bin="$root/gpui/.target/release/xduo-renderer"
 else
-	echo "error: build xduo with 'make gpui' or put it on PATH before installing the desktop entry" >&2
+	echo "error: build the renderer with 'make gpui' or put xduo-renderer on PATH before installing the desktop entry" >&2
 	exit 1
 fi
 
 mkdir -p "$applications" "$icons"
 install -m 0644 "$root/resources/xduo.desktop" "$applications/xduo.desktop"
 install -m 0644 "$root/resources/xduo.png" "$icons/xduo.png"
+launcher_bin="$(command -v xduo)"
+[[ -x "$launcher_bin" ]] || { echo 'error: xduo launcher must be installed on PATH' >&2; exit 1; }
 launcher="$applications/xduo-launcher"
-launcher_core="$applications/xduo-launcher-core"
-install -m 0755 "$root/resources/xduo-launcher.sh" "$launcher_core"
 {
 	echo '#!/usr/bin/env bash'
 	printf 'export PATH=%q:"$PATH"\n' "$(dirname "$duo_bin")"
 	printf 'export DUO_GPUI_BIN=%q\n' "$renderer_bin"
-	printf 'export DUO_HOST_BIN=%q\n' "$duo_bin"
-	printf 'exec %q "$@"\n' "$launcher_core"
+	printf 'exec %q "$@"\n' "$launcher_bin"
 } >"$launcher"
 chmod 0755 "$launcher"
 # Desktop sessions often start with a shorter PATH than an interactive shell,
 # so point the entry at the absolute wrapper path.
 launcher_desktop="$(printf '%s' "$launcher" | sed 's/\\/\\\\/g; s/"/\\"/g')"
-sed "s|^Exec=xduo-launcher$|Exec=\"$launcher_desktop\"|" \
+sed "s|^Exec=xduo$|Exec=\"$launcher_desktop\"|" \
 	"$root/resources/xduo.desktop" >"$applications/xduo.desktop"
 
 echo "Installed xduo desktop entry and icon under $data_home"
-echo "The launcher starts 'duo gui' with the built xduo renderer."
+echo "The desktop entry launches the xduo app."

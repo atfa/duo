@@ -78,11 +78,10 @@ jobs:
               go build -trimpath -ldflags="-s -w" -o "dist/package/$name" "$pkg"
           done
           (cd gpui && cargo build --release --locked)
-          install -m 0755 gpui/.target/release/xduo dist/package/xduo
+          install -m 0755 gpui/.target/release/xduo-renderer dist/package/xduo-renderer
           install -m 0644 resources/xduo.png resources/xduo.icns resources/xduo.desktop dist/package/
-          install -m 0755 resources/xduo-launcher.sh dist/package/xduo-launcher-core
           if [ "$TARGET_OS" = darwin ]; then
-            scripts/package-xduo-macos.sh dist/package/xduo.app dist/package/xduo dist/package/duo dist/package
+            scripts/package-xduo-macos.sh dist/package/xduo.app dist/package/xduo-renderer dist/package/duo dist/package
           fi
           cp -R pi-extension dist/package/pi-extension
           mkdir -p dist/package/opencode-extension

@@ -1,7 +1,7 @@
 # Duo's GPUI frontend
 
-`xduo` is the graphical frontend: one GPU-rendered window over a Duo session,
-built with [GPUI](https://gpui.rs), the Rust UI framework Zed uses.
+`xduo-renderer` draws the graphical frontend: one GPU-rendered window over a Duo
+session, built with [GPUI](https://gpui.rs), the Rust UI framework Zed uses.
 
 It is a **renderer**, not a session. It reads NDJSON frames from stdin, draws
 them, and writes the commands a human pressed to stdout. Everything about the
@@ -23,14 +23,14 @@ cd gpui && cargo build --release
 ```
 
 `duo gui` resolves the renderer in one order: `--gui-binary <path>`, then
-`DUO_GPUI_BIN`, then `xduo` on `PATH`, then an `xduo` next to the `duo`
-binary itself.
+`DUO_GPUI_BIN`, then `xduo-renderer` on `PATH`, then an `xduo-renderer` next to
+the `duo` binary itself.
 
 The window follows the system light/dark appearance and updates when it changes.
 macOS keeps its native titlebar, close, minimize and zoom controls. Release
 archives include an `xduo.app` with the matching Duo binary and agent helpers.
 For a source build, pass same-build binaries to
-`scripts/package-xduo-macos.sh <output.app> <xduo> <duo> <helper-directory>`;
+`scripts/package-xduo-macos.sh <output.app> <xduo-renderer> <duo> <helper-directory>`;
 run `duo gui` with `DUO_GPUI_BIN` pointing to the app's
 `Contents/MacOS/xduo-renderer` (the Finder launcher sets this automatically).
 On Linux, xduo requests client-side decorations and draws its titlebar controls
