@@ -27,6 +27,39 @@ func TestDiscoverPathReadsUserShellPath(t *testing.T) {
 	}
 }
 
+func TestDiscoverPathLoadsProfileForMinimalShell(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not use a POSIX login shell")
+	}
+	if !executable("/bin/sh") {
+		t.Skip("/bin/sh is unavailable")
+	}
+
+	home := t.TempDir()
+	agentBin := filepath.Join(home, ".local", "bin")
+	if err := os.MkdirAll(agentBin, 0700); err != nil {
+		t.Fatal(err)
+	}
+	profile := "PATH=\"$PATH:$HOME/.local/bin\"\nexport PATH\n"
+	if err := os.WriteFile(filepath.Join(home, ".profile"), []byte(profile), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("SHELL", "/bin/sh")
+	t.Setenv("PATH", "/usr/bin:/bin")
+
+	got, err := discoverPath(context.Background())
+	if err != nil {
+		t.Fatalf("discoverPath() error = %v", err)
+	}
+	for _, entry := range filepath.SplitList(got) {
+		if filepath.Clean(entry) == agentBin {
+			return
+		}
+	}
+	t.Fatalf("discoverPath() = %q, want login profile PATH to contain %q", got, agentBin)
+}
+
 func TestRefreshFallsBackWhenUserShellPathIsUnavailable(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Windows does not use a POSIX login shell")

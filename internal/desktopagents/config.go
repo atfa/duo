@@ -425,12 +425,14 @@ func discoverPath(ctx context.Context) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
 	args := []string{"-lic", `printf '\n__XDUO_PATH__%s\n' "$PATH"`}
-	// The minimal POSIX shells shipped as /bin/sh do not accept bash-style
-	// login/interactive flags. They remain a useful fallback for PATH itself.
+	cmd := exec.CommandContext(ctx, shell, args...)
+	// Minimal POSIX shells such as dash do not accept bash-style login flags;
+	// invoking them with a hyphenated argv[0] makes -c run as a login shell.
 	if shellName := filepath.Base(shell); shellName == "sh" || shellName == "dash" || shellName == "ash" {
-		args[0] = "-c"
+		cmd.Args[0] = "-" + shellName
+		cmd.Args[1] = "-c"
 	}
-	out, err := exec.CommandContext(ctx, shell, args...).Output()
+	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("read user shell PATH: %w", err)
 	}
