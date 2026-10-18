@@ -136,8 +136,9 @@ func (r *Registry) Refresh(ctx context.Context, names []string) (State, error) {
 		state, refreshErr := r.refreshWithPath(ctx, names, fallback)
 		if refreshErr == nil {
 			r.mu.Lock()
-			r.state.ScanError = "Login shell PATH could not be read; used the standard desktop PATH: " + err.Error()
+			r.state.ScanError = "Could not read the user shell PATH; used the saved and current PATH: " + err.Error()
 			_ = r.saveLocked()
+			state.ScanError = r.state.ScanError
 			r.mu.Unlock()
 		}
 		return state, refreshErr
@@ -408,18 +409,30 @@ func (r *Registry) applyShims(state State) error {
 }
 
 func discoverPath(ctx context.Context) (string, error) {
-	if runtime.GOOS != "darwin" {
+	if runtime.GOOS == "windows" {
 		return os.Getenv("PATH"), nil
 	}
 	shell := os.Getenv("SHELL")
 	if shell == "" {
-		shell = "/bin/zsh"
+		if runtime.GOOS == "darwin" {
+			shell = "/bin/zsh"
+		} else if executable("/bin/bash") {
+			shell = "/bin/bash"
+		} else {
+			shell = "/bin/sh"
+		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, shell, "-lic", `printf '\n__XDUO_PATH__%s\n' "$PATH"`).Output()
+	args := []string{"-lic", `printf '\n__XDUO_PATH__%s\n' "$PATH"`}
+	// The minimal POSIX shells shipped as /bin/sh do not accept bash-style
+	// login/interactive flags. They remain a useful fallback for PATH itself.
+	if shellName := filepath.Base(shell); shellName == "sh" || shellName == "dash" || shellName == "ash" {
+		args[0] = "-c"
+	}
+	out, err := exec.CommandContext(ctx, shell, args...).Output()
 	if err != nil {
-		return "", fmt.Errorf("read login-shell PATH: %w", err)
+		return "", fmt.Errorf("read user shell PATH: %w", err)
 	}
 	lines := strings.Split(string(out), "\n")
 	for i := len(lines) - 1; i >= 0; i-- {
@@ -427,7 +440,7 @@ func discoverPath(ctx context.Context) (string, error) {
 			return strings.TrimPrefix(lines[i], "__XDUO_PATH__"), nil
 		}
 	}
-	return "", errors.New("login shell did not return PATH")
+	return "", errors.New("user shell did not return PATH")
 }
 
 func cleanPath(path string) string {

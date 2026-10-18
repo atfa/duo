@@ -3380,7 +3380,7 @@ impl DuoApp {
                         .on_mouse_down(MouseButton::Left, cx.listener(|this, _: &MouseDownEvent, _, cx| { if !this.view.as_ref().is_some_and(|v| v.agent_scan_busy) { this.send(ClientMessage::refresh_agents()); } cx.notify(); })))
                     .child(div().px_3().py_2().rounded_md().bg(theme.sidebar).cursor(CursorStyle::PointingHand).child(if english { "Done" } else { "完成" })
                         .on_mouse_down(MouseButton::Left, cx.listener(|this, _: &MouseDownEvent, _, cx| { this.settings_open = false; cx.notify(); }))))
-                .child(div().text_color(theme.muted).child(if english { "Agent paths are saved on this computer. Refresh discovers agents from your login shell; custom paths are kept." } else { "Agent 可执行文件路径保存在本机。刷新会从登录 shell 搜索，并保留手动添加的路径。" }));
+                .child(div().text_color(theme.muted).child(if english { "Agent paths are saved on this computer. Refresh searches your local PATH, including your login shell when available; custom paths are kept." } else { "Agent 可执行文件路径保存在本机。刷新会搜索本机 PATH，并尽可能读取登录 shell 配置；手动添加的路径会保留。" }));
         let mut content = div()
             .w_full()
             .max_w(px(760.))
