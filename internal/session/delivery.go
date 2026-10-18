@@ -175,32 +175,10 @@ func currentStepLanded(snap sessionstore.Snapshot) bool {
 	return snap.Steps[idx-1].Done && snap.Steps[idx-1].DeliveryHead == snap.Delivery.FinalHead
 }
 
-// stepUnderCursor returns the step the queue cursor points at, or nil when the
-// queue is finished and there is no step left to land.
-func stepUnderCursor(steps project.Steps, cursor int) *project.Step {
-	if cursor < 1 || cursor > len(steps) {
-		return nil
-	}
-	return &steps[cursor-1]
-}
-
-// stepDeliveryIsCurrent reports whether an applied delivery record describes the
-// step under the cursor: that step is open, it was submitted, and the recorded
-// final HEAD is exactly that submission. This is the crash window where the
-// landing reached the user's repository and the queue never advanced.
-func stepDeliveryIsCurrent(snap sessionstore.Snapshot) bool {
-	current := stepUnderCursor(snap.Steps, snap.Step)
-	if current == nil || current.Done {
-		return false
-	}
-	head := strings.TrimSpace(current.Head)
-	return head != "" && strings.EqualFold(head, strings.TrimSpace(snap.Delivery.FinalHead))
-}
-
 // stepVerdictBinds reports whether the step under the cursor carries Tony's passed
 // verdict for exactly the HEAD about to be delivered.
 func stepVerdictBinds(snap sessionstore.Snapshot, head string) bool {
-	current := stepUnderCursor(snap.Steps, snap.Step)
+	current := snap.StepUnderCursor()
 	return current != nil &&
 		current.Verification.Status == project.VerificationPassed &&
 		current.Verification.Targets(head)
@@ -312,7 +290,7 @@ func ReconcileDelivery(
 			})
 			return DeliveryOutcome{Snapshot: snap, Applied: true}, false, nil
 
-		case stepDeliveryIsCurrent(snap) && stepVerdictBinds(snap, snap.Delivery.FinalHead):
+		case snap.StepDeliveryIsCurrent() && stepVerdictBinds(snap, snap.Delivery.FinalHead):
 			// The record is this step's own landing, interrupted before the queue
 			// moved: finish the transaction the crash left half-done.
 			if err := LandStepSnapshot(&snap, snap.Delivery.FinalHead); err != nil {

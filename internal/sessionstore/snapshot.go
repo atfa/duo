@@ -162,6 +162,41 @@ func (s Snapshot) Worktree(agent protocol.AgentID) (Worktree, bool) {
 	return wt, ok
 }
 
+// StepUnderCursor returns the step the queue cursor points at, or nil when the
+// queue is finished and there is no step left to land.
+func (s Snapshot) StepUnderCursor() *project.Step {
+	if s.Step < 1 || s.Step > len(s.Steps) {
+		return nil
+	}
+	return &s.Steps[s.Step-1]
+}
+
+// StepDeliveryIsCurrent reports whether the applied delivery record describes the
+// step under the cursor: that step is open, it was submitted, and the recorded
+// final HEAD is exactly that submission. This is the crash window where the
+// landing reached the user's repository and the queue never advanced.
+//
+// In STEP mode the session-level record is the latest landing, so it survives the
+// queue advancing. Every consumer that reads "applied" must scope it to one step
+// with this predicate, or a step submitted after a landing looks finished.
+func (s Snapshot) StepDeliveryIsCurrent() bool {
+	current := s.StepUnderCursor()
+	if current == nil || current.Done {
+		return false
+	}
+	head := strings.TrimSpace(current.Head)
+	return head != "" && strings.EqualFold(head, strings.TrimSpace(s.Delivery.FinalHead))
+}
+
+// StepAwaitsDelivery reports whether the queue has an open step that the delivery
+// record does not describe: a step submitted after the last landing is a new
+// transaction that still needs delivery. Queues in the other modes have no steps,
+// so this is false for them.
+func (s Snapshot) StepAwaitsDelivery() bool {
+	current := s.StepUnderCursor()
+	return current != nil && !current.Done && !s.StepDeliveryIsCurrent()
+}
+
 // NeedsDelivery reports whether this session has an agent-approved artifact that
 // has not been handed back to the user's repository yet. It covers the normal
 // INTEGRATE dual sign-off, a delivery interrupted mid-transaction, a DONE
@@ -173,7 +208,11 @@ func (s Snapshot) Worktree(agent protocol.AgentID) (Worktree, bool) {
 // transaction re-checks the binding, so this predicate never has to re-derive
 // Git state.
 func (s Snapshot) NeedsDelivery() bool {
-	if s.Delivery.Applied() {
+	// In STEP mode an applied record is the latest landing, not the end of the
+	// session: a step submitted after it is a new transaction, and reading the
+	// record as "nothing left to deliver" leaves the session stuck in INTEGRATE
+	// with no way for `duo apply` to find it.
+	if s.Delivery.Applied() && !s.StepAwaitsDelivery() {
 		return false
 	}
 	switch s.EffectiveMode() {

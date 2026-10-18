@@ -280,10 +280,13 @@ func sessionStatus(item sessionstore.Summary) string {
 
 	snap := item.Snapshot
 	switch {
+	case snap.NeedsDelivery():
+		// A STEP session whose last landing is recorded can still have a step that
+		// was submitted afterwards: it is awaiting delivery, not delivered, and
+		// `duo apply` finds it. Reading the record first hid exactly that session.
+		return "pending"
 	case snap.Delivery.Applied():
 		return "delivered"
-	case snap.NeedsDelivery():
-		return "pending"
 	case snap.Phase == "DONE":
 		return "completed"
 	case item.Unfinished():
