@@ -215,6 +215,26 @@ func (c *Coordinator) EnableResumeWake() {
 	c.resumeWakeMu.Unlock()
 }
 
+// EnableResumeWakeForAgent schedules one resume prompt for a newly launched
+// driver without resetting the other agent's attempt.
+func (c *Coordinator) EnableResumeWakeForAgent(agent protocol.AgentID) {
+	c.resumeWakeMu.Lock()
+	wasEnabled := c.resumeWakeEnabled
+	c.resumeWakeEnabled = true
+	if c.resumeWakeAttempted == nil {
+		c.resumeWakeAttempted = make(map[protocol.AgentID]bool)
+	}
+	if !wasEnabled {
+		other := protocol.Austin
+		if agent == protocol.Austin {
+			other = protocol.Tony
+		}
+		c.resumeWakeAttempted[other] = true
+	}
+	delete(c.resumeWakeAttempted, agent)
+	c.resumeWakeMu.Unlock()
+}
+
 // SetIntegration records the integration outcome so it is part of every
 // snapshot. Recovery uses it to know whether a merge already happened.
 func (c *Coordinator) SetIntegration(result workspace.IntegrationResult) {

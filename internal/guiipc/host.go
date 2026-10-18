@@ -4,9 +4,15 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
+	"net"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -41,6 +47,18 @@ type Session interface {
 	History() []sessionstore.TUIEntry
 }
 
+type driverCatalog interface {
+	AvailableDrivers(context.Context) []string
+}
+
+type nativeSession interface {
+	NativeRunning(protocol.AgentID) bool
+	Attach(protocol.AgentID, io.Writer) ([]byte, error)
+	Detach(protocol.AgentID)
+	Write(protocol.AgentID, []byte) error
+	Resize(int, int) error
+}
+
 const (
 	// defaultHeartbeat is how often a full view is re-sent. Status and agent
 	// activity change without an event of their own, so the view is the only way
@@ -66,15 +84,32 @@ const (
 // workflow of its own. Everything it sends is derived from a session read, and
 // everything it accepts is a session.Command.
 type Host struct {
-	s Session
+	s            Session
+	openProject  func(context.Context, string) error
+	launchNative func(context.Context, string, string) error
+	nativeMu     sync.Mutex
+	native       map[protocol.AgentID]*nativeAttachment
 
 	// heartbeat and buffer are the defaults above, overridden only by tests.
 	heartbeat time.Duration
 	buffer    int
+	drivers   []string
 	catalogMu sync.RWMutex
 	catalogs  map[protocol.AgentID]catalogResult
 	diffMu    sync.Mutex
 	diffstats map[protocol.AgentID]diffstatResult
+}
+
+type nativeAttachment struct {
+	mu        sync.Mutex
+	closeOnce sync.Once
+	listener  net.Listener
+	conn      net.Conn
+	stream    *nativeFrameWriter
+	cancel    context.CancelFunc
+	done      chan struct{}
+	attached  bool
+	closed    bool
 }
 
 type catalogResult struct {
@@ -93,7 +128,13 @@ type diffstatResult struct {
 
 // NewHost returns a host for one session.
 func NewHost(s Session) *Host {
-	return &Host{s: s, heartbeat: defaultHeartbeat, buffer: defaultBuffer, catalogs: make(map[protocol.AgentID]catalogResult), diffstats: make(map[protocol.AgentID]diffstatResult)}
+	h := &Host{s: s, heartbeat: defaultHeartbeat, buffer: defaultBuffer, catalogs: make(map[protocol.AgentID]catalogResult), diffstats: make(map[protocol.AgentID]diffstatResult)}
+	return h
+}
+
+func (h *Host) SetOpenProject(fn func(context.Context, string) error) { h.openProject = fn }
+func (h *Host) SetNativeLauncher(fn func(context.Context, string, string) error) {
+	h.launchNative = fn
 }
 
 // Serve speaks the protocol until the frontend goes away, the session closes its
@@ -104,8 +145,18 @@ func NewHost(s Session) *Host {
 // and the child's stdin as out. Nothing else may be written to out: the GUI's
 // decoder treats every line as a protocol frame.
 func (h *Host) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
+	return h.ServeReader(ctx, bufio.NewReader(in), out)
+}
+
+// ServeReader continues a command stream using its existing buffer. This is used
+// by the welcome flow, which must hand the same reader to the session host after
+// the renderer has selected a project.
+func (h *Host) ServeReader(ctx context.Context, in *bufio.Reader, out io.Writer) error {
 	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	defer func() {
+		cancel()
+		h.closeNatives()
+	}()
 
 	sub, unsubscribe := h.s.Subscribe(h.buffer)
 	defer unsubscribe()
@@ -125,6 +176,15 @@ func (h *Host) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	}
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
 		go h.loadCatalog(ctx, id)
+	}
+	if catalog, ok := h.s.(driverCatalog); ok {
+		go func() {
+			drivers := catalog.AvailableDrivers(ctx)
+			h.catalogMu.Lock()
+			h.drivers = append([]string{}, drivers...)
+			h.catalogMu.Unlock()
+			_ = h.sendView(ctx, sink)
+		}()
 	}
 
 	done := make(chan struct{})
@@ -197,12 +257,20 @@ func (h *Host) sendView(ctx context.Context, sink *frameSink) error {
 func (h *Host) projectView(ctx context.Context, sv session.View, status string) View {
 	v := fromView(sv, status)
 	h.catalogMu.RLock()
+	v.AvailableDrivers = append([]string{}, h.drivers...)
 	for id, result := range h.catalogs {
 		a := v.Agents[wireAgent(id)]
 		a.Models, a.ModelsLoaded, a.ModelsError = append([]Model{}, result.models...), result.loaded, result.err
 		v.Agents[wireAgent(id)] = a
 	}
 	h.catalogMu.RUnlock()
+	h.nativeMu.Lock()
+	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		a := v.Agents[wireAgent(id)]
+		a.NativeOpen = h.native[id] != nil
+		v.Agents[wireAgent(id)] = a
+	}
+	h.nativeMu.Unlock()
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
 		a := v.Agents[wireAgent(id)]
 		a.Diffstat, a.DiffPreview = h.worktreeEvidence(ctx, id, a.WorktreePath, sv.Worktrees.BaseCommit)
@@ -353,28 +421,70 @@ func (b *boundedBuffer) String() string {
 }
 
 func (h *Host) loadCatalog(ctx context.Context, id protocol.AgentID) {
+	driverName := h.s.View().Agents[id].Driver
 	models, err := h.s.Models(ctx, id)
+	if h.s.View().Agents[id].Driver != driverName {
+		return
+	}
 	result := catalogResult{models: fromModels(models), loaded: true}
 	if err != nil {
 		result.err = err.Error()
 	}
 	h.catalogMu.Lock()
-	h.catalogs[id] = result
+	if h.s.View().Agents[id].Driver == driverName {
+		h.catalogs[id] = result
+	}
 	h.catalogMu.Unlock()
 }
 
 // readCommands is the only writer to the session. It runs until the command
 // stream ends, which is what a frontend process exiting looks like: the session
 // then has no one left to render it, so Serve returns.
-func (h *Host) readCommands(ctx context.Context, in io.Reader, sink *frameSink, stop func()) {
+func (h *Host) readCommands(ctx context.Context, in *bufio.Reader, sink *frameSink, stop func()) {
 	defer stop()
-
-	scanner := bufio.NewScanner(in)
-	scanner.Buffer(make([]byte, 0, 64*1024), maxCommandBytes)
-	for scanner.Scan() {
-		line := bytes.TrimSpace(scanner.Bytes())
+	for {
+		line, err := readGUICommand(in)
+		if err != nil {
+			return
+		}
+		line = bytes.TrimSpace(line)
 		if len(line) == 0 {
 			continue
+		}
+		var envelope Command
+		if json.Unmarshal(line, &envelope) == nil && envelope.Type == typeCommand {
+			if envelope.Kind == KindOpenNative || envelope.Kind == KindCloseNative {
+				agent, err := parseAgent(envelope.Agent)
+				if err != nil {
+					_ = sink.failure(err)
+				} else if envelope.Kind == KindCloseNative {
+					h.closeNative(agent)
+					_ = h.sendView(ctx, sink)
+				} else {
+					go func() {
+						err := h.openNative(ctx, agent, sink)
+						if err != nil && !errors.Is(err, context.Canceled) {
+							_ = sink.failure(err)
+						}
+						_ = h.sendView(ctx, sink)
+					}()
+				}
+				continue
+			}
+			if envelope.Kind == KindOpenProject {
+				if h.openProject == nil {
+					_ = sink.failure(errors.New("project picker is unavailable"))
+				} else if strings.TrimSpace(envelope.Path) == "" {
+					_ = sink.failure(errors.New("no project folder was selected"))
+				} else {
+					go func(path string) {
+						if err := h.openProject(ctx, path); err != nil {
+							_ = sink.failure(err)
+						}
+					}(envelope.Path)
+				}
+				continue
+			}
 		}
 		cmd, quit, err := decodeCommand(line)
 		if err != nil {
@@ -385,10 +495,309 @@ func (h *Host) readCommands(ctx context.Context, in io.Reader, sink *frameSink, 
 		if quit {
 			return
 		}
+		if changed, ok := cmd.(session.SetDriver); ok {
+			h.closeNative(changed.Agent)
+		}
 		if err := h.s.Do(ctx, cmd); err != nil {
 			_ = sink.failure(err)
+		} else if changed, ok := cmd.(session.SetDriver); ok {
+			h.catalogMu.Lock()
+			delete(h.catalogs, changed.Agent)
+			h.catalogMu.Unlock()
+			go h.loadCatalog(ctx, changed.Agent)
 		}
 	}
+}
+
+func readGUICommand(reader *bufio.Reader) ([]byte, error) {
+	var line []byte
+	for {
+		part, err := reader.ReadSlice('\n')
+		if len(line)+len(part) > maxCommandBytes {
+			if err == bufio.ErrBufferFull {
+				for err == bufio.ErrBufferFull {
+					_, err = reader.ReadSlice('\n')
+				}
+			}
+			return nil, fmt.Errorf("GUI command exceeds %d bytes", maxCommandBytes)
+		}
+		line = append(line, part...)
+		if err == nil { return line, nil }
+		if err != bufio.ErrBufferFull { return nil, err }
+	}
+}
+
+func (h *Host) openNative(ctx context.Context, id protocol.AgentID, sink *frameSink) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if _, ok := h.s.(nativeSession); !ok {
+		return errors.New("native attach is unavailable")
+	}
+	if h.launchNative == nil {
+		return errors.New("native terminal launcher is unavailable")
+	}
+	if !h.s.(nativeSession).NativeRunning(id) {
+		return fmt.Errorf("%s agent process has exited; restart it before opening its native terminal", id)
+	}
+	dir, err := os.MkdirTemp("", "duo-native-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	if err := os.Chmod(dir, 0o700); err != nil {
+		return err
+	}
+	path := filepath.Join(dir, "attach.sock")
+	listener, err := net.Listen("unix", path)
+	if err != nil {
+		return err
+	}
+	nctx, cancel := context.WithCancel(ctx)
+	link := &nativeAttachment{listener: listener, cancel: cancel, done: make(chan struct{})}
+	h.nativeMu.Lock()
+	if h.native == nil {
+		h.native = make(map[protocol.AgentID]*nativeAttachment)
+	}
+	if h.native[id] != nil {
+		h.nativeMu.Unlock()
+		cancel()
+		listener.Close()
+		return fmt.Errorf("%s already has a native terminal open", id)
+	}
+	if err := nctx.Err(); err != nil {
+		h.nativeMu.Unlock()
+		cancel()
+		listener.Close()
+		return err
+	}
+	h.native[id] = link
+	h.nativeMu.Unlock()
+	_ = h.sendView(ctx, sink)
+	defer h.finishNative(id, link)
+	go func() {
+		<-nctx.Done()
+		h.closeNativeTransport(link)
+	}()
+	if err := h.launchNative(nctx, path, string(wireAgent(id))); err != nil {
+		if nctx.Err() != nil {
+			return nctx.Err()
+		}
+		return err
+	}
+	if ul, ok := listener.(*net.UnixListener); ok {
+		_ = ul.SetDeadline(time.Now().Add(30 * time.Second))
+	}
+	conn, err := listener.Accept()
+	if err != nil {
+		if nctx.Err() != nil {
+			return nctx.Err()
+		}
+		return fmt.Errorf("native terminal did not connect: %w", err)
+	}
+	h.nativeMu.Lock()
+	if h.native[id] != link {
+		h.nativeMu.Unlock()
+		_ = conn.Close()
+		return context.Canceled
+	}
+	link.mu.Lock()
+	if link.closed || nctx.Err() != nil {
+		link.mu.Unlock()
+		h.nativeMu.Unlock()
+		_ = conn.Close()
+		return context.Canceled
+	}
+	link.conn = conn
+	ns := h.s.(nativeSession)
+	stream := &nativeFrameWriter{conn: conn}
+	link.stream = stream
+	replayWriter := &nativeReplayWriter{stream: stream, ready: make(chan struct{})}
+	recent, err := ns.Attach(id, replayWriter)
+	if err == nil {
+		link.attached = true
+	}
+	link.mu.Unlock()
+	h.nativeMu.Unlock()
+	if err != nil {
+		replayWriter.release()
+		_ = stream.WriteFrame('E', []byte(err.Error()))
+		return err
+	}
+	if len(recent) > 0 {
+		if err := stream.WriteFrame('O', recent); err != nil {
+			replayWriter.release()
+			return err
+		}
+	}
+	replayWriter.release()
+	for {
+		kind, payload, err := readNativeFrame(conn)
+		if err != nil {
+			if nctx.Err() != nil {
+				return nil
+			}
+			return fmt.Errorf("native terminal disconnected: %w", err)
+		}
+		switch kind {
+		case 'D':
+			if err := ns.Write(id, payload); err != nil {
+				_ = stream.WriteFrame('E', []byte(err.Error()))
+				return err
+			}
+		case 'R':
+			if len(payload) != 8 {
+				err := errors.New("invalid native resize frame")
+				_ = stream.WriteFrame('E', []byte(err.Error()))
+				return err
+			}
+			cols, rows := int(binary.BigEndian.Uint32(payload[:4])), int(binary.BigEndian.Uint32(payload[4:]))
+			if cols < 1 || cols > 65535 || rows < 1 || rows > 65535 {
+				err := errors.New("native terminal size is invalid")
+				_ = stream.WriteFrame('E', []byte(err.Error()))
+				return err
+			}
+			if err := ns.Resize(cols, rows); err != nil {
+				_ = stream.WriteFrame('E', []byte(err.Error()))
+				return err
+			}
+		case 'Q':
+			return nil
+		default:
+			err := fmt.Errorf("invalid native frame %q", kind)
+			_ = stream.WriteFrame('E', []byte(err.Error()))
+			return err
+		}
+		if ctx.Err() != nil {
+			return nil
+		}
+	}
+}
+
+func (h *Host) closeNative(id protocol.AgentID) {
+	h.nativeMu.Lock()
+	link := h.native[id]
+	h.nativeMu.Unlock()
+	if link == nil {
+		return
+	}
+	h.closeNativeTransport(link)
+	<-link.done
+}
+
+func (h *Host) closeNativeTransport(link *nativeAttachment) {
+	link.closeOnce.Do(func() {
+		link.mu.Lock()
+		link.closed = true
+		conn, stream := link.conn, link.stream
+		link.mu.Unlock()
+		if conn != nil && stream != nil {
+			_ = stream.WriteFrame('C', nil)
+		}
+		link.cancel()
+		_ = link.listener.Close()
+		if conn != nil {
+			_ = conn.Close()
+		}
+	})
+}
+
+func (h *Host) closeNatives() {
+	h.nativeMu.Lock()
+	ids := make([]protocol.AgentID, 0, len(h.native))
+	for id := range h.native {
+		ids = append(ids, id)
+	}
+	h.nativeMu.Unlock()
+	for _, id := range ids {
+		h.closeNative(id)
+	}
+}
+
+func (h *Host) finishNative(id protocol.AgentID, link *nativeAttachment) {
+	h.closeNativeTransport(link)
+	link.mu.Lock()
+	attached := link.attached
+	link.mu.Unlock()
+	if attached {
+		h.s.(nativeSession).Detach(id)
+	}
+	h.nativeMu.Lock()
+	if h.native[id] == link {
+		delete(h.native, id)
+	}
+	h.nativeMu.Unlock()
+	close(link.done)
+}
+
+type nativeFrameWriter struct {
+	mu   sync.Mutex
+	conn net.Conn
+}
+
+type nativeReplayWriter struct {
+	stream *nativeFrameWriter
+	ready  chan struct{}
+	once   sync.Once
+}
+
+func (w *nativeReplayWriter) Write(p []byte) (int, error) {
+	<-w.ready
+	return w.stream.Write(p)
+}
+
+func (w *nativeReplayWriter) release() { w.once.Do(func() { close(w.ready) }) }
+
+func (w *nativeFrameWriter) Write(p []byte) (int, error) {
+	if err := w.WriteFrame('O', p); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+func (w *nativeFrameWriter) WriteFrame(kind byte, payload []byte) error {
+	if len(payload) > maxCommandBytes {
+		return errors.New("native frame exceeds limit")
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	_ = w.conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
+	defer w.conn.SetWriteDeadline(time.Time{})
+	var header [5]byte
+	header[0] = kind
+	binary.BigEndian.PutUint32(header[1:], uint32(len(payload)))
+	if err := writeNativeAll(w.conn, header[:]); err != nil {
+		return err
+	}
+	return writeNativeAll(w.conn, payload)
+}
+
+func writeNativeAll(w io.Writer, p []byte) error {
+	for len(p) > 0 {
+		n, err := w.Write(p)
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return io.ErrShortWrite
+		}
+		p = p[n:]
+	}
+	return nil
+}
+
+func readNativeFrame(r io.Reader) (byte, []byte, error) {
+	var header [5]byte
+	if _, err := io.ReadFull(r, header[:]); err != nil {
+		return 0, nil, err
+	}
+	n := binary.BigEndian.Uint32(header[1:])
+	if n > maxCommandBytes {
+		return 0, nil, errors.New("native frame exceeds limit")
+	}
+	payload := make([]byte, int(n))
+	_, err := io.ReadFull(r, payload)
+	return header[0], payload, err
 }
 
 // frameSink serializes the writers. The command reader never writes, but the

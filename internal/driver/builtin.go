@@ -52,7 +52,8 @@ func IsBuiltin(name string) bool {
 }
 
 // Resolve returns a Caller for the named driver: a shipped in-process driver if
-// one is registered, otherwise a plugin executable found on disk.
+// one is registered, otherwise a plugin executable found on disk. For supervised
+// plugins, ctx owns the process lifetime; method contexts only bound their RPCs.
 //
 // The environment handed to a plugin process is exactly the one Core gives an
 // agent, so an Agent Adapter has everything it needs to reach Duo's bridge
@@ -72,7 +73,7 @@ func Resolve(ctx context.Context, name string, env []string, report func(error))
 		// The environment handed to a plugin process is exactly the one Core gives
 		// an agent, so an Agent Adapter has everything it needs to reach Duo's bridge
 		// without Core inventing a second channel.
-		return NewSupervised(name, SupervisedOptions{Path: path, Env: env, Report: report}), nil
+		return NewSupervised(name, SupervisedOptions{Lifetime: ctx, Path: path, Env: env, Report: report}), nil
 	}
 	builtinMu.Lock()
 	factory, ok := builtins[name]

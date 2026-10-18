@@ -81,6 +81,11 @@ func main() {
 				log.Fatal(err)
 			}
 			return
+		case "native":
+			if err := runNativeAttach(ctx, os.Args[2:]); err != nil && ctx.Err() == nil {
+				log.Fatal(err)
+			}
+			return
 		case "step-loop":
 			if err := runStepLoop(ctx, os.Args[2:]); err != nil && ctx.Err() == nil {
 				log.Fatal(err)

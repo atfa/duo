@@ -200,7 +200,11 @@ func SaveProjectConfig(repoRoot string, driver string, agentDrivers map[protocol
 		key := strings.ToLower(string(id))
 		entry := cfg.Agents[key]
 		if drv != "" {
-			if entry.Driver != "" && entry.Driver != drv {
+			previousDriver := entry.Driver
+			if previousDriver == "" {
+				previousDriver = cfg.Driver
+			}
+			if previousDriver != "" && previousDriver != drv {
 				driverChanged[key] = true
 				entry.Model = ""
 			}
@@ -264,6 +268,11 @@ func SaveProjectConfig(repoRoot string, driver string, agentDrivers map[protocol
 			delete(fields, "model")
 		} else {
 			fields["model"], _ = json.Marshal(entry.Model)
+		}
+		if driverChanged[key] {
+			// These options describe how the previous driver's CLI is invoked.
+			delete(fields, "command")
+			delete(fields, "thinking")
 		}
 		agents[key], err = json.Marshal(fields)
 		if err != nil {

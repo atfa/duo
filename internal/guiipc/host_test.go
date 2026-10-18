@@ -1,21 +1,489 @@
 package guiipc
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/atfa/duo/internal/driver"
 	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/models"
+	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/session"
 	"github.com/atfa/duo/internal/sessionstore"
 )
+
+func TestReadNativeFrameValidatesBoundedPayload(t *testing.T) {
+	frame := make([]byte, 5+3)
+	frame[0] = 'D'
+	binary.BigEndian.PutUint32(frame[1:5], 3)
+	copy(frame[5:], []byte("abc"))
+	kind, payload, err := readNativeFrame(bytes.NewReader(frame))
+	if err != nil || kind != 'D' || string(payload) != "abc" {
+		t.Fatalf("readNativeFrame = %q %q %v", kind, payload, err)
+	}
+	oversized := make([]byte, 5)
+	binary.BigEndian.PutUint32(oversized[1:], maxCommandBytes+1)
+	if _, _, err := readNativeFrame(bytes.NewReader(oversized)); err == nil {
+		t.Fatal("accepted oversized native frame")
+	}
+}
+
+func TestSetDriverCatalogSurvivesProbeDeadline(t *testing.T) {
+	root := guiTestRepo(t)
+	binDir := t.TempDir()
+	fakeAgentPath := filepath.Join(binDir, "example-agent")
+	if err := os.WriteFile(fakeAgentPath, []byte("#!/bin/sh\nexec sleep 60\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	pluginPath := filepath.Join(binDir, "duo-plugin-example")
+	moduleRoot, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	build := exec.Command("go", "build", "-o", pluginPath, "./cmd/duo-plugin-example")
+	build.Dir = moduleRoot
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build example plugin: %v\n%s", err, out)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	const oldDriver = "gui-lifetime-fixture"
+	service := session.New(session.Options{
+		LaunchDir:          root,
+		BaseDir:            t.TempDir(),
+		Session:            "gui-driver-lifetime",
+		Listen:             "127.0.0.1:0",
+		Mode:               project.ModeFast,
+		DefaultAgentDriver: oldDriver,
+		AgentCommands: map[protocol.AgentID]string{
+			protocol.Austin: fakeAgentPath,
+			protocol.Tony:   fakeAgentPath,
+		},
+		RegisterDrivers: func() {
+			driver.Register(oldDriver, func() driver.Handler { return guiLifetimeDriver{} })
+		},
+	})
+	if _, err := service.Start(context.Background()); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	defer service.Close()
+
+	ctx := context.Background()
+	if err := service.Do(ctx, session.SetDriver{Agent: protocol.Austin, Driver: "example"}); err != nil {
+		t.Fatalf("switch Austin to example: %v", err)
+	}
+
+	host := NewHost(service)
+	host.loadCatalog(ctx, protocol.Austin)
+	view := host.projectView(ctx, service.View(), service.StatusText(ctx))
+	austin := view.Agents["austin"]
+	if austin.Driver != "example" {
+		t.Fatalf("Austin driver = %q, want example", austin.Driver)
+	}
+	if !austin.ModelsLoaded || len(austin.Models) == 0 || austin.ModelsError != "" {
+		t.Fatalf("catalog after switching driver = loaded:%v models:%d error:%q", austin.ModelsLoaded, len(austin.Models), austin.ModelsError)
+	}
+}
+
+func guiTestRepo(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"config", "user.email", "gui@example.test"}, {"config", "user.name", "GUI Test"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("fixture\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"add", "README.md"}, {"commit", "-q", "-m", "fixture"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+		}
+	}
+	return dir
+}
+
+type guiLifetimeDriver struct{}
+
+func (guiLifetimeDriver) Describe() (*driver.Manifest, error) {
+	return &driver.Manifest{
+		Protocol:       driver.ProtocolVersion,
+		Name:           "gui-lifetime-fixture",
+		Version:        "test",
+		Agent:          driver.AgentInfo{CLI: "example-agent", DefaultCommand: "example-agent"},
+		ModelReference: driver.ModelQualified,
+		Capabilities: driver.Capabilities{
+			Resume: driver.ResumeClient,
+			Models: true,
+			Bridge: driver.BridgeNone,
+		},
+	}, nil
+}
+func (guiLifetimeDriver) Probe() (*driver.ProbeResult, error) {
+	return &driver.ProbeResult{Available: true, AgentPath: "/bin/true"}, nil
+}
+func (guiLifetimeDriver) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
+	return &driver.LaunchPlan{Command: req.BaseCommand}, nil
+}
+func (guiLifetimeDriver) Models() (*driver.ModelList, error) {
+	return &driver.ModelList{Models: []driver.Model{{Provider: "fixture", ID: "old"}}}, nil
+}
+
+type fakeNativeSession struct {
+	*fakeSession
+	muNative   sync.Mutex
+	writer     io.Writer
+	attached   bool
+	attachN    int
+	detachN    int
+	input      [][]byte
+	resizes    [][2]int
+	attachedCh chan struct{}
+	detachedCh chan struct{}
+	running    bool
+	replay     []byte
+}
+
+func newFakeNativeSession() *fakeNativeSession {
+	return &fakeNativeSession{
+		fakeSession: newFakeSession(),
+		running:     true,
+		attachedCh:  make(chan struct{}, 4),
+		detachedCh:  make(chan struct{}, 4),
+	}
+}
+
+func (f *fakeNativeSession) Attach(_ protocol.AgentID, w io.Writer) ([]byte, error) {
+	f.muNative.Lock()
+	f.writer, f.attached = w, true
+	f.attachN++
+	f.muNative.Unlock()
+	f.attachedCh <- struct{}{}
+	if f.replay != nil {
+		return append([]byte(nil), f.replay...), nil
+	}
+	return []byte("replay"), nil
+}
+
+func (f *fakeNativeSession) NativeRunning(protocol.AgentID) bool {
+	f.muNative.Lock()
+	defer f.muNative.Unlock()
+	return f.running
+}
+
+func (f *fakeNativeSession) Detach(_ protocol.AgentID) {
+	f.muNative.Lock()
+	f.attached = false
+	f.detachN++
+	f.muNative.Unlock()
+	f.detachedCh <- struct{}{}
+}
+
+func (f *fakeNativeSession) Write(_ protocol.AgentID, data []byte) error {
+	f.muNative.Lock()
+	f.input = append(f.input, append([]byte(nil), data...))
+	f.muNative.Unlock()
+	return nil
+}
+
+func (f *fakeNativeSession) Resize(cols, rows int) error {
+	f.muNative.Lock()
+	f.resizes = append(f.resizes, [2]int{cols, rows})
+	f.muNative.Unlock()
+	return nil
+}
+
+func (f *fakeNativeSession) nativeCounts() (attached, detached int) {
+	f.muNative.Lock()
+	defer f.muNative.Unlock()
+	return f.attachN, f.detachN
+}
+
+func sendNativeFrame(t *testing.T, conn net.Conn, kind byte, payload []byte) {
+	t.Helper()
+	var header [5]byte
+	header[0] = kind
+	binary.BigEndian.PutUint32(header[1:], uint32(len(payload)))
+	if err := writeNativeAll(conn, header[:]); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeNativeAll(conn, payload); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func waitSignal(t *testing.T, ch <-chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for %s", what)
+	}
+}
+
+func TestNativeAttachReplayInputResizeCloseAndDetach(t *testing.T) {
+	fake := newFakeNativeSession()
+	var mu sync.Mutex
+	var client net.Conn
+	launches := 0
+	h := startHostSession(t, fake.fakeSession, fake, quiet, func(host *Host) {
+		host.SetNativeLauncher(func(ctx context.Context, socket, _ string) error {
+			mu.Lock()
+			launches++
+			mu.Unlock()
+			conn, err := net.Dial("unix", socket)
+			if err == nil {
+				mu.Lock()
+				client = conn
+				mu.Unlock()
+			}
+			return err
+		})
+	})
+	h.waitFrames(1)
+	h.send(`{"type":"command","kind":"open_native","agent":"austin"}`)
+	frames := h.waitFrames(2)
+	if frames[1].View == nil || !frames[1].View.Agents["austin"].NativeOpen {
+		t.Fatalf("pending attach was not projected as native_open: %+v", frames[1])
+	}
+	waitSignal(t, fake.attachedCh, "native attach")
+	mu.Lock()
+	conn := client
+	mu.Unlock()
+	if conn == nil {
+		t.Fatal("native launcher did not return a client connection")
+	}
+	_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+	kind, payload, err := readNativeFrame(conn)
+	if err != nil || kind != 'O' || string(payload) != "replay" {
+		t.Fatalf("initial replay = %q %q %v", kind, payload, err)
+	}
+
+	// A second click while one terminal is attached reports an error and does not
+	// launch a second native client.
+	h.send(`{"type":"command","kind":"open_native","agent":"austin"}`)
+	frames = h.waitFrames(3)
+	foundError := false
+	for _, frame := range frames {
+		foundError = foundError || frame.Type == typeError
+	}
+	if !foundError {
+		t.Fatalf("duplicate native open did not report an error: %+v", frames)
+	}
+	mu.Lock()
+	launchCount := launches
+	mu.Unlock()
+	if launchCount != 1 {
+		t.Fatalf("native launcher called %d times for duplicate opens", launchCount)
+	}
+
+	sendNativeFrame(t, conn, 'D', []byte("input\r"))
+	var resize [8]byte
+	binary.BigEndian.PutUint32(resize[:4], 120)
+	binary.BigEndian.PutUint32(resize[4:], 40)
+	sendNativeFrame(t, conn, 'R', resize[:])
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		fake.muNative.Lock()
+		ready := len(fake.input) == 1 && len(fake.resizes) == 1
+		input := ""
+		if ready {
+			input = string(fake.input[0])
+		}
+		fake.muNative.Unlock()
+		if ready {
+			if input != "input\r" {
+				t.Fatalf("native input = %q", input)
+			}
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	fake.muNative.Lock()
+	if len(fake.resizes) != 1 || fake.resizes[0] != [2]int{120, 40} {
+		t.Fatalf("native resize = %v", fake.resizes)
+	}
+	w := fake.writer
+	fake.muNative.Unlock()
+	if _, err := w.Write([]byte("live output")); err != nil {
+		t.Fatalf("forward agent output: %v", err)
+	}
+	kind, payload, err = readNativeFrame(conn)
+	if err != nil || kind != 'O' || string(payload) != "live output" {
+		t.Fatalf("live output = %q %q %v", kind, payload, err)
+	}
+
+	// Closing from the GUI closes the client transport and detaches from the agent.
+	h.send(`{"type":"command","kind":"close_native","agent":"austin"}`)
+	waitSignal(t, fake.detachedCh, "GUI detach")
+	if kind, payload, err := readNativeFrame(conn); err != nil || kind != 'C' || len(payload) != 0 {
+		t.Fatalf("GUI close frame = %q %q %v; want clean close", kind, payload, err)
+	}
+	if _, _, err := readNativeFrame(conn); err == nil {
+		t.Fatal("GUI close left the native socket open after the close frame")
+	}
+	_ = conn.Close()
+	if attached, detached := fake.nativeCounts(); attached != 1 || detached != 1 {
+		t.Fatalf("native counts after GUI close = %d/%d", attached, detached)
+	}
+
+	// The native client's quit frame has the same detach semantics.
+	h.send(`{"type":"command","kind":"open_native","agent":"austin"}`)
+	waitSignal(t, fake.attachedCh, "second native attach")
+	mu.Lock()
+	conn = client
+	mu.Unlock()
+	sendNativeFrame(t, conn, 'Q', nil)
+	waitSignal(t, fake.detachedCh, "client detach")
+	_ = conn.Close()
+	h.send(`{"type":"command","kind":"quit"}`)
+	if err := h.wait(); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+}
+
+func TestNativeAttachRejectsExitedAgentBeforeLaunchingTerminal(t *testing.T) {
+	fake := newFakeNativeSession()
+	fake.running = false
+	launches := 0
+	h := startHostSession(t, fake.fakeSession, fake, quiet, func(host *Host) {
+		host.SetNativeLauncher(func(context.Context, string, string) error {
+			launches++
+			return nil
+		})
+	})
+	h.waitFrames(1)
+	h.send(`{"type":"command","kind":"open_native","agent":"austin"}`)
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, frame := range h.rec.snapshot() {
+			if frame.Type == typeError {
+				if !strings.Contains(frame.Text, "agent process has exited") {
+					t.Fatalf("error frame = %q", frame.Text)
+				}
+				if launches != 0 {
+					t.Fatalf("launched terminal %d times for exited process", launches)
+				}
+				h.send(`{"type":"command","kind":"quit"}`)
+				if err := h.wait(); err != nil {
+					t.Fatal(err)
+				}
+				return
+			}
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("exited agent did not produce a GUI error")
+}
+
+func TestNativeAttachAllowsSlowLargeInitialReplay(t *testing.T) {
+	fake := newFakeNativeSession()
+	fake.replay = bytes.Repeat([]byte("x"), 512<<10)
+	clientCh := make(chan net.Conn, 1)
+	h := startHostSession(t, fake.fakeSession, fake, quiet, func(host *Host) {
+		host.SetNativeLauncher(func(_ context.Context, socket, _ string) error {
+			conn, err := net.Dial("unix", socket)
+			if err == nil {
+				clientCh <- conn
+			}
+			return err
+		})
+	})
+	h.waitFrames(1)
+	h.send(`{"type":"command","kind":"open_native","agent":"austin"}`)
+	conn := <-clientCh
+	defer conn.Close()
+	// Simulate Terminal taking time to create its window and begin consuming output.
+	time.Sleep(1200 * time.Millisecond)
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	kind, payload, err := readNativeFrame(conn)
+	if err != nil || kind != 'O' || len(payload) != len(fake.replay) {
+		t.Fatalf("slow initial replay = kind %q, payload %d bytes, err %v", kind, len(payload), err)
+	}
+	sendNativeFrame(t, conn, 'Q', nil)
+	h.send(`{"type":"command","kind":"quit"}`)
+	if err := h.wait(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNativeParentCancellationSendsCleanCloseFrame(t *testing.T) {
+	fake := newFakeNativeSession()
+	clientCh := make(chan net.Conn, 1)
+	h := startHostSession(t, fake.fakeSession, fake, quiet, func(host *Host) {
+		host.SetNativeLauncher(func(_ context.Context, socket, _ string) error {
+			conn, err := net.Dial("unix", socket)
+			if err == nil {
+				clientCh <- conn
+			}
+			return err
+		})
+	})
+	h.waitFrames(1)
+	h.send(`{"type":"command","kind":"open_native","agent":"austin"}`)
+	conn := <-clientCh
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(2 * time.Second))
+	if kind, _, err := readNativeFrame(conn); err != nil || kind != 'O' {
+		t.Fatalf("initial replay = %q, %v", kind, err)
+	}
+	h.cancel()
+	if kind, payload, err := readNativeFrame(conn); err != nil || kind != 'C' || len(payload) != 0 {
+		t.Fatalf("parent cancellation frame = %q %q %v; want clean close", kind, payload, err)
+	}
+	if err := h.wait(); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Serve after parent cancellation = %v", err)
+	}
+}
+
+func TestNativePendingLaunchIsCanceledByGUIClose(t *testing.T) {
+	fake := newFakeNativeSession()
+	launchStarted := make(chan struct{})
+	h := startHostSession(t, fake.fakeSession, fake, quiet, func(host *Host) {
+		host.SetNativeLauncher(func(ctx context.Context, _, _ string) error {
+			close(launchStarted)
+			<-ctx.Done()
+			return ctx.Err()
+		})
+	})
+	h.waitFrames(1)
+	h.send(`{"type":"command","kind":"open_native","agent":"austin"}`)
+	waitSignal(t, launchStarted, "pending native launcher")
+	frames := h.waitFrames(2)
+	if frames[1].View == nil || !frames[1].View.Agents["austin"].NativeOpen {
+		t.Fatalf("pending attach was not marked open: %+v", frames[1])
+	}
+	h.send(`{"type":"command","kind":"close_native","agent":"austin"}`)
+	frames = h.waitFrames(3)
+	if frames[len(frames)-1].View == nil || frames[len(frames)-1].View.Agents["austin"].NativeOpen {
+		t.Fatalf("close did not clear pending native state: %+v", frames[len(frames)-1])
+	}
+	h.send(`{"type":"command","kind":"quit"}`)
+	if err := h.wait(); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+	if attached, detached := fake.nativeCounts(); attached != 0 || detached != 0 {
+		t.Fatalf("pending native launch unexpectedly attached: %d/%d", attached, detached)
+	}
+}
 
 // fakeSession is the seam with nothing live behind it: a view, a real event bus,
 // and the commands the host dispatched. It exists because the host depends on
@@ -149,11 +617,15 @@ type hostHarness struct {
 }
 
 func startHost(t *testing.T, fake *fakeSession, tune ...func(*Host)) *hostHarness {
+	return startHostSession(t, fake, fake, tune...)
+}
+
+func startHostSession(t *testing.T, fake *fakeSession, s Session, tune ...func(*Host)) *hostHarness {
 	t.Helper()
 
 	cmdR, cmdW := io.Pipe()
 	outR, outW := io.Pipe()
-	host := NewHost(fake)
+	host := NewHost(s)
 	for _, fn := range tune {
 		fn(host)
 	}

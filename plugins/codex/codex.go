@@ -32,6 +32,7 @@ var (
 	lookPath       = exec.LookPath
 	lookPathDuo    = exec.LookPath
 	duoCommand     = findDuoCommand
+	codexAppPaths  = defaultCodexAppPaths
 	watchInterval  = 250 * time.Millisecond
 	probeTimeout   = 5 * time.Second
 	settleInterval = time.Second
@@ -80,9 +81,9 @@ func (p *Plugin) Describe() (*driver.Manifest, error) {
 // picker. The server is authoritative for account, provider and CLI-version
 // specific availability.
 func (*Plugin) Models() (*driver.ModelList, error) {
-	path, err := lookPath(Name)
-	if err != nil {
-		return nil, fmt.Errorf("find codex CLI: %w", err)
+	path, reason := findCodexCLI()
+	if reason != "" {
+		return nil, errors.New(reason)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), driver.ModelListTimeout)
 	defer cancel()
@@ -264,13 +265,12 @@ func (p *Plugin) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
 	}
 
 	base := strings.TrimSpace(req.BaseCommand)
-	if base == "" || base == Name {
-		if _, reason := checkCodexCLI(); reason != "" {
+	if base == "" || base == Name || strings.HasPrefix(base, Name+" ") {
+		path, reason := checkCodexCLI()
+		if reason != "" {
 			return nil, &driver.RPCError{Code: driver.CodeUnavailable, Message: reason}
 		}
-		if base == "" {
-			base = Name
-		}
+		base = driver.ShellQuote(path) + strings.TrimPrefix(base, Name)
 	}
 	if driver.HasFlag(base, "--sandbox", "-s", "--ask-for-approval", "-a", "--full-auto") {
 		return nil, &driver.RPCError{
@@ -391,8 +391,8 @@ func projectTrustOverride(req driver.LaunchRequest) string {
 }
 
 func checkCodexCLI() (string, string) {
-	path, err := lookPath(Name)
-	if err != nil {
+	path, reason := findCodexCLI()
+	if reason != "" {
 		return "", "the codex CLI is not on PATH"
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
@@ -401,7 +401,7 @@ func checkCodexCLI() (string, string) {
 	if err == nil {
 		return path, ""
 	}
-	reason := strings.TrimSpace(string(output))
+	reason = strings.TrimSpace(string(output))
 	if newline := strings.IndexByte(reason, '\n'); newline >= 0 {
 		reason = strings.TrimSpace(reason[:newline])
 	}
@@ -412,6 +412,26 @@ func checkCodexCLI() (string, string) {
 		reason = reason[:200] + "…"
 	}
 	return "", "the codex CLI could not start: " + reason
+}
+
+func findCodexCLI() (string, string) {
+	if path, err := lookPath(Name); err == nil {
+		return path, ""
+	}
+	home, _ := os.UserHomeDir()
+	for _, path := range codexAppPaths(home) {
+		if executable(path) {
+			return path, ""
+		}
+	}
+	return "", "the codex CLI is not on PATH"
+}
+
+func defaultCodexAppPaths(home string) []string {
+	return []string{
+		filepath.Join("/Applications/ChatGPT.app", "Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"),
+		filepath.Join(home, "Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex"),
+	}
 }
 
 func (p *Plugin) State() (json.RawMessage, error) {

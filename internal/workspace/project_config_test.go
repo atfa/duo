@@ -145,7 +145,7 @@ func TestSaveProjectConfig(t *testing.T) {
 func TestSaveProjectConfigDropsModelWhenDriverChanges(t *testing.T) {
 	dir := t.TempDir()
 	// An earlier agy run persisted agy's bare model id.
-	initial := `{"agents":{"austin":{"driver":"agy","model":"gemini-3.8-flash-high"}}}`
+	initial := `{"agents":{"austin":{"driver":"agy","model":"gemini-3.8-flash-high","command":"agy --legacy","thinking":"high","custom":"keep"}}}`
 	if err := os.WriteFile(filepath.Join(dir, ".duo", "config.json"), []byte(initial), 0o644); err != nil {
 		os.MkdirAll(filepath.Join(dir, ".duo"), 0o755)
 		if err := os.WriteFile(filepath.Join(dir, ".duo", "config.json"), []byte(initial), 0o644); err != nil {
@@ -174,11 +174,33 @@ func TestSaveProjectConfigDropsModelWhenDriverChanges(t *testing.T) {
 	if austin.Model != "" {
 		t.Fatalf("model = %q, want it dropped: it belonged to the previous driver", austin.Model)
 	}
+	var raw struct {
+		Agents map[string]map[string]json.RawMessage `json:"agents"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	fields := raw.Agents["austin"]
+	for _, key := range []string{"command", "thinking"} {
+		if _, ok := fields[key]; ok {
+			t.Errorf("%s = %s, want previous-driver setting removed", key, fields[key])
+		}
+	}
+	if string(fields["custom"]) != `"keep"` {
+		t.Errorf("unknown field custom = %s, want it preserved", fields["custom"])
+	}
 }
 
 // The same driver keeps its model: the drop must only happen on a real change.
 func TestSaveProjectConfigKeepsModelWhenDriverUnchanged(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".duo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	initial := `{"agents":{"austin":{"driver":"opencode","command":"opencode --custom","thinking":"high"}}}`
+	if err := os.WriteFile(filepath.Join(dir, ".duo", "config.json"), []byte(initial), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := SaveProjectConfig(dir, "", map[protocol.AgentID]string{protocol.Austin: "opencode"},
 		map[protocol.AgentID]string{protocol.Austin: "opencode/claude-sonnet-4-6"}); err != nil {
 		t.Fatal(err)
@@ -190,6 +212,16 @@ func TestSaveProjectConfigKeepsModelWhenDriverUnchanged(t *testing.T) {
 	}
 	if got := parsed.Agents["austin"].Model; got != "opencode/claude-sonnet-4-6" {
 		t.Fatalf("model = %q, want it kept", got)
+	}
+	var raw struct {
+		Agents map[string]map[string]json.RawMessage `json:"agents"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	fields := raw.Agents["austin"]
+	if string(fields["command"]) != `"opencode --custom"` || string(fields["thinking"]) != `"high"` {
+		t.Errorf("same-driver command/thinking not preserved: %s", data)
 	}
 }
 

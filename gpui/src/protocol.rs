@@ -69,6 +69,8 @@ pub struct View {
     pub notices: Vec<String>,
     #[serde(default)]
     pub agents: BTreeMap<String, Agent>,
+    #[serde(default)]
+    pub available_drivers: Vec<String>,
 }
 
 /// One agent's projection.
@@ -114,6 +116,8 @@ pub struct Agent {
     pub models_loaded: bool,
     #[serde(default)]
     pub models_error: String,
+    #[serde(default)]
+    pub native_open: bool,
 }
 
 /// Git summary for an agent worktree. `state` is unavailable, loading, ready or
@@ -265,6 +269,12 @@ pub struct Event {
     /// The timeline header, e.g. `Austin → Tony`. Empty means "use the speaker".
     #[serde(default)]
     pub label: String,
+    #[serde(default)]
+    pub provider: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub thinking: String,
 }
 
 /// One command from the renderer, written to stdout.
@@ -283,6 +293,10 @@ pub struct ClientMessage {
     pub provider: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub driver: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
 impl ClientMessage {
@@ -297,6 +311,8 @@ impl ClientMessage {
             language: None,
             provider: None,
             model: None,
+            driver: None,
+            path: None,
         }
     }
 
@@ -327,6 +343,35 @@ impl ClientMessage {
 
     pub fn quit() -> Self {
         Self::new("quit")
+    }
+
+    pub fn open_project(path: impl Into<String>) -> Self {
+        Self {
+            path: Some(path.into()),
+            ..Self::new("open_project")
+        }
+    }
+
+    pub fn set_driver(agent: impl Into<String>, driver: impl Into<String>) -> Self {
+        Self {
+            agent: Some(agent.into()),
+            driver: Some(driver.into()),
+            ..Self::new("set_driver")
+        }
+    }
+
+    pub fn open_native(agent: impl Into<String>) -> Self {
+        Self {
+            agent: Some(agent.into()),
+            ..Self::new("open_native")
+        }
+    }
+
+    pub fn close_native(agent: impl Into<String>) -> Self {
+        Self {
+            agent: Some(agent.into()),
+            ..Self::new("close_native")
+        }
     }
 
     pub fn set_model(

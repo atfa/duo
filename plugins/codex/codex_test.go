@@ -95,7 +95,7 @@ func TestPreparePreservesCommandAndWiresMCPWithoutExposingToken(t *testing.T) {
 		Model: "openai/gpt-5.4-codex", Thinking: "high", RepositoryRoot: repositoryRoot, CWD: worktree,
 	})
 	for _, want := range []string{
-		"codex --profile work", "--model 'gpt-5.4-codex'", "model_reasoning_effort=high",
+		"--profile work", "--model 'gpt-5.4-codex'", "model_reasoning_effort=high",
 		`mcp_servers.duo.command="/usr/bin/duo"`, "mcp-server", "DUO_TOKEN", "--dangerously-bypass-approvals-and-sandbox",
 		`projects={"` + repositoryRoot + `"={trust_level="trusted"},"` + worktree + `"={trust_level="trusted"}}`,
 	} {
@@ -163,7 +163,7 @@ func TestPreparePromptsCodexToContinueOnlyWhenAddingResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan = prepare(t, driver.LaunchRequest{BaseCommand: "codex --profile work", CWD: cwd, State: withoutSession, ResumeWake: true})
-	if !strings.HasPrefix(plan.Command, "codex --profile work ") || strings.Contains(plan.Command, " resume ") || !strings.Contains(plan.Command, "This Duo session was resumed, but no prior Codex conversation could be recovered.") {
+	if !strings.Contains(plan.Command, "--profile work --no-daemon") || strings.Contains(plan.Command, " resume ") || !strings.Contains(plan.Command, "This Duo session was resumed, but no prior Codex conversation could be recovered.") {
 		t.Fatalf("resume without Codex session ID did not get a truthful startup prompt: %s", plan.Command)
 	}
 	if !strings.HasSuffix(plan.Command, driver.ShellQuote("This Duo session was resumed, but no prior Codex conversation could be recovered. Do not claim to have that conversation. First inspect duo_status, then continue the current phase and work in this worktree without restarting completed work.")) {
@@ -249,6 +249,36 @@ func TestProbeRejectsBrokenCLIShim(t *testing.T) {
 	result, err = (&Plugin{}).Probe()
 	if err != nil || !result.Available || result.AgentPath != path {
 		t.Fatalf("Probe() = %#v, %v", result, err)
+	}
+}
+
+func TestCodexCLIResolvesChatGPTAppBundleOutsidePATH(t *testing.T) {
+	oldLookPath := lookPath
+	oldAppPaths := codexAppPaths
+	lookPath = func(string) (string, error) { return "", exec.ErrNotFound }
+	t.Cleanup(func() { lookPath, codexAppPaths = oldLookPath, oldAppPaths })
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	path := filepath.Join(home, "Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("#!/bin/sh\necho 'codex 1.2.3'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	codexAppPaths = func(gotHome string) []string {
+		if gotHome != home {
+			t.Fatalf("Codex app lookup home = %q, want %q", gotHome, home)
+		}
+		return []string{path}
+	}
+	got, reason := checkCodexCLI()
+	if reason != "" || got != path {
+		t.Fatalf("checkCodexCLI() = %q, %q; want bundled executable %q", got, reason, path)
+	}
+	plan := prepare(t, driver.LaunchRequest{BaseCommand: Name, CWD: t.TempDir()})
+	if !strings.HasPrefix(plan.Command, driver.ShellQuote(got)+" ") {
+		t.Fatalf("Prepare did not use the same resolved executable: %s", plan.Command)
 	}
 }
 

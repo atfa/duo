@@ -186,8 +186,9 @@ type Session struct {
 
 	// plan is the launch specification the plugin returned, and identity the
 	// label it reported. Both come from the plugin, so Core never interprets them.
-	plan     *driver.LaunchPlan
-	identity string
+	plan      *driver.LaunchPlan
+	preflight bool
+	identity  string
 }
 
 // NewSession builds a session for one agent from its plugin. The plugin's manifest
@@ -368,6 +369,37 @@ func (s *Session) SetOnExit(fn func(ExitEvent)) {
 	s.cfg.OnExit = fn
 }
 
+// WithDriver creates an unstarted replacement with this agent's existing Duo
+// launch context. Driver-specific state and model/effort are intentionally reset.
+func (s *Session) WithDriver(ctx context.Context, plugin driver.Caller, baseCommand, model, effort string) (*Session, error) {
+	s.mu.RLock()
+	cfg := s.cfg
+	s.mu.RUnlock()
+	cfg.Plugin = plugin
+	cfg.PluginState = nil
+	cfg.ResumeWake = true
+	cfg.BaseCommand = baseCommand
+	cfg.Model = model
+	cfg.Thinking = effort
+	return NewSession(ctx, cfg)
+}
+
+// Preflight resolves the new driver's launch plan before the current process is
+// stopped. Start consumes this plan so the plugin is not asked twice.
+func (s *Session) Preflight(ctx context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	plan, err := s.prepareLocked(ctx)
+	if err != nil {
+		return err
+	}
+	s.plan, s.identity, s.preflight = plan, plan.SessionIdentity, true
+	return nil
+}
+
 // prepare asks the plugin for the launch specification, under the lock that Start
 // already holds.
 func (s *Session) prepareLocked(ctx context.Context) (*driver.LaunchPlan, error) {
@@ -406,14 +438,19 @@ func (s *Session) Start(ctx context.Context) error {
 		return fmt.Errorf("%s: unsupported platform %s", s.cfg.Agent, runtime.GOOS)
 	}
 
-	plan, err := s.prepareLocked(ctx)
-	if err != nil {
-		s.state = ProcessFailed
-		s.waitErr = err
-		return err
+	plan := s.plan
+	if !s.preflight {
+		var err error
+		plan, err = s.prepareLocked(ctx)
+		if err != nil {
+			s.state = ProcessFailed
+			s.waitErr = err
+			return err
+		}
+		s.plan = plan
+		s.identity = plan.SessionIdentity
 	}
-	s.plan = plan
-	s.identity = plan.SessionIdentity
+	s.preflight = false
 
 	// The plugin names the paths it will overwrite this run, so a value left by an
 	// earlier one can never be read as this run's.
@@ -620,6 +657,16 @@ func (s *Session) Stop() {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		<-done
 	}
+}
+
+// PreserveDriverState captures resume data before an orderly driver replacement.
+func (s *Session) PreserveDriverState() {
+	state := s.DriverState()
+	s.mu.Lock()
+	if len(state) > 0 && string(state) != "null" {
+		s.cfg.PluginState = state
+	}
+	s.mu.Unlock()
 }
 func (s *Session) WaitError() error { s.mu.RLock(); defer s.mu.RUnlock(); return s.waitErr }
 

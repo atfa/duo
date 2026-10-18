@@ -17,8 +17,9 @@ use gpui::{
     ClipboardItem, Context, CursorStyle, Decorations, Element, ElementInputHandler, Entity,
     EntityInputHandler, FocusHandle, Focusable, FontWeight, GlobalElementId, HitboxBehavior,
     KeyDownEvent, LayoutId, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, PaintQuad,
-    Pixels, Point, Render, ResizeEdge, Rgba, ScrollHandle, Size, StatefulInteractiveElement, Style,
-    TextRun, UTF16Selection, Window, WindowAppearance, WrappedLine,
+    PathPromptOptions, Pixels, Point, Render, ResizeEdge, Rgba, ScrollHandle, Size,
+    StatefulInteractiveElement, Style, TextRun, UTF16Selection, Window, WindowAppearance,
+    WrappedLine,
 };
 use smol::channel::Receiver;
 
@@ -26,7 +27,7 @@ use crate::commands::{
     classify_submission, search_help, slash_completions, SlashAction, SlashCommand, Submission,
 };
 use crate::protocol::{Agent, ClientMessage, Event, Model, ServerMessage, View, WorkPreview};
-use crate::timeline::{parse_markdown, search_matches, Block, Span};
+use crate::timeline::{parse_markdown, Block, Span};
 
 /// The lowercase wire spellings. The host normalizes identity once, at its own
 /// boundary, so this side uses these constants and never re-cases a value it
@@ -46,6 +47,8 @@ const MAX_EVENTS: usize = 500;
 struct ModelPicker {
     agent: String,
     filter: String,
+    selection: Range<usize>,
+    marked: Option<Range<usize>>,
     selected: usize,
 }
 
@@ -163,6 +166,7 @@ struct Theme {
     light: bool,
     background: Rgba,
     surface: Rgba,
+    sidebar: Rgba,
     foreground: Rgba,
     muted: Rgba,
     faint: Rgba,
@@ -183,30 +187,32 @@ impl Theme {
         if light {
             Self {
                 light,
-                background: rgb(0xf5f7fb),
+                background: rgb(0xffffff),
                 surface: rgb(0xffffff),
-                foreground: rgb(0x202735),
-                muted: rgb(0x515d72),
-                faint: rgb(0x657187),
-                border: rgb(0xd8deea),
-                secondary: rgb(0x3f4c60),
-                input: rgb(0x202735),
-                hint: rgb(0x707c90),
+                sidebar: rgb(0xf8f9fa),
+                foreground: rgb(0x25282b),
+                muted: rgb(0x72777d),
+                faint: rgb(0x8b9096),
+                border: rgb(0xe2e5e8),
+                secondary: rgb(0x42464b),
+                input: rgb(0x25282b),
+                hint: rgb(0x858a90),
                 warning: rgb(0x8a5a00),
                 error: rgb(0xb33b3b),
             }
         } else {
             Self {
                 light,
-                background: rgb(0x0f1116),
-                surface: rgb(0x151922),
-                foreground: rgb(0xd8dbe2),
-                muted: rgb(0x8b93a5),
-                faint: rgb(0x6b7280),
-                border: rgb(0x252a35),
-                secondary: rgb(0xa9b1c1),
-                input: rgb(0xe6e9ef),
-                hint: rgb(0x5b6472),
+                background: rgb(0x121315),
+                surface: rgb(0x191b1e),
+                sidebar: rgb(0x151719),
+                foreground: rgb(0xe7e9eb),
+                muted: rgb(0xa2a7ad),
+                faint: rgb(0x7e8389),
+                border: rgb(0x2a2d31),
+                secondary: rgb(0xc0c4c8),
+                input: rgb(0xe7e9eb),
+                hint: rgb(0x888d93),
                 warning: rgb(0xd9a441),
                 error: rgb(0xe06c6c),
             }
@@ -215,10 +221,10 @@ impl Theme {
 
     fn speaker(self, agent: &str) -> Rgba {
         match (self.light, agent) {
-            (false, AGENT_AUSTIN) => rgb(0x6fc7d8),
-            (true, AGENT_AUSTIN) => rgb(0x166579),
-            (false, AGENT_TONY) => rgb(0xd08cd8),
-            (true, AGENT_TONY) => rgb(0x874091),
+            (false, AGENT_AUSTIN) => rgb(0x71b8ad),
+            (true, AGENT_AUSTIN) => rgb(0x267f78),
+            (false, AGENT_TONY) => rgb(0xb39ad2),
+            (true, AGENT_TONY) => rgb(0x7651a8),
             (false, "duo") => rgb(0xe0c063),
             (true, "duo") => rgb(0x846500),
             (false, "human") => rgb(0x7ec97e),
@@ -228,13 +234,11 @@ impl Theme {
     }
 
     fn mode(self, mode: &str) -> Rgba {
-        match (self.light, mode) {
-            (false, "FAST") => rgb(0x6fc7d8),
-            (true, "FAST") => rgb(0xb5e3eb),
-            (false, "STEP") => rgb(0x7ec97e),
-            (true, "STEP") => rgb(0xc8e8c8),
-            (false, _) => rgb(0xd08cd8),
-            (true, _) => rgb(0xead1ed),
+        let _ = mode;
+        if self.light {
+            rgb(0xf0f1f2)
+        } else {
+            rgb(0x27292d)
         }
     }
 }
@@ -264,6 +268,7 @@ pub struct DuoApp {
     banner: Option<String>,
     closed: bool,
     overview_open: bool,
+    activity_view: bool,
     timestamps: bool,
     help_open: bool,
     help_query: String,
@@ -272,6 +277,7 @@ pub struct DuoApp {
     slash_selection_explicit: bool,
     quit_deadline: Option<Instant>,
     model_picker: Option<ModelPicker>,
+    driver_picker: Option<String>,
     pending_model_change: Option<PendingModelChange>,
     work_preview_open: bool,
     diff_preview_agent: Option<String>,
@@ -279,6 +285,12 @@ pub struct DuoApp {
 }
 
 impl DuoApp {
+    fn english(&self) -> bool {
+        self.view
+            .as_ref()
+            .is_some_and(|view| view.language.eq_ignore_ascii_case("en"))
+    }
+
     pub fn new(rx: Receiver<ServerMessage>, cx: &mut Context<Self>) -> Self {
         cx.spawn(async move |this, cx| {
             while let Ok(message) = rx.recv().await {
@@ -315,6 +327,7 @@ impl DuoApp {
             banner: None,
             closed: false,
             overview_open: false,
+            activity_view: false,
             timestamps: false,
             help_open: false,
             help_query: String::new(),
@@ -323,6 +336,7 @@ impl DuoApp {
             slash_selection_explicit: false,
             quit_deadline: None,
             model_picker: None,
+            driver_picker: None,
             pending_model_change: None,
             work_preview_open: false,
             diff_preview_agent: None,
@@ -332,9 +346,23 @@ impl DuoApp {
 
     fn apply(&mut self, message: ServerMessage, cx: &mut Context<Self>) {
         match message {
-            ServerMessage::View { view } => self.view = Some(view),
+            ServerMessage::View { view } => {
+                if view.repository.is_empty() {
+                    self.closed = false;
+                    self.banner = None;
+                }
+                self.view = Some(view);
+            }
             ServerMessage::Event { event } => {
-                self.events.push(event);
+                if let Some(last) = self.events.last_mut() {
+                    if same_state_event(last, &event) {
+                        *last = event;
+                    } else {
+                        self.events.push(event);
+                    }
+                } else {
+                    self.events.push(event);
+                }
                 self.refresh_timeline_search();
                 if self.events.len() > MAX_EVENTS {
                     let excess = self.events.len() - MAX_EVENTS;
@@ -621,16 +649,7 @@ impl DuoApp {
                     cx.notify();
                     return;
                 }
-                let text = self.input.trim().to_owned();
-                if !text.is_empty() {
-                    self.push_history(text.clone());
-                    self.input.clear();
-                    self.selection = 0..0;
-                    self.history_index = None;
-                    self.history_draft = None;
-                    self.slash_dismissed = false;
-                    self.send(ClientMessage::submit_task(text));
-                }
+                self.submit_input(cx);
             }
             "escape" => {
                 self.reset_history_navigation();
@@ -801,19 +820,53 @@ impl DuoApp {
     }
 
     fn move_timeline_selection(&mut self, delta: isize) {
-        self.selected_event =
-            timeline_navigation_target(self.selected_event, self.events.len(), delta);
+        let visible = self.visible_event_indices();
+        let selected_position = self
+            .selected_event
+            .and_then(|selected| visible.iter().position(|index| *index == selected));
+        let position = timeline_navigation_target(selected_position, visible.len(), delta);
+        self.selected_event = position.and_then(|position| visible.get(position).copied());
         if let Some(index) = self.selected_event {
-            let notice_count = self.view.as_ref().map_or(0, |view| view.notices.len());
-            self.timeline_scroll.scroll_to_item(notice_count + index);
+            let row = visible
+                .iter()
+                .position(|event_index| *event_index == index)
+                .unwrap_or(0);
+            self.timeline_scroll
+                .scroll_to_item(self.timeline_event_offset() + row);
         }
     }
 
+    fn visible_event_indices(&self) -> Vec<usize> {
+        self.events
+            .iter()
+            .enumerate()
+            .filter_map(|(index, event)| {
+                (event_is_displayable(event) && is_activity_event(event) == self.activity_view)
+                    .then_some(index)
+            })
+            .collect()
+    }
+
+    fn timeline_event_offset(&self) -> usize {
+        1 + usize::from(self.timeline_search.is_some())
+            + self.view.as_ref().map_or(0, |view| view.notices.len())
+    }
+
     fn refresh_timeline_search(&mut self) {
-        self.search_matches = search_matches(
-            self.events.iter().map(|event| event.text.as_str()),
-            self.timeline_search.as_deref().unwrap_or_default(),
-        );
+        let query = self.timeline_search.as_deref().unwrap_or_default();
+        self.search_matches = if query.trim().is_empty() {
+            Vec::new()
+        } else {
+            let query = query.trim().to_lowercase();
+            self.visible_event_indices()
+                .into_iter()
+                .filter(|index| {
+                    event_search_text(&self.events[*index], self.english())
+                        .to_lowercase()
+                        .contains(&query)
+                })
+                .collect()
+        };
         self.search_current = self.selected_event.and_then(|selected| {
             self.search_matches
                 .iter()
@@ -840,9 +893,14 @@ impl DuoApp {
         };
         self.search_current = Some(next);
         self.selected_event = self.search_matches.get(next).copied();
-        let notice_count = self.view.as_ref().map_or(0, |view| view.notices.len());
+        let visible = self.visible_event_indices();
         if let Some(index) = self.selected_event {
-            self.timeline_scroll.scroll_to_item(notice_count + index);
+            let row = visible
+                .iter()
+                .position(|event_index| *event_index == index)
+                .unwrap_or(0);
+            self.timeline_scroll
+                .scroll_to_item(self.timeline_event_offset() + row);
         }
     }
 }
@@ -872,6 +930,8 @@ impl DuoApp {
         self.model_picker = Some(ModelPicker {
             agent: agent.to_owned(),
             filter: String::new(),
+            selection: 0..0,
+            marked: None,
             selected,
         });
         self.banner = None;
@@ -895,6 +955,36 @@ impl DuoApp {
             cx.notify();
             return;
         }
+        if (event.keystroke.modifiers.control || event.keystroke.modifiers.platform)
+            && key.eq_ignore_ascii_case("a")
+        {
+            if let Some(picker) = self.model_picker.as_mut() {
+                picker.selection = 0..picker.filter.len();
+                picker.marked = None;
+            }
+            cx.notify();
+            return;
+        }
+        if (event.keystroke.modifiers.control || event.keystroke.modifiers.platform)
+            && key.eq_ignore_ascii_case("v")
+        {
+            if let Some(text) = cx.read_from_clipboard().and_then(|item| item.text()) {
+                if let Some(picker) = self.model_picker.as_mut() {
+                    replace_composition_text(
+                        &mut picker.filter,
+                        &mut picker.selection,
+                        &mut picker.marked,
+                        None,
+                        &text,
+                        false,
+                    );
+                    picker.selected = 0;
+                    self.pending_model_change = None;
+                }
+            }
+            cx.notify();
+            return;
+        }
         match key {
             "escape" if self.pending_model_change.is_some() => {
                 self.pending_model_change = None;
@@ -904,6 +994,18 @@ impl DuoApp {
             "enter" => self.select_model(cx),
             "up" => self.move_model_selection(-1),
             "down" => self.move_model_selection(1),
+            "left" | "right" => {
+                if let Some(picker) = self.model_picker.as_mut() {
+                    let cursor = picker.selection.end;
+                    let next = if key == "left" {
+                        previous_boundary(&picker.filter, cursor)
+                    } else {
+                        next_boundary(&picker.filter, cursor)
+                    };
+                    picker.selection = next..next;
+                    picker.marked = None;
+                }
+            }
             "tab" => {
                 self.pending_model_change = None;
                 if let Some(picker) = self.model_picker.as_mut() {
@@ -934,19 +1036,13 @@ impl DuoApp {
             "backspace" | "delete" => {
                 self.pending_model_change = None;
                 if let Some(picker) = self.model_picker.as_mut() {
-                    picker.filter.pop();
+                    delete_search_text(
+                        &mut picker.filter,
+                        &mut picker.selection,
+                        key == "backspace",
+                    );
+                    picker.marked = None;
                     picker.selected = 0;
-                }
-            }
-            _ if !event.keystroke.modifiers.control && !event.keystroke.modifiers.alt => {
-                if let Some(chars) = event.keystroke.key_char.as_deref() {
-                    if !chars.is_empty() && !chars.chars().any(char::is_control) {
-                        self.pending_model_change = None;
-                        if let Some(picker) = self.model_picker.as_mut() {
-                            picker.filter.push_str(chars);
-                            picker.selected = 0;
-                        }
-                    }
                 }
             }
             _ => {}
@@ -1055,6 +1151,15 @@ impl DuoApp {
         }
     }
 
+    fn toggle_driver_picker(&mut self, agent: &str, cx: &mut Context<Self>) {
+        self.driver_picker = if self.driver_picker.as_deref() == Some(agent) {
+            None
+        } else {
+            Some(agent.to_owned())
+        };
+        cx.notify();
+    }
+
     fn needs_quit_confirmation(&self) -> bool {
         self.view
             .as_ref()
@@ -1087,15 +1192,51 @@ impl DuoApp {
     }
 
     fn copy_selected_event(&mut self, cx: &mut Context<Self>) {
-        if let Some(text) = selected_event_text(&self.events, self.selected_event) {
-            cx.write_to_clipboard(ClipboardItem::new_string(text.to_owned()));
+        if let Some(event) = self.selected_event.and_then(|index| self.events.get(index)) {
+            cx.write_to_clipboard(ClipboardItem::new_string(event_display_text(
+                event,
+                self.english(),
+            )));
             self.banner = Some("Copied the selected message to the clipboard.".into());
         }
+    }
+
+    fn submit_input(&mut self, _: &mut Context<Self>) {
+        if self
+            .view
+            .as_ref()
+            .is_none_or(|view| view.repository.is_empty())
+        {
+            return;
+        }
+        let text = self.input.trim().to_owned();
+        if text.is_empty() {
+            return;
+        }
+        self.push_history(text.clone());
+        self.input.clear();
+        self.selection = 0..0;
+        self.marked_range = None;
+        self.history_index = None;
+        self.history_draft = None;
+        self.slash_dismissed = false;
+        self.send(ClientMessage::submit_task(text));
     }
 
     pub fn on_window_close(&mut self, cx: &mut Context<Self>) -> bool {
         if self.request_quit(Instant::now()) {
             self.send(ClientMessage::quit());
+            true
+        } else {
+            cx.notify();
+            false
+        }
+    }
+
+    pub fn confirm_application_quit(&mut self, cx: &mut Context<Self>) -> bool {
+        if self.request_quit(Instant::now()) {
+            self.send(ClientMessage::quit());
+            cx.notify();
             true
         } else {
             cx.notify();
@@ -1131,6 +1272,185 @@ fn latest_austin_message(events: &[Event]) -> Option<&Event> {
 
 fn selected_event_text(events: &[Event], selected: Option<usize>) -> Option<&str> {
     events.get(selected?).map(|event| event.text.as_str())
+}
+
+fn same_state_event(previous: &Event, next: &Event) -> bool {
+    matches!(next.kind.as_str(), "model" | "thinking")
+        && previous.kind == next.kind
+        && previous.agent == next.agent
+        && previous.text == next.text
+        && previous.provider == next.provider
+        && previous.model == next.model
+        && previous.thinking == next.thinking
+}
+
+fn is_activity_event(event: &Event) -> bool {
+    matches!(
+        event.kind.as_str(),
+        "model" | "thinking" | "activity" | "harness" | "system"
+    )
+}
+
+fn event_is_displayable(event: &Event) -> bool {
+    !event.text.trim().is_empty()
+        || matches!(
+            event.kind.as_str(),
+            "model" | "thinking" | "error" | "verdict"
+        )
+}
+
+fn agent_name(agent: &str, english: bool) -> &str {
+    match agent {
+        AGENT_AUSTIN => "Austin",
+        AGENT_TONY => "Tony",
+        "duo" => "Duo",
+        "human" | "user" => {
+            if english {
+                "You"
+            } else {
+                "你"
+            }
+        }
+        other => other,
+    }
+}
+
+fn agent_status(agent: &Agent, english: bool) -> &'static str {
+    if agent.process.eq_ignore_ascii_case("exited") {
+        if english {
+            "Exited"
+        } else {
+            "已退出"
+        }
+    } else if agent.busy {
+        if english {
+            "Working"
+        } else {
+            "工作中"
+        }
+    } else if agent.connected {
+        if english {
+            "Connected"
+        } else {
+            "已连接"
+        }
+    } else if agent.present {
+        if english {
+            "Ready"
+        } else {
+            "待命"
+        }
+    } else {
+        if english {
+            "Not configured"
+        } else {
+            "未配置"
+        }
+    }
+}
+
+fn project_name(repository: &str) -> String {
+    PathBuf::from(repository)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or(repository)
+        .to_owned()
+}
+
+fn short_model_name(model: &str) -> String {
+    let name = model
+        .rsplit('/')
+        .next()
+        .filter(|name| !name.is_empty())
+        .unwrap_or(model);
+    let mut chars = name.chars();
+    let short: String = chars.by_ref().take(32).collect();
+    if chars.next().is_some() {
+        format!("{short}…")
+    } else {
+        short
+    }
+}
+
+fn event_display_text(event: &Event, english: bool) -> String {
+    if !event.text.trim().is_empty() {
+        return event.text.clone();
+    }
+    let agent = agent_name(&event.agent, english);
+    match event.kind.as_str() {
+        "model" => {
+            let reference = if !event.provider.is_empty() && !event.model.is_empty() {
+                format!("{}/{}", event.provider, event.model)
+            } else if !event.model.is_empty() {
+                event.model.clone()
+            } else {
+                if english {
+                    "unknown model"
+                } else {
+                    "未知模型"
+                }
+                .to_owned()
+            };
+            if english {
+                format!("{agent} model changed to {}", short_model_name(&reference))
+            } else {
+                format!("{agent} 的模型已切换为 {}", short_model_name(&reference))
+            }
+        }
+        "thinking" => {
+            let level = if event.thinking.is_empty() {
+                if english {
+                    "default"
+                } else {
+                    "默认"
+                }
+            } else {
+                &event.thinking
+            };
+            if english {
+                format!("{agent} thinking level changed to {level}")
+            } else {
+                format!("{agent} 的思考强度已切换为 {level}")
+            }
+        }
+        "error" => if english {
+            "The operation failed without error details."
+        } else {
+            "操作失败，但没有收到错误详情。"
+        }
+        .to_owned(),
+        "verdict" => if english {
+            "Review result did not include a note."
+        } else {
+            "Review 结果未提供说明。"
+        }
+        .to_owned(),
+        _ => String::new(),
+    }
+}
+
+fn event_search_text(event: &Event, english: bool) -> String {
+    let mut text = event_display_text(event, english);
+    text.push(' ');
+    text.push_str(&event.provider);
+    text.push(' ');
+    text.push_str(&event.model);
+    text.push(' ');
+    text.push_str(&event.thinking);
+    text
+}
+
+fn event_time(event: &Event, enabled: bool) -> String {
+    if !enabled {
+        return String::new();
+    }
+    event
+        .time
+        .split_once('T')
+        .map(|(_, time)| time.trim_end_matches('Z').split('.').next().unwrap_or(time))
+        .unwrap_or("")
+        .to_owned()
 }
 
 fn selection_after_front_drain(selected: Option<usize>, drained: usize) -> Option<usize> {
@@ -1391,6 +1711,7 @@ impl DuoApp {
 struct ComposerElement {
     app: Entity<DuoApp>,
     input_enabled: bool,
+    model_filter: bool,
 }
 struct ComposerPaint {
     lines: Vec<(usize, WrappedLine)>,
@@ -1573,8 +1894,13 @@ impl Element for ComposerElement {
     ) -> (LayoutId, ()) {
         let mut style = Style::default();
         style.size.width = relative(1.).into();
-        let input = self.app.read(cx).input.clone();
-        let text = if input.is_empty() {
+        let app = self.app.read(cx);
+        let picker = self
+            .model_filter
+            .then_some(app.model_picker.as_ref())
+            .flatten();
+        let input = picker.map_or(&app.input, |picker| &picker.filter);
+        let text = if input.is_empty() && picker.is_none() {
             COMPOSER_PLACEHOLDER
         } else {
             input.as_str()
@@ -1598,20 +1924,27 @@ impl Element for ComposerElement {
         cx: &mut App,
     ) -> ComposerPaint {
         let app = self.app.read(cx);
-        let empty = app.input.is_empty();
+        let picker = self
+            .model_filter
+            .then_some(app.model_picker.as_ref())
+            .flatten();
+        let (input, input_selection) = picker.map_or((&app.input, &app.selection), |picker| {
+            (&picker.filter, &picker.selection)
+        });
+        let empty = input.is_empty() && picker.is_none();
         let display_text = if empty {
             COMPOSER_PLACEHOLDER
         } else {
-            app.input.as_str()
+            input.as_str()
         };
         let line_height = window.line_height();
         let lines = shape_composer_lines(display_text, window, bounds.size.width);
         let visual_lines = composer_visual_lines(&lines, line_height);
         let mut selection = Vec::new();
-        if !empty && !app.selection.is_empty() {
+        if !empty && !input_selection.is_empty() {
             for visual in &visual_lines {
-                let selected_start = app.selection.start.max(visual.start).min(visual.end);
-                let selected_end = app.selection.end.max(visual.start).min(visual.end);
+                let selected_start = input_selection.start.max(visual.start).min(visual.end);
+                let selected_end = input_selection.end.max(visual.start).min(visual.end);
                 if selected_start < selected_end {
                     let (offset, line) = &lines[visual.line_index];
                     let local_start = selected_start - offset;
@@ -1643,8 +1976,8 @@ impl Element for ComposerElement {
                 }
             }
         }
-        let cursor = if app.selection.is_empty() {
-            let index = if empty { 0 } else { app.selection.end };
+        let cursor = if input_selection.is_empty() {
+            let index = if empty { 0 } else { input_selection.end };
             let visual = visual_line_for_offset(&visual_lines, index)
                 .unwrap_or_else(|| visual_lines.last().unwrap());
             let (offset, line) = &lines[visual.line_index];
@@ -1719,10 +2052,12 @@ impl Element for ComposerElement {
                 window.paint_quad(cursor);
             }
         }
-        self.app.update(cx, |app, _| {
-            app.last_layout = state.visual_lines.clone();
-            app.last_bounds = Some(bounds);
-        });
+        if self.input_enabled {
+            self.app.update(cx, |app, _| {
+                app.last_layout = state.visual_lines.clone();
+                app.last_bounds = Some(bounds);
+            });
+        }
     }
 }
 
@@ -1833,13 +2168,16 @@ impl Render for DuoApp {
         let theme = Theme::from_appearance(window.appearance());
         let client_chrome = matches!(window.window_decorations(), Decorations::Client { .. });
         let maximized = window.is_maximized();
+        let compact = window.window_bounds().get_bounds().size.width < px(820.);
         let mut root = div()
             .relative()
             .size_full()
             .bg(theme.background)
             .text_color(theme.foreground)
-            .font_family("monospace")
             .track_focus(&self.focus)
+            .on_key_down(
+                cx.listener(|this, event: &KeyDownEvent, _window, cx| this.on_key(event, cx)),
+            )
             .when(client_chrome, |element| {
                 element
                     .border_1()
@@ -1864,28 +2202,9 @@ impl Render for DuoApp {
                 .flex()
                 .flex_col()
                 .size_full()
-                .on_key_down(
-                    cx.listener(|this, event: &KeyDownEvent, _window, cx| this.on_key(event, cx)),
-                )
                 .children(client_chrome.then(|| self.client_titlebar(theme, maximized, cx)))
-                .child(self.header(theme, !client_chrome))
-                .child(self.agents_row(theme, cx))
-                .children(self.overview_open.then(|| self.overview(theme)))
-                .children(
-                    self.diff_preview_agent
-                        .is_some()
-                        .then(|| self.diff_preview_panel(theme, cx)),
-                )
-                .children(self.help_open.then(|| self.help_overlay(theme)))
-                .children(self.slash_menu_open().then(|| self.slash_palette(theme)))
-                .children(
-                    self.model_picker
-                        .as_ref()
-                        .map(|picker| self.model_picker_overlay(theme, picker, cx)),
-                )
-                .child(self.timeline(theme, cx))
-                .child(self.status_row(theme))
-                .child(self.input_row(theme, cx)),
+                .child(self.header(theme, !client_chrome, cx))
+                .child(self.workspace(theme, cx, compact)),
         )
     }
 }
@@ -1898,7 +2217,12 @@ impl EntityInputHandler for DuoApp {
         _: &mut Window,
         _: &mut Context<Self>,
     ) -> Option<String> {
-        let text = self.timeline_search.as_ref().unwrap_or(&self.input);
+        let text = self
+            .model_picker
+            .as_ref()
+            .map(|picker| &picker.filter)
+            .or(self.timeline_search.as_ref())
+            .unwrap_or(&self.input);
         let range = utf8_range(text, range);
         *adjusted = Some(utf16_range(text, range.clone()));
         Some(text[range].to_owned())
@@ -1909,6 +2233,12 @@ impl EntityInputHandler for DuoApp {
         _: &mut Window,
         _: &mut Context<Self>,
     ) -> Option<UTF16Selection> {
+        if let Some(picker) = self.model_picker.as_ref() {
+            return Some(UTF16Selection {
+                range: utf16_range(&picker.filter, picker.selection.clone()),
+                reversed: false,
+            });
+        }
         let (text, selection) = self
             .timeline_search
             .as_ref()
@@ -1921,7 +2251,12 @@ impl EntityInputHandler for DuoApp {
         })
     }
     fn marked_text_range(&self, _: &mut Window, _: &mut Context<Self>) -> Option<Range<usize>> {
-        if self.timeline_search.is_some() {
+        if let Some(picker) = self.model_picker.as_ref() {
+            picker
+                .marked
+                .clone()
+                .map(|range| utf16_range(&picker.filter, range))
+        } else if self.timeline_search.is_some() {
             self.search_marked.clone().map(|range| {
                 utf16_range(self.timeline_search.as_deref().unwrap_or_default(), range)
             })
@@ -1932,7 +2267,9 @@ impl EntityInputHandler for DuoApp {
         }
     }
     fn unmark_text(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        if self.timeline_search.is_some() {
+        if let Some(picker) = self.model_picker.as_mut() {
+            picker.marked = None;
+        } else if self.timeline_search.is_some() {
             self.search_marked = None;
         } else {
             self.marked_range = None;
@@ -1946,6 +2283,20 @@ impl EntityInputHandler for DuoApp {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if let Some(picker) = self.model_picker.as_mut() {
+            replace_composition_text(
+                &mut picker.filter,
+                &mut picker.selection,
+                &mut picker.marked,
+                range,
+                text,
+                false,
+            );
+            picker.selected = 0;
+            self.pending_model_change = None;
+            cx.notify();
+            return;
+        }
         if let Some(query) = self.timeline_search.as_mut() {
             replace_composition_text(
                 query,
@@ -1983,6 +2334,20 @@ impl EntityInputHandler for DuoApp {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if let Some(picker) = self.model_picker.as_mut() {
+            replace_composition_text(
+                &mut picker.filter,
+                &mut picker.selection,
+                &mut picker.marked,
+                range,
+                text,
+                true,
+            );
+            picker.selected = 0;
+            self.pending_model_change = None;
+            cx.notify();
+            return;
+        }
         if let Some(query) = self.timeline_search.as_mut() {
             replace_composition_text(
                 query,
@@ -2024,7 +2389,12 @@ impl EntityInputHandler for DuoApp {
         _: &mut Window,
         _: &mut Context<Self>,
     ) -> Option<Bounds<gpui::Pixels>> {
-        let range = utf8_range(&self.input, range);
+        let text = self
+            .model_picker
+            .as_ref()
+            .map(|picker| &picker.filter)
+            .unwrap_or(&self.input);
+        let range = utf8_range(text, range);
         let line_height = bounds.size.height / self.last_layout.len().max(1) as f32;
         let visual = visual_line_for_offset(&self.last_layout, range.start)?;
         let start = range.start.clamp(visual.start, visual.end) - visual.offset;
@@ -2118,6 +2488,14 @@ fn previous_boundary(text: &str, offset: usize) -> usize {
         .last()
         .map(|(index, _)| index)
         .unwrap_or(0)
+}
+
+fn next_boundary(text: &str, offset: usize) -> usize {
+    let cursor = offset.min(text.len());
+    text[cursor..]
+        .chars()
+        .next()
+        .map_or(cursor, |ch| cursor + ch.len_utf8())
 }
 
 fn move_cursor_with_selection(app: &mut DuoApp, right: bool, extend: bool) {
@@ -2401,25 +2779,82 @@ impl DuoApp {
                     .child("×")
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_click(cx.listener(|this, _, window, cx| {
-                        if this.on_window_close(cx) {
+                        #[cfg(target_os = "macos")]
+                        {
+                            let _ = this;
+                            let _ = cx;
                             window.remove_window();
-                            cx.quit();
+                        }
+                        #[cfg(not(target_os = "macos"))]
+                        {
+                            if this.on_window_close(cx) {
+                                window.remove_window();
+                                cx.quit();
+                            }
                         }
                     })),
             )
             .into_any_element()
     }
 
-    fn header(&self, theme: Theme, show_mark: bool) -> AnyElement {
-        let mut children: Vec<AnyElement> = Vec::new();
-
-        let version = self
+    fn header(&self, theme: Theme, show_mark: bool, cx: &Context<Self>) -> AnyElement {
+        let english = self.english();
+        let welcome = self
             .view
             .as_ref()
-            .map(|view| view.version.clone())
-            .unwrap_or_default();
+            .is_none_or(|view| view.repository.is_empty());
+        let project = if welcome {
+            "xduo".to_owned()
+        } else {
+            self.view
+                .as_ref()
+                .map(|view| project_name(&view.repository))
+                .unwrap_or_else(|| "xduo".to_owned())
+        };
+        let branch = self
+            .view
+            .as_ref()
+            .map(|view| view.base_branch.clone())
+            .filter(|branch| !branch.is_empty())
+            .unwrap_or_else(|| "—".to_owned());
+        let folder = cx.listener(move |_, _: &MouseDownEvent, _, cx| {
+            let picker = cx.prompt_for_paths(PathPromptOptions {
+                files: false,
+                directories: true,
+                multiple: false,
+                prompt: Some(
+                    if english {
+                        "Open project folder"
+                    } else {
+                        "选择项目目录"
+                    }
+                    .into(),
+                ),
+            });
+            cx.spawn(async move |this, cx| {
+                if let Ok(Ok(Some(paths))) = picker.await {
+                    if let Some(path) = paths.first() {
+                        let path = path.to_string_lossy().into_owned();
+                        let _ =
+                            this.update(cx, |app, _| app.send(ClientMessage::open_project(path)));
+                    }
+                }
+            })
+            .detach();
+        });
+        let mut bar = div()
+            .flex()
+            .flex_none()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .px_3()
+            .py_2()
+            .border_b_1()
+            .border_color(theme.border)
+            .bg(theme.surface);
         if show_mark {
-            children.push(
+            bar = bar.child(
                 div()
                     .w(px(24.))
                     .h(px(24.))
@@ -2431,161 +2866,423 @@ impl DuoApp {
                     .flex()
                     .items_center()
                     .justify_center()
-                    .child("d²")
-                    .into_any_element(),
+                    .child("d²"),
             );
         }
-        children.push(
-            div()
-                .font_weight(FontWeight::BOLD)
-                .child(format!("xduo · Duo {version}"))
-                .into_any_element(),
-        );
-
-        if let Some(view) = self.view.as_ref() {
-            let mode = view.mode.to_uppercase();
-            children.push(
+        bar = bar
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .min_w_0()
+                    .child(div().font_weight(FontWeight::BOLD).child(project))
+                    .when(!welcome, |element| {
+                        element.child(
+                            div()
+                                .text_xs()
+                                .text_color(theme.muted)
+                                .child(format!("⑂ {branch}")),
+                        )
+                    }),
+            )
+            .child(div().flex_1())
+            .child(
                 div()
                     .px_2()
                     .py_1()
                     .rounded_md()
-                    .bg(theme.mode(&mode))
-                    .text_color(if theme.light {
-                        rgb(0x202735)
+                    .bg(theme.background)
+                    .cursor(CursorStyle::PointingHand)
+                    .text_sm()
+                    .child(if english {
+                        "Open folder…"
                     } else {
-                        rgb(0x0f1116)
+                        "打开目录…"
                     })
-                    .font_weight(FontWeight::BOLD)
-                    .child(mode)
-                    .into_any_element(),
+                    .on_mouse_down(MouseButton::Left, folder),
             );
-            children.push(
+        if !welcome {
+            bar = bar.child(
                 div()
-                    .text_color(theme.muted)
-                    .child(view.phase.clone())
-                    .into_any_element(),
-            );
-            children.push(
-                div()
-                    .text_color(theme.faint)
-                    .child(format!(
-                        "{} · {} @ {}",
-                        view.session, view.repository, view.base_branch
-                    ))
-                    .into_any_element(),
+                    .px_2()
+                    .py_1()
+                    .rounded_md()
+                    .bg(theme.background)
+                    .cursor(CursorStyle::PointingHand)
+                    .text_sm()
+                    .child(if english { "Overview" } else { "概览" })
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                            this.overview_open = !this.overview_open;
+                            cx.notify();
+                        }),
+                    ),
             );
         }
-
+        bar = bar.child(
+            div()
+                .w(px(28.))
+                .h(px(28.))
+                .rounded_md()
+                .bg(theme.background)
+                .cursor(CursorStyle::PointingHand)
+                .flex()
+                .items_center()
+                .justify_center()
+                .child("?")
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                        this.toggle_help();
+                        cx.notify();
+                    }),
+                ),
+        );
         if self.closed {
-            children.push(
-                div()
-                    .text_color(theme.error)
-                    .child("closed")
-                    .into_any_element(),
-            );
+            bar = bar.child(div().text_color(theme.error).child("closed"));
         }
+        bar.into_any_element()
+    }
 
+    fn workspace(&self, theme: Theme, cx: &Context<Self>, compact: bool) -> AnyElement {
+        if self
+            .view
+            .as_ref()
+            .is_some_and(|view| view.repository.is_empty())
+        {
+            let english = self.english();
+            let picker = cx.listener(move |_, _: &MouseDownEvent, _, cx| {
+                let picker = cx.prompt_for_paths(PathPromptOptions {
+                    files: false,
+                    directories: true,
+                    multiple: false,
+                    prompt: Some(
+                        if english {
+                            "Open project folder"
+                        } else {
+                            "选择项目目录"
+                        }
+                        .into(),
+                    ),
+                });
+                cx.spawn(async move |this, cx| {
+                    if let Ok(Ok(Some(paths))) = picker.await {
+                        if let Some(path) = paths.first() {
+                            let path = path.to_string_lossy().into_owned();
+                            let _ = this
+                                .update(cx, |app, _| app.send(ClientMessage::open_project(path)));
+                        }
+                    }
+                })
+                .detach();
+            });
+            let mut welcome = div().flex_1().min_h_0().flex().flex_col().items_center().justify_center().bg(theme.background).child(
+                div().w_full().max_w(px(560.)).flex().flex_col().gap_3().px_6().py_6()
+                    .child(div().text_2xl().font_weight(FontWeight::BOLD).child(if english { "Start a Duo workspace" } else { "开始 Duo 协作" }))
+                    .child(div().text_color(theme.muted).child(if english { "Choose a Git project folder to start a new session or resume an unfinished one." } else { "选择一个 Git 项目目录，然后开始新会话或恢复未完成的会话。" }))
+                    .child(div().id("welcome-open-project").px_4().py_2().rounded_md().bg(theme.sidebar).border_1().border_color(theme.border).cursor(CursorStyle::PointingHand).child(if english { "Open project folder…" } else { "打开项目文件夹…" }).on_mouse_down(MouseButton::Left, picker))
+            );
+            if let Some(error) = self.banner.as_ref() {
+                welcome = welcome.child(
+                    div()
+                        .id("welcome-error")
+                        .w_full()
+                        .max_w(px(560.))
+                        .max_h(px(120.))
+                        .overflow_y_scroll()
+                        .px_4()
+                        .py_3()
+                        .rounded_md()
+                        .bg(theme.sidebar)
+                        .text_color(theme.error)
+                        .child(error.clone()),
+                );
+            }
+            return welcome.into_any_element();
+        }
         div()
             .flex()
+            .flex_1()
+            .min_h_0()
+            .when(compact, |element| element.flex_col())
+            .when(!compact, |element| element.flex_row())
+            .child(self.agent_sidebar(theme, cx, compact))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .min_h_0()
+                    .flex()
+                    .flex_col()
+                    .children(self.overview_open.then(|| self.overview(theme)))
+                    .children(
+                        self.diff_preview_agent
+                            .is_some()
+                            .then(|| self.diff_preview_panel(theme, cx)),
+                    )
+                    .children(self.help_open.then(|| self.help_overlay(theme)))
+                    .children(self.slash_menu_open().then(|| self.slash_palette(theme)))
+                    .children(
+                        self.model_picker
+                            .as_ref()
+                            .map(|picker| self.model_picker_overlay(theme, picker, cx)),
+                    )
+                    .child(self.phase_row(theme))
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_h_0()
+                            .flex()
+                            .justify_center()
+                            .child(self.timeline(theme, cx)),
+                    )
+                    .child(
+                        div()
+                            .flex_none()
+                            .flex()
+                            .justify_center()
+                            .child(self.status_row(theme)),
+                    )
+                    .child(
+                        div()
+                            .flex_none()
+                            .flex()
+                            .justify_center()
+                            .child(self.input_row(theme, cx)),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    fn agent_sidebar(&self, theme: Theme, cx: &Context<Self>, compact: bool) -> AnyElement {
+        let english = self.english();
+        div()
+            .when(!compact, |element| {
+                element.w(px(232.)).flex_none().flex_col()
+            })
+            .when(compact, |element| {
+                element.w_full().flex_none().flex_row().items_start()
+            })
+            .flex()
+            .gap_2()
+            .px_3()
+            .py_3()
+            .when(!compact, |element| element.border_r_1())
+            .when(compact, |element| element.border_b_1())
+            .border_color(theme.border)
+            .bg(theme.sidebar)
+            .children((!compact).then(|| {
+                div().text_xs().text_color(theme.faint).child(if english {
+                    "AGENTS"
+                } else {
+                    "协作 Agent"
+                })
+            }))
+            .child(self.agent_card(AGENT_AUSTIN, "Austin", theme, cx, compact))
+            .child(self.agent_card(AGENT_TONY, "Tony", theme, cx, compact))
+            .into_any_element()
+    }
+
+    fn phase_row(&self, theme: Theme) -> AnyElement {
+        let english = self.english();
+        let (mode, phase) = self.view.as_ref().map_or(("—", "Waiting"), |view| {
+            (view.mode.as_str(), view.phase.as_str())
+        });
+        div()
             .flex_none()
+            .flex()
             .flex_row()
             .items_center()
-            .gap_3()
-            .px_3()
+            .gap_2()
+            .px_4()
             .py_2()
             .border_b_1()
             .border_color(theme.border)
-            .children(children)
+            .child(
+                div()
+                    .px_2()
+                    .py_1()
+                    .rounded_sm()
+                    .bg(theme.mode(&mode.to_uppercase()))
+                    .text_color(theme.muted)
+                    .text_xs()
+                    .font_weight(FontWeight::BOLD)
+                    .child(mode.to_uppercase()),
+            )
+            .child(div().font_weight(FontWeight::BOLD).child(phase.to_owned()))
+            .child(div().flex_1())
+            .child(div().text_sm().text_color(theme.muted).child(if english {
+                "Duo session"
+            } else {
+                "协作会话"
+            }))
             .into_any_element()
     }
 
-    fn agents_row(&self, theme: Theme, cx: &Context<Self>) -> AnyElement {
-        div()
-            .flex()
-            .flex_none()
-            .flex_row()
-            .gap_3()
-            .px_3()
-            .py_2()
-            .child(self.agent_card(AGENT_AUSTIN, "Austin", theme, cx))
-            .child(self.agent_card(AGENT_TONY, "Tony", theme, cx))
-            .into_any_element()
-    }
-
-    fn agent_card(&self, id: &str, title: &str, theme: Theme, cx: &Context<Self>) -> AnyElement {
+    fn agent_card(
+        &self,
+        id: &str,
+        title: &str,
+        theme: Theme,
+        cx: &Context<Self>,
+        compact: bool,
+    ) -> AnyElement {
         let agent = self.view.as_ref().and_then(|view| view.agents.get(id));
         let color = theme.speaker(id);
+        let english = self.english();
+        let state = agent.map_or(
+            if english {
+                "Connecting"
+            } else {
+                "等待连接"
+            },
+            |agent| agent_status(agent, english),
+        );
+        let name_agent = id.to_owned();
+        let mut rows = vec![div()
+            .w_full()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .child(div().w(px(7.)).h(px(7.)).rounded_full().bg(color))
+            .child(
+                div()
+                    .text_color(color)
+                    .font_weight(FontWeight::BOLD)
+                    .cursor(CursorStyle::PointingHand)
+                    .child(format!("{title} ▾"))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                            this.toggle_driver_picker(&name_agent, cx);
+                        }),
+                    ),
+            )
+            .child(div().flex_1())
+            .child(div().text_color(theme.muted).text_xs().child(state))
+            .into_any_element()];
 
-        let (detail, activity, state) = match agent {
-            Some(agent) => (
-                format!(
-                    "{} · {} · {}",
-                    agent.driver,
-                    or_dash(&agent.model),
-                    agent.process
-                ),
-                if agent.activity.is_empty() {
-                    String::new()
-                } else {
-                    agent.activity.clone()
-                },
-                if agent.busy {
-                    "● busy".to_owned()
-                } else if agent.connected {
-                    "● online".to_owned()
-                } else if agent.present {
-                    "○ idle".to_owned()
-                } else {
-                    "○ not configured".to_owned()
-                },
-            ),
-            None => (
-                "waiting for the session".to_owned(),
-                String::new(),
-                "○ unknown".to_owned(),
-            ),
-        };
-
-        let mut rows: Vec<AnyElement> = vec![
+        let driver = agent.map(|agent| or_dash(&agent.driver)).unwrap_or("—");
+        let driver_agent = id.to_owned();
+        rows.push(
             div()
-                .flex()
-                .flex_row()
-                .items_center()
-                .gap_2()
-                .child(
-                    div()
-                        .text_color(color)
-                        .font_weight(FontWeight::BOLD)
-                        .child(title.to_owned()),
-                )
-                .child(div().text_color(theme.muted).text_sm().child(state))
-                .into_any_element(),
-            div()
-                .text_color(theme.muted)
-                .text_sm()
-                .child(detail)
-                .into_any_element(),
-        ];
-        let model_label = agent
-            .map(|agent| or_dash(&agent.model))
-            .unwrap_or("—")
-            .to_owned();
-        let thinking_label = agent
-            .map(|agent| or_dash(&agent.thinking))
-            .unwrap_or("—")
-            .to_owned();
-        let model_agent = id.to_owned();
-        let thinking_agent = id.to_owned();
-        let mut controls = div().flex().flex_row().items_center().gap_2();
-        controls = controls.child(
-            div()
+                .w_full()
+                .min_w_0()
                 .px_2()
                 .py_1()
                 .rounded_md()
                 .bg(theme.background)
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_sm()
+                        .child(driver.to_owned()),
+                )
+                .child(div().text_color(theme.muted).child("⌄"))
                 .cursor(CursorStyle::PointingHand)
-                .text_sm()
-                .child(format!("Model · {model_label}"))
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                        this.toggle_driver_picker(&driver_agent, cx);
+                    }),
+                )
+                .into_any_element(),
+        );
+
+        if self.driver_picker.as_deref() == Some(id) {
+            let available = self
+                .view
+                .as_ref()
+                .map(|view| view.available_drivers.as_slice())
+                .unwrap_or_default();
+            if available.is_empty() {
+                rows.push(
+                    div()
+                        .w_full()
+                        .text_xs()
+                        .text_color(theme.muted)
+                        .child(if english {
+                            "No local drivers are available."
+                        } else {
+                            "本机没有可用的 driver。"
+                        })
+                        .into_any_element(),
+                );
+            } else {
+                rows.push(
+                    div()
+                        .w_full()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .children(available.iter().map(|driver| {
+                            let selected_agent = id.to_owned();
+                            let selected_driver = driver.clone();
+                            div()
+                                .w_full()
+                                .px_2()
+                                .py_1()
+                                .rounded_sm()
+                                .bg(theme.background)
+                                .text_sm()
+                                .cursor(CursorStyle::PointingHand)
+                                .child(driver.clone())
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                                        this.send(ClientMessage::set_driver(
+                                            selected_agent.clone(),
+                                            selected_driver.clone(),
+                                        ));
+                                        this.driver_picker = None;
+                                        cx.notify();
+                                    }),
+                                )
+                                .into_any_element()
+                        }))
+                        .into_any_element(),
+                );
+            }
+        }
+
+        let model_agent = id.to_owned();
+        let model_label = agent
+            .map(|agent| short_model_name(&agent.model))
+            .unwrap_or_else(|| "—".to_owned());
+        rows.push(
+            div()
+                .w_full()
+                .min_w_0()
+                .px_2()
+                .py_1()
+                .rounded_md()
+                .bg(theme.background)
+                .flex()
+                .items_center()
+                .gap_2()
+                .child(
+                    div()
+                        .flex_none()
+                        .text_xs()
+                        .text_color(theme.muted)
+                        .child(if english { "Model" } else { "模型" }),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .text_sm()
+                        .child(model_label),
+                )
+                .cursor(CursorStyle::PointingHand)
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, _: &MouseDownEvent, window, cx| {
@@ -2593,79 +3290,118 @@ impl DuoApp {
                         this.open_model_picker(&model_agent);
                         cx.notify();
                     }),
-                ),
-        );
-        let thinking_control = div()
-            .px_2()
-            .py_1()
-            .rounded_md()
-            .bg(theme.background)
-            .text_sm()
-            .child(format!("Thinking · {thinking_label}"));
-        let thinking_control = if agent.is_some_and(|agent| agent.present) {
-            thinking_control
-                .cursor(CursorStyle::PointingHand)
-                .on_mouse_down(
-                    MouseButton::Left,
-                    cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-                        this.cycle_agent_thinking(&thinking_agent, cx);
-                    }),
                 )
-        } else {
-            thinking_control.text_color(theme.faint)
-        };
-        controls = controls.child(thinking_control);
-        if let Some(agent) = agent {
-            controls = controls.child(
+                .into_any_element(),
+        );
+
+        let thinking = agent
+            .map(|agent| agent.thinking.as_str())
+            .unwrap_or_default();
+        if !thinking.is_empty() {
+            let thinking_agent = id.to_owned();
+            rows.push(
                 div()
+                    .w_full()
                     .px_2()
                     .py_1()
-                    .rounded_md()
-                    .bg(theme.background)
-                    .text_sm()
-                    .text_color(if agent.present {
-                        theme.foreground
-                    } else {
-                        theme.faint
-                    })
-                    .when(
-                        agent.present && !agent.worktree_path.is_empty(),
-                        |element| {
-                            let diff_agent = id.to_owned();
-                            element.cursor(CursorStyle::PointingHand).on_mouse_down(
-                                MouseButton::Left,
-                                cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-                                    this.diff_preview_agent = Some(diff_agent.clone());
-                                    cx.notify();
-                                }),
-                            )
-                        },
-                    )
-                    .child(format!("Inspect {title} changes")),
-            );
-            rows.push(
-                div()
                     .text_xs()
-                    .text_color(theme.hint)
-                    .child(if agent.live_model_switch {
-                        "Model changes apply live"
-                    } else {
-                        "Model changes restart agent"
+                    .text_color(theme.muted)
+                    .child(format!(
+                        "{} · {thinking}",
+                        if english { "Thinking" } else { "思考" }
+                    ))
+                    .when(agent.is_some_and(|agent| agent.present), |element| {
+                        element.cursor(CursorStyle::PointingHand).on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                                this.cycle_agent_thinking(&thinking_agent, cx);
+                            }),
+                        )
                     })
                     .into_any_element(),
             );
         }
-        rows.push(controls.into_any_element());
-        if !activity.is_empty() {
+
+        if let Some(agent) = agent {
+            let native_agent = id.to_owned();
+            let native_open = agent.native_open;
+            let native_button = div()
+                .flex_1()
+                .min_w_0()
+                .px_2()
+                .py_1()
+                .rounded_md()
+                .bg(theme.background)
+                .text_sm()
+                .flex()
+                .justify_center()
+                .cursor(CursorStyle::PointingHand)
+                .child(if native_open {
+                    if english {
+                        "Close terminal"
+                    } else {
+                        "关闭终端"
+                    }
+                } else if english {
+                    "Terminal"
+                } else {
+                    "终端"
+                })
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, _: &MouseDownEvent, _, _| {
+                        if native_open {
+                            this.send(ClientMessage::close_native(native_agent.clone()));
+                        } else {
+                            this.send(ClientMessage::open_native(native_agent.clone()));
+                        }
+                    }),
+                );
+            let change_button = div()
+                .flex_1()
+                .min_w_0()
+                .px_2()
+                .py_1()
+                .rounded_md()
+                .bg(theme.background)
+                .text_sm()
+                .flex()
+                .justify_center()
+                .text_color(if agent.present {
+                    theme.foreground
+                } else {
+                    theme.faint
+                })
+                .child(if english {
+                    "View changes"
+                } else {
+                    "查看更改"
+                })
+                .when(
+                    agent.present && !agent.worktree_path.is_empty(),
+                    |element| {
+                        let diff_agent = id.to_owned();
+                        element.cursor(CursorStyle::PointingHand).on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                                this.diff_preview_agent = Some(diff_agent.clone());
+                                cx.notify();
+                            }),
+                        )
+                    },
+                );
             rows.push(
                 div()
-                    .text_color(theme.secondary)
-                    .text_sm()
-                    .truncate()
-                    .child(activity)
+                    .w_full()
+                    .flex()
+                    .flex_row()
+                    .gap_1()
+                    .child(native_button)
+                    .child(change_button)
                     .into_any_element(),
             );
         }
+
         if self.work_preview_open {
             if let Some(agent) = agent {
                 rows.extend(agent_work_rows(agent, theme));
@@ -2673,33 +3409,127 @@ impl DuoApp {
         }
 
         div()
-            .flex_1()
+            .flex_none()
+            .when(compact, |element| element.flex_1())
             .min_w_0()
             .flex()
             .flex_col()
-            .gap_1()
-            .px_3()
+            .gap_2()
+            .px_2()
             .py_2()
-            .bg(theme.surface)
-            .rounded_md()
-            .border_1()
+            .border_b_1()
             .border_color(theme.border)
             .children(rows)
             .into_any_element()
     }
 
     fn timeline(&self, theme: Theme, cx: &Context<Self>) -> AnyElement {
+        let english = self.english();
         let mut children: Vec<AnyElement> = Vec::new();
+
+        let toggle = |label: &'static str, activity: bool| {
+            let active = self.activity_view == activity;
+            div()
+                .px_2()
+                .py_1()
+                .rounded_sm()
+                .bg(if active {
+                    theme.background
+                } else {
+                    theme.surface
+                })
+                .text_sm()
+                .text_color(if active {
+                    theme.foreground
+                } else {
+                    theme.muted
+                })
+                .child(label)
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                        this.activity_view = activity;
+                        if this.selected_event.is_some_and(|selected| {
+                            !this.visible_event_indices().contains(&selected)
+                        }) {
+                            this.selected_event = None;
+                        }
+                        this.refresh_timeline_search();
+                        cx.notify();
+                    }),
+                )
+        };
+        children.push(
+            div()
+                .flex_none()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .border_b_1()
+                .border_color(theme.border)
+                .px_2()
+                .py_1()
+                .child(div().font_weight(FontWeight::BOLD).child(if english {
+                    "Conversation"
+                } else {
+                    "协作记录"
+                }))
+                .child(div().flex_1())
+                .child(toggle(if english { "Messages" } else { "消息" }, false))
+                .child(toggle(if english { "Activity" } else { "活动" }, true))
+                .child(
+                    div()
+                        .px_2()
+                        .py_1()
+                        .rounded_sm()
+                        .bg(theme.background)
+                        .text_sm()
+                        .text_color(theme.muted)
+                        .cursor(CursorStyle::PointingHand)
+                        .child(if english { "Search" } else { "搜索" })
+                        .on_mouse_down(
+                            MouseButton::Left,
+                            cx.listener(|this, _: &MouseDownEvent, window, cx| {
+                                this.timeline_search = Some(String::new());
+                                this.search_selection = 0..0;
+                                this.search_marked = None;
+                                this.timeline_focused = true;
+                                this.search_matches.clear();
+                                this.search_current = None;
+                                window.focus(&this.focus);
+                                cx.notify();
+                            }),
+                        ),
+                )
+                .into_any_element(),
+        );
 
         if let Some(query) = self.timeline_search.as_ref() {
             let count = self.search_matches.len();
             let position = self.search_current.map_or(0, |index| index + 1);
             let status = if query.is_empty() {
-                "Type to search · Enter/Shift+Enter next/previous · Esc close".to_owned()
+                if english {
+                    "Type to search · Enter/Shift+Enter next/previous · Esc close".to_owned()
+                } else {
+                    "输入搜索内容 · Enter 下一条 / Shift+Enter 上一条 · Esc 关闭".to_owned()
+                }
             } else if count == 0 {
-                format!("No matches for ‘{query}’ · Enter/Shift+Enter next/previous · Esc close")
+                if english {
+                    format!(
+                        "No matches for ‘{query}’ · Enter/Shift+Enter next/previous · Esc close"
+                    )
+                } else {
+                    format!(
+                        "没有匹配“{query}”的记录 · Enter 下一条 / Shift+Enter 上一条 · Esc 关闭"
+                    )
+                }
             } else {
-                format!("{position}/{count} matches for ‘{query}’ · Enter/Shift+Enter next/previous · Esc close")
+                if english {
+                    format!("{position}/{count} matches for ‘{query}’ · Enter/Shift+Enter next/previous · Esc close")
+                } else {
+                    format!("{position}/{count} 条匹配“{query}” · Enter 下一条 / Shift+Enter 上一条 · Esc 关闭")
+                }
             };
             children.push(
                 div()
@@ -2719,39 +3549,60 @@ impl DuoApp {
                     div()
                         .flex_none()
                         .flex()
-                        .flex_row()
-                        .gap_2()
+                        .flex_col()
+                        .gap_1()
+                        .border_l_2()
+                        .border_color(theme.warning)
+                        .pl_2()
+                        .text_sm()
+                        .text_color(theme.warning)
                         .child(
                             div()
-                                .w(px(130.))
-                                .flex_none()
-                                .text_sm()
-                                .text_color(theme.warning)
-                                .child("notice"),
+                                .text_xs()
+                                .child(if english { "Notice" } else { "提示" }),
                         )
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .text_sm()
-                                .text_color(theme.warning)
-                                .child(notice.clone()),
-                        )
+                        .child(notice.clone())
                         .into_any_element(),
                 );
             }
         }
 
         let notice_count = children.len();
-        for (index, event) in self.events.iter().enumerate() {
-            children.push(self.timeline_row(index, event, theme, notice_count, cx));
+        let visible = self.visible_event_indices();
+        for (display_index, index) in visible.iter().copied().enumerate() {
+            if let Some(event) = self.events.get(index) {
+                children.push(self.timeline_row(
+                    index,
+                    display_index,
+                    event,
+                    theme,
+                    notice_count,
+                    cx,
+                ));
+            }
         }
 
-        if children.is_empty() {
+        let has_notices = self
+            .view
+            .as_ref()
+            .is_some_and(|view| !view.notices.is_empty());
+        if visible.is_empty() && !has_notices {
             children.push(
                 div()
                     .text_color(theme.faint)
-                    .child("Waiting for Duo…")
+                    .child(if self.activity_view {
+                        if english {
+                            "No activity yet"
+                        } else {
+                            "暂无活动记录"
+                        }
+                    } else {
+                        if english {
+                            "Waiting for messages…"
+                        } else {
+                            "等待协作消息…"
+                        }
+                    })
                     .into_any_element(),
             );
         }
@@ -2759,11 +3610,13 @@ impl DuoApp {
         div()
             .flex_1()
             .min_h_0()
+            .w_full()
+            .max_w(px(760.))
             .flex()
             .flex_col()
-            .gap_1()
-            .px_3()
-            .py_2()
+            .gap_2()
+            .px_4()
+            .py_3()
             .id("duo-timeline")
             .overflow_y_scroll()
             .track_scroll(&self.timeline_scroll)
@@ -2774,62 +3627,62 @@ impl DuoApp {
     fn timeline_row(
         &self,
         index: usize,
+        display_index: usize,
         event: &Event,
         theme: Theme,
         notice_count: usize,
         cx: &Context<Self>,
     ) -> AnyElement {
-        let (speaker, color) = event_speaker(event, theme);
-        let mut header = if event.label.is_empty() {
+        let (speaker, color) = event_speaker(event, theme, self.english());
+        let header = if event.label.is_empty() {
             speaker
         } else {
             event.label.clone()
         };
-        if self.timestamps {
-            if let Some(time) = event.time.split_once('T').map(|(_, time)| time) {
-                let time = time.trim_end_matches('Z').split('.').next().unwrap_or(time);
-                header.push_str(" · ");
-                header.push_str(time);
-            }
-        }
-        let body = markdown_elements(&parse_markdown(&event.text), theme);
-        let body = if body.is_empty() {
-            div().text_sm().child(" ").into_any_element()
-        } else {
-            div()
-                .flex()
-                .flex_col()
-                .gap_1()
-                .text_sm()
-                .children(body)
-                .into_any_element()
-        };
+        let text = event_display_text(event, self.english());
+        let body = markdown_elements(&parse_markdown(&text), theme);
+        let body = div()
+            .flex()
+            .flex_col()
+            .gap_1()
+            .text_sm()
+            .children(body)
+            .into_any_element();
         let row = div()
             .flex_none()
             .flex()
-            .flex_row()
-            .items_start()
-            .gap_2()
+            .flex_col()
+            .gap_1()
+            .px_2()
+            .py_2()
+            .border_b_1()
+            .border_color(theme.border)
             .when(self.selected_event == Some(index), |element| {
-                element.bg(theme.background).rounded_sm()
+                element.bg(theme.background).rounded_md()
             })
             .child(
                 div()
-                    .w(px(130.))
-                    .flex_none()
-                    .text_sm()
-                    .truncate()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .text_xs()
                     .text_color(color)
-                    .child(header),
+                    .child(div().font_weight(FontWeight::BOLD).child(header))
+                    .child(
+                        div()
+                            .text_color(theme.faint)
+                            .child(event_time(event, self.timestamps)),
+                    ),
             )
-            .child(div().flex_1().min_w_0().child(body))
+            .child(div().pl_2().min_w_0().child(body))
             .cursor(CursorStyle::PointingHand)
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, _, window, cx| {
                     this.timeline_focused = true;
                     this.selected_event = Some(index);
-                    this.timeline_scroll.scroll_to_item(notice_count + index);
+                    this.timeline_scroll
+                        .scroll_to_item(notice_count + display_index);
                     window.focus(&this.focus);
                     cx.notify();
                 }),
@@ -3015,6 +3868,8 @@ impl DuoApp {
             });
         div()
             .flex_none()
+            .w_full()
+            .max_w(px(760.))
             .flex()
             .flex_col()
             .gap_1()
@@ -3043,9 +3898,15 @@ impl DuoApp {
             )
             .child(
                 div()
-                    .text_sm()
-                    .text_color(theme.secondary)
-                    .child(format!("Filter: {}▏", picker.filter)),
+                    .px_2()
+                    .py_1()
+                    .bg(theme.background)
+                    .rounded_sm()
+                    .child(ComposerElement {
+                        app: cx.entity(),
+                        input_enabled: true,
+                        model_filter: true,
+                    }),
             )
             .children(pending_confirmation)
             .children(rows)
@@ -3080,6 +3941,8 @@ impl DuoApp {
         }
         div()
             .flex_none()
+            .w_full()
+            .max_w(px(760.))
             .px_3()
             .py_1()
             .bg(theme.surface)
@@ -3180,29 +4043,67 @@ impl DuoApp {
             .flex_none()
             .flex()
             .flex_col()
-            .gap_1()
-            .px_3()
-            .py_2()
+            .gap_2()
+            .px_4()
+            .py_3()
             .border_t_1()
             .border_color(theme.border)
             .child(
                 div()
-                    .text_color(theme.input)
-                    .cursor(CursorStyle::IBeam)
-                    .on_mouse_down(MouseButton::Left, cx.listener(Self::mouse_down))
-                    .on_mouse_up(MouseButton::Left, cx.listener(Self::mouse_up))
-                    .on_mouse_up_out(MouseButton::Left, cx.listener(Self::mouse_up))
-                    .on_mouse_move(cx.listener(Self::mouse_move))
-                    .child(ComposerElement {
-                        app: cx.entity(),
-                        input_enabled: self.model_picker.is_none() && !self.help_open,
-                    }),
+                    .flex()
+                    .flex_row()
+                    .items_end()
+                    .gap_2()
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w_0()
+                            .px_2()
+                            .py_1()
+                            .rounded_md()
+                            .border_1()
+                            .border_color(theme.border)
+                            .bg(theme.surface)
+                            .text_color(theme.input)
+                            .cursor(CursorStyle::IBeam)
+                            .on_mouse_down(MouseButton::Left, cx.listener(Self::mouse_down))
+                            .on_mouse_up(MouseButton::Left, cx.listener(Self::mouse_up))
+                            .on_mouse_up_out(MouseButton::Left, cx.listener(Self::mouse_up))
+                            .on_mouse_move(cx.listener(Self::mouse_move))
+                            .child(ComposerElement {
+                                app: cx.entity(),
+                                input_enabled: self.model_picker.is_none() && !self.help_open,
+                                model_filter: false,
+                            }),
+                    )
+                    .child(
+                        div()
+                            .px_3()
+                            .py_2()
+                            .rounded_md()
+                            .bg(theme.speaker(AGENT_AUSTIN))
+                            .text_color(rgb(0xffffff))
+                            .font_weight(FontWeight::BOLD)
+                            .cursor(CursorStyle::PointingHand)
+                            .child(if self.english() { "Send" } else { "发送" })
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                                    this.submit_input(cx);
+                                    cx.notify();
+                                }),
+                            ),
+                    ),
             )
             .child(
                 div()
                     .text_xs()
                     .text_color(theme.hint)
-                    .child(hint_line(self.view.as_ref())),
+                    .child(if self.english() {
+                        "Enter send  ·  Shift+Enter newline  ·  Esc clear  ·  ? shortcuts"
+                    } else {
+                        "Enter 发送  ·  Shift+Enter 换行  ·  Esc 清空  ·  ? 快捷键"
+                    }),
             )
             .into_any_element()
     }
@@ -3655,15 +4556,30 @@ fn ready_mark(view: &View, agent: &str) -> &'static str {
     }
 }
 
-fn event_speaker(event: &Event, theme: Theme) -> (String, Rgba) {
+fn event_speaker(event: &Event, theme: Theme, english: bool) -> (String, Rgba) {
     if !event.agent.is_empty() {
-        return (event.agent.clone(), theme.speaker(&event.agent));
+        return (
+            agent_name(&event.agent, english).to_owned(),
+            theme.speaker(&event.agent),
+        );
     }
     match event.kind.as_str() {
-        "error" => ("error".to_owned(), theme.error),
-        "verdict" => ("verdict".to_owned(), theme.warning),
-        "user" => ("human".to_owned(), theme.speaker("human")),
-        _ => ("duo".to_owned(), theme.speaker("duo")),
+        "error" => (
+            if english { "Error" } else { "错误" }.to_owned(),
+            theme.error,
+        ),
+        "verdict" => (
+            if english { "Review" } else { "评审" }.to_owned(),
+            theme.warning,
+        ),
+        "user" => (
+            if english { "You" } else { "你" }.to_owned(),
+            theme.speaker("human"),
+        ),
+        _ => (
+            if english { "Duo" } else { "Duo" }.to_owned(),
+            theme.speaker("duo"),
+        ),
     }
 }
 
@@ -3695,6 +4611,7 @@ fn markdown_elements(blocks: &[Block], theme: Theme) -> Vec<AnyElement> {
             Block::Code(code) => div()
                 .flex()
                 .flex_col()
+                .font_family("monospace")
                 .bg(theme.background)
                 .px_1()
                 .children(code.split('\n').map(|line| {
@@ -3731,7 +4648,11 @@ fn inline_line(spans: &[Span], theme: Theme) -> AnyElement {
                     element.text_color(theme.secondary).underline()
                 })
                 .when(span.style.code, |element| {
-                    element.bg(theme.background).rounded_sm().px_1()
+                    element
+                        .font_family("monospace")
+                        .bg(theme.background)
+                        .rounded_sm()
+                        .px_1()
                 })
                 .child(span.text.clone())
         }))

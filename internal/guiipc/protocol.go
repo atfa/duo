@@ -3,9 +3,10 @@
 //
 // It is a frontend-neutral adapter, not a second frontend: it reads the same
 // session.View projection the terminal interface reads and translates the same
-// session.Command values the terminal interface sends. It owns no workflow
-// state, opens no socket and names no live core object, so the GUI cannot reach
-// the coordinator through it.
+// session.Command values the terminal interface sends. The renderer never opens
+// a socket or holds Core state: the host may broker native PTY bytes over a
+// private local socket, but its path and authenticated bridge state are never in
+// this protocol. The GUI therefore cannot reach the coordinator through it.
 //
 // The wire contract is written down in docs/gui-protocol.md; this file is its Go
 // half, and the field names here are the contract, not an implementation detail.
@@ -48,6 +49,10 @@ const (
 	KindSetLanguage    = "set_language"
 	KindSetModel       = "set_model"
 	KindCycleThinking  = "cycle_thinking"
+	KindSetDriver      = "set_driver"
+	KindOpenProject    = "open_project"
+	KindOpenNative     = "open_native"
+	KindCloseNative    = "close_native"
 	KindQuit           = "quit"
 )
 
@@ -80,6 +85,7 @@ type Agent struct {
 	Models          []Model     `json:"models"`
 	ModelsLoaded    bool        `json:"models_loaded"`
 	ModelsError     string      `json:"models_error,omitempty"`
+	NativeOpen      bool        `json:"native_open"`
 }
 
 type WorkPreview struct {
@@ -167,38 +173,42 @@ type Model struct {
 // diagnostics a session buffered before any frontend existed, so the GUI shows
 // them the way the terminal interface does rather than losing them.
 type View struct {
-	Version      string             `json:"version"`
-	Session      string             `json:"session"`
-	Mode         string             `json:"mode"`
-	Phase        string             `json:"phase"`
-	Started      bool               `json:"started"`
-	Language     string             `json:"language"`
-	Repository   string             `json:"repository"`
-	BaseBranch   string             `json:"base_branch"`
-	BaseCommit   string             `json:"base_commit"`
-	Status       string             `json:"status"`
-	Plan         string             `json:"plan"`
-	PlanVersion  int                `json:"plan_version"`
-	Ready        Ready              `json:"ready"`
-	StepsTotal   int                `json:"steps_total"`
-	StepCursor   int                `json:"step_cursor"`
-	Delivery     string             `json:"delivery"`
-	Verification Verification       `json:"verification"`
-	StepEvidence []StepVerification `json:"step_evidence"`
-	Notices      []string           `json:"notices"`
-	Agents       map[string]Agent   `json:"agents"`
+	Version          string             `json:"version"`
+	Session          string             `json:"session"`
+	Mode             string             `json:"mode"`
+	Phase            string             `json:"phase"`
+	Started          bool               `json:"started"`
+	Language         string             `json:"language"`
+	Repository       string             `json:"repository"`
+	BaseBranch       string             `json:"base_branch"`
+	BaseCommit       string             `json:"base_commit"`
+	Status           string             `json:"status"`
+	Plan             string             `json:"plan"`
+	PlanVersion      int                `json:"plan_version"`
+	Ready            Ready              `json:"ready"`
+	StepsTotal       int                `json:"steps_total"`
+	StepCursor       int                `json:"step_cursor"`
+	Delivery         string             `json:"delivery"`
+	Verification     Verification       `json:"verification"`
+	StepEvidence     []StepVerification `json:"step_evidence"`
+	Notices          []string           `json:"notices"`
+	Agents           map[string]Agent   `json:"agents"`
+	AvailableDrivers []string           `json:"available_drivers"`
 }
 
 // Event is one timeline line. Live session events and replayed history records
 // land in the same shape: the store records error/warning flags rather than
 // kinds, so fromHistory derives the kind and both sources render one way.
 type Event struct {
-	Time  string `json:"time"`
-	Kind  string `json:"kind"`
-	Agent string `json:"agent"`
-	Peer  string `json:"peer"`
-	Text  string `json:"text"`
-	Label string `json:"label,omitempty"`
+	Time     string `json:"time"`
+	Kind     string `json:"kind"`
+	Agent    string `json:"agent"`
+	Peer     string `json:"peer"`
+	Text     string `json:"text"`
+	Label    string `json:"label,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	Model    string `json:"model,omitempty"`
+	Thinking string `json:"thinking,omitempty"`
 }
 
 // Command is the envelope the GUI sends. Type is always "command"; Kind selects
@@ -211,6 +221,8 @@ type Command struct {
 	Language string `json:"language,omitempty"`
 	Provider string `json:"provider,omitempty"`
 	Model    string `json:"model,omitempty"`
+	Driver   string `json:"driver,omitempty"`
+	Path     string `json:"path,omitempty"`
 }
 
 // writeFrame is the single envelope for everything Go sends, so the GUI decodes
@@ -385,11 +397,14 @@ func truncateRunes(s string, n int) string {
 // fromEvent projects a live session event onto the wire.
 func fromEvent(e events.Event) Event {
 	return Event{
-		Time:  e.Time.UTC().Format(time.RFC3339Nano),
-		Kind:  string(e.Kind),
-		Agent: wireAgent(e.Agent),
-		Peer:  wireAgent(e.Peer),
-		Text:  e.Text,
+		Time:     e.Time.UTC().Format(time.RFC3339Nano),
+		Kind:     string(e.Kind),
+		Agent:    wireAgent(e.Agent),
+		Peer:     wireAgent(e.Peer),
+		Text:     e.Text,
+		Provider: e.Provider,
+		Model:    e.Model,
+		Thinking: e.Thinking,
 	}
 }
 
@@ -439,6 +454,15 @@ func decodeCommand(line []byte) (session.Command, bool, error) {
 			return nil, false, err
 		}
 		return session.RestartAgent{Agent: agent}, false, nil
+	case KindSetDriver:
+		agent, err := parseAgent(cmd.Agent)
+		if err != nil {
+			return nil, false, err
+		}
+		if strings.TrimSpace(cmd.Driver) == "" {
+			return nil, false, errors.New("set_driver carries no driver")
+		}
+		return session.SetDriver{Agent: agent, Driver: strings.TrimSpace(cmd.Driver)}, false, nil
 	case KindSetLanguage:
 		if strings.TrimSpace(cmd.Language) == "" {
 			return nil, false, errors.New("set_language carries no language")

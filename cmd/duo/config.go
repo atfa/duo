@@ -300,10 +300,14 @@ func loadResumeConfig(args []string) (config, error) {
 }
 
 func parseResumeArgs(args []string) (cliArgs, error) {
+	root := ""
+	if len(args) > 1 {
+		root, args = args[1], args[:1]
+	}
 	parsed, err := parseArgs(args)
 	if err == nil {
 		parsed.resume = true
-		parsed.sessionID, parsed.repository = parsed.repository, ""
+		parsed.sessionID, parsed.repository = parsed.repository, root
 	}
 	return parsed, err
 }
@@ -430,7 +434,17 @@ func loadConfigCommand(args []string, resume bool) (config, error) {
 		// reaches the plugin as the base command for it to interpret. piCommand is
 		// still honoured, as the command for the default driver, which is why it
 		// applies only when no driver was named explicitly.
+		recordedDriver := strings.TrimSpace(agentCfg.Driver)
+		if recordedDriver == "" {
+			recordedDriver = strings.TrimSpace(fileCfg.Driver)
+		}
+		driverConfigChanged := recordedDriver != "" && recordedDriver != driverType
 		baseCmd := agentCfg.Command
+		if driverConfigChanged {
+			// Agent-specific CLI commands and thinking values belong to the driver
+			// that recorded them. Do not pass them to a newly selected driver.
+			baseCmd = ""
+		}
 		// piCommand is a command for the default driver, so it applies unless a
 		// driver other than the default one was named. Naming the default driver
 		// explicitly is not naming a different one, and must not silently drop an
@@ -449,7 +463,7 @@ func loadConfigCommand(args []string, resume bool) (config, error) {
 		// Without this, --tony-driver pi handed a persisted opencode model to pi
 		// and the agent died at startup.
 		requested := agentCfg.Model
-		if recorded := strings.TrimSpace(agentCfg.Driver); recorded != "" && recorded != driverType {
+		if driverConfigChanged {
 			requested = ""
 		}
 		// What survives here is intent only. Spelling the reference for the driver
@@ -459,7 +473,7 @@ func loadConfigCommand(args []string, resume bool) (config, error) {
 		// line and puts the model on it, so appending a second copy here is how a
 		// model reached an agent that had already been told a different one.
 		agentModels[id] = requested
-		if agentCfg.Thinking != "" {
+		if agentCfg.Thinking != "" && !driverConfigChanged {
 			agentThinkings[id] = agentCfg.Thinking
 		}
 		agentCommands[id] = baseCmd

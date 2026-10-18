@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -461,6 +462,77 @@ func TestSupervisedRestartsACrashedPlugin(t *testing.T) {
 	}
 	if spawned < 2 {
 		t.Fatalf("spawned %d processes; a crash must force a new one", spawned)
+	}
+}
+
+func TestResolvedPluginOutlivesRequestContext(t *testing.T) {
+	bin := buildExamplePlugin(t)
+	t.Setenv("PATH", filepath.Dir(bin))
+
+	for _, stop := range []string{"close", "parent cancel"} {
+		t.Run(stop, func(t *testing.T) {
+			lifetime, cancelLifetime := context.WithCancel(context.Background())
+			defer cancelLifetime()
+			caller, err := Resolve(lifetime, "example", nil, nil)
+			if err != nil {
+				t.Fatalf("resolve: %v", err)
+			}
+			supervised := caller.(*Supervised)
+			defer caller.Close()
+
+			probeCtx, cancelProbe := context.WithCancel(context.Background())
+			if _, err := caller.Probe(probeCtx); err != nil {
+				cancelProbe()
+				t.Fatalf("probe: %v", err)
+			}
+			supervised.mu.Lock()
+			probeClient := supervised.live
+			supervised.mu.Unlock()
+			if probeClient == nil {
+				cancelProbe()
+				t.Fatal("probe did not start a plugin process")
+			}
+			cancelProbe()
+
+			list, err := caller.Models(context.Background())
+			if err != nil {
+				t.Fatalf("models after probe context was canceled: %v", err)
+			}
+			if list == nil || len(list.Models) == 0 {
+				t.Fatalf("models after probe returned an empty catalog: %+v", list)
+			}
+
+			supervised.mu.Lock()
+			client := supervised.live
+			supervised.mu.Unlock()
+			if client == nil {
+				t.Fatal("plugin process was not retained after the model call")
+			}
+			if client != probeClient {
+				t.Fatal("model call had to restart the plugin after probe context was canceled")
+			}
+			if stop == "close" {
+				caller.Close()
+			} else {
+				cancelLifetime()
+			}
+			select {
+			case <-client.done:
+			case <-time.After(2 * time.Second):
+				t.Fatalf("plugin process did not stop after %s", stop)
+			}
+			if stop == "parent cancel" {
+				if _, err := caller.Models(context.Background()); !errors.Is(err, context.Canceled) {
+					t.Fatalf("call after parent cancellation = %v, want context canceled", err)
+				}
+				supervised.mu.Lock()
+				stillSame := supervised.live == client
+				supervised.mu.Unlock()
+				if !stillSame {
+					t.Fatal("call after parent cancellation restarted the plugin")
+				}
+			}
+		})
 	}
 }
 

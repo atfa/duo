@@ -13,10 +13,13 @@ fi
 
 bundle="$1"
 binary="${2:-$root/gpui/.target/release/xduo}"
-duo_binary="${3:-$(command -v duo || true)}"
+duo_binary="${3:-}"
 duo_bin_dir="${4:-}"
 if [[ -z "$duo_binary" && -x "$root/duo" ]]; then
 	duo_binary="$root/duo"
+fi
+if [[ -z "$duo_binary" ]]; then
+	duo_binary="$(command -v duo || true)"
 fi
 if [[ -z "$duo_bin_dir" && -n "$duo_binary" ]]; then
 	duo_bin_dir="$(dirname "$duo_binary")"
@@ -39,6 +42,7 @@ version="${RELEASE_VERSION:-$(git -C "$root" describe --tags --always 2>/dev/nul
 mkdir -p "$contents/MacOS" "$contents/Resources/bin"
 install -m 0755 "$binary" "$contents/MacOS/xduo-renderer"
 install -m 0755 "$duo_binary" "$contents/Resources/duo"
+install -m 0644 "$root/scripts/xduo-launcher-path.sh" "$contents/Resources/xduo-launcher-path.sh"
 install -m 0644 "$root/resources/xduo.icns" "$contents/Resources/xduo.icns"
 for helper in "$duo_bin_dir"/duo-*; do
 	[[ -f "$helper" && -x "$helper" ]] || continue
@@ -47,48 +51,15 @@ done
 cat >"$contents/MacOS/xduo" <<'LAUNCHER'
 #!/bin/sh
 resources="$(cd "$(dirname "$0")/../Resources" && pwd)"
+. "$resources/xduo-launcher-path.sh"
 show_error() {
 	/usr/bin/osascript \
 		-e 'on run argv' \
 		-e 'display dialog (item 1 of argv) buttons {"OK"} default button "OK" with icon caution' \
 	-e 'end run' "$1" >/dev/null 2>&1 || true
 }
-project_dir="$(/usr/bin/osascript -e 'POSIX path of (choose folder with prompt "Choose a Git repository for this Duo session")' 2>/dev/null)" || exit 0
-export PATH="$resources/bin:$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.go/bin:$HOME/go/bin:$HOME/.bun/bin:$HOME/.volta/bin:$HOME/.asdf/shims:$HOME/.npm-global/bin:$HOME/.local/share/mise/shims:$HOME/.local/share/pnpm:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
-if ! project_root="$(/usr/bin/git -C "$project_dir" rev-parse --show-toplevel 2>/dev/null)"; then
-	show_error 'Choose an existing Git repository. Duo needs a repository to start a session.'
-	exit 1
-fi
-cd "$project_root" || { show_error "Could not open the selected repository: $project_root"; exit 1; }
+export PATH="$(duo_xduo_launcher_path "$resources" "$resources/bin" "$PATH")"
 export DUO_GPUI_BIN="$(cd "$(dirname "$0")" && pwd)/xduo-renderer"
-unfinished_ids="$("$resources/duo" sessions --unfinished-ids "$project_root" 2>/dev/null)" || {
-	show_error 'Could not read existing Duo sessions for this repository.'
-	exit 1
-}
-if [ -n "$unfinished_ids" ]; then
-	set --
-	while IFS= read -r session_id; do
-		[ -n "$session_id" ] && set -- "$@" "$session_id"
-	done <<EOF
-$unfinished_ids
-EOF
-	choice="$(/usr/bin/osascript \
-		-e 'on run argv' \
-		-e 'set options to {"Start a new session"}' \
-		-e 'repeat with sessionID in argv' \
-		-e 'set end of options to contents of sessionID' \
-		-e 'end repeat' \
-		-e 'set picked to choose from list options with title "Choose a Duo session" with prompt "Resume an unfinished session or start a new one."' \
-		-e 'if picked is false then return ""' \
-		-e 'return item 1 of picked' \
-		-e 'end run' "$@" 2>/dev/null)" || exit 0
-	[ -n "$choice" ] || exit 0
-	if [ "$choice" = 'Start a new session' ]; then
-		set --
-	else
-		set -- resume "$choice"
-	fi
-fi
 log_dir="$HOME/Library/Logs/Duo"
 umask 077
 if ! mkdir -p "$log_dir"; then
@@ -96,7 +67,7 @@ if ! mkdir -p "$log_dir"; then
 	exit 1
 fi
 log_file="$log_dir/xduo.log"
-if "$resources/duo" gui "$@" >"$log_file" 2>&1; then
+if "$resources/duo" gui --welcome >"$log_file" 2>&1; then
 	exit 0
 else
 	status=$?

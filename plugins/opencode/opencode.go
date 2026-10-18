@@ -142,9 +142,8 @@ func (*Plugin) Describe() (*driver.Manifest, error) {
 			// what the Agent Adapter has learned.
 			Resume: driver.ResumeServer,
 			Models: true,
-			// The reasoning effort is a launch flag, spelled --variant, and applied
-			// by restarting the agent.
-			Thinking:           true,
+			// The installed TUI CLI does not accept a reasoning flag.
+			Thinking:           false,
 			LiveModelSwitch:    false,
 			LiveThinkingSwitch: false,
 			ContextUsage:       true,
@@ -197,8 +196,6 @@ func (p *Plugin) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
 	}
 
 	command := driver.SetFlag(base, "--model", strings.TrimSpace(req.Model))
-	// opencode spells reasoning effort --variant, not --thinking.
-	command = driver.SetFlag(command, "--variant", strings.TrimSpace(req.Thinking))
 
 	parts := []string{command}
 	// A placeholder from an older Duo is ignored rather than passed through: it

@@ -45,6 +45,13 @@ type RestartAgent struct {
 	Agent protocol.AgentID `json:"agent"`
 }
 
+// SetDriver changes the executable behind one agent while preserving its Duo
+// worktree and workflow identity.
+type SetDriver struct {
+	Agent  protocol.AgentID `json:"agent"`
+	Driver string           `json:"driver"`
+}
+
 // SetLanguage selects the language Duo writes its own messages in, and records
 // it in the project configuration so later sessions start in it.
 type SetLanguage struct {
@@ -66,6 +73,7 @@ func (EscalateToGoal) Kind() string { return "escalate_to_goal" }
 func (SetModel) Kind() string       { return "set_model" }
 func (CycleThinking) Kind() string  { return "cycle_thinking" }
 func (RestartAgent) Kind() string   { return "restart_agent" }
+func (SetDriver) Kind() string      { return "set_driver" }
 func (SetLanguage) Kind() string    { return "set_language" }
 func (RestartDuo) Kind() string     { return "restart_duo" }
 
@@ -74,5 +82,6 @@ func (EscalateToGoal) command() {}
 func (SetModel) command()       {}
 func (CycleThinking) command()  {}
 func (RestartAgent) command()   {}
+func (SetDriver) command()      {}
 func (SetLanguage) command()    {}
 func (RestartDuo) command()     {}

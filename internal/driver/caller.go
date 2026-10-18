@@ -142,6 +142,9 @@ func (b *Builtin) Close() {
 // runs against a fresh process.
 type Supervised struct {
 	name string
+	// lifetime owns the plugin process. Individual RPCs still use their call
+	// context for deadlines and cancellation.
+	lifetime context.Context
 
 	mu   sync.Mutex
 	path string
@@ -154,6 +157,10 @@ type Supervised struct {
 
 // SupervisedOptions configures a Supervised caller.
 type SupervisedOptions struct {
+	// Lifetime is the context that owns the plugin process. It is intentionally
+	// separate from the per-call contexts passed to Probe, Models, and other RPCs.
+	// A nil value uses context.Background; Close still stops the process.
+	Lifetime context.Context
 	// Path is the plugin executable to (re)start.
 	Path string
 	// Env is the environment the plugin process gets.
@@ -167,19 +174,29 @@ type SupervisedOptions struct {
 // NewSupervised returns a Caller that lazily starts a plugin process and
 // respawns it after a crash.
 func NewSupervised(name string, opts SupervisedOptions) *Supervised {
+	lifetime := opts.Lifetime
+	if lifetime == nil {
+		lifetime = context.Background()
+	}
 	open := opts.Open
 	if open == nil {
 		open = func(ctx context.Context, path string, env []string) (*Client, error) {
 			return Start(ctx, name, path, nil, env)
 		}
 	}
-	return &Supervised{name: name, path: opts.Path, env: opts.Env, open: open, report: opts.Report}
+	return &Supervised{name: name, lifetime: lifetime, path: opts.Path, env: opts.Env, open: open, report: opts.Report}
 }
 
 func (s *Supervised) Name() string { return s.name }
 
 // client returns a live plugin process, starting one if the previous exited.
 func (s *Supervised) client(ctx context.Context) (*Client, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.lifetime.Err(); err != nil {
+		return nil, err
+	}
 	s.mu.Lock()
 	if s.live != nil {
 		select {
@@ -193,7 +210,7 @@ func (s *Supervised) client(ctx context.Context) (*Client, error) {
 	}
 	s.mu.Unlock()
 
-	c, err := s.open(ctx, s.path, s.env)
+	c, err := s.open(s.lifetime, s.path, s.env)
 	if err != nil {
 		return nil, err
 	}

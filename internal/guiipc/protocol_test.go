@@ -471,6 +471,7 @@ func TestDecodeCommandRoundTripsEachKind(t *testing.T) {
 		{line: `{"type":"command","kind":"set_language","language":"en"}`, want: session.SetLanguage{Language: "en"}},
 		{line: `{"type":"command","kind":"set_model","agent":"tony","provider":"p","model":"m"}`, want: session.SetModel{Agent: protocol.Tony, Provider: "p", Model: "m"}},
 		{line: `{"type":"command","kind":"cycle_thinking","agent":"austin"}`, want: session.CycleThinking{Agent: protocol.Austin}},
+		{line: `{"type":"command","kind":"set_driver","agent":"tony","driver":"pi"}`, want: session.SetDriver{Agent: protocol.Tony, Driver: "pi"}},
 		{line: `{"type":"command","kind":"quit"}`, quit: true},
 	}
 	for _, tc := range cases {
@@ -506,6 +507,7 @@ func TestDecodeCommandRejectsBadFrames(t *testing.T) {
 		{name: "set_language without language", line: `{"type":"command","kind":"set_language"}`},
 		{name: "restart unknown agent", line: `{"type":"command","kind":"restart_agent","agent":"duo"}`},
 		{name: "restart without agent", line: `{"type":"command","kind":"restart_agent"}`},
+		{name: "set driver without driver", line: `{"type":"command","kind":"set_driver","agent":"austin"}`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

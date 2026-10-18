@@ -116,13 +116,10 @@ func TestPrepareRunsUnattended(t *testing.T) {
 
 // opencode spells reasoning effort --variant. Passing --thinking instead produced an
 // "unknown flag" exit with the reason visible only in the session log.
-func TestPrepareSpellsEffortAsVariant(t *testing.T) {
+func TestPrepareOmitsUnsupportedTUIThinkingFlag(t *testing.T) {
 	plan := prepare(t, driver.LaunchRequest{BaseCommand: Name, Thinking: "high"})
-	if !strings.Contains(plan.Command, "--variant 'high'") {
-		t.Errorf("effort missing or misspelled: %s", plan.Command)
-	}
-	if strings.Contains(plan.Command, "--thinking") {
-		t.Errorf("opencode does not accept --thinking: %s", plan.Command)
+	if strings.Contains(plan.Command, "--variant") || strings.Contains(plan.Command, "--thinking") {
+		t.Errorf("TUI launch has no supported reasoning flag: %s", plan.Command)
 	}
 }
 

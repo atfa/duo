@@ -85,9 +85,10 @@ type Service struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
-	root, scope, repoID, baseDir string
-	sessionID                    string
-	createdAt                    time.Time
+	root, scope, repoID, baseDir  string
+	sessionID                     string
+	bridgeHost, bridgePort, token string
+	createdAt                     time.Time
 
 	state *project.State
 	ws    *workspace.GitManager
@@ -312,6 +313,7 @@ func (s *Service) launch(ctx context.Context) (Result, error) {
 	}
 
 	host, port := bridgeAddress(server.Addr())
+	s.bridgeHost, s.bridgePort, s.token = host, port, token
 	agents := agent.NewManager()
 	s.agents = agents
 	agents.SetObserver(s.observeLifecycle)
@@ -330,7 +332,7 @@ func (s *Service) launch(ctx context.Context) (Result, error) {
 		// One lookup for every agent: a driver Duo ships in-process, or a plugin
 		// executable found on disk. Core asks nothing of a driver and guesses
 		// nothing from its name.
-		plugin, err := driverResolve(ctx, driverName, s.pluginEnv(agentID, host, port, token), func(err error) {
+		plugin, err := driverResolve(s.ctx, driverName, s.pluginEnv(agentID, host, port, token), func(err error) {
 			s.logger.Printf("%s: driver plugin: %v", agentID, err)
 			s.bus.Emit(events.Event{Time: time.Now(), Kind: events.KindError, Agent: protocol.Duo, Text: fmt.Sprintf("%s driver plugin: %v", agentID, err)})
 		})
@@ -651,6 +653,8 @@ func (s *Service) Do(ctx context.Context, cmd Command) error {
 		}
 		s.tracker.Reset(c.Agent)
 		return nil
+	case SetDriver:
+		return s.setDriver(ctx, c)
 	case SetLanguage:
 		return s.setLanguage(c)
 	case RestartDuo:
@@ -658,6 +662,111 @@ func (s *Service) Do(ctx context.Context, cmd Command) error {
 	default:
 		return fmt.Errorf("unsupported command %T", cmd)
 	}
+}
+
+func (s *Service) setDriver(ctx context.Context, c SetDriver) error {
+	if c.Agent != protocol.Austin && c.Agent != protocol.Tony {
+		return fmt.Errorf("unknown agent %q", c.Agent)
+	}
+	name := strings.TrimSpace(c.Driver)
+	if name == "" {
+		return errors.New("driver name is empty")
+	}
+	if name == s.opts.AgentDriver(c.Agent) {
+		return nil
+	}
+	old, ok := s.agents.Session(c.Agent)
+	if !ok {
+		return fmt.Errorf("%s agent session is not running", c.Agent)
+	}
+	env := s.pluginEnv(c.Agent, s.bridgeHost, s.bridgePort, s.token)
+	plugin, err := driverResolve(s.ctx, name, env, func(err error) {
+		s.logger.Printf("%s: driver plugin: %v", c.Agent, err)
+		s.bus.Emit(events.Event{Time: time.Now(), Kind: events.KindError, Agent: protocol.Duo, Text: fmt.Sprintf("%s driver plugin: %v", c.Agent, err)})
+	})
+	if err != nil {
+		return err
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	probe, err := plugin.Probe(probeCtx)
+	if err != nil || probe == nil {
+		plugin.Close()
+		if err == nil {
+			return errors.New("driver probe returned no result")
+		}
+		return fmt.Errorf("probe %s: %w", name, err)
+	}
+	if !probe.Available {
+		plugin.Close()
+		return fmt.Errorf("%s is unavailable: %s", name, probe.Reason)
+	}
+
+	commands, modelsByAgent, thinkingByAgent := driverSwitchOptions(s.opts, c.Agent)
+	manifest := manifestOf(probeCtx, plugin)
+	baseCommand, model, effort := ResolveDriver(commands, modelsByAgent, thinkingByAgent, c.Agent, manifest)
+	previous, ok := old.(*agent.Session)
+	if !ok {
+		plugin.Close()
+		return fmt.Errorf("%s session does not support driver replacement", c.Agent)
+	}
+	candidate, err := previous.WithDriver(probeCtx, plugin, baseCommand, model, effort)
+	if err != nil {
+		plugin.Close()
+		return err
+	}
+	prepareCtx, prepareCancel := context.WithTimeout(ctx, 10*time.Second)
+	if err := candidate.Preflight(prepareCtx); err != nil {
+		prepareCancel()
+		candidate.Close()
+		return fmt.Errorf("prepare %s: %w", name, err)
+	}
+	prepareCancel()
+	s.coord.EnableResumeWakeForAgent(c.Agent)
+	if err := s.agents.Replace(ctx, candidate); err != nil {
+		return err
+	}
+	if s.opts.AgentDrivers == nil {
+		s.opts.AgentDrivers = make(map[protocol.AgentID]string)
+	}
+	if s.opts.AgentModels == nil {
+		s.opts.AgentModels = make(map[protocol.AgentID]string)
+	}
+	if s.opts.AgentCommands == nil {
+		s.opts.AgentCommands = make(map[protocol.AgentID]string)
+	}
+	if s.opts.AgentThinkings == nil {
+		s.opts.AgentThinkings = make(map[protocol.AgentID]string)
+	}
+	s.opts.AgentDrivers[c.Agent] = name
+	s.opts.AgentCommands[c.Agent] = baseCommand
+	s.opts.AgentModels[c.Agent] = ""
+	s.opts.AgentThinkings[c.Agent] = ""
+	s.coord.SetCurrentModel(c.Agent, model)
+	s.tracker.Reset(c.Agent)
+	s.persistProjectConfig()
+	if err := s.store.Save(s.composeSnapshot(s.coord)); err != nil {
+		s.logger.Printf("checkpoint after driver switch: %v", err)
+	}
+	return nil
+}
+
+func driverSwitchOptions(opts Options, id protocol.AgentID) (commands, modelsByAgent, thinkingByAgent map[protocol.AgentID]string) {
+	commands = cloneAgentStrings(opts.AgentCommands)
+	modelsByAgent = cloneAgentStrings(opts.AgentModels)
+	thinkingByAgent = cloneAgentStrings(opts.AgentThinkings)
+	commands[id] = ""
+	modelsByAgent[id] = ""
+	thinkingByAgent[id] = ""
+	return commands, modelsByAgent, thinkingByAgent
+}
+
+func cloneAgentStrings(src map[protocol.AgentID]string) map[protocol.AgentID]string {
+	out := make(map[protocol.AgentID]string, len(src)+1)
+	for k, v := range src {
+		out[k] = v
+	}
+	return out
 }
 
 // requestRestart records that the session asked to continue on a new Duo binary.
@@ -790,6 +899,27 @@ func (s *Service) Models(ctx context.Context, agent protocol.AgentID) ([]models.
 	return models.Load(ctx, d)
 }
 
+// AvailableDrivers lists local drivers whose probe confirms they can run now.
+// Each check is bounded so one broken plugin cannot hold up the GUI.
+func (s *Service) AvailableDrivers(ctx context.Context) []string {
+	var available []string
+	for _, entry := range driver.Discover() {
+		probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		plugin, err := driver.Resolve(probeCtx, entry.Name, nil, nil)
+		if err == nil {
+			if plugin != nil {
+				result, probeErr := plugin.Probe(probeCtx)
+				if probeErr == nil && result != nil && result.Available {
+					available = append(available, entry.Name)
+				}
+				plugin.Close()
+			}
+		}
+		cancel()
+	}
+	return available
+}
+
 // StatusText renders the workflow status the way the coordinator would answer a
 // status request over the bridge.
 func (s *Service) StatusText(ctx context.Context) string {
@@ -870,6 +1000,17 @@ func (s *Service) Attach(agent protocol.AgentID, w io.Writer) ([]byte, error) {
 		s.tracker.SetHumanAttached(agent, true)
 	}
 	return d.Attach(w), nil
+}
+
+// NativeRunning reports whether the selected agent still has a live PTY process.
+func (s *Service) NativeRunning(agent protocol.AgentID) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.agents == nil {
+		return false
+	}
+	d, ok := s.agents.Session(agent)
+	return ok && d.Running()
 }
 
 // Detach undoes Attach.

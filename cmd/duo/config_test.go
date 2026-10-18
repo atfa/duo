@@ -798,7 +798,7 @@ func TestModelPersistedForAnotherDriverIsDropped(t *testing.T) {
 	}
 	body := `{"agents":{` +
 		`"austin":{"driver":"pi","model":"keep-this-model"},` +
-		`"tony":{"driver":"opencode","model":"opencode/space-bunny-free"}}}`
+		`"tony":{"driver":"opencode","model":"opencode/space-bunny-free","command":"codex --profile cli-proxy","thinking":"high"}}}`
 	if err := os.WriteFile(filepath.Join(root, ".duo", "config.json"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -820,6 +820,12 @@ func TestModelPersistedForAnotherDriverIsDropped(t *testing.T) {
 
 	if got := cfg.agentDriver(protocol.Tony); got != "pi" {
 		t.Fatalf("Tony driver = %q, want pi", got)
+	}
+	if got := cfg.agentCommand(protocol.Tony); got != "pi" {
+		t.Errorf("Tony command = %q, want default pi command after stale override is dropped", got)
+	}
+	if got := cfg.agentThinking(protocol.Tony); got != "" {
+		t.Errorf("Tony thinking = %q, want stale opencode thinking dropped", got)
 	}
 	if got := cfg.agentModel(protocol.Tony); got == "opencode/space-bunny-free" {
 		t.Errorf("Tony kept the model persisted for opencode: %q", got)

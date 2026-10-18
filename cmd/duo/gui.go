@@ -1,17 +1,24 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"time"
 
 	"github.com/atfa/duo/internal/guiipc"
 	"github.com/atfa/duo/internal/session"
+	"github.com/atfa/duo/internal/workspace"
 )
 
 // The GUI host is built from the same seam the terminal interface uses, and this
@@ -39,6 +46,26 @@ func runGUI(ctx context.Context, args []string) error {
 	args, binary, err := parseGUIArgs(args)
 	if err != nil {
 		return err
+	}
+	welcome := false
+	filtered := args[:0]
+	for _, arg := range args {
+		if arg == "--welcome" {
+			welcome = true
+		} else {
+			filtered = append(filtered, arg)
+		}
+	}
+	args = filtered
+	if welcome {
+		if len(args) != 0 {
+			return errors.New("duo gui --welcome does not accept a repository argument")
+		}
+		renderer, err := findGUIBinary(binary)
+		if err != nil {
+			return err
+		}
+		return serveWelcomeGUI(ctx, renderer)
 	}
 	// `duo gui` takes the same arguments `duo` does, resume included, so a window can
 	// be opened on the session that is already in flight rather than only on a new
@@ -74,6 +101,129 @@ func runGUI(ctx context.Context, args []string) error {
 		}
 		return nil
 	})
+}
+
+func serveWelcomeGUI(ctx context.Context, renderer string) error {
+	cmd := exec.CommandContext(ctx, renderer)
+	commands, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	display, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("start %s: %w", renderer, err)
+	}
+	reader := bufio.NewReader(commands)
+	defer func() { _ = display.Close(); _ = cmd.Wait() }()
+	if err := json.NewEncoder(display).Encode(map[string]any{"type": "view", "view": map[string]any{"language": "en"}}); err != nil {
+		return err
+	}
+	for {
+		line, err := readWelcomeCommand(reader)
+		if errors.Is(err, errGUICommandTooLarge) {
+			_ = json.NewEncoder(display).Encode(map[string]string{"type": "error", "text": "GUI command exceeds 1 MiB"})
+			continue
+		}
+		if err != nil {
+			return nil
+		}
+		var command guiipc.Command
+		if json.Unmarshal(line, &command) != nil || command.Type != "command" {
+			continue
+		}
+		if command.Kind == guiipc.KindQuit {
+			return nil
+		}
+		if command.Kind != guiipc.KindOpenProject {
+			continue
+		}
+		root, err := workspace.FindRoot(ctx, command.Path)
+		resumeID := ""
+		if err == nil {
+			resumeID, err = chooseGUISession(ctx, root)
+		}
+		if err == nil {
+			var cfg config
+			if resumeID != "" {
+				cfg, err = loadResumeConfig([]string{resumeID, root})
+			} else {
+				cfg, err = loadConfig([]string{root})
+			}
+			if err == nil {
+				err = cfg.validate()
+			}
+			if err == nil {
+				runErr := runWith(ctx, cfg, func(runCtx context.Context, svc *session.Service) error {
+					host := newGUIHost(svc, renderer)
+					return host.ServeReader(runCtx, reader, display)
+				})
+				if runErr != nil && ctx.Err() == nil {
+					_ = json.NewEncoder(display).Encode(map[string]any{"type": "view", "view": map[string]any{"language": "en"}})
+					_ = json.NewEncoder(display).Encode(map[string]string{"type": "error", "text": runErr.Error()})
+					continue
+				}
+				return runErr
+			}
+		}
+		if err != nil {
+			_ = json.NewEncoder(display).Encode(map[string]string{"type": "error", "text": err.Error()})
+		}
+	}
+}
+
+var errGUICommandTooLarge = errors.New("GUI command exceeds 1 MiB")
+
+func readWelcomeCommand(reader *bufio.Reader) ([]byte, error) {
+	line := make([]byte, 0, 4096)
+	for {
+		part, err := reader.ReadSlice('\n')
+		if len(line)+len(part) > 1<<20 {
+			for err == bufio.ErrBufferFull {
+				_, err = reader.ReadSlice('\n')
+			}
+			return nil, errGUICommandTooLarge
+		}
+		line = append(line, part...)
+		if err != bufio.ErrBufferFull {
+			return line, err
+		}
+	}
+}
+
+func chooseGUISession(ctx context.Context, root string) (string, error) {
+	if runtime.GOOS != "darwin" {
+		return "", nil
+	}
+	binary, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	output, err := exec.CommandContext(ctx, binary, "sessions", "--unfinished-ids", root).Output()
+	if err != nil {
+		return "", err
+	}
+	ids := strings.Fields(string(output))
+	if len(ids) == 0 {
+		return "", nil
+	}
+	args := []string{"-e", `on run argv`, "-e", `set choices to {"Start a new session"}`, "-e", `repeat with sid in argv`, "-e", `set end of choices to contents of sid`, "-e", `end repeat`, "-e", `set picked to choose from list choices with title "Duo sessions" with prompt "Start a new session or resume an unfinished session."`, "-e", `if picked is false then return "CANCEL"`, "-e", `return item 1 of picked`, "-e", `end run`}
+	args = append(args, ids...)
+	choice, err := exec.CommandContext(ctx, "osascript", args...).Output()
+	if err != nil {
+		return "", err
+	}
+	value := strings.TrimSpace(string(choice))
+	if value == "CANCEL" {
+		return "", errors.New("session selection cancelled")
+	}
+	if value == "Start a new session" {
+		return "", nil
+	}
+	return value, nil
 }
 
 // parseGUIArgs takes the GUI-only flag out of the command line before the shared
@@ -127,7 +277,11 @@ func findGUIBinary(explicit string) (string, error) {
 // binary expects the PATH lookup their shell would do.
 func resolveGUIBinary(candidate string) (string, error) {
 	if path, err := exec.LookPath(candidate); err == nil {
-		return path, nil
+		absolute, absErr := filepath.Abs(path)
+		if absErr != nil {
+			return "", absErr
+		}
+		return absolute, nil
 	}
 	return "", fmt.Errorf("the GPUI renderer %q is not an executable on PATH", candidate)
 }
@@ -154,7 +308,8 @@ func serveGUI(ctx context.Context, svc *session.Service, renderer string) error 
 		return fmt.Errorf("start %s: %w", renderer, err)
 	}
 
-	serveErr := guiipc.NewHost(svc).Serve(ctx, commands, display)
+	host := newGUIHost(svc, renderer)
+	serveErr := host.Serve(ctx, commands, display)
 	// The display stream ending is how the renderer learns the host is done. The
 	// window stays open on the last frame until the human closes it, which is what
 	// Wait waits for.
@@ -169,3 +324,69 @@ func serveGUI(ctx context.Context, svc *session.Service, renderer string) error 
 	}
 	return nil
 }
+
+func newGUIHost(svc *session.Service, renderer string) *guiipc.Host {
+	host := guiipc.NewHost(svc)
+	host.SetOpenProject(func(ctx context.Context, selected string) error {
+		root, err := workspace.FindRoot(ctx, selected)
+		if err != nil {
+			return fmt.Errorf("selected folder is not a Git repository: %w", err)
+		}
+		binary, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		next := exec.Command(binary, "gui", "--gui-binary", renderer, root)
+		next.Stdout = io.Discard
+		stderr := &boundedGUIOutput{}
+		next.Stderr = stderr
+		if err := next.Start(); err != nil {
+			return fmt.Errorf("open project window: %w", err)
+		}
+		if err := next.Wait(); err != nil {
+			return fmt.Errorf("project window failed: %w: %s", err, stderr.String())
+		}
+		return nil
+	})
+	host.SetNativeLauncher(func(ctx context.Context, socketPath, agent string) error {
+		if runtime.GOOS != "darwin" {
+			return fmt.Errorf("native terminal launch is unsupported on %s", runtime.GOOS)
+		}
+		binary, err := os.Executable()
+		if err != nil {
+			return err
+		}
+		command := shellQuote(binary) + " native --socket " + shellQuote(socketPath) + " --agent " + shellQuote(agent)
+		script := `tell application "Terminal" to do script "exec ` + strings.ReplaceAll(strings.ReplaceAll(command, `\`, `\\`), `"`, `\"`) + `"`
+		launchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		output, err := exec.CommandContext(launchCtx, "osascript", "-e", script).CombinedOutput()
+		if err != nil {
+			if errors.Is(launchCtx.Err(), context.DeadlineExceeded) {
+				return fmt.Errorf("open native terminal timed out after 10 seconds; check macOS Automation access for Terminal and whether Terminal is responding (osascript: %v: %s)", err, strings.TrimSpace(string(output)))
+			}
+			return fmt.Errorf("open native terminal: %w: %s", err, strings.TrimSpace(string(output)))
+		}
+		return nil
+	})
+	return host
+}
+
+func shellQuote(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'" }
+
+type boundedGUIOutput struct{ buf bytes.Buffer }
+
+func (b *boundedGUIOutput) Write(p []byte) (int, error) {
+	const limit = 16 * 1024
+	remaining := limit - b.buf.Len()
+	if remaining > 0 {
+		if len(p) > remaining {
+			_, _ = b.buf.Write(p[:remaining])
+		} else {
+			_, _ = b.buf.Write(p)
+		}
+	}
+	return len(p), nil
+}
+
+func (b *boundedGUIOutput) String() string { return strings.TrimSpace(b.buf.String()) }

@@ -54,6 +54,10 @@ func (m *Manager) observe(event LifecycleEvent) {
 
 func (m *Manager) Add(d Driver) {
 	d.SetOnExit(func(event ExitEvent) {
+		current, ok := m.Driver(event.Agent)
+		if !ok || current != d {
+			return
+		}
 		m.observe(LifecycleEvent{Kind: "agent_exit", Agent: event.Agent, State: event.State, Err: event.Err, Requested: event.Requested, Output: event.Output})
 	})
 	m.mu.Lock()
@@ -172,6 +176,34 @@ func (m *Manager) Restart(ctx context.Context, agent protocol.AgentID) error {
 	err := d.Restart(ctx)
 	m.observe(LifecycleEvent{Kind: "agent_restart", Agent: agent, State: d.State(), Err: err})
 	return err
+}
+
+// Replace stops one agent, starts its prepared replacement, and restores the old
+// driver if startup fails. The Manager pointer is shared with the coordinator.
+func (m *Manager) Replace(ctx context.Context, replacement *Session) error {
+	id := replacement.Agent()
+	old, ok := m.Driver(id)
+	if !ok {
+		return fmt.Errorf("missing %s session", id)
+	}
+	previous, ok := old.(*Session)
+	if !ok {
+		return fmt.Errorf("%s session does not support driver replacement", id)
+	}
+	previous.PreserveDriverState()
+	old.Stop()
+	m.Add(replacement)
+	if err := replacement.Start(ctx); err != nil {
+		replacement.Close()
+		m.Add(previous)
+		if rollbackErr := old.Start(ctx); rollbackErr != nil {
+			return fmt.Errorf("start replacement: %v; restore previous driver: %w", err, rollbackErr)
+		}
+		return fmt.Errorf("start replacement: %w", err)
+	}
+	old.Close()
+	m.observe(LifecycleEvent{Kind: "agent_restart", Agent: id, State: replacement.State()})
+	return nil
 }
 
 func (m *Manager) StopAll() {

@@ -130,6 +130,7 @@ timeline in the right order without a second code path.
 | `models` | array of Model | Options returned by this agent's driver catalog; empty while loading or when no options were returned. |
 | `models_loaded` | bool | The catalog request finished, whether successfully or with an error. |
 | `models_error` | string | Catalog error, including when the driver publishes no catalog. Omitted when successful. |
+| `native_open` | bool | A native terminal launch is pending or attached; the GUI uses this to offer Close native while startup is pending. |
 
 ### Diffstat, Verification and StepVerification
 
@@ -189,16 +190,23 @@ the next view heartbeat. The catalog is never assembled from a built-in list.
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `time` | string | RFC 3339 timestamp. |
-| `kind` | string | `system`, `assistant`, `peer`, `activity`, `harness`, `user`, `error`, `verdict`, `model` (not sent by this version), `thinking` (not sent by this version). |
+| `kind` | string | `system`, `assistant`, `peer`, `activity`, `harness`, `user`, `error`, `verdict`, `model`, or `thinking`. |
 | `agent` | string | The speaking agent, or empty. |
 | `peer` | string | The addressed agent, or empty. |
 | `text` | string | The entry body. |
 | `label` | string | The timeline header, e.g. `Austin → Tony`. Empty means "fall back to the speaker name". |
+| `provider` | string | The provider reported by a `model` event. |
+| `model` | string | The model id reported by a `model` event. |
+| `thinking` | string | The reasoning level reported by a `thinking` event. |
 
 ### Timeline entries and resumed history
 
 A live `event` is a transcription of the bus event: `time`, `kind`, `agent`,
-`peer` and `text` arrive as Core emitted them, and `label` is empty.
+`peer`, `text`, and any structured model or thinking fields arrive as Core emitted
+them, and `label` is empty. Model and thinking events may have empty `text`; the
+renderer presents them as activity entries using their structured fields and
+coalesces consecutive duplicate state events. Other empty error entries remain
+visible with a clear fallback rather than as blank messages.
 
 A resumed session replays its recorded history through the same `event` message,
 because a renderer should not have to know that the two sources are different
@@ -213,12 +221,9 @@ mapping is fixed rather than heuristic:
 | `kind` | `error` when `Error`, else `verdict` when `Warning`, else `assistant` |
 | `peer` | empty |
 
-`TUIEntry` has no `kind`, which is why the mapping is boolean-driven. Two bus kinds
-are deliberately dropped: `model` and `thinking`. They are not lost — a driver's
-model and effort are read into `Agent.model` and `Agent.thinking` on every `view`
-(`internal/session/service.go`), so the 500 ms heartbeat already refreshes them, and
-a renderer that dropped every `model` event would still show the right model after
-one heartbeat. Dropping these timeline events does not hide the model change.
+`TUIEntry` has no `kind`, which is why the mapping is boolean-driven. Replayed TUI
+history does not synthesize model or thinking events; live events carry those
+changes in their structured fields.
 
 ## Renderer → session
 
@@ -232,6 +237,10 @@ Every message is an object with `type: "command"` and a `kind` discriminator.
 | `set_language` | `language` | Switch the language Duo writes in. |
 | `set_model` | `agent`, `provider`, `model` | Select a model option returned by that agent's driver catalog. |
 | `cycle_thinking` | `agent` | Advance that agent's reasoning effort using the session command. |
+| `set_driver` | `agent`, `driver` | Switch one agent to a locally available driver. The host probes and prepares it before replacing the current process. |
+| `open_project` | `path` | Validate a selected Git folder and open it in a new xduo window. |
+| `open_native` | `agent` | Open a native terminal attached to that agent's live PTY. |
+| `close_native` | `agent` | Detach the native terminal without stopping the agent. |
 | `quit` | — | The human closed the window; the host closes the session. |
 
 `escalate_to_goal` is only meaningful in Fast. Goal and Step refuse it, because a
@@ -249,6 +258,22 @@ may restart an agent when that driver cannot change effort live.
 `live_model_switch` is copied from the driver's declared capability. When false, a
 model change restarts that agent's process to apply the selected model; when true,
 the running process applies it without a restart.
+
+The header's folder picker is provided by GPUI. Cancelling it sends no command. A
+selected repository opens in a separate xduo window, so an active task is not
+silently moved to another checkout. Clicking an agent name shows the drivers that
+the local Duo installation successfully probes. Choosing one replaces that
+agent's process while retaining its worktree and workflow state; its model and
+thinking selection are resolved again from the new driver's manifest.
+
+Native terminal attach is a separate local Unix socket in a private temporary
+directory. The renderer never receives the socket path or an agent bridge token.
+The native client forwards terminal bytes and resize events to the host; closing
+the terminal or choosing **Close native** detaches it and leaves the agent running.
+This is separate from the structured work preview shown in the agent card: the
+preview reads bounded state, while Native opens an interactive terminal on the
+agent's real PTY. The current Native window launcher uses macOS Terminal.app;
+other operating systems report that Native launch is unavailable.
 
 ## Why this shape
 

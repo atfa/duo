@@ -117,6 +117,28 @@ func TestNewResumedRuntimeWakesAgain(t *testing.T) {
 	}
 }
 
+func TestEnableResumeWakeForAgentPreservesOtherAttempt(t *testing.T) {
+	coord := &Coordinator{
+		resumeWakeEnabled:   true,
+		resumeWakeAttempted: map[protocol.AgentID]bool{protocol.Austin: true, protocol.Tony: true},
+	}
+	coord.EnableResumeWakeForAgent(protocol.Tony)
+	if !coord.resumeWakeAttempted[protocol.Austin] {
+		t.Fatal("switching Tony reset Austin's resume wake attempt")
+	}
+	if coord.resumeWakeAttempted[protocol.Tony] {
+		t.Fatal("switching Tony did not schedule a new resume wake")
+	}
+}
+
+func TestEnableResumeWakeForAgentDoesNotEnablePeerOnFreshRuntime(t *testing.T) {
+	coord := &Coordinator{}
+	coord.EnableResumeWakeForAgent(protocol.Tony)
+	if !coord.resumeWakeEnabled || coord.resumeWakeAttempted[protocol.Tony] || !coord.resumeWakeAttempted[protocol.Austin] {
+		t.Fatalf("targeted wake state = enabled:%t attempts:%v", coord.resumeWakeEnabled, coord.resumeWakeAttempted)
+	}
+}
+
 func TestResumeWakeJournalsEachAgentOnce(t *testing.T) {
 	// The journal's directory is claimed before the server that writes into it.
 	// Go runs cleanups last-in-first-out, so this order stops the server before
