@@ -366,6 +366,7 @@ func (s *Service) launch(ctx context.Context) (Result, error) {
 			Plugin:         plugin,
 			PluginState:    s.driverState[agentID].State,
 			BaseCommand:    baseCommand,
+			RuntimePath:    s.opts.AgentRuntimePath,
 			Model:          modelName,
 			Thinking:       effort,
 			Notices:        s.collectNotice,

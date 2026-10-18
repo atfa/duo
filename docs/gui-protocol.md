@@ -105,6 +105,31 @@ timeline in the right order without a second code path.
 | `step_evidence` | array of StepVerification | Per-step review and delivery records in queue order (empty when the session has no step queue). |
 | `notices` | array of string | Driver diagnostics buffered before the renderer attached. Rendered as state, so repeating them on every `view` is idempotent and the renderer must not append them to the timeline. |
 | `agents` | object of Agent | Keyed by agent id: `austin`, `tony`. |
+| `available_drivers` | array of string | Driver identities that passed the last local availability probe. |
+| `agent_driver_names` | array of string | Driver identities supported by this Duo build or installed as plugins. |
+| `desktop_agents` | array of DesktopAgent | Machine-local executable paths and probe results shown in Settings. |
+| `agent_scan_busy` | bool | Whether an initial scan or an explicit Settings operation is running. |
+| `agent_scan_error` | string | Last settings read or scan error, if any. |
+| `project_selection` | ProjectSelection or null | Welcome-page project and unfinished-session choices; `repository` stays empty until a session starts. |
+
+xduo saves the versioned machine-local catalog at
+`os.UserConfigDir()/xduo/agents.json` with owner-only file permissions. The first
+launch shows the welcome window immediately and scans the login-shell PATH in the
+background only when this file is absent. Later launches use the saved catalog;
+Refresh rescans explicitly and preserves manually registered paths. The app's
+managed executable shims feed the same paths to driver probes, model listing and
+agent launches. CLI and TUI sessions do not read this desktop-only catalog.
+
+`DesktopAgent` contains `name` (driver identity), `cli` (the CLI name from its
+driver manifest), `path`, `source` (`path`, `manual`, or `detected`), `available`,
+and an optional `error`.
+
+`ProjectSelection` contains the validated repository `root`, `busy`, an inline
+`error`, and `sessions`. Each session choice has its ID, mode, phase, update time,
+and either an `active` marker or a record error. Active and broken sessions are
+shown for context but cannot be resumed. Choosing a project never starts a
+session; the renderer must send `start_session` after the user chooses New or
+Resume.
 
 ### Agent
 
@@ -238,7 +263,11 @@ Every message is an object with `type: "command"` and a `kind` discriminator.
 | `set_model` | `agent`, `provider`, `model` | Select a model option returned by that agent's driver catalog. |
 | `cycle_thinking` | `agent` | Advance that agent's reasoning effort using the session command. |
 | `set_driver` | `agent`, `driver` | Switch one agent to a locally available driver. The host probes and prepares it before replacing the current process. |
-| `open_project` | `path` | Validate a selected Git folder and open it in a new xduo window. |
+| `open_project` | `path` | Validate a selected Git folder and show its New/Resume choices in the current welcome window. From a running session this opens a new welcome window with the folder preselected. |
+| `start_session` | `path`, optional `session_id` | Start a new session when the ID is absent, or resume the named unfinished session. The host verifies that the root is the selected project and rechecks that a resume target is still available. |
+| `back_to_welcome` | — | Clear the selected project without starting a session. |
+| `refresh_agents` | — | Rescan the login-shell PATH and save the machine-local catalog. Manually added paths are retained. |
+| `add_agent` | `driver`, `path` | Register an absolute executable path for a known driver after validating and probing it. |
 | `open_native` | `agent` | Open a native terminal attached to that agent's live PTY. |
 | `close_native` | `agent` | Detach the native terminal without stopping the agent. |
 | `quit` | — | The human closed the window; the host closes the session. |

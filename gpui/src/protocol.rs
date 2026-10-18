@@ -71,6 +71,60 @@ pub struct View {
     pub agents: BTreeMap<String, Agent>,
     #[serde(default)]
     pub available_drivers: Vec<String>,
+    #[serde(default)]
+    pub agent_driver_names: Vec<String>,
+    #[serde(default)]
+    pub desktop_agents: Vec<DesktopAgent>,
+    #[serde(default)]
+    pub agent_scan_error: String,
+    #[serde(default)]
+    pub agent_scan_busy: bool,
+    #[serde(default)]
+    pub project_selection: Option<ProjectSelection>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct ProjectSelection {
+    #[serde(default)]
+    pub root: String,
+    #[serde(default)]
+    pub busy: bool,
+    #[serde(default)]
+    pub error: String,
+    #[serde(default)]
+    pub sessions: Vec<SessionChoice>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct SessionChoice {
+    #[serde(default)]
+    pub session_id: String,
+    #[serde(default)]
+    pub mode: String,
+    #[serde(default)]
+    pub phase: String,
+    #[serde(default)]
+    pub updated_at: String,
+    #[serde(default)]
+    pub active: bool,
+    #[serde(default)]
+    pub error: String,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
+pub struct DesktopAgent {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub cli: String,
+    #[serde(default)]
+    pub path: String,
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub available: bool,
+    #[serde(default)]
+    pub error: String,
 }
 
 /// One agent's projection.
@@ -297,6 +351,8 @@ pub struct ClientMessage {
     pub driver: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
 }
 
 impl ClientMessage {
@@ -313,6 +369,7 @@ impl ClientMessage {
             model: None,
             driver: None,
             path: None,
+            session_id: None,
         }
     }
 
@@ -349,6 +406,30 @@ impl ClientMessage {
         Self {
             path: Some(path.into()),
             ..Self::new("open_project")
+        }
+    }
+
+    pub fn start_session(path: impl Into<String>, session_id: Option<String>) -> Self {
+        Self {
+            path: Some(path.into()),
+            session_id,
+            ..Self::new("start_session")
+        }
+    }
+
+    pub fn back_to_welcome() -> Self {
+        Self::new("back_to_welcome")
+    }
+
+    pub fn refresh_agents() -> Self {
+        Self::new("refresh_agents")
+    }
+
+    pub fn add_agent(driver: impl Into<String>, path: impl Into<String>) -> Self {
+        Self {
+            driver: Some(driver.into()),
+            path: Some(path.into()),
+            ..Self::new("add_agent")
         }
     }
 

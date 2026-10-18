@@ -249,6 +249,7 @@ pub struct DuoApp {
     selected_event: Option<usize>,
     timeline_focused: bool,
     timeline_scroll: ScrollHandle,
+    composer_scroll: ScrollHandle,
     timeline_search: Option<String>,
     search_matches: Vec<usize>,
     search_current: Option<usize>,
@@ -278,6 +279,7 @@ pub struct DuoApp {
     quit_deadline: Option<Instant>,
     model_picker: Option<ModelPicker>,
     driver_picker: Option<String>,
+    settings_open: bool,
     pending_model_change: Option<PendingModelChange>,
     work_preview_open: bool,
     diff_preview_agent: Option<String>,
@@ -309,6 +311,7 @@ impl DuoApp {
             selected_event: None,
             timeline_focused: false,
             timeline_scroll: ScrollHandle::new(),
+            composer_scroll: ScrollHandle::new(),
             timeline_search: None,
             search_matches: Vec::new(),
             search_current: None,
@@ -337,6 +340,7 @@ impl DuoApp {
             quit_deadline: None,
             model_picker: None,
             driver_picker: None,
+            settings_open: false,
             pending_model_change: None,
             work_preview_open: false,
             diff_preview_agent: None,
@@ -675,6 +679,9 @@ impl DuoApp {
             // Text, including spaces and IME commits, arrives through GPUI's
             // InputHandler bridge. Handling key_char here would insert it twice.
             _ => {}
+        }
+        if self.selection.is_empty() && self.selection.end == self.input.len() {
+            self.composer_scroll.scroll_to_bottom();
         }
         cx.notify();
     }
@@ -1894,6 +1901,7 @@ impl Element for ComposerElement {
     ) -> (LayoutId, ()) {
         let mut style = Style::default();
         style.size.width = relative(1.).into();
+        style.min_size.width = px(0.).into();
         let app = self.app.read(cx);
         let picker = self
             .model_filter
@@ -1905,14 +1913,37 @@ impl Element for ComposerElement {
         } else {
             input.as_str()
         };
-        let wrap_width = (window.viewport_size().width - px(24.)).max(px(1.));
-        let rows = shape_composer_lines(text, window, wrap_width)
-            .iter()
-            .map(|(_, line)| line.wrap_boundaries().len() + 1)
-            .sum::<usize>()
-            .max(1);
-        style.size.height = (window.line_height() * rows as f32).into();
-        (window.request_layout(style, [], cx), ())
+        let text = text.to_owned();
+        let layout = window.request_measured_layout(
+            style,
+            move |known_dimensions, available_space, window, _| {
+                let (wrap_width, measured_width, min_content) = if let Some(width) =
+                    known_dimensions.width
+                {
+                    (width.max(px(1.)), width, false)
+                } else {
+                    match available_space.width {
+                        gpui::AvailableSpace::Definite(width) => (width.max(px(1.)), width, false),
+                        gpui::AvailableSpace::MinContent => (px(1.), px(0.), true),
+                        gpui::AvailableSpace::MaxContent => {
+                            let width = window.viewport_size().width.min(px(760.));
+                            (width.max(px(1.)), width, false)
+                        }
+                    }
+                };
+                let rows = if min_content {
+                    text.split('\n').count()
+                } else {
+                    shape_composer_lines(&text, window, wrap_width)
+                        .iter()
+                        .map(|(_, line)| line.wrap_boundaries().len() + 1)
+                        .sum::<usize>()
+                }
+                .max(1);
+                size(measured_width, window.line_height() * rows as f32)
+            },
+        );
+        (layout, ())
     }
     fn prepaint(
         &mut self,
@@ -2324,6 +2355,9 @@ impl EntityInputHandler for DuoApp {
             &mut self.slash_selected,
             &mut self.slash_selection_explicit,
         );
+        if self.selection.is_empty() && self.selection.end == self.input.len() {
+            self.composer_scroll.scroll_to_bottom();
+        }
         cx.notify();
     }
     fn replace_and_mark_text_in_range(
@@ -2380,6 +2414,9 @@ impl EntityInputHandler for DuoApp {
             &mut self.slash_selected,
             &mut self.slash_selection_explicit,
         );
+        if self.selection.is_empty() && self.selection.end == self.input.len() {
+            self.composer_scroll.scroll_to_bottom();
+        }
         cx.notify();
     }
     fn bounds_for_range(
@@ -2804,7 +2841,11 @@ impl DuoApp {
             .as_ref()
             .is_none_or(|view| view.repository.is_empty());
         let project = if welcome {
-            "xduo".to_owned()
+            self.view
+                .as_ref()
+                .and_then(|view| view.project_selection.as_ref())
+                .map(|selection| project_name(&selection.root))
+                .unwrap_or_else(|| "xduo".to_owned())
         } else {
             self.view
                 .as_ref()
@@ -2901,6 +2942,24 @@ impl DuoApp {
                     })
                     .on_mouse_down(MouseButton::Left, folder),
             );
+        bar = bar.child(
+            div()
+                .px_2()
+                .py_1()
+                .rounded_md()
+                .bg(theme.background)
+                .cursor(CursorStyle::PointingHand)
+                .text_sm()
+                .child(if english { "Settings" } else { "设置" })
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                        this.settings_open = !this.settings_open;
+                        this.driver_picker = None;
+                        cx.notify();
+                    }),
+                ),
+        );
         if !welcome {
             bar = bar.child(
                 div()
@@ -2946,6 +3005,16 @@ impl DuoApp {
     }
 
     fn workspace(&self, theme: Theme, cx: &Context<Self>, compact: bool) -> AnyElement {
+        if self.settings_open {
+            return self.settings_page(theme, cx);
+        }
+        if let Some(selection) = self
+            .view
+            .as_ref()
+            .and_then(|view| view.project_selection.as_ref())
+        {
+            return self.project_selection_page(selection, theme, cx);
+        }
         if self
             .view
             .as_ref()
@@ -3053,6 +3122,484 @@ impl DuoApp {
                     ),
             )
             .into_any_element()
+    }
+
+    fn project_selection_page(
+        &self,
+        selection: &crate::protocol::ProjectSelection,
+        theme: Theme,
+        cx: &Context<Self>,
+    ) -> AnyElement {
+        let english = self.english();
+        let root = selection.root.clone();
+        let start_new = cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+            if this
+                .view
+                .as_ref()
+                .and_then(|view| view.project_selection.as_ref())
+                .is_some_and(|selection| {
+                    selection.busy || !selection.error.is_empty() || selection.root.is_empty()
+                })
+            {
+                return;
+            }
+            this.send(ClientMessage::start_session(root.clone(), None));
+            cx.notify();
+        });
+        let mut page = div()
+            .id("xduo-project-selection-scroll")
+            .flex_1()
+            .min_h_0()
+            .w_full()
+            .flex()
+            .flex_col()
+            .items_center()
+            .overflow_y_scroll()
+            .bg(theme.background)
+            .child(
+                div()
+                    .w_full()
+                    .max_w(px(760.))
+                    .flex_none()
+                    .px_6()
+                    .py_6()
+                    .flex()
+                    .flex_col()
+                    .gap_4()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_3()
+                            .child(div().text_2xl().font_weight(FontWeight::BOLD).child(
+                                if english {
+                                    "Choose a session"
+                                } else {
+                                    "选择会话"
+                                },
+                            ))
+                            .child(div().flex_1())
+                            .child(
+                                div()
+                                    .px_3()
+                                    .py_2()
+                                    .rounded_md()
+                                    .bg(theme.sidebar)
+                                    .cursor(CursorStyle::PointingHand)
+                                    .child(if english { "Back" } else { "返回" })
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                                            this.send(ClientMessage::back_to_welcome());
+                                            cx.notify();
+                                        }),
+                                    ),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(theme.muted)
+                            .child(selection.root.clone()),
+                    )
+                    .child(
+                        div()
+                            .w_full()
+                            .px_4()
+                            .py_3()
+                            .rounded_md()
+                            .bg(theme.surface)
+                            .border_1()
+                            .border_color(theme.border)
+                            .flex()
+                            .items_center()
+                            .gap_3()
+                            .child(div().font_weight(FontWeight::BOLD).child(if english {
+                                "New session"
+                            } else {
+                                "新建会话"
+                            }))
+                            .child(div().flex_1())
+                            .child(
+                                div()
+                                    .px_3()
+                                    .py_2()
+                                    .rounded_md()
+                                    .bg(theme.sidebar)
+                                    .cursor(CursorStyle::PointingHand)
+                                    .when(
+                                        selection.busy || !selection.error.is_empty(),
+                                        |element| element.text_color(theme.muted),
+                                    )
+                                    .child(if english { "Start" } else { "开始" })
+                                    .on_mouse_down(MouseButton::Left, start_new),
+                            ),
+                    )
+                    .children(selection.sessions.iter().map(|session| {
+                        let resume_id = session.session_id.clone();
+                        let resume_root = selection.root.clone();
+                        let can_resume =
+                            !selection.busy && !session.active && session.error.is_empty();
+                        let row = div()
+                            .w_full()
+                            .px_4()
+                            .py_3()
+                            .rounded_md()
+                            .bg(theme.surface)
+                            .border_1()
+                            .border_color(theme.border)
+                            .flex()
+                            .items_center()
+                            .gap_3()
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_1()
+                                    .child(
+                                        div()
+                                            .font_weight(FontWeight::BOLD)
+                                            .child(session.session_id.clone()),
+                                    )
+                                    .child(div().text_sm().text_color(theme.muted).child(format!(
+                                        "{} · {} · {}",
+                                        if session.mode.is_empty() {
+                                            "unknown"
+                                        } else {
+                                            &session.mode
+                                        },
+                                        if session.phase.is_empty() {
+                                            "unknown"
+                                        } else {
+                                            &session.phase
+                                        },
+                                        if session.updated_at.is_empty() {
+                                            "—"
+                                        } else {
+                                            &session.updated_at
+                                        }
+                                    ))),
+                            )
+                            .child(div().flex_1());
+                        let row = if !session.error.is_empty() {
+                            row.child(
+                                div()
+                                    .text_sm()
+                                    .text_color(theme.error)
+                                    .child(session.error.clone()),
+                            )
+                        } else if session.active {
+                            row.child(div().text_sm().text_color(theme.muted).child(if english {
+                                "Already running"
+                            } else {
+                                "正在运行"
+                            }))
+                        } else {
+                            row.child(
+                                div()
+                                    .px_3()
+                                    .py_2()
+                                    .rounded_md()
+                                    .bg(theme.sidebar)
+                                    .cursor(CursorStyle::PointingHand)
+                                    .when(!can_resume, |element| element.text_color(theme.muted))
+                                    .child(if english { "Resume" } else { "恢复" })
+                                    .on_mouse_down(
+                                        MouseButton::Left,
+                                        cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                                            if can_resume {
+                                                this.send(ClientMessage::start_session(
+                                                    resume_root.clone(),
+                                                    Some(resume_id.clone()),
+                                                ));
+                                                cx.notify();
+                                            }
+                                        }),
+                                    ),
+                            )
+                        };
+                        row
+                    }))
+                    .children((selection.sessions.is_empty()).then(|| {
+                        div().text_color(theme.muted).child(if english {
+                            "No unfinished sessions for this project."
+                        } else {
+                            "这个项目没有未完成的会话。"
+                        })
+                    }))
+                    .children(selection.busy.then(|| {
+                        div().text_color(theme.muted).child(if english {
+                            "Loading saved sessions…"
+                        } else {
+                            "正在读取会话…"
+                        })
+                    }))
+                    .children((!selection.error.is_empty()).then(|| {
+                        div()
+                            .w_full()
+                            .px_4()
+                            .py_3()
+                            .rounded_md()
+                            .bg(theme.surface)
+                            .text_color(theme.error)
+                            .child(selection.error.clone())
+                    })),
+            );
+        if selection.busy {
+            page = page.child(div().text_color(theme.muted).child(if english {
+                "Loading saved sessions…"
+            } else {
+                "正在读取会话…"
+            }));
+        }
+        page.into_any_element()
+    }
+
+    fn settings_page(&self, theme: Theme, cx: &Context<Self>) -> AnyElement {
+        let english = self.english();
+        let view = self.view.as_ref();
+        let busy = view.is_some_and(|v| v.agent_scan_busy);
+        let entries = view.map(|v| v.desktop_agents.as_slice()).unwrap_or(&[]);
+        let names = view.map(|v| v.agent_driver_names.as_slice()).unwrap_or(&[]);
+        let mut page = div()
+            .id("xduo-agent-settings-scroll")
+            .flex_1()
+            .min_h_0()
+            .w_full()
+            .flex()
+            .flex_col()
+            .items_center()
+            .overflow_y_scroll()
+            .bg(theme.background);
+        let header = div().w_full().max_w(px(760.)).px_6().py_6().flex().flex_col().gap_4()
+                .child(div().flex().items_center().gap_3()
+                    .child(div().text_2xl().font_weight(FontWeight::BOLD).child(if english { "Settings · Agents" } else { "设置 · Agent" }))
+                    .child(div().flex_1())
+                    .child(div().px_3().py_2().rounded_md().bg(theme.sidebar).cursor(CursorStyle::PointingHand).child(if english { "Refresh agents" } else { "刷新本机 Agent" })
+                        .when(busy, |e| e.text_color(theme.muted))
+                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _: &MouseDownEvent, _, cx| { if !this.view.as_ref().is_some_and(|v| v.agent_scan_busy) { this.send(ClientMessage::refresh_agents()); } cx.notify(); })))
+                    .child(div().px_3().py_2().rounded_md().bg(theme.sidebar).cursor(CursorStyle::PointingHand).child(if english { "Done" } else { "完成" })
+                        .on_mouse_down(MouseButton::Left, cx.listener(|this, _: &MouseDownEvent, _, cx| { this.settings_open = false; cx.notify(); }))))
+                .child(div().text_color(theme.muted).child(if english { "Agent paths are saved on this computer. Refresh discovers agents from your login shell; custom paths are kept." } else { "Agent 可执行文件路径保存在本机。刷新会从登录 shell 搜索，并保留手动添加的路径。" }));
+        let mut content = div()
+            .w_full()
+            .max_w(px(760.))
+            .flex_none()
+            .px_6()
+            .pb_6()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .children(entries.iter().map(|entry| {
+                let driver = entry.name.clone();
+                let picker_prompt = if english {
+                    format!("Choose {} executable", driver)
+                } else {
+                    format!("选择 {} 可执行文件", driver)
+                };
+                let choose_text = if english {
+                    "Change path…"
+                } else {
+                    "更改路径…"
+                };
+                div()
+                    .w_full()
+                    .px_4()
+                    .py_3()
+                    .rounded_md()
+                    .bg(theme.surface)
+                    .border_1()
+                    .border_color(theme.border)
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_2()
+                            .child(
+                                div()
+                                    .font_weight(FontWeight::BOLD)
+                                    .child(entry.name.clone()),
+                            )
+                            .child(
+                                div()
+                                    .text_color(if entry.available {
+                                        rgb(0x25845a)
+                                    } else {
+                                        theme.muted
+                                    })
+                                    .child(if entry.available {
+                                        if english {
+                                            "Available"
+                                        } else {
+                                            "可用"
+                                        }
+                                    } else {
+                                        if english {
+                                            "Unavailable"
+                                        } else {
+                                            "不可用"
+                                        }
+                                    }),
+                            ),
+                    )
+                    .child(div().text_sm().text_color(theme.muted).child(format!(
+                        "{} · {}",
+                        entry.cli,
+                        if entry.path.is_empty() {
+                            if english { "not found" } else { "未找到" }.to_owned()
+                        } else {
+                            entry.path.clone()
+                        }
+                    )))
+                    .child(
+                        div()
+                            .px_3()
+                            .py_2()
+                            .rounded_md()
+                            .bg(theme.sidebar)
+                            .cursor(CursorStyle::PointingHand)
+                            .child(choose_text)
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                                    if this.view.as_ref().is_some_and(|v| v.agent_scan_busy) {
+                                        return;
+                                    }
+                                    let picker = cx.prompt_for_paths(PathPromptOptions {
+                                        files: true,
+                                        directories: false,
+                                        multiple: false,
+                                        prompt: Some(picker_prompt.clone().into()),
+                                    });
+                                    let selected_driver = driver.clone();
+                                    cx.spawn(async move |this, cx| {
+                                        if let Ok(Ok(Some(paths))) = picker.await {
+                                            if let Some(path) = paths.first() {
+                                                let driver = selected_driver.clone();
+                                                let path = path.to_string_lossy().into_owned();
+                                                let _ = this.update(cx, |app, _| {
+                                                    app.send(ClientMessage::add_agent(driver, path))
+                                                });
+                                            }
+                                        }
+                                    })
+                                    .detach();
+                                }),
+                            ),
+                    )
+                    .when(!entry.error.is_empty(), |e| {
+                        e.child(
+                            div()
+                                .text_sm()
+                                .text_color(theme.error)
+                                .child(entry.error.clone()),
+                        )
+                    })
+            }));
+        for name in names {
+            if entries.iter().any(|entry| entry.name == *name) {
+                continue;
+            }
+            let driver = name.clone();
+            let prompt = if english {
+                format!("Choose {} executable", name)
+            } else {
+                format!("选择 {} 可执行文件", name)
+            };
+            let button_text = if english {
+                "Choose executable…"
+            } else {
+                "选择可执行文件…"
+            };
+            let label = name.clone();
+            content = content.child(
+                div()
+                    .w_full()
+                    .px_4()
+                    .py_3()
+                    .rounded_md()
+                    .bg(theme.surface)
+                    .border_1()
+                    .border_color(theme.border)
+                    .flex()
+                    .items_center()
+                    .gap_3()
+                    .child(div().font_weight(FontWeight::BOLD).child(label))
+                    .child(div().flex_1())
+                    .child(
+                        div()
+                            .px_3()
+                            .py_2()
+                            .rounded_md()
+                            .bg(theme.sidebar)
+                            .cursor(CursorStyle::PointingHand)
+                            .child(button_text)
+                            .on_mouse_down(
+                                MouseButton::Left,
+                                cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                                    if this.view.as_ref().is_some_and(|v| v.agent_scan_busy) {
+                                        return;
+                                    }
+                                    let picker = cx.prompt_for_paths(PathPromptOptions {
+                                        files: true,
+                                        directories: false,
+                                        multiple: false,
+                                        prompt: Some(prompt.clone().into()),
+                                    });
+                                    let selected_driver = driver.clone();
+                                    cx.spawn(async move |this, cx| {
+                                        if let Ok(Ok(Some(paths))) = picker.await {
+                                            if let Some(path) = paths.first() {
+                                                let driver = selected_driver.clone();
+                                                let path = path.to_string_lossy().into_owned();
+                                                let _ = this.update(cx, |app, _| {
+                                                    app.send(ClientMessage::add_agent(driver, path))
+                                                });
+                                            }
+                                        }
+                                    })
+                                    .detach();
+                                }),
+                            ),
+                    ),
+            );
+        }
+        page = page.child(
+            div()
+                .w_full()
+                .flex_none()
+                .flex()
+                .flex_col()
+                .items_center()
+                .child(header)
+                .child(content),
+        );
+        if let Some(message) = view
+            .map(|v| v.agent_scan_error.as_str())
+            .filter(|s| !s.is_empty())
+        {
+            page = page.child(
+                div()
+                    .w_full()
+                    .px_4()
+                    .py_3()
+                    .rounded_md()
+                    .bg(theme.surface)
+                    .text_color(theme.error)
+                    .child(message.to_owned()),
+            );
+        }
+        if busy {
+            page = page.child(div().w_full().text_color(theme.muted).child(if english {
+                "Scanning local agents…"
+            } else {
+                "正在扫描本机 Agent…"
+            }));
+        }
+        page.into_any_element()
     }
 
     fn agent_sidebar(&self, theme: Theme, cx: &Context<Self>, compact: bool) -> AnyElement {
@@ -4041,6 +4588,10 @@ impl DuoApp {
     fn input_row(&self, theme: Theme, cx: &Context<Self>) -> AnyElement {
         div()
             .flex_none()
+            .w_full()
+            .max_w(px(760.))
+            .min_w_0()
+            .px_1()
             .flex()
             .flex_col()
             .gap_2()
@@ -4052,12 +4603,17 @@ impl DuoApp {
                 div()
                     .flex()
                     .flex_row()
+                    .min_w_0()
                     .items_end()
                     .gap_2()
                     .child(
                         div()
                             .flex_1()
                             .min_w_0()
+                            .max_h(px(180.))
+                            .id("xduo-composer-scroll")
+                            .overflow_y_scroll()
+                            .track_scroll(&self.composer_scroll)
                             .px_2()
                             .py_1()
                             .rounded_md()
@@ -4078,6 +4634,7 @@ impl DuoApp {
                     )
                     .child(
                         div()
+                            .flex_none()
                             .px_3()
                             .py_2()
                             .rounded_md()
@@ -4100,9 +4657,9 @@ impl DuoApp {
                     .text_xs()
                     .text_color(theme.hint)
                     .child(if self.english() {
-                        "Enter send  ·  Shift+Enter newline  ·  Esc clear  ·  ? shortcuts"
+                        "Enter to send  ·  Shift+Enter for a new line  ·  Esc clear  ·  ? shortcuts"
                     } else {
-                        "Enter 发送  ·  Shift+Enter 换行  ·  Esc 清空  ·  ? 快捷键"
+                        "Enter 发送  ·  Shift+Enter 换行（多行输入）  ·  Esc 清空  ·  ? 快捷键"
                     }),
             )
             .into_any_element()

@@ -58,7 +58,10 @@ type Options struct {
 	AgentModels         map[protocol.AgentID]string
 	AgentThinkings      map[protocol.AgentID]string
 	AgentDriverExplicit map[protocol.AgentID]bool
-	TestCommand         string
+	// AgentRuntimePath is set by the desktop frontend so login shells can find
+	// configured agent CLIs and their interpreters. Other frontends leave it empty.
+	AgentRuntimePath string
+	TestCommand      string
 
 	// RegisterDrivers registers the driver plugins this build ships. It is a
 	// function rather than an import because the plugins live in cmd/duo: keeping

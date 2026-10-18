@@ -51,8 +51,12 @@ const (
 	KindCycleThinking  = "cycle_thinking"
 	KindSetDriver      = "set_driver"
 	KindOpenProject    = "open_project"
+	KindStartSession   = "start_session"
+	KindBackToWelcome  = "back_to_welcome"
 	KindOpenNative     = "open_native"
 	KindCloseNative    = "close_native"
+	KindRefreshAgents  = "refresh_agents"
+	KindAddAgent       = "add_agent"
 	KindQuit           = "quit"
 )
 
@@ -194,6 +198,36 @@ type View struct {
 	Notices          []string           `json:"notices"`
 	Agents           map[string]Agent   `json:"agents"`
 	AvailableDrivers []string           `json:"available_drivers"`
+	AgentDriverNames []string           `json:"agent_driver_names,omitempty"`
+	DesktopAgents    []DesktopAgent     `json:"desktop_agents,omitempty"`
+	AgentScanError   string             `json:"agent_scan_error,omitempty"`
+	AgentScanBusy    bool               `json:"agent_scan_busy,omitempty"`
+	ProjectSelection *ProjectSelection  `json:"project_selection,omitempty"`
+}
+
+type ProjectSelection struct {
+	Root     string          `json:"root"`
+	Busy     bool            `json:"busy,omitempty"`
+	Error    string          `json:"error,omitempty"`
+	Sessions []SessionChoice `json:"sessions,omitempty"`
+}
+
+type SessionChoice struct {
+	SessionID string `json:"session_id"`
+	Mode      string `json:"mode,omitempty"`
+	Phase     string `json:"phase,omitempty"`
+	UpdatedAt string `json:"updated_at,omitempty"`
+	Active    bool   `json:"active,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+type DesktopAgent struct {
+	Name      string `json:"name"`
+	CLI       string `json:"cli"`
+	Path      string `json:"path,omitempty"`
+	Source    string `json:"source,omitempty"`
+	Available bool   `json:"available"`
+	Error     string `json:"error,omitempty"`
 }
 
 // Event is one timeline line. Live session events and replayed history records
@@ -214,15 +248,16 @@ type Event struct {
 // Command is the envelope the GUI sends. Type is always "command"; Kind selects
 // which human verb it carries.
 type Command struct {
-	Type     string `json:"type"`
-	Kind     string `json:"kind"`
-	Text     string `json:"text,omitempty"`
-	Agent    string `json:"agent,omitempty"`
-	Language string `json:"language,omitempty"`
-	Provider string `json:"provider,omitempty"`
-	Model    string `json:"model,omitempty"`
-	Driver   string `json:"driver,omitempty"`
-	Path     string `json:"path,omitempty"`
+	Type      string `json:"type"`
+	Kind      string `json:"kind"`
+	Text      string `json:"text,omitempty"`
+	Agent     string `json:"agent,omitempty"`
+	Language  string `json:"language,omitempty"`
+	Provider  string `json:"provider,omitempty"`
+	Model     string `json:"model,omitempty"`
+	Driver    string `json:"driver,omitempty"`
+	Path      string `json:"path,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
 }
 
 // writeFrame is the single envelope for everything Go sends, so the GUI decodes

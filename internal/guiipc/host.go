@@ -13,11 +13,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/atfa/duo/internal/desktopagents"
 	"github.com/atfa/duo/internal/models"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/session"
@@ -45,10 +47,6 @@ type Session interface {
 	StatusText(ctx context.Context) string
 	// History returns the interface entries recorded before a resume.
 	History() []sessionstore.TUIEntry
-}
-
-type driverCatalog interface {
-	AvailableDrivers(context.Context) []string
 }
 
 type nativeSession interface {
@@ -91,13 +89,18 @@ type Host struct {
 	native       map[protocol.AgentID]*nativeAttachment
 
 	// heartbeat and buffer are the defaults above, overridden only by tests.
-	heartbeat time.Duration
-	buffer    int
-	drivers   []string
-	catalogMu sync.RWMutex
-	catalogs  map[protocol.AgentID]catalogResult
-	diffMu    sync.Mutex
-	diffstats map[protocol.AgentID]diffstatResult
+	heartbeat     time.Duration
+	buffer        int
+	drivers       []string
+	catalogMu     sync.RWMutex
+	desktop       *desktopagents.Registry
+	driverNames   []string
+	settingsMu    sync.RWMutex
+	settingsBusy  bool
+	settingsError string
+	catalogs      map[protocol.AgentID]catalogResult
+	diffMu        sync.Mutex
+	diffstats     map[protocol.AgentID]diffstatResult
 }
 
 type nativeAttachment struct {
@@ -136,6 +139,11 @@ func (h *Host) SetOpenProject(fn func(context.Context, string) error) { h.openPr
 func (h *Host) SetNativeLauncher(fn func(context.Context, string, string) error) {
 	h.launchNative = fn
 }
+func (h *Host) SetDesktopAgents(registry *desktopagents.Registry, names []string) {
+	h.desktop = registry
+	h.driverNames = append([]string{}, names...)
+	h.settingsError = registry.LoadError()
+}
 
 // Serve speaks the protocol until the frontend goes away, the session closes its
 // event stream, or ctx is cancelled.
@@ -162,6 +170,7 @@ func (h *Host) ServeReader(ctx context.Context, in *bufio.Reader, out io.Writer)
 	defer unsubscribe()
 
 	sink := &frameSink{w: out}
+	h.updateDesktopView()
 
 	// The view comes first so the window has headers before the backlog lands.
 	if err := sink.view(h.projectView(ctx, sub.View, h.s.StatusText(ctx))); err != nil {
@@ -177,16 +186,6 @@ func (h *Host) ServeReader(ctx context.Context, in *bufio.Reader, out io.Writer)
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
 		go h.loadCatalog(ctx, id)
 	}
-	if catalog, ok := h.s.(driverCatalog); ok {
-		go func() {
-			drivers := catalog.AvailableDrivers(ctx)
-			h.catalogMu.Lock()
-			h.drivers = append([]string{}, drivers...)
-			h.catalogMu.Unlock()
-			_ = h.sendView(ctx, sink)
-		}()
-	}
-
 	done := make(chan struct{})
 	var once sync.Once
 	stop := func() { once.Do(func() { close(done) }) }
@@ -264,6 +263,20 @@ func (h *Host) projectView(ctx context.Context, sv session.View, status string) 
 		v.Agents[wireAgent(id)] = a
 	}
 	h.catalogMu.RUnlock()
+	h.settingsMu.RLock()
+	v.AgentScanBusy, v.AgentScanError = h.settingsBusy, h.settingsError
+	h.settingsMu.RUnlock()
+	if h.desktop != nil {
+		state := h.desktop.State()
+		v.AgentDriverNames = append([]string{}, h.driverNames...)
+		if v.AgentScanError == "" {
+			v.AgentScanError = state.ScanError
+		}
+		for _, a := range state.Agents {
+			v.DesktopAgents = append(v.DesktopAgents, DesktopAgent{Name: a.Name, CLI: a.CLI, Path: a.Path, Source: a.Source, Available: a.Available, Error: a.Error})
+		}
+		sort.Slice(v.DesktopAgents, func(i, j int) bool { return v.DesktopAgents[i].Name < v.DesktopAgents[j].Name })
+	}
 	h.nativeMu.Lock()
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
 		a := v.Agents[wireAgent(id)]
@@ -453,6 +466,10 @@ func (h *Host) readCommands(ctx context.Context, in *bufio.Reader, sink *frameSi
 		}
 		var envelope Command
 		if json.Unmarshal(line, &envelope) == nil && envelope.Type == typeCommand {
+			if envelope.Kind == KindRefreshAgents || envelope.Kind == KindAddAgent {
+				h.handleDesktopSettings(ctx, envelope, sink)
+				continue
+			}
 			if envelope.Kind == KindOpenNative || envelope.Kind == KindCloseNative {
 				agent, err := parseAgent(envelope.Agent)
 				if err != nil {
@@ -509,6 +526,55 @@ func (h *Host) readCommands(ctx context.Context, in *bufio.Reader, sink *frameSi
 	}
 }
 
+func (h *Host) updateDesktopView() {
+	if h.desktop == nil {
+		return
+	}
+	var available []string
+	for name, a := range h.desktop.State().Agents {
+		if a.Available {
+			available = append(available, name)
+		}
+	}
+	sort.Strings(available)
+	h.catalogMu.Lock()
+	h.drivers = available
+	h.catalogMu.Unlock()
+}
+
+func (h *Host) handleDesktopSettings(ctx context.Context, cmd Command, sink *frameSink) {
+	if h.desktop == nil {
+		_ = sink.failure(errors.New("agent settings are unavailable"))
+		return
+	}
+	h.settingsMu.Lock()
+	if h.settingsBusy {
+		h.settingsMu.Unlock()
+		_ = sink.failure(errors.New("agent settings are already being updated"))
+		return
+	}
+	h.settingsBusy = true
+	h.settingsError = ""
+	h.settingsMu.Unlock()
+	_ = h.sendView(ctx, sink)
+	go func() {
+		var err error
+		if cmd.Kind == KindRefreshAgents {
+			_, err = h.desktop.Refresh(ctx, h.driverNames)
+		} else {
+			_, err = h.desktop.Add(ctx, cmd.Driver, cmd.Path, h.driverNames)
+		}
+		h.settingsMu.Lock()
+		h.settingsBusy = false
+		if err != nil {
+			h.settingsError = err.Error()
+		}
+		h.settingsMu.Unlock()
+		h.updateDesktopView()
+		_ = h.sendView(ctx, sink)
+	}()
+}
+
 func readGUICommand(reader *bufio.Reader) ([]byte, error) {
 	var line []byte
 	for {
@@ -522,8 +588,12 @@ func readGUICommand(reader *bufio.Reader) ([]byte, error) {
 			return nil, fmt.Errorf("GUI command exceeds %d bytes", maxCommandBytes)
 		}
 		line = append(line, part...)
-		if err == nil { return line, nil }
-		if err != bufio.ErrBufferFull { return nil, err }
+		if err == nil {
+			return line, nil
+		}
+		if err != bufio.ErrBufferFull {
+			return nil, err
+		}
 	}
 }
 
