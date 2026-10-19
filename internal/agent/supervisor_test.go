@@ -32,6 +32,12 @@ func TestPTYInputResizeAndRestart(t *testing.T) {
 	if err := m.ResizeAll(101, 35); err != nil {
 		t.Fatal(err)
 	}
+	if err := m.ResizeAgent(protocol.Austin, 90, 30); err != nil {
+		t.Fatal(err)
+	}
+	if a.size.Cols != 90 || a.size.Rows != 30 || b.size.Cols != 101 || b.size.Rows != 35 {
+		t.Fatalf("agent-scoped resize changed unexpected PTYs: Austin=%+v Tony=%+v", a.size, b.size)
+	}
 	if err := m.StartAll(ctx); err != nil {
 		t.Fatal(err)
 	}

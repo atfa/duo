@@ -168,6 +168,16 @@ func (m *Manager) ResizeAll(cols, rows int) error {
 	return nil
 }
 
+// ResizeAgent updates only one agent's PTY size. Embedded terminal views have
+// independent dimensions, unlike the shared terminal UI's ResizeAll call.
+func (m *Manager) ResizeAgent(agent protocol.AgentID, cols, rows int) error {
+	d, ok := m.Driver(agent)
+	if !ok {
+		return fmt.Errorf("missing %s session", agent)
+	}
+	return d.Resize(cols, rows)
+}
+
 func (m *Manager) Restart(ctx context.Context, agent protocol.AgentID) error {
 	d, ok := m.Driver(agent)
 	if !ok {

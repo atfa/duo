@@ -148,31 +148,42 @@ func (guiLifetimeDriver) Models() (*driver.ModelList, error) {
 	return &driver.ModelList{Models: []driver.Model{{Provider: "fixture", ID: "old"}}}, nil
 }
 
+type recordedAgentResize struct {
+	agent      protocol.AgentID
+	cols, rows int
+}
+
 type fakeNativeSession struct {
 	*fakeSession
-	muNative   sync.Mutex
-	writer     io.Writer
-	attached   bool
-	attachN    int
-	detachN    int
-	input      [][]byte
-	resizes    [][2]int
-	attachedCh chan struct{}
-	detachedCh chan struct{}
-	inputCh    chan struct{}
-	resizeCh   chan struct{}
-	running    bool
-	replay     []byte
+	muNative     sync.Mutex
+	writer       io.Writer
+	attached     bool
+	attachN      int
+	detachN      int
+	input        [][]byte
+	resizes      [][2]int
+	agentResizes []recordedAgentResize
+	sizes        map[protocol.AgentID][2]int
+	attachedCh   chan struct{}
+	detachedCh   chan struct{}
+	inputCh      chan struct{}
+	resizeCh     chan struct{}
+	running      bool
+	replay       []byte
 }
 
 func newFakeNativeSession() *fakeNativeSession {
 	return &fakeNativeSession{
 		fakeSession: newFakeSession(),
 		running:     true,
-		attachedCh:  make(chan struct{}, 4),
-		detachedCh:  make(chan struct{}, 4),
-		inputCh:     make(chan struct{}, 8),
-		resizeCh:    make(chan struct{}, 8),
+		sizes: map[protocol.AgentID][2]int{
+			protocol.Austin: {80, 24},
+			protocol.Tony:   {80, 24},
+		},
+		attachedCh: make(chan struct{}, 4),
+		detachedCh: make(chan struct{}, 4),
+		inputCh:    make(chan struct{}, 8),
+		resizeCh:   make(chan struct{}, 8),
 	}
 }
 
@@ -216,6 +227,21 @@ func (f *fakeNativeSession) Write(_ protocol.AgentID, data []byte) error {
 func (f *fakeNativeSession) Resize(cols, rows int) error {
 	f.muNative.Lock()
 	f.resizes = append(f.resizes, [2]int{cols, rows})
+	for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		f.sizes[agent] = [2]int{cols, rows}
+	}
+	f.muNative.Unlock()
+	select {
+	case f.resizeCh <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+func (f *fakeNativeSession) ResizeAgent(agent protocol.AgentID, cols, rows int) error {
+	f.muNative.Lock()
+	f.agentResizes = append(f.agentResizes, recordedAgentResize{agent: agent, cols: cols, rows: rows})
+	f.sizes[agent] = [2]int{cols, rows}
 	f.muNative.Unlock()
 	select {
 	case f.resizeCh <- struct{}{}:
@@ -431,8 +457,11 @@ func TestEmbeddedTerminalRelayReplaysChunksForwardsInputAndResizes(t *testing.T)
 	if len(fake.input) != 1 || !bytes.Equal(fake.input[0], input) {
 		t.Fatalf("terminal input = %q; want %q", fake.input, input)
 	}
-	if len(fake.resizes) != 1 || fake.resizes[0] != [2]int{120, 40} {
-		t.Fatalf("terminal resize = %v; want 120x40", fake.resizes)
+	if len(fake.agentResizes) != 1 || fake.agentResizes[0] != (recordedAgentResize{agent: protocol.Austin, cols: 120, rows: 40}) {
+		t.Fatalf("agent-scoped terminal resize = %v; want Austin 120x40", fake.agentResizes)
+	}
+	if len(fake.resizes) != 0 || fake.sizes[protocol.Austin] != [2]int{120, 40} || fake.sizes[protocol.Tony] != [2]int{80, 24} {
+		t.Fatalf("terminal resize affected unexpected PTYs: all=%v sizes=%v", fake.resizes, fake.sizes)
 	}
 	writer := fake.writer
 	fake.muNative.Unlock()

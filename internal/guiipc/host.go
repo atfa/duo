@@ -56,6 +56,7 @@ type nativeSession interface {
 	Detach(protocol.AgentID)
 	Write(protocol.AgentID, []byte) error
 	Resize(int, int) error
+	ResizeAgent(protocol.AgentID, int, int) error
 }
 
 const (
@@ -1005,7 +1006,7 @@ func (h *Host) resizeTerminal(id protocol.AgentID, cols, rows int) error {
 	if h.terminalLink(id) == nil {
 		return fmt.Errorf("%s embedded terminal is not open", id)
 	}
-	return h.s.(nativeSession).Resize(cols, rows)
+	return h.s.(nativeSession).ResizeAgent(id, cols, rows)
 }
 
 func (h *Host) failTerminal(ctx context.Context, id protocol.AgentID, err error, sink *frameSink) {

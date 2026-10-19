@@ -1053,6 +1053,18 @@ func (s *Service) Resize(cols, rows int) error {
 	return s.agents.ResizeAll(cols, rows)
 }
 
+// ResizeAgent changes only the selected agent's PTY size. The graphical
+// terminal pane has its own dimensions, while Resize remains the shared
+// terminal frontend's operation.
+func (s *Service) ResizeAgent(agent protocol.AgentID, cols, rows int) error {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.agents == nil {
+		return nil
+	}
+	return s.agents.ResizeAgent(agent, cols, rows)
+}
+
 // collectNotice records a diagnostic a driver reported while preparing a launch.
 //
 // Drivers are built before the frontend exists, so a notice produced during a
