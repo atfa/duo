@@ -91,17 +91,21 @@ duo gui resume <session-id>   # open the window on the session already in flight
 | `Ctrl+T` | Show or hide timeline timestamps. |
 | `Ctrl+X` | Copy Austin's latest message to the human to the clipboard. |
 | `F1` / `Ctrl+H` | Show or hide keyboard help. |
-| `Ctrl+Q` / window close | Quit; an unfinished session asks for a second confirmation within 3 seconds. |
+| Agent-card `Terminal` button | Open the embedded bottom terminal for that agent; switch agent tabs or close it from the panel header. |
+| Terminal pane keys | PTY receives text (including IME/paste), Enter, Escape, Backspace, arrows, navigation/function keys, and control-key bytes such as `Ctrl+C`. `Shift+PageUp` / `Shift+PageDown` scroll retained output. While the pane is active, other app shortcuts are suspended. |
+| `Ctrl+Q` / window close | Quit; an unfinished session asks for a second confirmation within 3 seconds, including while the terminal pane is active. |
 
 ## Current boundaries
 
-No agent terminal stream or shared-plan editor. The model picker uses each
-agent's catalog from the session host and reports loading, driver errors, empty
-catalogs, and unmatched filters separately. The work preview shows the structured
-tool trail, recent durations, errors, context use, and streamed output provided
-by the host. The task composer uses GPUI's native text input bridge for IME
-composition and pasted text, with keyboard cursor movement, deletion, mouse
-positioning, and selection.
+The in-app terminal pane is backed by each agent's real PTY through bounded,
+base64-chunked NDJSON frames; its VT screen retains ANSI colors, cursor state,
+scrolling and alternate-screen modes. Resizing one pane changes only that agent's
+PTY. The model picker uses each agent's catalog from the session host and reports
+loading, driver errors, empty catalogs, and unmatched filters separately. The
+work preview shows the structured tool trail, recent durations, errors, context
+use, and streamed output provided by the host. The task composer uses GPUI's native
+text input bridge for IME composition and pasted text, with keyboard cursor
+movement, deletion, mouse positioning, and selection.
 
 ## Tests
 
@@ -109,6 +113,7 @@ positioning, and selection.
 cd gpui && cargo test
 ```
 
-The tests cover protocol parsing and serialization, quit confirmation, message
+The tests cover protocol parsing and serialization (including base64 terminal
+frames), VT screen parsing, terminal key mappings, quit confirmation, message
 selection, composer editing, and client-decoration resize-edge selection. CI
 runs both the Rust tests and release build.

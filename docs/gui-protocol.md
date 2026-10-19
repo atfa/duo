@@ -67,6 +67,8 @@ Every message is an object with a `type` field.
 | `event` | `event` (Event) | One conversation or workflow entry appended to the timeline. |
 | `error` | `text` | The last command was rejected. The text is shown to the human. |
 | `closed` | `text` | The session ended or the host is gone. The renderer shows the text and stops expecting state. |
+| `terminal_output` | `agent`, `data` | One base64-encoded chunk of that agent's PTY output; decoded chunks are at most 16 KiB. |
+| `terminal_error` | `agent`, `text` | The attached terminal was detached after a transport or PTY-output error. |
 
 The host sends one `view` immediately on start, one `event` **and then** one `view`
 for every session event, and one `view` on a 500 ms heartbeat so time-derived
@@ -155,7 +157,7 @@ Resume.
 | `models` | array of Model | Options returned by this agent's driver catalog; empty while loading or when no options were returned. |
 | `models_loaded` | bool | The catalog request finished, whether successfully or with an error. |
 | `models_error` | string | Catalog error, including when the driver publishes no catalog. Omitted when successful. |
-| `native_open` | bool | A native terminal launch is pending or attached; the GUI uses this to offer Close native while startup is pending. |
+| `native_open` | bool | A native or embedded terminal attach is pending or active; xduo uses it to show or switch the corresponding terminal pane. |
 
 ### Diffstat, Verification and StepVerification
 
@@ -268,8 +270,11 @@ Every message is an object with `type: "command"` and a `kind` discriminator.
 | `back_to_welcome` | — | Clear the selected project without starting a session. |
 | `refresh_agents` | — | Rescan the login-shell PATH and save the machine-local catalog. Manually added paths are retained. |
 | `add_agent` | `driver`, `path` | Register an absolute executable path for a known driver after validating and probing it. |
-| `open_native` | `agent` | Open a native terminal attached to that agent's live PTY. |
-| `close_native` | `agent` | Detach the native terminal without stopping the agent. |
+| `terminal_open` | `agent` | Attach the in-app terminal view to that agent's live PTY. |
+| `terminal_close` | `agent` | Detach that in-app terminal without stopping the agent. |
+| `terminal_input` | `agent`, `data` | Write standard-base64-decoded bytes (at most 64 KiB) to that agent's PTY. |
+| `terminal_resize` | `agent`, `cols`, `rows` | Resize only that agent's PTY; both dimensions must be 1–512. |
+| `open_native` / `close_native` | `agent` | Legacy launcher-based attach commands. The built-in `duo gui` no longer configures an external terminal launcher; xduo uses `terminal_*`. |
 | `quit` | — | The human closed the window; the host closes the session. |
 
 `escalate_to_goal` is only meaningful in Fast. Goal and Step refuse it, because a
@@ -295,14 +300,16 @@ the local Duo installation successfully probes. Choosing one replaces that
 agent's process while retaining its worktree and workflow state; its model and
 thinking selection are resolved again from the new driver's manifest.
 
-Native terminal attach is a separate local Unix socket in a private temporary
-directory. The renderer never receives the socket path or an agent bridge token.
-The native client forwards terminal bytes and resize events to the host; closing
-the terminal or choosing **Close native** detaches it and leaves the agent running.
-This is separate from the structured work preview shown in the agent card: the
-preview reads bounded state, while Native opens an interactive terminal on the
-agent's real PTY. The current Native window launcher uses macOS Terminal.app;
-other operating systems report that Native launch is unavailable.
+The embedded terminal uses the existing stdio protocol; the renderer never receives
+a socket path or an agent bridge token. PTY replay is limited to 1 MiB and is split
+into the same 16 KiB output chunks as live data. The host buffers at most 64 chunks
+(1 MiB) per terminal. If that queue fills, it sends the already-buffered chunks,
+then `terminal_error` and detaches; it never silently drops output bytes. Closing a
+terminal detaches it and leaves the agent running. `terminal_resize` applies only
+to the named agent, so the other agent's PTY dimensions are unchanged. This is
+separate from the structured work preview shown in the agent card: the preview
+reads bounded state, while the bottom terminal pane renders the attached agent's
+real PTY stream.
 
 ## Why this shape
 

@@ -4,6 +4,7 @@
 //! frames, kept a direct transcription of the protocol document so the Go side and
 //! this side cannot drift into two shapes.
 
+use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -15,6 +16,8 @@ pub enum ServerMessage {
     Event { event: Event },
     Error { text: String },
     Closed { text: String },
+    TerminalOutput { agent: String, data: String },
+    TerminalError { agent: String, text: String },
 }
 
 /// The complete state of a session at one moment.
@@ -353,6 +356,12 @@ pub struct ClientMessage {
     pub path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cols: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rows: Option<u16>,
 }
 
 impl ClientMessage {
@@ -370,6 +379,9 @@ impl ClientMessage {
             driver: None,
             path: None,
             session_id: None,
+            data: None,
+            cols: None,
+            rows: None,
         }
     }
 
@@ -441,17 +453,34 @@ impl ClientMessage {
         }
     }
 
-    pub fn open_native(agent: impl Into<String>) -> Self {
+    pub fn terminal_open(agent: impl Into<String>) -> Self {
         Self {
             agent: Some(agent.into()),
-            ..Self::new("open_native")
+            ..Self::new("terminal_open")
         }
     }
 
-    pub fn close_native(agent: impl Into<String>) -> Self {
+    pub fn terminal_close(agent: impl Into<String>) -> Self {
         Self {
             agent: Some(agent.into()),
-            ..Self::new("close_native")
+            ..Self::new("terminal_close")
+        }
+    }
+
+    pub fn terminal_input(agent: impl Into<String>, bytes: &[u8]) -> Self {
+        Self {
+            agent: Some(agent.into()),
+            data: Some(base64::engine::general_purpose::STANDARD.encode(bytes)),
+            ..Self::new("terminal_input")
+        }
+    }
+
+    pub fn terminal_resize(agent: impl Into<String>, cols: u16, rows: u16) -> Self {
+        Self {
+            agent: Some(agent.into()),
+            cols: Some(cols),
+            rows: Some(rows),
+            ..Self::new("terminal_resize")
         }
     }
 
@@ -630,6 +659,26 @@ mod tests {
     }
 
     #[test]
+    fn parses_terminal_output_and_error_frames() {
+        let output = r#"{"type":"terminal_output","agent":"austin","data":"aGVsbG8="}"#;
+        assert_eq!(
+            serde_json::from_str::<ServerMessage>(output).unwrap(),
+            ServerMessage::TerminalOutput {
+                agent: "austin".to_owned(),
+                data: "aGVsbG8=".to_owned(),
+            }
+        );
+        let error = r#"{"type":"terminal_error","agent":"tony","text":"output backlog exceeded"}"#;
+        assert_eq!(
+            serde_json::from_str::<ServerMessage>(error).unwrap(),
+            ServerMessage::TerminalError {
+                agent: "tony".to_owned(),
+                text: "output backlog exceeded".to_owned(),
+            }
+        );
+    }
+
+    #[test]
     fn a_command_frame_carries_only_what_it_needs() {
         // The whole command surface, compared as exact bytes: the string form is also
         // what proves the optional fields are omitted rather than sent as null.
@@ -657,6 +706,22 @@ mod tests {
             (
                 ClientMessage::cycle_thinking("austin"),
                 r#"{"type":"command","kind":"cycle_thinking","agent":"austin"}"#,
+            ),
+            (
+                ClientMessage::terminal_open("austin"),
+                r#"{"type":"command","kind":"terminal_open","agent":"austin"}"#,
+            ),
+            (
+                ClientMessage::terminal_close("tony"),
+                r#"{"type":"command","kind":"terminal_close","agent":"tony"}"#,
+            ),
+            (
+                ClientMessage::terminal_input("austin", b"\x1b[A"),
+                r#"{"type":"command","kind":"terminal_input","agent":"austin","data":"G1tB"}"#,
+            ),
+            (
+                ClientMessage::terminal_resize("austin", 120, 40),
+                r#"{"type":"command","kind":"terminal_resize","agent":"austin","cols":120,"rows":40}"#,
             ),
             (ClientMessage::quit(), r#"{"type":"command","kind":"quit"}"#),
         ] {

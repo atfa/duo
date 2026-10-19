@@ -12,7 +12,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -575,31 +574,8 @@ func newGUIHost(svc *session.Service, renderer string, registry *desktopagents.R
 		}()
 		return nil
 	})
-	host.SetNativeLauncher(func(ctx context.Context, socketPath, agent string) error {
-		if runtime.GOOS != "darwin" {
-			return fmt.Errorf("native terminal launch is unsupported on %s", runtime.GOOS)
-		}
-		binary, err := os.Executable()
-		if err != nil {
-			return err
-		}
-		command := shellQuote(binary) + " native --socket " + shellQuote(socketPath) + " --agent " + shellQuote(agent)
-		script := `tell application "Terminal" to do script "exec ` + strings.ReplaceAll(strings.ReplaceAll(command, `\`, `\\`), `"`, `\"`) + `"`
-		launchCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		defer cancel()
-		output, err := exec.CommandContext(launchCtx, "osascript", "-e", script).CombinedOutput()
-		if err != nil {
-			if errors.Is(launchCtx.Err(), context.DeadlineExceeded) {
-				return fmt.Errorf("open native terminal timed out after 10 seconds; check macOS Automation access for Terminal and whether Terminal is responding (osascript: %v: %s)", err, strings.TrimSpace(string(output)))
-			}
-			return fmt.Errorf("open native terminal: %w: %s", err, strings.TrimSpace(string(output)))
-		}
-		return nil
-	})
 	return host
 }
-
-func shellQuote(value string) string { return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'" }
 
 type boundedGUIOutput struct{ buf bytes.Buffer }
 

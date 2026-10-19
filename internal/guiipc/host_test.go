@@ -550,6 +550,37 @@ func TestHostShutdownDetachesEmbeddedTerminal(t *testing.T) {
 	}
 }
 
+func TestEmbeddedTerminalAcceptsInputAndResizeDuringPendingAttach(t *testing.T) {
+	fake := newFakeNativeSession()
+	h := NewHost(fake)
+	h.native = map[protocol.AgentID]*nativeAttachment{
+		protocol.Austin: {
+			terminal: true,
+			cancel:   func() {},
+			done:     make(chan struct{}),
+		},
+	}
+
+	input := []byte("early input\\r")
+	if err := h.writeTerminalInput(protocol.Austin, input); err != nil {
+		t.Fatalf("write to pending embedded terminal: %v", err)
+	}
+	if err := h.resizeTerminal(protocol.Austin, 100, 30); err != nil {
+		t.Fatalf("resize pending embedded terminal: %v", err)
+	}
+	fake.muNative.Lock()
+	defer fake.muNative.Unlock()
+	if len(fake.input) != 1 || !bytes.Equal(fake.input[0], input) {
+		t.Fatalf("pending input = %q; want %q", fake.input, input)
+	}
+	if len(fake.agentResizes) != 1 || fake.agentResizes[0] != (recordedAgentResize{agent: protocol.Austin, cols: 100, rows: 30}) {
+		t.Fatalf("pending agent resize = %v", fake.agentResizes)
+	}
+	if fake.sizes[protocol.Tony] != [2]int{80, 24} || len(fake.resizes) != 0 {
+		t.Fatalf("pending resize changed Tony or all agents: %+v", fake.sizes)
+	}
+}
+
 func TestTerminalOutputQueueFailsClosedWithoutDroppingQueuedFrames(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.TODO())
 	defer cancel()

@@ -5,12 +5,14 @@
 //! cannot start, stop or sign anything: it sends a command and waits for the next
 //! view, exactly like a terminal interface.
 
+use std::collections::BTreeMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::Write as _;
 use std::ops::Range;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use base64::Engine as _;
 use gpui::prelude::*;
 use gpui::{
     canvas, div, fill, point, px, relative, rgb, rgba, size, AnyElement, App, Bounds,
@@ -27,6 +29,7 @@ use crate::commands::{
     classify_submission, search_help, slash_completions, SlashAction, SlashCommand, Submission,
 };
 use crate::protocol::{Agent, ClientMessage, Event, Model, ServerMessage, View, WorkPreview};
+use crate::terminal::TerminalScreen;
 use crate::timeline::{parse_markdown, Block, Span};
 
 /// The lowercase wire spellings. The host normalizes identity once, at its own
@@ -38,6 +41,120 @@ const AGENT_TONY: &str = "tony";
 /// The one mode whose session accepts an escalation to Goal.
 const MODE_FAST: &str = "fast";
 const COMPOSER_PLACEHOLDER: &str = "Type a task and press Enter…";
+
+fn terminal_key_bytes(
+    key: &str,
+    control: bool,
+    alt: bool,
+    shift: bool,
+    application_cursor: bool,
+) -> Option<Vec<u8>> {
+    let key = key.to_ascii_lowercase();
+    if control {
+        if key.len() == 1 {
+            let byte = key.as_bytes()[0];
+            if byte.is_ascii_lowercase() {
+                return Some(vec![byte - b'a' + 1]);
+            }
+        }
+        match key.as_str() {
+            "space" => return Some(vec![0]),
+            "[" => return Some(vec![0x1b]),
+            "]" => return Some(vec![0x1d]),
+            "^" => return Some(vec![0x1e]),
+            "_" => return Some(vec![0x1f]),
+            "backspace" => return Some(vec![0x17]),
+            _ => {}
+        }
+    }
+
+    let csi = |final_byte| modified_terminal_csi(final_byte, shift, alt, control);
+    match key.as_str() {
+        "enter" | "kp_enter" => Some(vec![b'\r']),
+        "tab" if shift => Some(b"\x1b[Z".to_vec()),
+        "tab" => Some(vec![b'\t']),
+        "escape" => Some(vec![0x1b]),
+        "backspace" => Some(vec![0x7f]),
+        "delete" => Some(b"\x1b[3~".to_vec()),
+        "insert" => Some(b"\x1b[2~".to_vec()),
+        "home" => Some(csi(b'H')),
+        "end" => Some(csi(b'F')),
+        "pageup" | "page_up" => Some(b"\x1b[5~".to_vec()),
+        "pagedown" | "page_down" => Some(b"\x1b[6~".to_vec()),
+        "up" => Some(terminal_arrow(b'A', application_cursor, shift, alt, control)),
+        "down" => Some(terminal_arrow(b'B', application_cursor, shift, alt, control)),
+        "right" => Some(terminal_arrow(b'C', application_cursor, shift, alt, control)),
+        "left" => Some(terminal_arrow(b'D', application_cursor, shift, alt, control)),
+        "f1" => Some(b"\x1bOP".to_vec()),
+        "f2" => Some(b"\x1bOQ".to_vec()),
+        "f3" => Some(b"\x1bOR".to_vec()),
+        "f4" => Some(b"\x1bOS".to_vec()),
+        "f5" => Some(b"\x1b[15~".to_vec()),
+        "f6" => Some(b"\x1b[17~".to_vec()),
+        "f7" => Some(b"\x1b[18~".to_vec()),
+        "f8" => Some(b"\x1b[19~".to_vec()),
+        "f9" => Some(b"\x1b[20~".to_vec()),
+        "f10" => Some(b"\x1b[21~".to_vec()),
+        "f11" => Some(b"\x1b[23~".to_vec()),
+        "f12" => Some(b"\x1b[24~".to_vec()),
+        _ => None,
+    }
+}
+
+fn terminal_color(color: vt100::Color, default: Rgba) -> Rgba {
+    match color {
+        vt100::Color::Default => default,
+        vt100::Color::Rgb(red, green, blue) => {
+            rgb((u32::from(red) << 16) | (u32::from(green) << 8) | u32::from(blue))
+        }
+        vt100::Color::Idx(index) => rgb(terminal_palette_color(index)),
+    }
+}
+
+fn terminal_palette_color(index: u8) -> u32 {
+    const BASIC: [u32; 16] = [
+        0x000000, 0xcd0000, 0x00cd00, 0xcdcd00, 0x0000ee, 0xcd00cd, 0x00cdcd, 0xe5e5e5,
+        0x4e4e4e, 0xff0000, 0x00ff00, 0xffff00, 0x5c5cff, 0xff00ff, 0x00ffff, 0xffffff,
+    ];
+    if index < 16 {
+        return BASIC[usize::from(index)];
+    }
+    if index < 232 {
+        const LEVELS: [u32; 6] = [0, 95, 135, 175, 215, 255];
+        let offset = u32::from(index - 16);
+        let red = LEVELS[(offset / 36) as usize];
+        let green = LEVELS[((offset / 6) % 6) as usize];
+        let blue = LEVELS[(offset % 6) as usize];
+        return (red << 16) | (green << 8) | blue;
+    }
+    let gray = 8 + u32::from(index - 232) * 10;
+    (gray << 16) | (gray << 8) | gray
+}
+
+fn terminal_arrow(
+    final_byte: u8,
+    application_cursor: bool,
+    shift: bool,
+    alt: bool,
+    control: bool,
+) -> Vec<u8> {
+    if application_cursor && !shift && !alt && !control {
+        return vec![0x1b, b'O', final_byte];
+    }
+    modified_terminal_csi(final_byte, shift, alt, control)
+}
+
+fn modified_terminal_csi(final_byte: u8, shift: bool, alt: bool, control: bool) -> Vec<u8> {
+    let modifier = 1 + u8::from(shift) + 2 * u8::from(alt) + 4 * u8::from(control);
+    if modifier == 1 {
+        vec![0x1b, b'[', final_byte]
+    } else {
+        let mut bytes = b"\x1b[1;".to_vec();
+        bytes.extend_from_slice(modifier.to_string().as_bytes());
+        bytes.push(final_byte);
+        bytes
+    }
+}
 
 /// The timeline keeps the most recent entries. A window is not an archive, and an
 /// unbounded vector in a process that may run for hours is a leak.
@@ -283,6 +400,11 @@ pub struct DuoApp {
     pending_model_change: Option<PendingModelChange>,
     work_preview_open: bool,
     diff_preview_agent: Option<String>,
+    terminal_agent: Option<String>,
+    terminal_screens: BTreeMap<String, TerminalScreen>,
+    terminal_errors: BTreeMap<String, String>,
+    terminal_sizes_sent: BTreeMap<String, (u16, u16)>,
+    terminal_saved_input: Option<(String, Range<usize>)>,
     focus: FocusHandle,
 }
 
@@ -344,6 +466,11 @@ impl DuoApp {
             pending_model_change: None,
             work_preview_open: false,
             diff_preview_agent: None,
+            terminal_agent: None,
+            terminal_screens: BTreeMap::new(),
+            terminal_errors: BTreeMap::new(),
+            terminal_sizes_sent: BTreeMap::new(),
+            terminal_saved_input: None,
             focus: cx.focus_handle(),
         }
     }
@@ -376,6 +503,25 @@ impl DuoApp {
                 }
             }
             ServerMessage::Error { text } => self.banner = Some(text),
+            ServerMessage::TerminalOutput { agent, data } => {
+                match base64::engine::general_purpose::STANDARD.decode(data) {
+                    Ok(bytes) => {
+                        self.terminal_errors.remove(&agent);
+                        self.terminal_screens
+                            .entry(agent)
+                            .or_default()
+                            .process(&bytes);
+                    }
+                    Err(err) => {
+                        self.terminal_errors
+                            .insert(agent, format!("Invalid terminal output: {err}"));
+                    }
+                }
+            }
+            ServerMessage::TerminalError { agent, text } => {
+                self.terminal_sizes_sent.remove(&agent);
+                self.terminal_errors.insert(agent, text);
+            }
             ServerMessage::Closed { text } => {
                 self.closed = true;
                 self.banner = Some(text);
@@ -396,6 +542,126 @@ impl DuoApp {
         }
     }
 
+    fn send_terminal_input(&self, agent: &str, bytes: &[u8]) {
+        for chunk in bytes.chunks(64 * 1024) {
+            self.send(ClientMessage::terminal_input(agent.to_owned(), chunk));
+        }
+    }
+
+    fn activate_terminal(&mut self, agent: String, cx: &mut Context<Self>) {
+        self.model_picker = None;
+        self.pending_model_change = None;
+        self.help_open = false;
+        self.timeline_search = None;
+        self.search_matches.clear();
+        self.search_current = None;
+        self.diff_preview_agent = None;
+        if self.terminal_agent.is_none() {
+            self.terminal_saved_input = Some((
+                std::mem::take(&mut self.input),
+                self.selection.clone(),
+            ));
+            self.selection = 0..0;
+            self.marked_range = None;
+            self.reset_history_navigation();
+        }
+        self.terminal_agent = Some(agent.clone());
+        self.terminal_errors.remove(&agent);
+        self.terminal_screens.entry(agent).or_default();
+        cx.notify();
+    }
+
+    fn open_terminal(&mut self, agent: String, cx: &mut Context<Self>) {
+        self.activate_terminal(agent.clone(), cx);
+        self.send(ClientMessage::terminal_open(agent));
+    }
+
+    fn select_terminal(&mut self, agent: String, already_open: bool, cx: &mut Context<Self>) {
+        if self.terminal_agent.as_deref() == Some(agent.as_str()) {
+            if !already_open && self.terminal_errors.contains_key(&agent) {
+                self.terminal_screens
+                    .insert(agent.clone(), TerminalScreen::default());
+                self.terminal_errors.remove(&agent);
+                self.terminal_sizes_sent.remove(&agent);
+                self.send(ClientMessage::terminal_open(agent));
+                cx.notify();
+            }
+            return;
+        }
+        self.activate_terminal(agent.clone(), cx);
+        if !already_open {
+            self.send(ClientMessage::terminal_open(agent));
+        }
+    }
+
+    fn toggle_terminal(&mut self, agent: String, already_open: bool, cx: &mut Context<Self>) {
+        if self.terminal_agent.as_deref() == Some(agent.as_str()) {
+            self.close_terminal(&agent, cx);
+        } else if already_open {
+            self.select_terminal(agent, true, cx);
+        } else {
+            self.open_terminal(agent, cx);
+        }
+    }
+
+    fn close_terminal(&mut self, agent: &str, cx: &mut Context<Self>) {
+        self.send(ClientMessage::terminal_close(agent.to_owned()));
+        self.terminal_screens.remove(agent);
+        self.terminal_errors.remove(agent);
+        self.terminal_sizes_sent.remove(agent);
+        if self.terminal_agent.as_deref() == Some(agent) {
+            self.terminal_agent = None;
+            if let Some((input, selection)) = self.terminal_saved_input.take() {
+                self.input = input;
+                self.selection = selection;
+            }
+        }
+        cx.notify();
+    }
+
+    fn on_terminal_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
+        let Some(agent) = self.terminal_agent.clone() else {
+            return;
+        };
+        let key = &event.keystroke;
+        if key.modifiers.shift && (key.key == "pageup" || key.key == "page_up") {
+            if let Some(screen) = self.terminal_screens.get_mut(&agent) {
+                if !screen.screen().alternate_screen() {
+                    let page = usize::from(screen.size().0);
+                    screen.set_scrollback(
+                        (screen.scrollback() + page).min(screen.scrollback_len()),
+                    );
+                    cx.notify();
+                }
+            }
+            return;
+        }
+        if key.modifiers.shift && (key.key == "pagedown" || key.key == "page_down") {
+            if let Some(screen) = self.terminal_screens.get_mut(&agent) {
+                if !screen.screen().alternate_screen() {
+                    let page = usize::from(screen.size().0);
+                    screen.set_scrollback(screen.scrollback().saturating_sub(page));
+                    cx.notify();
+                }
+            }
+            return;
+        }
+        let application_cursor = self
+            .terminal_screens
+            .get(&agent)
+            .is_some_and(|screen| screen.screen().application_cursor());
+        if let Some(bytes) = terminal_key_bytes(
+            key.key.as_str(),
+            key.modifiers.control,
+            key.modifiers.alt,
+            key.modifiers.shift,
+            application_cursor,
+        ) {
+            self.send_terminal_input(&agent, &bytes);
+            cx.notify();
+        }
+    }
+
     fn on_key(&mut self, event: &KeyDownEvent, cx: &mut Context<Self>) {
         let keystroke = &event.keystroke;
 
@@ -408,6 +674,18 @@ impl DuoApp {
             } else {
                 cx.notify();
             }
+            return;
+        }
+
+        if self.terminal_agent.is_some()
+            && self.model_picker.is_none()
+            && self.driver_picker.is_none()
+            && !self.help_open
+            && self.timeline_search.is_none()
+            && self.diff_preview_agent.is_none()
+            && !self.settings_open
+        {
+            self.on_terminal_key(event, cx);
             return;
         }
 
@@ -1721,6 +1999,7 @@ struct ComposerElement {
     app: Entity<DuoApp>,
     input_enabled: bool,
     model_filter: bool,
+    terminal_bridge: bool,
 }
 struct ComposerPaint {
     lines: Vec<(usize, WrappedLine)>,
@@ -1965,7 +2244,9 @@ impl Element for ComposerElement {
             (&picker.filter, &picker.selection)
         });
         let empty = input.is_empty() && picker.is_none();
-        let display_text = if empty {
+        let display_text = if self.terminal_bridge && empty {
+            " "
+        } else if empty {
             COMPOSER_PLACEHOLDER
         } else {
             input.as_str()
@@ -2201,7 +2482,35 @@ impl Render for DuoApp {
         let theme = Theme::from_appearance(window.appearance());
         let client_chrome = matches!(window.window_decorations(), Decorations::Client { .. });
         let maximized = window.is_maximized();
-        let compact = window.window_bounds().get_bounds().size.width < px(820.);
+        let bounds = window.window_bounds().get_bounds().size;
+        let compact = bounds.width < px(820.);
+        let terminal_width = bounds.width - if compact { px(0.) } else { px(240.) };
+        let terminal_cols = ((terminal_width / px(8.5)).floor() as u16).clamp(20, 512);
+        let terminal_rows = (((bounds.height / px(18.)).floor() as u16).saturating_sub(24))
+            .clamp(5, 24);
+        if let Some(agent) = self.terminal_agent.clone() {
+            let screen = self.terminal_screens.entry(agent.clone()).or_default();
+            if screen.size() != (terminal_rows, terminal_cols) {
+                screen.resize(terminal_rows, terminal_cols);
+            }
+            let attached = self
+                .view
+                .as_ref()
+                .and_then(|view| view.agents.get(&agent))
+                .is_some_and(|agent| agent.native_open);
+            let resize_needed = attached
+                && !self.terminal_errors.contains_key(&agent)
+                && self.terminal_sizes_sent.get(&agent) != Some(&(terminal_rows, terminal_cols));
+            if resize_needed {
+                self.terminal_sizes_sent
+                    .insert(agent.clone(), (terminal_rows, terminal_cols));
+                self.send(ClientMessage::terminal_resize(
+                    agent,
+                    terminal_cols,
+                    terminal_rows,
+                ));
+            }
+        }
         let mut root = div()
             .relative()
             .size_full()
@@ -2316,6 +2625,14 @@ impl EntityInputHandler for DuoApp {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if let Some(agent) = self.terminal_agent.clone() {
+            self.input.clear();
+            self.selection = 0..0;
+            self.marked_range = None;
+            self.send_terminal_input(&agent, text.as_bytes());
+            cx.notify();
+            return;
+        }
         if let Some(picker) = self.model_picker.as_mut() {
             replace_composition_text(
                 &mut picker.filter,
@@ -2956,6 +3273,11 @@ impl DuoApp {
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(|this, _: &MouseDownEvent, _, cx| {
+                        if !this.settings_open {
+                            if let Some(agent) = this.terminal_agent.clone() {
+                                this.close_terminal(&agent, cx);
+                            }
+                        }
                         this.settings_open = !this.settings_open;
                         this.driver_picker = None;
                         cx.notify();
@@ -3004,6 +3326,173 @@ impl DuoApp {
             bar = bar.child(div().text_color(theme.error).child("closed"));
         }
         bar.into_any_element()
+    }
+
+    fn terminal_input_bridge(&self, cx: &Context<Self>) -> AnyElement {
+        div()
+            .id("xduo-terminal-input-bridge")
+            .size(px(1.))
+            .overflow_hidden()
+            .child(ComposerElement {
+                app: cx.entity(),
+                input_enabled: self.model_picker.is_none()
+                    && self.driver_picker.is_none()
+                    && !self.help_open
+                    && self.timeline_search.is_none()
+                    && !self.settings_open,
+                model_filter: false,
+                terminal_bridge: true,
+            })
+            .into_any_element()
+    }
+
+    fn terminal_panel(&self, agent: &str, theme: Theme, cx: &Context<Self>) -> AnyElement {
+        let title = if agent == AGENT_AUSTIN { "Austin" } else { "Tony" };
+        let screen = self.terminal_screens.get(agent);
+        let (rows, cols) = screen
+            .map(TerminalScreen::size)
+            .unwrap_or((24, 80));
+        let mut body = Vec::new();
+        if let Some(error) = self.terminal_errors.get(agent) {
+            body.push(
+                div()
+                    .px_2()
+                    .py_1()
+                    .text_xs()
+                    .text_color(theme.error)
+                    .child(error.clone())
+                    .into_any_element(),
+            );
+        }
+        if let Some(screen) = screen {
+            let cursor = screen.screen().cursor_position();
+            let show_cursor = screen.scrollback() == 0 && !screen.screen().hide_cursor();
+            for row in 0..rows {
+                let mut cells = Vec::with_capacity(usize::from(cols));
+                for col in 0..cols {
+                    let Some(cell) = screen.screen().cell(row, col) else {
+                        continue;
+                    };
+                    if cell.is_wide_continuation() {
+                        continue;
+                    }
+                    let mut foreground = terminal_color(cell.fgcolor(), theme.input);
+                    let mut background = terminal_color(cell.bgcolor(), theme.background);
+                    if cell.inverse() || (show_cursor && cursor == (row, col)) {
+                        std::mem::swap(&mut foreground, &mut background);
+                    }
+                    let text = if cell.has_contents() {
+                        cell.contents().to_owned()
+                    } else {
+                        " ".to_owned()
+                    };
+                    let element = div()
+                        .flex_none()
+                        .h(px(18.))
+                        .font_family("monospace")
+                        .text_xs()
+                        .text_color(foreground)
+                        .bg(background)
+                        .when(cell.bold(), |element| {
+                            element.font_weight(FontWeight::BOLD)
+                        })
+                        .child(text);
+                    cells.push(element.into_any_element());
+                }
+                body.push(
+                    div()
+                        .w_full()
+                        .h(px(18.))
+                        .min_h(px(18.))
+                        .flex()
+                        .flex_row()
+                        .children(cells)
+                        .into_any_element(),
+                );
+            }
+        }
+
+        let mut tabs = Vec::new();
+        for (id, name) in [(AGENT_AUSTIN, "Austin"), (AGENT_TONY, "Tony")] {
+            let selected = agent == id;
+            let already_open = self
+                .view
+                .as_ref()
+                .and_then(|view| view.agents.get(id))
+                .is_some_and(|agent| agent.native_open);
+            let tab_agent = id.to_owned();
+            tabs.push(
+                div()
+                    .px_2()
+                    .py_1()
+                    .rounded_sm()
+                    .bg(if selected { theme.background } else { theme.surface })
+                    .text_xs()
+                    .cursor(CursorStyle::PointingHand)
+                    .child(name)
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                            this.select_terminal(tab_agent.clone(), already_open, cx);
+                        }),
+                    )
+                    .into_any_element(),
+            );
+        }
+        let active_agent = agent.to_owned();
+        let close_button = div()
+            .px_2()
+            .py_1()
+            .rounded_sm()
+            .text_xs()
+            .text_color(theme.muted)
+            .cursor(CursorStyle::PointingHand)
+            .child("×")
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                    this.close_terminal(&active_agent, cx);
+                }),
+            );
+        div()
+            .flex_none()
+            .w_full()
+            .h(px(f32::from(rows) * 18. + 38.))
+            .border_t_1()
+            .border_color(theme.border)
+            .flex()
+            .flex_col()
+            .child(
+                div()
+                    .flex_none()
+                    .w_full()
+                    .h(px(34.))
+                    .px_2()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .bg(theme.sidebar)
+                    .child(
+                        div()
+                            .flex_1()
+                            .font_weight(FontWeight::BOLD)
+                            .child(format!("Terminal · {title}")),
+                    )
+                    .children(tabs)
+                    .child(close_button),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .overflow_hidden()
+                    .bg(theme.background)
+                    .flex()
+                    .flex_col()
+                    .children(body),
+            )
+            .into_any_element()
     }
 
     fn workspace(&self, theme: Theme, cx: &Context<Self>, compact: bool) -> AnyElement {
@@ -3108,6 +3597,11 @@ impl DuoApp {
                             .justify_center()
                             .child(self.timeline(theme, cx)),
                     )
+                    .children(
+                        self.terminal_agent
+                            .as_deref()
+                            .map(|agent| self.terminal_panel(agent, theme, cx)),
+                    )
                     .child(
                         div()
                             .flex_none()
@@ -3120,7 +3614,11 @@ impl DuoApp {
                             .flex_none()
                             .flex()
                             .justify_center()
-                            .child(self.input_row(theme, cx)),
+                            .child(if self.terminal_agent.is_some() {
+                                self.terminal_input_bridge(cx)
+                            } else {
+                                self.input_row(theme, cx)
+                            }),
                     ),
             )
             .into_any_element()
@@ -3874,6 +4372,7 @@ impl DuoApp {
         if let Some(agent) = agent {
             let native_agent = id.to_owned();
             let native_open = agent.native_open;
+            let terminal_active = self.terminal_agent.as_deref() == Some(id);
             let native_button = div()
                 .flex_1()
                 .min_w_0()
@@ -3885,12 +4384,10 @@ impl DuoApp {
                 .flex()
                 .justify_center()
                 .cursor(CursorStyle::PointingHand)
-                .child(if native_open {
-                    if english {
-                        "Close terminal"
-                    } else {
-                        "关闭终端"
-                    }
+                .child(if terminal_active {
+                    if english { "Close terminal" } else { "关闭终端" }
+                } else if native_open {
+                    if english { "Show terminal" } else { "显示终端" }
                 } else if english {
                     "Terminal"
                 } else {
@@ -3898,12 +4395,8 @@ impl DuoApp {
                 })
                 .on_mouse_down(
                     MouseButton::Left,
-                    cx.listener(move |this, _: &MouseDownEvent, _, _| {
-                        if native_open {
-                            this.send(ClientMessage::close_native(native_agent.clone()));
-                        } else {
-                            this.send(ClientMessage::open_native(native_agent.clone()));
-                        }
+                    cx.listener(move |this, _: &MouseDownEvent, _, cx| {
+                        this.toggle_terminal(native_agent.clone(), native_open, cx);
                     }),
                 );
             let change_button = div()
@@ -4455,6 +4948,7 @@ impl DuoApp {
                         app: cx.entity(),
                         input_enabled: true,
                         model_filter: true,
+                        terminal_bridge: false,
                     }),
             )
             .children(pending_confirmation)
@@ -4632,6 +5126,7 @@ impl DuoApp {
                                 app: cx.entity(),
                                 input_enabled: self.model_picker.is_none() && !self.help_open,
                                 model_filter: false,
+                                terminal_bridge: false,
                             }),
                     )
                     .child(
@@ -5203,8 +5698,9 @@ mod tests {
         model_switch_decision, needs_quit_confirmation, overview_rows, range_index_for_offset,
         replace_composition_text, replace_selection, reset_slash_palette_after_text_edit,
         resize_edge, selected_event_text, selection_after_front_drain, step_evidence_window,
-        timeline_navigation_target, truncate_text, utf16_range, utf8_range,
-        visual_ranges_from_boundaries, work_elapsed_label, Agent, CatalogState, DiffPreviewDisplay,
+        terminal_key_bytes, terminal_palette_color, timeline_navigation_target, truncate_text,
+        utf16_range, utf8_range, visual_ranges_from_boundaries, work_elapsed_label, Agent,
+        CatalogState, DiffPreviewDisplay,
         Model, ModelSwitchDecision, Theme, AGENT_AUSTIN, AGENT_TONY, PLAN_TEXT_LIMIT,
         QUIT_CONFIRM_WINDOW, STEP_EVIDENCE_LIMIT,
     };
@@ -5227,6 +5723,40 @@ mod tests {
         assert_eq!(range_index_for_offset(&rows, 3), Some(1));
         assert_eq!(range_index_for_offset(&rows, 10), Some(2));
         assert_eq!(range_index_for_offset(&[0..0, 1..1], 1), Some(1));
+    }
+
+    #[test]
+    fn terminal_keys_encode_control_and_application_cursor_sequences() {
+        assert_eq!(
+            terminal_key_bytes("enter", false, false, false, false),
+            Some(vec![b'\r'])
+        );
+        assert_eq!(
+            terminal_key_bytes("up", false, false, false, false),
+            Some(b"\x1b[A".to_vec())
+        );
+        assert_eq!(
+            terminal_key_bytes("up", false, false, false, true),
+            Some(b"\x1bOA".to_vec())
+        );
+        assert_eq!(
+            terminal_key_bytes("c", true, false, false, false),
+            Some(vec![3])
+        );
+        assert_eq!(
+            terminal_key_bytes("tab", false, false, true, false),
+            Some(b"\x1b[Z".to_vec())
+        );
+        assert_eq!(terminal_key_bytes("a", false, false, false, false), None);
+    }
+
+    #[test]
+    fn terminal_palette_maps_xterm_cube_and_grayscale() {
+        assert_eq!(terminal_palette_color(0), 0x000000);
+        assert_eq!(terminal_palette_color(16), 0x000000);
+        assert_eq!(terminal_palette_color(21), 0x0000ff);
+        assert_eq!(terminal_palette_color(232), 0x080808);
+        assert_eq!(terminal_palette_color(255), 0xeeeeee);
     }
 
     #[test]

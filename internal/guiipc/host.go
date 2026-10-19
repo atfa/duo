@@ -996,14 +996,32 @@ func (h *Host) terminalLink(id protocol.AgentID) *nativeAttachment {
 }
 
 func (h *Host) writeTerminalInput(id protocol.AgentID, data []byte) error {
-	if h.terminalLink(id) == nil {
+	// Input may arrive after the pending native_open view but before Attach
+	// returns; the live PTY can accept it as soon as its link is reserved.
+	link := h.findTerminalLink(id)
+	if link == nil {
+		return fmt.Errorf("%s embedded terminal is not open", id)
+	}
+	link.mu.Lock()
+	open := !link.closed
+	link.mu.Unlock()
+	if !open {
 		return fmt.Errorf("%s embedded terminal is not open", id)
 	}
 	return h.s.(nativeSession).Write(id, data)
 }
 
 func (h *Host) resizeTerminal(id protocol.AgentID, cols, rows int) error {
-	if h.terminalLink(id) == nil {
+	// terminal_open publishes native_open before Attach completes; accepting a
+	// resize for that reserved link avoids a render/attach scheduling race.
+	link := h.findTerminalLink(id)
+	if link == nil {
+		return fmt.Errorf("%s embedded terminal is not open", id)
+	}
+	link.mu.Lock()
+	open := !link.closed
+	link.mu.Unlock()
+	if !open {
 		return fmt.Errorf("%s embedded terminal is not open", id)
 	}
 	return h.s.(nativeSession).ResizeAgent(id, cols, rows)

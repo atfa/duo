@@ -55,6 +55,22 @@ impl TerminalScreen {
         (self.rows, self.cols)
     }
 
+    /// Scrollback position measured from the live viewport.
+    pub fn scrollback(&self) -> usize {
+        self.parser.screen().scrollback()
+    }
+
+    /// Number of lines currently retained in scrollback.
+    pub fn scrollback_len(&self) -> usize {
+        self.parser.screen().scrollback_len()
+    }
+
+    /// Moves the rendered viewport through retained scrollback without sending
+    /// any bytes to the agent.
+    pub fn set_scrollback(&mut self, lines: usize) {
+        self.parser.screen_mut().set_scrollback(lines);
+    }
+
     /// Read-only access to parsed terminal state for rendering and cursor/mode
     /// inspection by the frontend.
     pub fn screen(&self) -> &vt100::Screen {
@@ -107,7 +123,10 @@ mod tests {
     fn retains_scrollback_and_resizes_screen() {
         let mut terminal = TerminalScreen::new(2, 8);
         terminal.process(b"one\r\ntwo\r\nthree");
-        assert!(terminal.screen().scrollback_len() > 0);
+        assert!(terminal.scrollback_len() > 0);
+        terminal.set_scrollback(1);
+        assert_eq!(terminal.scrollback(), 1);
+        terminal.set_scrollback(0);
 
         terminal.resize(3, 10);
         assert_eq!(terminal.size(), (3, 10));

@@ -6769,6 +6769,7 @@ checksum = "163b33ed8786455e2fa5d72f554057ce3f3182425434f756cd39c99839d88e23"
 name = "xduo"
 version = "0.12.2"
 dependencies = [
+ "base64",
  "gpui",
  "libc",
  "serde",
