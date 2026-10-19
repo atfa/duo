@@ -224,6 +224,14 @@ func (p *Plugin) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
 	if !strings.Contains(command, "--auto") {
 		parts = append(parts, "--auto")
 	}
+	// The TUI must never attach to the shared background service. That process is
+	// whatever opencode boot happened to leave behind, so its environment decides
+	// whether the duo bridge activates at all: a service spawned under a finished
+	// Duo session keeps reconnecting to Core's dead socket forever, and one spawned
+	// outside Duo keeps the bridge inert. A private server per launch inherits this
+	// session's Duo environment — and it is the deterministic choice even when a
+	// responsive but foreign service is running.
+	parts = append(parts, "--standalone")
 
 	sessionFile := prior.SessionFile
 	if sessionFile == "" {

@@ -23,18 +23,19 @@ export class SessionTracker {
 
   constructor(private readonly sessionFile: string) {}
 
-  /** Feed an event's `properties`; returns true when the event is for our session. */
-  observe(eventType: string, properties: any): boolean {
+  /**
+   * Feed an event's `data` (opencode 2.0 events are flat: every `data` carries
+   * its `sessionID`, and `session.created` additionally carries `parentID`).
+   * Returns true when the event is for our session.
+   */
+  observe(eventType: string, data: any): boolean {
     if (eventType === "session.created") {
-      const info = properties?.info;
-      if (info?.id && !info?.parentID) this.learn(info.id, true);
+      if (data?.sessionID && !data?.parentID) this.learn(data.sessionID, true);
     }
-    // Never fall back to properties.info.id: on message events that is the
-    // message id ("msg_…"), not the session, and learning it would both point
-    // this tracker at nothing and filter out the very message.updated events the
-    // role lookup depends on.
-    const sessionID = properties?.sessionID ?? properties?.info?.sessionID;
-    if (sessionID) this.learn(sessionID, false);
+    // Every event's `data.sessionID` is the session it belongs to; there is no
+    // message-id confusion like the pre-2.0 `properties.info.id` fallback.
+    const sessionID = data?.sessionID;
+    if (typeof sessionID === "string" && sessionID) this.learn(sessionID, false);
     if (!this.current) return false;
     // Before the id is known, stay quiet rather than guessing.
     return sessionID === undefined || sessionID === this.current;

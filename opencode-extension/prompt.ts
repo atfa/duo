@@ -129,17 +129,24 @@ export function buildDuoPrompt(
   ].join("\n\n").trim();
 }
 
+/**
+ * Registers the Duo policy on opencode's session `context` hook, which fills
+ * the mutable system prompt on every model request. Appending is additive: the
+ * Duo section rides along with whatever opencode itself put in `input.system`.
+ */
 export function installDuoPrompt(
-  hooks: any,
+  context: any,
   agent: AgentName,
   mode: DuoMode = parseDuoMode(process.env.DUO_MODE),
   language: DuoLanguage = parseDuoLanguage(process.env.DUO_LANGUAGE),
 ) {
-  // opencode appends the Duo policy to its mutable system prompt on every turn.
-  hooks["experimental.chat.system.transform"] = async (_input: any, output: any) => {
+  context.session.hook("context", (input: any) => {
     const repositoryRoot = process.env.DUO_REPOSITORY_ROOT || "(unknown)";
     const scopePath = process.env.DUO_SCOPE_PATH || ".";
-	output.system = output.system ?? [];
-	output.system.push(buildDuoPrompt(agent, mode, repositoryRoot, scopePath, language));
-	};
+    input.system = input.system ?? [];
+    input.system.push({
+      type: "text",
+      text: buildDuoPrompt(agent, mode, repositoryRoot, scopePath, language),
+    });
+  });
 }

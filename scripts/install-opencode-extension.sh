@@ -5,7 +5,6 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SRC="$ROOT/opencode-extension"
 PLUGIN_DIR="${HOME}/.config/opencode/plugin"
 DEST="$PLUGIN_DIR/duo"
-ENTRY="$PLUGIN_DIR/duo.ts"
 
 if [[ ! -f "$SRC/index.ts" ]]; then
   echo "error: $SRC/index.ts not found" >&2
@@ -15,18 +14,16 @@ fi
 # opencode loads .ts directly, so only the runtime sources are installed. The
 # dev-only package.json/tsconfig.json/node_modules stay in the repository and are
 # used for typechecking, not at runtime.
+#
+# No single-file entry shim: opencode discovers the duo directory itself, and a
+# duo.ts re-export registers the same plugin id twice, which every TUI boot
+# reports as "Plugin failed: duo". The rm below cleans the shim older installs
+# left behind. Uninstalling is therefore: rm -r "$DEST" (and, for Pi, the
+# matching extensions/duo directory).
 mkdir -p "$PLUGIN_DIR"
-rm -rf "$DEST" "$ENTRY"
+rm -rf "$DEST" "$PLUGIN_DIR/duo.ts"
 mkdir -p "$DEST"
 cp "$SRC"/*.ts "$DEST/"
-
-# opencode auto-discovers any *.ts file in the plugin directory, so the entry
-# point only has to re-export the bridge directory's default export.
-cat > "$ENTRY" <<'TS'
-// Duo bridge for opencode. Installed by Duo's install script; see
-// opencode-extension/ in the Duo repository. Remove this file to uninstall.
-export { default } from "./duo/index";
-TS
 
 echo "Installed Duo opencode bridge to: $DEST"
 echo "Restart any running opencode processes before starting Duo."

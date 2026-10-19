@@ -98,16 +98,14 @@ DESKTOP
 	echo "Installed xduo desktop entry and icon under $data_home"
 fi
 
-# opencode bridge: a plugin entry point that re-exports the bridge directory.
-rm -rf "$opencode_plugin_dir/duo"
+# opencode bridge: the plugin directory only. opencode discovers duo/index.ts
+# itself; writing a duo.ts re-export registered the same plugin id twice and
+# made every TUI boot report "Plugin failed: duo". Remove the shim older
+# installs left behind.
+rm -rf "$opencode_plugin_dir/duo" "$opencode_plugin_dir/duo.ts"
 mkdir -p "$opencode_plugin_dir/duo"
 cp "$tmp"/opencode-extension/*.ts "$opencode_plugin_dir/duo/"
-rm -rf "$opencode_plugin_dir/duo/package.json" "$opencode_plugin_dir/duo/tsconfig.json"
-cat > "$opencode_plugin_dir/duo.ts" <<'ENTRY'
-// Duo bridge for opencode. Installed by Duo's install script; see
-// opencode-extension/ in the Duo repository. Remove this file to uninstall.
-export { default } from "./duo/index";
-ENTRY
+rm -f "$opencode_plugin_dir/duo/package.json" "$opencode_plugin_dir/duo/tsconfig.json"
 
 echo "Installed Duo to $bin_dir/duo"
 echo "Installed Pi bridge to $extension_dir"

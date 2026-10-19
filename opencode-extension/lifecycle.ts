@@ -1,13 +1,11 @@
 import type { DuoTransport } from "./transport";
 import type { AgentName } from "./protocol";
 
-type Role = "user" | "assistant";
-
 /**
- * opencode reports real token counts on every assistant message
- * (`tokens {input, output, reasoning, cache{read, write}}`) and on the
- * `step-finish` part. Only the model catalog knows the window, so the caller
- * supplies a resolver keyed by provider/model id.
+ * opencode 2.0 reports real token usage per model call on `session.step.ended`
+ * (`tokens {input, output, reasoning, cache{read, write}}`) and again on
+ * `session.usage.updated`. Only the model catalog knows the context window, so
+ * the caller supplies a resolver keyed by provider/model id.
  */
 export type ContextWindowResolver = (
   providerID: string,
@@ -36,37 +34,33 @@ function contextTokens(tokens: any): number | undefined {
  * direction and generous in the other: reporting idle when work continues makes
  * Duo interrupt a working agent, and reporting an error that did not happen
  * makes Duo ask the peer to diagnose a stall that never happened.
+ *
+ * In 2.0 the text and tool events (`session.text.*`, `session.tool.*`) are
+ * assistant-anchored: they only ever fire for assistant messages, so an
+ * injected prompt can never be echoed back as the agent's own output and the
+ * per-message role lookup the old API required is gone.
  */
 export function installLifecycle(
   transport: DuoTransport,
   agent: AgentName,
-  isOurSession: (eventType: string, properties: any) => boolean,
+  isOurSession: (eventType: string, data: any) => boolean,
   resolveContextWindow?: ContextWindowResolver,
 ) {
-  // opencode's parts carry a messageID but no role, so the only way to tell
-  // assistant output from an injected prompt is to learn the role from
-  // `message.updated`, which always arrives before the message's parts. Guessing
-  // from messageID instead meant the first text part seen — the prompt Duo had
-  // just injected as a user message — became the reported assistant message, and
-  // every real assistant part was then discarded as belonging to another message.
-  const roles = new Map<string, Role>();
-
   let turnStarted = false;
   let lastStreamAt = 0;
-  // Keyed by part, not by message: one assistant message routinely interleaves
-  // several text parts with tool calls, and a streaming part re-reports its own
-  // cumulative text under the same id. Keying by message collapsed all of them
-  // into the last one.
+  // One assistant message routinely interleaves several text blocks with tool
+  // calls, streamed as `session.text.{started,delta,ended}` frames keyed by
+  // ordinal within the message, so each block is tracked exactly.
   const blocks = new Map<string, string>();
   let blockOrder: string[] = [];
 
-  // The provider call is the span between opencode creating an assistant message
-  // and that message's `step-finish`. Without it the harness never learns an agent
+  // The provider call is the span from `session.step.started` to
+  // `session.step.ended/failed`. Without it the harness never learns an agent
   // is thinking, and it nudges a model that is merely slow.
   //
-  // The span deliberately covers streamed output rather than ending at the first
-  // part: Duo only renders the output rate while the provider is active, so
-  // closing it on the first token discarded the speed it was supposed to show.
+  // The span deliberately covers streamed output: Duo only renders the output
+  // rate while the provider is active, so closing it on the first token
+  // discarded the speed it was supposed to show.
   let providerOpen = false;
 
   // Latest real usage, kept so the numbers survive activity messages that
@@ -74,9 +68,13 @@ export function installLifecycle(
   let usage: { contextTokens?: number; contextWindow?: number } = {};
   let speedSamples: Array<{ at: number; chars: number }> = [];
   const windowCache = new Map<string, number>();
-  // The model is named on the message, not on its parts, so the ids seen at
-  // provider start are reused for the window lookup at step-finish.
+  // The model is named on the step, so the ids seen at the previous step are
+  // reused for the window lookup at step end.
   let model: { providerID?: string; modelID?: string } = {};
+
+  // Tool events other than `session.tool.input.started` carry only a call id,
+  // never the tool name, so names are learned on the first event of each call.
+  const toolNames = new Map<string, string>();
 
   const reset = () => {
     turnStarted = false;
@@ -166,142 +164,179 @@ export function installLifecycle(
     return flat.length > max ? flat.slice(flat.length - max) : flat;
   };
 
-  return async ({ event }: { event: any }) => {
-    if (!isOurSession(event?.type, event?.properties)) return;
-    const properties = event?.properties ?? {};
+  const textKey = (data: any): string =>
+    `${data?.assistantMessageID ?? ""}#${data?.ordinal ?? 0}`;
+
+  const maybeStream = (chars: number) => {
+    if (chars > 0) speedSamples.push({ at: Date.now(), chars });
+    const now = Date.now();
+    if (now - lastStreamAt < 1000) return;
+    lastStreamAt = now;
+    const rate = tokensPerSecond(now);
+    transport.sendActivity("stream", {
+      detail: tail(assistantText(), 1200),
+      ...usage,
+      ...(rate > 0 ? { tokensPerSecond: rate } : {}),
+    });
+  };
+
+  const ingestText = (data: any, kind: "started" | "delta" | "ended") => {
+    const key = textKey(data);
+    beginTurn();
+    const previous = blocks.get(key) ?? "";
+    if (!blocks.has(key)) blockOrder.push(key);
+    if (kind === "started") {
+      blocks.set(key, "");
+      return;
+    }
+    // `delta` frames are live fragments; `ended` carries the full block value
+    // and wins over whatever was streamed before it.
+    const text = kind === "ended"
+      ? String(data?.text ?? "")
+      : previous + String(data?.delta ?? "");
+    blocks.set(key, text);
+    maybeStream(Math.max(0, text.length - previous.length));
+  };
+
+  const nameOf = (callID: any): string =>
+    (typeof callID === "string" && toolNames.get(callID)) || "tool";
+
+  /**
+   * The end of an execution. opencode v1 reported a `session.idle` after every
+   * run (including failed and aborted ones); v2 gives terminal events instead,
+   * so each of them settles the turn the same way or the harness would count a
+   * finished agent as busy forever.
+   */
+  const settle = () => {
+    closeProvider();
+    const text = assistantText();
+    if (text) {
+      transport.send({
+        version: 1,
+        type: "assistant_message",
+        agent,
+        text,
+        timestamp: Date.now(),
+      });
+    }
+    reset();
+    transport.sendActivity("agent_settled");
+  };
+
+  return async (event: any) => {
+    if (!isOurSession(event?.type, event?.data)) return;
+    const data = event?.data;
 
     switch (event.type) {
-      case "message.updated": {
-        const info = properties.info;
-        if (!info?.id) break;
-        if (info.role === "assistant" || info.role === "user") {
-          roles.set(info.id, info.role);
-        }
-        // An assistant message is created when the model call starts.
-        if (info.role === "assistant" && !providerOpen) {
-          beginTurn();
+      case "session.execution.started": {
+        beginTurn();
+        break;
+      }
+
+      case "session.step.started": {
+        beginTurn();
+        model = { providerID: data?.model?.providerID, modelID: data?.model?.id };
+        // Fire and forget: a pending window lookup must not delay the event
+        // pump, and the next usage update carries whatever it resolved.
+        void windowFor(model.providerID, model.modelID);
+        if (!providerOpen) {
           providerOpen = true;
           speedSamples = [];
-          model = { providerID: info.providerID, modelID: info.modelID };
           transport.sendActivity("provider_start");
         }
-        // opencode reports the running totals on the message itself, so the
-        // context figure stays fresh across a multi-step turn.
-        if (info.role === "assistant" && info.tokens) {
-          const tokens = contextTokens(info.tokens);
-          if (tokens !== undefined) usage.contextTokens = tokens;
-          // Fire and forget: a pending window lookup must not delay the event
-          // pump, and the next usage update carries whatever it resolved.
-          void windowFor(info.providerID, info.modelID);
-        }
         break;
       }
 
-      case "session.status": {
-        if (properties.status?.type === "busy") beginTurn();
-        break;
-      }
-
-      case "message.part.updated": {
-        const part = properties.part;
-        if (!part) break;
-
-        // The end of one model call. usage here is cumulative for the message, so
-        // it is the most accurate reading available.
-        if (part.type === "step-finish") {
-          const tokens = contextTokens(part.tokens);
-          if (tokens !== undefined) usage.contextTokens = tokens;
-          void windowFor(model.providerID, model.modelID);
-          closeProvider();
-          break;
-        }
-
-        if (part.type === "tool") {
-          // Tool calls are the assistant acting, so they need no role lookup, but
-          // they must not be attributed to a user message either.
-          if (part.messageID && roles.get(part.messageID) === "user") break;
-          if (providerOpen) closeProvider();
-          const state = part.state ?? {};
-          const name = part.tool ?? "tool";
-          if (state.status === "pending" || state.status === "running") {
-            beginTurn();
-            // tool_end deliberately carries no detail: Duo keeps the arguments
-            // from tool_start visible in the work preview.
-            transport.sendActivity("tool_start", { tool: name, detail: compact(state.input) });
-          } else if (state.status === "completed") {
-            transport.sendActivity("tool_end", { tool: name, detail: "" });
-          } else if (state.status === "error") {
-            transport.sendActivity("tool_error", { tool: name, detail: compact(state.error) });
-          }
-          break;
-        }
-
-        if (part.type === "text" && part.text) {
-          // The rule that fixes the echo: only an assistant message is output.
-          // A prompt or harness nudge arrives as a user message and is never
-          // reported back to the human as if the agent had said it.
-          if (!part.messageID || roles.get(part.messageID) !== "assistant") break;
-          beginTurn();
-          const blockID = part.id ?? `${part.messageID}#${blockOrder.length}`;
-          const previous = blocks.get(blockID) ?? "";
-          if (!blocks.has(blockID)) blockOrder.push(blockID);
-          blocks.set(blockID, part.text);
-
-          // A re-reported part carries its own cumulative text, so the delta is
-          // what actually arrived since the last update.
-          const chars = Math.max(0, part.text.length - previous.length);
-
-          // Throttle: a streamed token fires per delta, and Duo only needs
-          // enough to show that the agent is alive.
-          const now = Date.now();
-          if (chars > 0) speedSamples.push({ at: now, chars });
-          if (now - lastStreamAt >= 1000) {
-            lastStreamAt = now;
-            const rate = tokensPerSecond(now);
-            transport.sendActivity("stream", {
-              detail: tail(assistantText(), 1200),
-              ...usage,
-              ...(rate > 0 ? { tokensPerSecond: rate } : {}),
-            });
-          }
-        }
-        break;
-      }
-
-      case "session.idle": {
+      case "session.step.ended": {
+        // The end of one model call. Tokens are reported per step, so
+        // input + reasoning + cache.read approximates the current context size.
+        const tokens = contextTokens(data?.tokens);
+        if (tokens !== undefined) usage.contextTokens = tokens;
+        void windowFor(model.providerID, model.modelID);
         closeProvider();
-        const text = assistantText();
-        if (text) {
+        break;
+      }
+
+      case "session.step.failed": {
+        // Close the span; the failure is reported once at
+        // session.execution.failed (and filtered there when it is an abort).
+        closeProvider();
+        break;
+      }
+
+      case "session.usage.updated": {
+        const tokens = contextTokens(data?.tokens);
+        if (tokens !== undefined) usage.contextTokens = tokens;
+        break;
+      }
+
+      case "session.text.started":
+      case "session.text.delta":
+      case "session.text.ended": {
+        const kind = event.type.split(".").pop() as "started" | "delta" | "ended";
+        ingestText(data, kind);
+        break;
+      }
+
+      case "session.tool.input.started": {
+        if (data?.id && data?.name) toolNames.set(data.id, data.name);
+        break;
+      }
+
+      case "session.tool.called": {
+        beginTurn();
+        // Tool calls are the assistant acting.
+        if (providerOpen) closeProvider();
+        // tool_end deliberately carries no detail: Duo keeps the arguments from
+        // tool_start visible in the work preview.
+        transport.sendActivity("tool_start", { tool: nameOf(data?.id), detail: compact(data?.input) });
+        break;
+      }
+
+      case "session.tool.success": {
+        transport.sendActivity("tool_end", { tool: nameOf(data?.id), detail: "" });
+        break;
+      }
+
+      case "session.tool.failed": {
+        const error = data?.error ?? {};
+        transport.sendActivity("tool_error", {
+          tool: nameOf(data?.id),
+          detail: compact(error?.message ?? error),
+        });
+        break;
+      }
+
+      case "session.execution.succeeded": {
+        settle();
+        break;
+      }
+
+      case "session.execution.failed": {
+        closeProvider();
+        const error = data?.error ?? {};
+        const kind = String(error?.type ?? error?.name ?? "");
+        const message = String(error?.message ?? "");
+        // An abort ends the provider request on purpose. Reporting it would
+        // make Duo count a failure and send the peer to diagnose a stall that
+        // never happened.
+        if (!/abort/i.test(kind) && !/abort/i.test(message) && message) {
           transport.send({
             version: 1,
-            type: "assistant_message",
+            type: "agent_error",
             agent,
-            text,
+            text: message,
             timestamp: Date.now(),
           });
         }
-        reset();
-        transport.sendActivity("agent_settled");
+        settle();
         break;
       }
 
-      case "session.error": {
-        closeProvider();
-        const error = properties.error;
-        const name = error?.name ?? "";
-        const message = String(error?.data?.message ?? error?.message ?? "");
-        // Compaction aborts the provider request on purpose. Reporting it would
-        // make Duo count a failure and send the peer to diagnose a stall that
-        // never happened.
-        if (/abort/i.test(name) || /abort/i.test(message)) break;
-        if (!message) break;
-        transport.send({
-          version: 1,
-          type: "agent_error",
-          agent,
-          text: message,
-          timestamp: Date.now(),
-        });
+      case "session.execution.interrupted": {
+        // A user interrupt is not a failure; on non-shutdown interrupts the
+        // agent has stopped either way, so close everything quietly.
+        settle();
         break;
       }
     }
