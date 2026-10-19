@@ -302,14 +302,20 @@ thinking selection are resolved again from the new driver's manifest.
 
 The embedded terminal uses the existing stdio protocol; the renderer never receives
 a socket path or an agent bridge token. PTY replay is limited to 1 MiB and is split
-into the same 16 KiB output chunks as live data. The host buffers at most 64 chunks
-(1 MiB) per terminal. If that queue fills, it sends the already-buffered chunks,
-then `terminal_error` and detaches; it never silently drops output bytes. Closing a
-terminal detaches it and leaves the agent running. `terminal_resize` applies only
-to the named agent, so the other agent's PTY dimensions are unchanged. This is
-separate from the structured work preview shown in the agent card: the preview
-reads bounded state, while the bottom terminal pane renders the attached agent's
-real PTY stream.
+into the same 16 KiB output chunks as live data. The renderer queues at most 64
+incoming frames; when full, its stdin reader blocks, propagating backpressure over
+the pipe. The host independently buffers at most 64 chunks (1 MiB) per terminal.
+On overflow it stops accepting PTY bytes, preserves already-queued chunks, emits
+`terminal_error`, and detaches rather than silently losing data. If a blocked
+renderer pipe prevents that drain, the host waits at most two seconds before
+detaching; it keeps the bounded writer alive to flush accepted chunks and the
+error if the renderer resumes. If it remains blocked for a further 30 seconds, the
+host closes the renderer input pipe to release the writer and reports a host
+disconnect. Closing a terminal detaches it and leaves the agent running.
+`terminal_resize` applies only to the named agent, so the other agent's PTY
+dimensions are unchanged. This is separate from the structured work preview shown
+in the agent card: the preview reads bounded state, while the bottom terminal pane
+renders the attached agent's real PTY stream.
 
 ## Why this shape
 

@@ -77,11 +77,13 @@ const (
 	maxCommandBytes = 1 << 20
 	// PTY bytes are framed and base64-encoded in NDJSON. Keep each chunk short
 	// enough that even its encoded form remains a small protocol line.
-	terminalOutputChunkBytes = 16 * 1024
-	terminalOutputQueueDepth = 64
-	terminalReplayMaxBytes   = 1 << 20
-	terminalInputMaxBytes    = 64 * 1024
-	terminalMaxDimension     = 512
+	terminalOutputChunkBytes   = 16 * 1024
+	terminalOutputQueueDepth   = 64
+	terminalOutputStallTimeout = 2 * time.Second
+	terminalOutputAbortTimeout = 30 * time.Second
+	terminalReplayMaxBytes     = 1 << 20
+	terminalInputMaxBytes      = 64 * 1024
+	terminalMaxDimension       = 512
 )
 
 // Host serves the frozen NDJSON protocol over a Gpio pair, driving one session.
@@ -98,18 +100,20 @@ type Host struct {
 	native       map[protocol.AgentID]*nativeAttachment
 
 	// heartbeat and buffer are the defaults above, overridden only by tests.
-	heartbeat     time.Duration
-	buffer        int
-	drivers       []string
-	catalogMu     sync.RWMutex
-	desktop       *desktopagents.Registry
-	driverNames   []string
-	settingsMu    sync.RWMutex
-	settingsBusy  bool
-	settingsError string
-	catalogs      map[protocol.AgentID]catalogResult
-	diffMu        sync.Mutex
-	diffstats     map[protocol.AgentID]diffstatResult
+	heartbeat                  time.Duration
+	buffer                     int
+	drivers                    []string
+	catalogMu                  sync.RWMutex
+	desktop                    *desktopagents.Registry
+	driverNames                []string
+	settingsMu                 sync.RWMutex
+	settingsBusy               bool
+	settingsError              string
+	terminalOutputTimeout      time.Duration
+	terminalOutputAbortTimeout time.Duration
+	catalogs                   map[protocol.AgentID]catalogResult
+	diffMu                     sync.Mutex
+	diffstats                  map[protocol.AgentID]diffstatResult
 }
 
 type nativeAttachment struct {
@@ -130,6 +134,8 @@ type terminalOutputWriter struct {
 	ctx    context.Context
 	chunks chan []byte
 	failed chan error
+	full   chan struct{}
+	ready  chan struct{}
 	mu     sync.Mutex
 	err    error
 }
@@ -846,6 +852,8 @@ func (h *Host) openTerminal(ctx context.Context, id protocol.AgentID, sink *fram
 		ctx:    nctx,
 		chunks: make(chan []byte, terminalOutputQueueDepth),
 		failed: make(chan error, 1),
+		full:   make(chan struct{}),
+		ready:  make(chan struct{}),
 	}
 	link := &nativeAttachment{terminal: true, output: output, cancel: cancel, done: make(chan struct{})}
 	h.nativeMu.Lock()
@@ -896,55 +904,129 @@ func (h *Host) openTerminal(ctx context.Context, id protocol.AgentID, sink *fram
 	if len(recent) > terminalReplayMaxBytes {
 		return fmt.Errorf("terminal replay exceeds %d bytes", terminalReplayMaxBytes)
 	}
-	if err := sendTerminalOutput(sink, id, recent); err != nil {
-		return err
-	}
+	output.queueReplay(recent)
+	output.release()
 	return h.relayTerminalOutput(nctx, id, output, sink)
 }
 
-func sendTerminalOutput(sink *frameSink, id protocol.AgentID, data []byte) error {
-	for len(data) > 0 {
-		size := min(len(data), terminalOutputChunkBytes)
-		if err := sink.terminalOutput(id, data[:size]); err != nil {
-			return err
-		}
-		data = data[size:]
-	}
-	return nil
-}
-
 func (h *Host) relayTerminalOutput(ctx context.Context, id protocol.AgentID, output *terminalOutputWriter, sink *frameSink) error {
+	timeout := h.terminalOutputTimeout
+	if timeout <= 0 {
+		timeout = terminalOutputStallTimeout
+	}
+	finished := make(chan error, 1)
+	go func() {
+		finished <- h.streamTerminalOutput(ctx, id, output, sink)
+	}()
+
 	for {
 		select {
 		case <-ctx.Done():
+			go h.abortStalledTerminalWriter(finished, sink)
+			return nil
+		case err := <-finished:
+			return err
+		case <-output.full:
+			// A full producer queue means the renderer's stdin pipe may have
+			// stopped draining. Do not wait forever in the sink write: returning
+			// lets openTerminal detach the PTY. The writer goroutine remains
+			// bounded and, if the renderer resumes, flushes accepted chunks and
+			// the explicit terminal_error frame.
+			timer := time.NewTimer(timeout)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				go h.abortStalledTerminalWriter(finished, sink)
+				return nil
+			case err := <-finished:
+				timer.Stop()
+				return err
+			case <-timer.C:
+				go h.abortStalledTerminalWriter(finished, sink)
+				return errTerminalOutputBacklog
+			}
+		}
+	}
+}
+
+func (h *Host) abortStalledTerminalWriter(finished <-chan error, sink *frameSink) {
+	timeout := h.terminalOutputAbortTimeout
+	if timeout <= 0 {
+		timeout = terminalOutputAbortTimeout
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-finished:
+		return
+	case <-timer.C:
+		// Production uses the renderer's stdin pipe, which is closable. If the
+		// renderer never resumes, close that pipe to release the single writer
+		// goroutine instead of leaking it for the rest of the session.
+		sink.abort()
+	}
+}
+
+func (h *Host) streamTerminalOutput(ctx context.Context, id protocol.AgentID, output *terminalOutputWriter, sink *frameSink) error {
+	for {
+		select {
+		case <-ctx.Done():
+			if err := output.error(); err != nil {
+				return h.drainTerminalOutput(id, output, sink, err)
+			}
 			return nil
 		case chunk := <-output.chunks:
 			if err := sink.terminalOutput(id, chunk); err != nil {
 				return err
 			}
 		case err := <-output.failed:
-			// Preserve every complete queued chunk before reporting a terminal
-			// failure. The writer stops accepting bytes once it signals failure.
-			for {
-				select {
-				case chunk := <-output.chunks:
-					if writeErr := sink.terminalOutput(id, chunk); writeErr != nil {
-						return writeErr
-					}
-				default:
-					if writeErr := sink.terminalError(id, err.Error()); writeErr != nil {
-						return writeErr
-					}
-					return err
-				}
-			}
+			return h.drainTerminalOutput(id, output, sink, err)
 		}
 	}
+}
+
+func (h *Host) drainTerminalOutput(id protocol.AgentID, output *terminalOutputWriter, sink *frameSink, err error) error {
+	// Preserve every complete queued chunk before reporting terminal failure.
+	// The producer stops accepting bytes once it signals failure.
+	for {
+		select {
+		case chunk := <-output.chunks:
+			if writeErr := sink.terminalOutput(id, chunk); writeErr != nil {
+				return writeErr
+			}
+		default:
+			if writeErr := sink.terminalError(id, err.Error()); writeErr != nil {
+				return writeErr
+			}
+			return err
+		}
+	}
+}
+
+func (w *terminalOutputWriter) release() { close(w.ready) }
+
+func (w *terminalOutputWriter) queueReplay(data []byte) {
+	for len(data) > 0 {
+		size := min(len(data), terminalOutputChunkBytes)
+		w.chunks <- append([]byte(nil), data[:size]...)
+		data = data[size:]
+	}
+}
+
+func (w *terminalOutputWriter) error() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.err
 }
 
 func (w *terminalOutputWriter) Write(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
+	}
+	select {
+	case <-w.ready:
+	case <-w.ctx.Done():
+		return 0, w.ctx.Err()
 	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -965,6 +1047,7 @@ func (w *terminalOutputWriter) Write(p []byte) (int, error) {
 		default:
 			w.err = errTerminalOutputBacklog
 			w.failed <- w.err
+			close(w.full)
 			return written, w.err
 		}
 	}
@@ -1211,6 +1294,14 @@ func (s *frameSink) err() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.fail
+}
+
+// abort closes a blocked stdio writer without taking the frame lock. It is only
+// used after an unresponsive renderer has already caused its terminal to detach.
+func (s *frameSink) abort() {
+	if closer, ok := s.w.(io.Closer); ok {
+		_ = closer.Close()
+	}
 }
 
 // write encodes one frame and writes it as a single line.

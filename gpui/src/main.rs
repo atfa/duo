@@ -19,8 +19,17 @@ use std::{cell::RefCell, io::BufRead, rc::Rc};
 
 actions!(xduo, [Quit]);
 
+// Keep terminal output buffering bounded on the renderer side. Blocking the
+// stdin reader when this fills propagates pressure to the host's bounded PTY
+// relay, which reports saturation as a terminal_error instead of dropping bytes.
+const SERVER_MESSAGE_QUEUE_DEPTH: usize = 64;
+
+fn server_message_channel() -> (channel::Sender<ServerMessage>, channel::Receiver<ServerMessage>) {
+    channel::bounded(SERVER_MESSAGE_QUEUE_DEPTH)
+}
+
 fn main() {
-    let (tx, rx) = channel::unbounded::<ServerMessage>();
+    let (tx, rx) = server_message_channel();
     read_stdin(tx);
     let app_entity: Rc<RefCell<Option<Entity<DuoApp>>>> = Rc::new(RefCell::new(None));
     let window_handle: Rc<RefCell<Option<AnyWindowHandle>>> = Rc::new(RefCell::new(None));
@@ -141,6 +150,40 @@ fn window_options(cx: &App) -> WindowOptions {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::{server_message_channel, ServerMessage, SERVER_MESSAGE_QUEUE_DEPTH};
+
+    #[test]
+    fn terminal_frames_remain_bounded_and_queued_data_is_preserved() {
+        let (tx, rx) = server_message_channel();
+        for index in 0..SERVER_MESSAGE_QUEUE_DEPTH {
+            tx.try_send(ServerMessage::TerminalOutput {
+                agent: "austin".to_owned(),
+                data: index.to_string(),
+            })
+            .expect("message queue has room up to its configured capacity");
+        }
+        assert!(tx
+            .try_send(ServerMessage::TerminalOutput {
+                agent: "austin".to_owned(),
+                data: "overflow".to_owned(),
+            })
+            .is_err());
+
+        for expected in 0..SERVER_MESSAGE_QUEUE_DEPTH {
+            let ServerMessage::TerminalOutput { data, .. } = rx
+                .try_recv()
+                .expect("saturated queue preserves every accepted frame")
+            else {
+                panic!("non-terminal frame in terminal saturation test");
+            };
+            assert_eq!(data, expected.to_string());
+        }
+        assert!(rx.try_recv().is_err());
+    }
+}
+
 fn read_stdin(tx: channel::Sender<ServerMessage>) {
     std::thread::spawn(move || {
         let stdin = std::io::stdin();
@@ -151,6 +194,10 @@ fn read_stdin(tx: channel::Sender<ServerMessage>) {
             }
             match serde_json::from_str::<ServerMessage>(&line) {
                 Ok(message) => {
+                    // Deliberately block instead of accumulating terminal frames
+                    // in an unbounded renderer-side queue. A full channel blocks
+                    // stdin, then the Go relay's bounded queue closes the attach
+                    // and sends terminal_error when the renderer catches up.
                     if tx.send_blocking(message).is_err() {
                         break;
                     }

@@ -581,6 +581,173 @@ func TestEmbeddedTerminalAcceptsInputAndResizeDuringPendingAttach(t *testing.T) 
 	}
 }
 
+type stalledTerminalFrameWriter struct {
+	mu            sync.Mutex
+	wire          bytes.Buffer
+	first         sync.Once
+	resumeOnce    sync.Once
+	closeOnce     sync.Once
+	stalled       chan struct{}
+	resume        chan struct{}
+	closed        chan struct{}
+	terminalError chan struct{}
+}
+
+func (w *stalledTerminalFrameWriter) Write(p []byte) (int, error) {
+	if bytes.Contains(p, []byte(`"type":"terminal_output"`)) {
+		blocked := false
+		w.first.Do(func() {
+			blocked = true
+			close(w.stalled)
+		})
+		if blocked {
+			<-w.resume
+		}
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	n, err := w.wire.Write(p)
+	if bytes.Contains(p, []byte(`"type":"terminal_error"`)) {
+		close(w.terminalError)
+	}
+	return n, err
+}
+
+func (w *stalledTerminalFrameWriter) release() {
+	w.resumeOnce.Do(func() { close(w.resume) })
+}
+
+func (w *stalledTerminalFrameWriter) Close() error {
+	w.closeOnce.Do(func() { close(w.closed) })
+	w.release()
+	return nil
+}
+
+func (w *stalledTerminalFrameWriter) bytes() []byte {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]byte(nil), w.wire.Bytes()...)
+}
+
+func TestEmbeddedTerminalStallDetachesAndReportsAfterRendererRecovers(t *testing.T) {
+	fake := newFakeNativeSession()
+	fake.replay = []byte{}
+	writer := &stalledTerminalFrameWriter{
+		stalled:       make(chan struct{}),
+		resume:        make(chan struct{}),
+		closed:        make(chan struct{}),
+		terminalError: make(chan struct{}),
+	}
+	sink := &frameSink{w: writer}
+	host := NewHost(fake)
+	host.terminalOutputTimeout = 25 * time.Millisecond
+	result := make(chan error, 1)
+	go func() { result <- host.openTerminal(context.Background(), protocol.Austin, sink) }()
+	waitSignal(t, fake.attachedCh, "stalled terminal attach")
+
+	fake.muNative.Lock()
+	output := fake.writer
+	fake.muNative.Unlock()
+	payload := bytes.Repeat([]byte("x"), terminalOutputChunkBytes*(terminalOutputQueueDepth+2))
+	written, err := output.Write(payload)
+	wantWritten := terminalOutputChunkBytes * (terminalOutputQueueDepth + 1) // one in-flight frame plus the bounded queue
+	if !errors.Is(err, errTerminalOutputBacklog) || written != wantWritten {
+		t.Fatalf("saturating PTY write = %d, %v; want bounded backlog failure after %d bytes", written, err, wantWritten)
+	}
+	waitSignal(t, writer.stalled, "renderer output stall")
+	select {
+	case err := <-result:
+		if !errors.Is(err, errTerminalOutputBacklog) {
+			t.Fatalf("openTerminal after output stall = %v; want backlog failure", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("terminal attach did not time out while renderer output was stalled")
+	}
+	waitSignal(t, fake.detachedCh, "detach after renderer output stall")
+	if attached, detached := fake.nativeCounts(); attached != 1 || detached != 1 {
+		t.Fatalf("stalled terminal attach/detach = %d/%d; want 1/1", attached, detached)
+	}
+
+	// The detached stream writer must remain alive only long enough to flush
+	// already-accepted bytes and the explicit error once the renderer recovers.
+	writer.release()
+	waitSignal(t, writer.terminalError, "terminal backlog error after renderer recovery")
+	if err := sink.view(View{Status: "still usable"}); err != nil {
+		t.Fatalf("write view after recovered terminal error: %v", err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(writer.bytes()))
+	var received []byte
+	outputFrames := 0
+	terminalErrorSeen := false
+	viewAfterError := false
+	for {
+		var frame writeFrame
+		if err := decoder.Decode(&frame); err != nil {
+			if !errors.Is(err, io.EOF) {
+				t.Fatalf("decode frames after renderer recovery: %v", err)
+			}
+			break
+		}
+		if frame.Type == typeTerminalOutput {
+			if terminalErrorSeen {
+				t.Fatal("terminal output followed its terminal_error frame")
+			}
+			outputFrames++
+			received = append(received, frame.Data...)
+		}
+		if frame.Type == typeTerminalError {
+			terminalErrorSeen = true
+		}
+		if frame.Type == typeView && terminalErrorSeen && frame.View.Status == "still usable" {
+			viewAfterError = true
+		}
+	}
+	if outputFrames != terminalOutputQueueDepth+1 || !bytes.Equal(received, payload[:written]) {
+		t.Fatalf("recovered output = %d frames / %d bytes; want %d frames / %d bytes", outputFrames, len(received), terminalOutputQueueDepth+1, written)
+	}
+	if !terminalErrorSeen || !viewAfterError {
+		t.Fatalf("recovered protocol omitted terminal_error or later view: error=%v later_view=%v", terminalErrorSeen, viewAfterError)
+	}
+}
+
+func TestStalledTerminalOutputEventuallyClosesPipeToReleaseWriter(t *testing.T) {
+	fake := newFakeNativeSession()
+	fake.replay = []byte{}
+	writer := &stalledTerminalFrameWriter{
+		stalled:       make(chan struct{}),
+		resume:        make(chan struct{}),
+		closed:        make(chan struct{}),
+		terminalError: make(chan struct{}),
+	}
+	host := NewHost(fake)
+	host.terminalOutputTimeout = 10 * time.Millisecond
+	host.terminalOutputAbortTimeout = 20 * time.Millisecond
+	result := make(chan error, 1)
+	go func() { result <- host.openTerminal(context.Background(), protocol.Austin, &frameSink{w: writer}) }()
+	waitSignal(t, fake.attachedCh, "terminal attach before hard stall timeout")
+
+	fake.muNative.Lock()
+	output := fake.writer
+	fake.muNative.Unlock()
+	payload := bytes.Repeat([]byte("x"), terminalOutputChunkBytes*(terminalOutputQueueDepth+2))
+	written, err := output.Write(payload)
+	if !errors.Is(err, errTerminalOutputBacklog) || written != terminalOutputChunkBytes*(terminalOutputQueueDepth+1) {
+		t.Fatalf("hard-stall PTY write = %d, %v; want bounded backlog failure", written, err)
+	}
+	waitSignal(t, writer.stalled, "terminal output writer stall")
+	select {
+	case err := <-result:
+		if !errors.Is(err, errTerminalOutputBacklog) {
+			t.Fatalf("terminal return = %v; want backlog error", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("terminal did not detach after bounded stall timeout")
+	}
+	waitSignal(t, fake.detachedCh, "terminal detach before hard timeout")
+	waitSignal(t, writer.closed, "hard timeout closing renderer pipe")
+	waitSignal(t, writer.terminalError, "terminal error after pipe close unblocks writer")
+}
+
 func TestTerminalOutputQueueFailsClosedWithoutDroppingQueuedFrames(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.TODO())
 	defer cancel()
@@ -588,7 +755,10 @@ func TestTerminalOutputQueueFailsClosedWithoutDroppingQueuedFrames(t *testing.T)
 		ctx:    ctx,
 		chunks: make(chan []byte, terminalOutputQueueDepth),
 		failed: make(chan error, 1),
+		full:   make(chan struct{}),
+		ready:  make(chan struct{}),
 	}
+	close(output.ready)
 	payload := bytes.Repeat([]byte("x"), terminalOutputChunkBytes*(terminalOutputQueueDepth+1))
 	written, err := output.Write(payload)
 	if !errors.Is(err, errTerminalOutputBacklog) {
