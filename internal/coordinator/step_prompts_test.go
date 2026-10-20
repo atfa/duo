@@ -120,9 +120,62 @@ func TestStepIntegratePromptSeparatesTheFinalStep(t *testing.T) {
 	final := stepSnapshot(project.PhaseIntegrate)
 	final.Step = 3
 	finalPrompt := coord.phasePrompt(protocol.Tony, project.PhaseReview, project.PhaseIntegrate, final, "")
-	for _, want := range []string{"FINAL step", "3/3", "both agents must sign INTEGRATE", "duo_set_status ready=true"} {
+	for _, want := range []string{"FINAL step", "3/3", "Both agents must now sign INTEGRATE", "duo_set_status ready=true"} {
 		if !strings.Contains(finalPrompt, want) {
 			t.Fatalf("final STEP INTEGRATE prompt missing %q:\n%s", want, finalPrompt)
+		}
+	}
+}
+
+// TestStepGoalPolicyPromptsUseDualSignOff covers the Step meta-workflow: the same
+// queue position must produce the Goal cross-sign-off prompts when its item is
+// tagged [goal], not the Fast verifier wording.
+func TestStepGoalPolicyPromptsUseDualSignOff(t *testing.T) {
+	coord := stepCoordinator()
+	goal := stepSnapshot(project.PhaseExecute)
+	goal.Steps[1].Policy = project.ModeGoal
+
+	austin := coord.phasePrompt(protocol.Austin, project.PhasePlan, project.PhaseExecute, goal, "")
+	for _, want := range []string{"step 2/3 [GOAL]", "both agents are co-authors", "duo_set_status ready=true", "Duo merges Tony's branch"} {
+		if !strings.Contains(austin, want) {
+			t.Fatalf("Austin GOAL EXECUTE prompt missing %q:\n%s", want, austin)
+		}
+	}
+	if strings.Contains(austin, "read-only on the delivered artifact") {
+		t.Fatalf("a GOAL step must not tell Austin he is read-only:\n%s", austin)
+	}
+
+	review := stepSnapshot(project.PhaseReview)
+	review.Steps[1].Policy = project.ModeGoal
+	tony := coord.phasePrompt(protocol.Tony, project.PhaseExecute, project.PhaseReview, review, "")
+	for _, want := range []string{"GOAL step", "Cross-review", "Sign REVIEW with duo_set_status", "Duo merges Tony's branch"} {
+		if !strings.Contains(tony, want) {
+			t.Fatalf("Tony GOAL REVIEW prompt missing %q:\n%s", want, tony)
+		}
+	}
+	if strings.Contains(tony, "duo_set_verification") {
+		t.Fatalf("a GOAL step must not ask Tony for a Fast verification verdict:\n%s", tony)
+	}
+
+	integrate := stepSnapshot(project.PhaseIntegrate)
+	integrate.Steps[1].Policy = project.ModeGoal
+	merge := "Duo merged Tony's branch into Austin's at HEAD abcdef123456."
+	middle := coord.phasePrompt(protocol.Austin, project.PhaseReview, project.PhaseIntegrate, integrate, merge)
+	for _, want := range []string{"GOAL step 2/3", merge, "sign INTEGRATE", "lands this step on main"} {
+		if !strings.Contains(middle, want) {
+			t.Fatalf("GOAL INTEGRATE prompt missing %q:\n%s", want, middle)
+		}
+	}
+
+	resume := stepSnapshot(project.PhaseExecute)
+	resume.Steps[1].Policy = project.ModeGoal
+	if err := coord.project.Restore(resume); err != nil {
+		t.Fatal(err)
+	}
+	got := coord.ResumePrompt(protocol.Austin)
+	for _, want := range []string{"Step: 2 of 3 [GOAL]", "both agents are co-authors", "commit it, keep it clean"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("GOAL resume prompt missing %q:\n%s", want, got)
 		}
 	}
 }
@@ -138,7 +191,7 @@ func TestStepResumePromptReinjectsTheQueue(t *testing.T) {
 	}
 
 	got := coord.ResumePrompt(protocol.Austin)
-	for _, want := range []string{"[Duo session resumed]", "Step: 2 of 3 — land each step", "add ModeStep", "landed 111111111111", "restart on the new binary", "do not re-land a step that is already ticked"} {
+	for _, want := range []string{"[Duo session resumed]", "Step: 2 of 3 [FAST] — land each step", "add ModeStep", "landed 111111111111", "restart on the new binary", "do not re-land a step that is already ticked"} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("STEP resume prompt missing %q:\n%s", want, got)
 		}

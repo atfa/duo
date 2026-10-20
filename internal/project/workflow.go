@@ -286,11 +286,11 @@ func (fastWorkflow) reopen(s *State) error {
 }
 
 // stepWorkflow is Goal's phase set with a per-step gate. The queue is the
-// dual-approved artifact in PLAN, each step is checked by Tony's HEAD-bound
-// verdict, and a landed step returns the session to EXECUTE. Austin signing his
-// own INTEGRATE would be self-approval, so the per-step gate is the Fast shape;
-// the Goal gate stays where independent agreement buys something: the queue, and
-// DONE on the last step.
+// dual-approved artifact in PLAN; each step then follows its own policy. A FAST
+// step uses Tony's HEAD-bound verdict and lands from REVIEW. A GOAL step uses
+// both agents' EXECUTE and REVIEW signatures, merges Tony's branch, and lands
+// after both sign INTEGRATE. Either way a landed step returns the session to
+// EXECUTE, and DONE on the last step still needs both agents.
 type stepWorkflow struct{}
 
 // setPlan takes the plan prose. The queue is separate state (setSteps), so a plan
@@ -366,8 +366,29 @@ func (stepWorkflow) setReady(s *State, agent protocol.AgentID, ready bool, note,
 		return Transition{}, nil
 
 	case PhaseExecute:
+		if s.currentStepPolicyLocked() == ModeGoal {
+			// A Goal-policy step is joint work: each agent signs its own
+			// committed HEAD and the step moves to cross-review only when both
+			// have finished.
+			s.ready[agent] = ready
+			s.notes[agent] = strings.TrimSpace(note)
+			if ready {
+				s.evidence[agent] = strings.TrimSpace(evidence)
+			} else {
+				s.evidence[agent] = ""
+			}
+			s.started = true
+			s.lastMutation = time.Now()
+			if s.ready[protocol.Austin] && s.ready[protocol.Tony] {
+				s.phase = PhaseReview
+				s.resetApprovalsLocked()
+				s.lastMutation = time.Now()
+				return Transition{Next: PhaseReview}, nil
+			}
+			return Transition{}, nil
+		}
 		if agent != protocol.Austin {
-			return Transition{}, fmt.Errorf("%w: in STEP mode Tony checks a step with duo_set_verification, not with a sign-off", ErrModeMismatch)
+			return Transition{}, fmt.Errorf("%w: in a FAST step Tony checks with duo_set_verification, not with a sign-off", ErrModeMismatch)
 		}
 		if !ready {
 			return Transition{}, nil
@@ -384,6 +405,25 @@ func (stepWorkflow) setReady(s *State, agent protocol.AgentID, ready bool, note,
 		return Transition{Next: PhaseReview}, nil
 
 	case PhaseReview:
+		if s.currentStepPolicyLocked() == ModeGoal {
+			// Cross-review: each agent signs the peer's reviewed HEAD.
+			s.ready[agent] = ready
+			s.notes[agent] = strings.TrimSpace(note)
+			if ready {
+				s.evidence[agent] = strings.TrimSpace(evidence)
+			} else {
+				s.evidence[agent] = ""
+			}
+			s.started = true
+			s.lastMutation = time.Now()
+			if s.ready[protocol.Austin] && s.ready[protocol.Tony] {
+				s.phase = PhaseIntegrate
+				s.resetApprovalsLocked()
+				s.lastMutation = time.Now()
+				return Transition{Next: PhaseIntegrate}, nil
+			}
+			return Transition{}, nil
+		}
 		if agent != protocol.Austin {
 			return Transition{}, nil
 		}
@@ -397,11 +437,30 @@ func (stepWorkflow) setReady(s *State, agent protocol.AgentID, ready bool, note,
 		return Transition{Next: PhaseExecute}, nil
 
 	case PhaseIntegrate:
-		// The last step ends the session, and that is the one place a step needs
-		// both agents to agree it is finished. The test is the cursor, not the ticks:
-		// the final step is signed and landed together, so at sign-off time it is
-		// still unticked by definition. A non-final step reaching INTEGRATE means its
-		// delivery was blocked, and that is not something a signature resolves.
+		if s.currentStepPolicyLocked() == ModeGoal {
+			// The GOAL-policy step signs the merged Austin HEAD. A non-final
+			// step lands immediately after both signatures; the final step uses
+			// the same signatures to finish the queue.
+			s.ready[agent] = ready
+			s.notes[agent] = strings.TrimSpace(note)
+			if ready {
+				s.evidence[agent] = strings.TrimSpace(evidence)
+			} else {
+				s.evidence[agent] = ""
+			}
+			s.lastMutation = time.Now()
+			var t Transition
+			if s.ready[protocol.Austin] && s.ready[protocol.Tony] {
+				t.ReadyForDelivery = true
+			}
+			return t, nil
+		}
+		// The last FAST step ends the session, and that is the one place a step
+		// needs both agents to agree it is finished. The test is the cursor, not
+		// the ticks: the final step is signed and landed together, so at sign-off
+		// time it is still unticked by definition. A non-final FAST step reaching
+		// INTEGRATE means its delivery was blocked, and that is not something a
+		// signature resolves.
 		if s.step < len(s.steps) {
 			return Transition{}, fmt.Errorf("%w: step %d of %d has not landed yet; sign-off is only for the final step", ErrWrongPhase, s.step, len(s.steps))
 		}
@@ -432,8 +491,11 @@ func (stepWorkflow) setVerification(s *State, agent protocol.AgentID, result Ver
 	if s.phase == PhaseDone {
 		return Transition{}, ErrProjectDone
 	}
+	if s.currentStepPolicyLocked() != ModeFast {
+		return Transition{}, fmt.Errorf("%w: a GOAL-policy step is cross-reviewed and signed with duo_set_status", ErrModeMismatch)
+	}
 	if agent != protocol.Tony {
-		return Transition{}, fmt.Errorf("%w: only Tony can report a STEP-mode step verification", ErrModeMismatch)
+		return Transition{}, fmt.Errorf("%w: only Tony can report a FAST step verification", ErrModeMismatch)
 	}
 	if s.phase != PhaseReview {
 		return Transition{}, fmt.Errorf("%w: a step can only be verified during REVIEW", ErrWrongPhase)
@@ -557,6 +619,9 @@ func (stepWorkflow) revokeStep(s *State, reason string) (Transition, error) {
 	previous := s.phase
 	current.Head = ""
 	current.Verification = Verification{}
+	if s.currentStepPolicyLocked() == ModeGoal {
+		s.resetApprovalsLocked()
+	}
 	s.notes[protocol.Austin] = strings.TrimSpace(reason)
 	s.phase = PhaseExecute
 	s.lastMutation = time.Now()
@@ -569,6 +634,16 @@ func (s *State) currentStepLocked() *Step {
 		return nil
 	}
 	return &s.steps[s.step-1]
+}
+
+// currentStepPolicyLocked returns the policy of the step under the cursor. A
+// finished or empty queue defaults to Fast; every caller checks the phase before
+// using it, so this only keeps a zero queue from inventing a Goal sign-off.
+func (s *State) currentStepPolicyLocked() Mode {
+	if current := s.currentStepLocked(); current != nil {
+		return current.EffectivePolicy()
+	}
+	return ModeFast
 }
 
 func (s *State) setStepHeadLocked(head string) {

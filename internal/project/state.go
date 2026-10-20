@@ -55,14 +55,15 @@ func (s Snapshot) String() string {
 	return s.goalString()
 }
 
-// stepString is the Goal rendering plus the queue: the phase and signature block
-// is the same information, and the queue is what tells an agent which step it is
-// working. The full queue is shown here because this rendering is printed once per
-// request, not on a timer.
+// stepString is the shared-state rendering plus the queue: the phase and
+// signature block is the same information, and the queue (including each item's
+// Fast/Goal policy) is what tells an agent which step it is working and which
+// gate applies. The full queue is shown here because this rendering is printed
+// once per request, not on a timer.
 func (s Snapshot) stepString() string {
 	out := s.goalString()
 	if len(s.Steps) == 0 {
-		return out + "\n\nStep queue: none set — Austin sets it with duo_set_steps before the session can leave PLAN."
+		return out + "\n\nStep queue: none set — either agent sets it with duo_set_steps before the session can leave PLAN."
 	}
 	return out + "\n\nStep queue (" + fmt.Sprintf("%d step(s), cursor at %d", len(s.Steps), s.Step) + "):\n" + s.Steps.Render()
 }
@@ -447,6 +448,46 @@ func (s *State) EscalateToGoal(reason string) (Snapshot, error) {
 		return snap, ErrAlreadyGoal
 	}
 
+	s.escalateToGoalLocked(reason)
+	snap, hook := s.snapshotLocked(), s.onChange
+	s.mu.Unlock()
+	notify(hook, snap)
+	return snap, nil
+}
+
+// SwitchMode changes the workflow at any point in a live session. A running
+// round cannot be half-Fast and half-Goal: the plan, queue, phase and every
+// signature belong to the mode that produced them, so switching starts a new
+// round in the target mode. A switch from DONE changes the mode for the next
+// task and leaves the current round finished.
+//
+// Fast → Goal delegates to the escalation rule so its seeded plan and prior
+// notes stay intact. Every other transition uses the generic reset below.
+func (s *State) SwitchMode(target Mode, reason string) (Snapshot, error) {
+	if target != ModeFast && target != ModeGoal && target != ModeStep {
+		return Snapshot{}, fmt.Errorf("unknown Duo mode %q (expected fast, goal or step)", target)
+	}
+
+	s.mu.Lock()
+	if s.mode == target {
+		snap := s.snapshotLocked()
+		s.mu.Unlock()
+		return snap, nil
+	}
+	if s.mode == ModeFast && target == ModeGoal && s.phase != PhaseDone {
+		s.escalateToGoalLocked(reason)
+	} else {
+		s.switchModeLocked(target, reason)
+	}
+	snap, hook := s.snapshotLocked(), s.onChange
+	s.mu.Unlock()
+	notify(hook, snap)
+	return snap, nil
+}
+
+// escalateToGoalLocked is the historical Fast → Goal transition. It is shared
+// with SwitchMode so an escalation through either API seeds the same plan.
+func (s *State) escalateToGoalLocked(reason string) {
 	s.mode = ModeGoal
 	s.phase = PhasePlan
 
@@ -483,11 +524,49 @@ func (s *State) EscalateToGoal(reason string) (Snapshot, error) {
 	s.verification = Verification{}
 	s.started = true
 	s.lastMutation = time.Now()
+}
 
-	snap, hook := s.snapshotLocked(), s.onChange
-	s.mu.Unlock()
-	notify(hook, snap)
-	return snap, nil
+// switchModeLocked starts a new round in the target mode. Plan revision history
+// is deliberately not carried across a Fast/Goal/Step switch: the old plan and
+// queue described work under different gates, and keeping either would let a
+// new mode inherit approvals it never earned.
+func (s *State) switchModeLocked(target Mode, reason string) {
+	reason = strings.TrimSpace(reason)
+	s.mode = target
+	s.resetApprovalsLocked()
+	s.verification = Verification{}
+	s.steps, s.step = nil, 0
+	s.started = true
+	s.lastMutation = time.Now()
+
+	if s.phase == PhaseDone {
+		s.plan = ""
+		s.planVersion = 0
+		return
+	}
+
+	switch target {
+	case ModeFast:
+		s.plan = ""
+		s.planVersion = 0
+		s.phase = PhaseRunning
+
+	case ModeGoal:
+		s.phase = PhasePlan
+		s.plan = "# Goal Plan\n\nAustin and Tony agree on the design before either implements it.\n"
+		if reason != "" {
+			s.plan = "## Mode Switch Reason: " + reason + "\n\n" + s.plan
+		}
+		s.planVersion = 1
+
+	case ModeStep:
+		s.phase = PhasePlan
+		s.plan = "# Step Plan\n\nAustin and Tony agree on the queue. Tag each item [fast] or [goal].\n"
+		if reason != "" {
+			s.plan = "## Mode Switch Reason: " + reason + "\n\n" + s.plan
+		}
+		s.planVersion = 1
+	}
 }
 
 // RevokeReady invalidates one agent's claim. In Goal it clears a phase

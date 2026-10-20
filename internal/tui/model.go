@@ -419,7 +419,7 @@ func (a *App) submit(ctx context.Context) bool {
 		a.add(protocol.Duo, "ERROR: "+err.Error())
 	} else {
 		status := "sent to Austin"
-		if a.live.EffectiveMode() == project.ModeGoal {
+		if a.live.EffectiveMode() != project.ModeFast {
 			status = "sent to Austin and Tony"
 		}
 		a.setStatus(status, false)

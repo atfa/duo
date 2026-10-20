@@ -18,12 +18,21 @@ type Command interface {
 	command()
 }
 
-// SubmitTask sends human text to Austin.
+// SubmitTask sends human text to the coordinator, which routes it to Austin or
+// to both agents depending on the current mode.
 type SubmitTask struct {
 	Text string `json:"text"`
 }
 
-// EscalateToGoal asks the coordinator to move the session into Goal mode.
+// SwitchMode changes the session workflow at any time. The coordinator resets
+// the current round and applies the new mode to the next task.
+type SwitchMode struct {
+	Mode   string `json:"mode"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// EscalateToGoal is the historical Fast → Goal command. New frontends use
+// SwitchMode; this stays so existing clients keep working.
 type EscalateToGoal struct {
 	Reason string `json:"reason"`
 }
@@ -69,6 +78,7 @@ type RestartDuo struct {
 }
 
 func (SubmitTask) Kind() string     { return "submit_task" }
+func (SwitchMode) Kind() string     { return "switch_mode" }
 func (EscalateToGoal) Kind() string { return "escalate_to_goal" }
 func (SetModel) Kind() string       { return "set_model" }
 func (CycleThinking) Kind() string  { return "cycle_thinking" }
@@ -78,6 +88,7 @@ func (SetLanguage) Kind() string    { return "set_language" }
 func (RestartDuo) Kind() string     { return "restart_duo" }
 
 func (SubmitTask) command()     {}
+func (SwitchMode) command()     {}
 func (EscalateToGoal) command() {}
 func (SetModel) command()       {}
 func (CycleThinking) command()  {}

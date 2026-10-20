@@ -202,7 +202,8 @@ func (w *workflowPanel) Draw(buf *ui.Buffer) {
 			}
 			line(fmt.Sprintf("steps         %d/%d landed", done, len(w.view.Project.Steps)), w.theme.Subtle)
 			if cur <= len(w.view.Project.Steps) {
-				line(fmt.Sprintf("current       %d. %s", cur, w.view.Project.Steps[cur-1].Title), w.theme.BodyMuted)
+				step := w.view.Project.Steps[cur-1]
+				line(fmt.Sprintf("current       %d. [%s] %s", cur, strings.ToUpper(step.EffectivePolicy().String()), step.Title), w.theme.BodyMuted)
 			}
 		} else {
 			line(fmt.Sprintf("ready         A:%s  T:%s", readyMark(w.view.Project.Ready[protocol.Austin]), readyMark(w.view.Project.Ready[protocol.Tony])), w.theme.Subtle)

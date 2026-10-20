@@ -15,8 +15,8 @@ type slashCommand struct {
 }
 
 var slashCommands = []slashCommand{
-	{name: "/escalate", args: "[reason]", desc: "Escalate to Goal mode", needsArg: true},
-	{name: "/mode", args: "[fast|goal]", desc: "Report or escalate the session mode", needsArg: true},
+	{name: "/escalate", args: "[reason]", desc: "Switch to Goal mode", needsArg: true},
+	{name: "/mode", args: "[fast|goal|step]", desc: "Switch the session mode", needsArg: true},
 	{name: "/model", desc: "Model & thinking picker (Ctrl+M)"},
 	{name: "/language", args: "[zh|en]", desc: "Set Duo's language and save it", needsArg: true},
 	{name: "/copy", desc: "Copy Austin's latest message (Ctrl+X)"},

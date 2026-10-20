@@ -25,8 +25,8 @@
  │ turn     1m35s  ·   7 tools      │ │                                                                               │
  ╰──────────────────────────────────╯ │ 16:03  Duo →  Human                                                           │
                                       ╭─ COMMANDS ────────────────────────────────────────────────────────────────────╮
- ╭─ TONY ───────────────────────────╮ │ /escalate [reason] Escalate to Goal mode                                      │
- │ ready                            │ │ /mode [fast|goal]  Report or escalate the session mode                        │
+ ╭─ TONY ───────────────────────────╮ │ /escalate [reason] Switch to Goal mode                                        │
+ │ ready                            │ │ /mode [fast|goal…  Switch the session mode                                    │
  │ model    anthropic/claude-sonnet │ │ /model             Model & thinking picker (Ctrl+M)                           │
  │ driver   test                    │ │ /language [zh|en]  Set Duo's language and save it                             │
  │ thinking medium                  │ │ /copy              Copy Austin's latest message (Ctrl+X)                      │

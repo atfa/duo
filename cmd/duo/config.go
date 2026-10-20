@@ -205,7 +205,7 @@ func parseArgs(args []string) (cliArgs, error) {
 			out.help = true
 		case arg == "--mode" || arg == "-m":
 			if i+1 >= len(args) {
-				return out, fmt.Errorf("--mode requires a value (fast or goal)")
+				return out, fmt.Errorf("--mode requires a value (fast, goal or step)")
 			}
 			out.mode = strings.TrimSpace(args[i+1])
 			out.modeExplicit = true
@@ -308,10 +308,10 @@ func resolveNewMode(parsed cliArgs, fileMode ...string) (project.Mode, string, e
 	return project.DefaultMode, "default", nil
 }
 
-// resumeMode decides the mode of a resumed session. Mode is fixed per session,
-// so the persisted mode always wins: an explicit --mode that disagrees is an
-// operator error, while an ambient DUO_MODE is only a warning so an exported
-// environment can never break resume.
+// resumeMode decides the mode of a resumed session. The persisted mode always
+// wins, so an explicit --mode that disagrees is an operator error, while an
+// ambient DUO_MODE is only a warning so an exported environment can never break
+// resume.
 func resumeMode(cfg config, persisted project.Mode, sessionID string, warn func(string)) (project.Mode, error) {
 	return session.ResumeMode(cfg.modeRaw, cfg.modeExplicit, persisted, sessionID, os.Getenv("DUO_MODE"), warn)
 }

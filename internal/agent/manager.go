@@ -93,6 +93,22 @@ func (m *Manager) Session(agent protocol.AgentID) (Driver, bool) {
 	return m.Driver(agent)
 }
 
+// SetMode updates the mode a future restart of each agent reports to its driver.
+// Duo can switch modes while a process is running, and without this a crash or a
+// manual restart would launch the old mode again.
+func (m *Manager) SetMode(mode string) {
+	if m == nil {
+		return
+	}
+	for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		if d, ok := m.Driver(agent); ok {
+			if session, ok := d.(*Session); ok {
+				session.SetMode(mode)
+			}
+		}
+	}
+}
+
 // CommandFor returns the operator's own command for an agent, if any. The model
 // picker asks the plugin for the catalog, so it no longer reads the command.
 func (m *Manager) CommandFor(agent protocol.AgentID) string {

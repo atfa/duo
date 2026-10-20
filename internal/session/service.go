@@ -636,9 +636,23 @@ func (s *Service) Do(ctx context.Context, cmd Command) error {
 
 	switch c := cmd.(type) {
 	case SubmitTask:
-		return s.coord.SubmitUserTask(ctx, c.Text)
+		err := s.coord.SubmitUserTask(ctx, c.Text)
+		s.syncMode()
+		return err
+	case SwitchMode:
+		target, err := project.ParseMode(c.Mode)
+		if err != nil {
+			return err
+		}
+		if err := s.coord.SwitchMode(ctx, target, c.Reason); err != nil {
+			return err
+		}
+		s.syncMode()
+		return nil
 	case EscalateToGoal:
-		return s.coord.EscalateToGoal(ctx, c.Reason)
+		err := s.coord.SwitchMode(ctx, project.ModeGoal, c.Reason)
+		s.syncMode()
+		return err
 	case SetModel:
 		return s.setModel(ctx, c)
 	case CycleThinking:
@@ -660,6 +674,15 @@ func (s *Service) Do(ctx context.Context, cmd Command) error {
 		return s.requestRestart(c)
 	default:
 		return fmt.Errorf("unsupported command %T", cmd)
+	}
+}
+
+// syncMode keeps the service field used for logging and driver launch in step
+// with the domain. Mode can change from a human command or an agent tool, so the
+// state, not a cached copy, is authoritative.
+func (s *Service) syncMode() {
+	if s.state != nil {
+		s.mode = s.state.Mode()
 	}
 }
 
@@ -1043,10 +1066,14 @@ func (s *Service) pluginEnv(id protocol.AgentID, host, port, token string) []str
 	// configuration and credentials, and PATH is how a plugin finds the CLI it
 	// wraps. Without them a plugin silently answered from a hardcoded default and
 	// reported a CLI missing that was sitting right there on PATH.
+	mode := s.mode
+	if s.state != nil {
+		mode = s.state.Mode()
+	}
 	return append(os.Environ(), []string{
 		"DUO_ACTIVE=1",
 		"DUO_AGENT=" + string(id),
-		"DUO_MODE=" + s.mode.String(),
+		"DUO_MODE=" + mode.String(),
 		"DUO_LANGUAGE=" + effectiveLanguage(s.opts.Language),
 		"DUO_HOST=" + host,
 		"DUO_PORT=" + port,

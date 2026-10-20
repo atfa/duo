@@ -107,10 +107,11 @@ type Snapshot struct {
 	Step  int           `json:"step,omitempty"`
 	Steps project.Steps `json:"steps,omitempty"`
 
-	// Mode is the session workflow, fixed for the session's lifetime. Driver is
-	// recorded for observability only: it is derived from the mode (Fast is
-	// always Austin-driven) and no reader branches on it. Both are omitted by
-	// snapshots that omit it, which normalize to Goal.
+	// Mode is the session's persisted workflow. It can change at runtime; a
+	// snapshot records the mode in force when it was written. Driver is recorded
+	// for observability only: it is derived from the mode (Fast is always
+	// Austin-driven) and no reader branches on it. Both are omitted by snapshots
+	// that omit it, which normalize to Goal.
 	Mode   project.Mode `json:"mode,omitempty"`
 	Driver string       `json:"driver,omitempty"`
 

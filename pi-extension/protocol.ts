@@ -7,16 +7,36 @@ export type AgentName = "Austin" | "Tony";
 export const PROTOCOL_VERSION = 1;
 
 export type DuoMessageType =
-  | "hello" | "test" | "activity" | "assistant_message" | "agent_error"
-  | "peer_message" | "steer" | "duo_notice" | "harness_prompt" | "human_prompt"
-  | "resume_prompt" | "set_plan" | "set_status" | "get_status" | "response"
-  | "set_verification" | "set_steps" | "escalate" | "set_model" | "model_state" | "cycle_thinking"
-  | "thinking_state" | "restart_duo";
+  | "hello"
+  | "test"
+  | "activity"
+  | "assistant_message"
+  | "agent_error"
+  | "peer_message"
+  | "steer"
+  | "duo_notice"
+  | "harness_prompt"
+  | "human_prompt"
+  | "resume_prompt"
+  | "set_plan"
+  | "set_status"
+  | "get_status"
+  | "response"
+  | "set_verification"
+  | "set_steps"
+  | "escalate"
+  | "mode_change"
+  | "set_model"
+  | "model_state"
+  | "cycle_thinking"
+  | "thinking_state"
+  | "restart_duo";
 
 /**
- * Structured verification result used by FAST mode. Austin is the driver; Tony
- * is the independent verifier and reports one of these for the exact Austin
- * commit under review. Must match `project.VerificationResult` in Go.
+ * Structured verification result used by FAST mode and by a STEP `[fast]` item.
+ * Austin is the driver; Tony is the independent verifier and reports one of
+ * these for the exact Austin commit under review. Must match
+ * `project.VerificationResult` in Go.
  */
 export type VerificationResult = "passed" | "issue_found";
 
@@ -43,6 +63,8 @@ export type DuoMessage = {
   note?: string;
   ready?: boolean;
   verification?: VerificationResult;
+  /** Runtime mode switch: the adapter updates its prompt without restarting. */
+  mode?: "fast" | "goal" | "step";
 
   /** Model switching: target/reported model and thinking level. */
   provider?: string;

@@ -216,6 +216,65 @@ func TestReopenStartsANewRoundInEachMode(t *testing.T) {
 	}
 }
 
+// TestSwitchModeResetsTheRound pins the runtime-switch rule: a new mode never
+// inherits a plan, queue, phase or signature that was approved under another
+// mode's gates. A switch while DONE only changes the mode of the next task.
+func TestSwitchModeResetsTheRound(t *testing.T) {
+	goal := NewState()
+	if _, err := goal.SetPlan(protocol.Austin, "old goal plan"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := goal.SetReady(protocol.Austin, true, "a", "ev"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := goal.SetReady(protocol.Tony, true, "t", "ev"); err != nil {
+		t.Fatal(err)
+	}
+	if got := goal.Snapshot().Phase; got != PhaseExecute {
+		t.Fatalf("fixture phase = %s, want EXECUTE", got)
+	}
+
+	snap, err := goal.SwitchMode(ModeStep, "needs a queue")
+	if err != nil {
+		t.Fatalf("SwitchMode: %v", err)
+	}
+	if snap.Mode != ModeStep || snap.Phase != PhasePlan {
+		t.Fatalf("switch = mode %s phase %s, want step PLAN", snap.Mode, snap.Phase)
+	}
+	if strings.Contains(snap.Plan, "old goal plan") || snap.PlanVersion != 1 {
+		t.Fatalf("switch kept the old plan: version=%d plan=%q", snap.PlanVersion, snap.Plan)
+	}
+	if !strings.Contains(snap.Plan, "needs a queue") {
+		t.Fatalf("switch reason missing from the new plan: %q", snap.Plan)
+	}
+	if len(snap.Steps) != 0 || snap.Ready[protocol.Austin] || snap.Ready[protocol.Tony] {
+		t.Fatalf("switch kept queue/signatures: steps=%+v ready=%+v", snap.Steps, snap.Ready)
+	}
+
+	// Switching a DONE session changes which mode the next task runs, but the
+	// completed round stays DONE and nothing is reopened behind the human's back.
+	fast := NewStateFor(ModeFast)
+	if _, _, err := fast.SetReady(protocol.Austin, true, "", "done-head"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := fast.SetVerification(protocol.Tony, VerificationPassed, "ok", "done-head"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fast.Complete(); err != nil {
+		t.Fatal(err)
+	}
+	done, err := fast.SwitchMode(ModeStep, "")
+	if err != nil {
+		t.Fatalf("SwitchMode on DONE: %v", err)
+	}
+	if done.Mode != ModeStep || done.Phase != PhaseDone {
+		t.Fatalf("DONE switch = mode %s phase %s, want step DONE", done.Mode, done.Phase)
+	}
+	if done.Plan != "" || done.PlanVersion != 0 || len(done.Steps) != 0 {
+		t.Fatalf("DONE switch kept round artifacts: %+v", done)
+	}
+}
+
 func TestRestoreIsModeScopedAndLegacyIsGoal(t *testing.T) {
 	// A legacy snapshot has no mode and must load as Goal.
 	legacy := NewState()

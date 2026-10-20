@@ -13,10 +13,11 @@ import (
 	"github.com/atfa/duo/internal/transport"
 )
 
-// handleStepSetStatus is the STEP-mode gate. Per step it is the Fast shape —
-// Austin submits a committed HEAD, Tony's verdict is the independent check — and
-// the Goal sign-off is kept for the two moments where two agents must agree: the
-// queue in PLAN, and the finished queue at the end.
+// handleStepSetStatus is the STEP-mode gate. The queue itself is dual-approved
+// in PLAN. Each step then follows its own policy: a FAST step is Austin
+// submitting and Tony's verdict being the independent check; a GOAL step is both
+// agents signing EXECUTE and REVIEW and then the merged INTEGRATE. The final
+// step always needs both agents to sign the finished queue.
 func (c *Coordinator) handleStepSetStatus(ctx context.Context, client *transport.Client, message protocol.Message) {
 	if message.Ready == nil {
 		_ = c.respond(ctx, client, message.RequestID, false, "ready must be true or false", c.statusText(ctx))
@@ -24,14 +25,19 @@ func (c *Coordinator) handleStepSetStatus(ctx context.Context, client *transport
 	}
 
 	snap := c.project.Snapshot()
+	policy := currentStepPolicy(snap)
 	switch snap.Phase {
 	case project.PhasePlan:
 		c.stepPlanApproval(ctx, client, message)
 		return
 	case project.PhaseExecute:
+		if policy == project.ModeGoal {
+			c.stepGoalSign(ctx, client, message, snap)
+			return
+		}
 		if client.Identity() != protocol.Austin {
 			_ = c.respond(ctx, client, message.RequestID, false,
-				"in STEP mode Tony checks a step with duo_set_verification, not with a sign-off", c.statusText(ctx))
+				"in a FAST step Tony checks with duo_set_verification, not with a sign-off", c.statusText(ctx))
 			return
 		}
 		if !*message.Ready {
@@ -43,18 +49,27 @@ func (c *Coordinator) handleStepSetStatus(ctx context.Context, client *transport
 			return
 		}
 	case project.PhaseReview:
+		if policy == project.ModeGoal {
+			c.stepGoalSign(ctx, client, message, snap)
+			return
+		}
 		if client.Identity() != protocol.Austin {
 			_ = c.respond(ctx, client, message.RequestID, false,
 				"the step is under review; Tony reports with duo_set_verification", c.statusText(ctx))
 			return
 		}
 	case project.PhaseIntegrate:
-		// The final step is the one place a step needs both agents to agree it is
-		// finished. Note this is keyed on the cursor reaching the last step, not on the
-		// queue being ticked: the verdict leaves the final step in INTEGRATE *before*
-		// it lands, precisely so the sign-off and the landing happen together.
+		// The final step overrides the per-step policy: it always needs both
+		// agents to agree it is finished. Note this is keyed on the cursor
+		// reaching the last step, not on the queue being ticked: the verdict
+		// leaves the final step in INTEGRATE *before* it lands, precisely so the
+		// sign-off and the landing happen together.
 		if stepIsFinal(snap) {
 			c.stepQueueSignOff(ctx, client, message)
+			return
+		}
+		if policy == project.ModeGoal {
+			c.stepGoalSign(ctx, client, message, snap)
 			return
 		}
 		_ = c.respond(ctx, client, message.RequestID, false,
@@ -88,6 +103,125 @@ func (c *Coordinator) handleStepSetStatus(ctx context.Context, client *transport
 		fmt.Sprintf("Step %d of %d submitted at %s for review.", snap.Step, len(snap.Steps), shortSHA(head)),
 		c.statusText(ctx))
 	c.notifyStepReviewRequested(ctx, snap)
+}
+
+// stepGoalSign applies one agent's EXECUTE, REVIEW or non-final INTEGRATE
+// signature for a GOAL-policy step. The domain decides when both signatures
+// advance the phase; this handler supplies the phase-bound evidence and starts
+// the Tony→Austin merge at the same point Goal mode does.
+func (c *Coordinator) stepGoalSign(ctx context.Context, client *transport.Client, message protocol.Message, snap project.Snapshot) {
+	evidence := ""
+	if *message.Ready {
+		if err := c.invalidateStaleApprovals(ctx, snap); err != nil {
+			_ = c.respond(ctx, client, message.RequestID, false, err.Error(), c.statusText(ctx))
+			return
+		}
+		snap = c.project.Snapshot()
+		ev, err := c.evidenceForReady(ctx, client.Identity(), snap.Phase, snap)
+		if err != nil {
+			_ = c.respond(ctx, client, message.RequestID, false, err.Error(), c.statusText(ctx))
+			return
+		}
+		evidence = ev
+	}
+
+	snap, tr, err := c.project.SetReady(client.Identity(), *message.Ready, message.Note, evidence)
+	if err != nil {
+		_ = c.respond(ctx, client, message.RequestID, false, err.Error(), c.statusText(ctx))
+		return
+	}
+	c.tracker.Touch(client.Identity())
+
+	if *message.Ready {
+		c.recordEvent("step_signature", map[string]any{
+			"step": snap.Step, "phase": string(tr.Previous), "agent": string(client.Identity()), "head": evidence,
+		})
+	} else {
+		c.recordEvent("step_signature_revoked", map[string]any{
+			"step": snap.Step, "phase": string(tr.Previous), "agent": string(client.Identity()), "note": message.Note,
+		})
+	}
+
+	if tr.ReadyForDelivery {
+		if err := c.runTestGateIfSet(ctx); err != nil {
+			c.project.RevokeReady(client.Identity(), "automated test gate failed")
+			_ = c.respond(ctx, client, message.RequestID, false, err.Error(), c.statusText(ctx))
+			return
+		}
+		c.recordEvent("step_integrated", map[string]any{"step": snap.Step, "head": evidence})
+		_ = c.respond(ctx, client, message.RequestID, true,
+			fmt.Sprintf("Both agents signed INTEGRATE for step %d at %s. Duo is landing it.", snap.Step, shortSHA(evidence)),
+			c.statusText(ctx))
+		c.deliverFinal(ctx, snap)
+		return
+	}
+
+	if tr.Advanced {
+		c.recordEvent("phase_transition", map[string]any{"from": string(tr.Previous), "to": string(tr.Next)})
+		c.emit(events.KindSystem, protocol.Duo, "", fmt.Sprintf("both agents signed step %d %s → %s", snap.Step, tr.Previous, tr.Next))
+		integrationText := ""
+		if tr.Next == project.PhaseIntegrate {
+			integrationText = c.beginIntegration(ctx)
+		}
+		_ = c.respond(ctx, client, message.RequestID, true,
+			fmt.Sprintf("Both agents signed %s. Duo advanced step %d to %s.", tr.Previous, snap.Step, tr.Next),
+			c.statusText(ctx))
+		c.broadcastPhaseAdvance(ctx, tr.Previous, tr.Next, snap, integrationText)
+		return
+	}
+
+	if *message.Ready {
+		_ = c.respond(ctx, client, message.RequestID, true,
+			fmt.Sprintf("%s signed %s for step %d. Waiting for %s.", client.Identity(), snap.Phase, snap.Step, protocol.PeerOf(client.Identity())),
+			c.statusText(ctx))
+	} else {
+		_ = c.respond(ctx, client, message.RequestID, true,
+			fmt.Sprintf("%s withdrew readiness for step %d %s.", client.Identity(), snap.Step, snap.Phase),
+			c.statusText(ctx))
+	}
+	c.notifyStepGoalPeer(ctx, client.Identity(), snap, *message.Ready, message.Note)
+}
+
+// notifyStepGoalPeer wakes the other agent when a GOAL-policy step is waiting
+// for its signature. It carries the phase-specific evidence target so the peer
+// knows whether it is signing its own work, the other agent's review, or the
+// merged HEAD.
+func (c *Coordinator) notifyStepGoalPeer(ctx context.Context, signer protocol.AgentID, snap project.Snapshot, ready bool, note string) {
+	peer := protocol.PeerOf(signer)
+	if peer == "" {
+		return
+	}
+	step := snap.Steps[snap.Step-1]
+	var text string
+	if !ready {
+		text = fmt.Sprintf("[Duo GOAL step]\n%s withdrew readiness for step %d of %d during %s%s. Continue working until the issue is resolved.", signer, snap.Step, len(snap.Steps), snap.Phase, noteSuffix(note))
+	} else {
+		switch snap.Phase {
+		case project.PhaseExecute:
+			text = fmt.Sprintf("[Duo GOAL step]\n%s finished its EXECUTE work for step %d of %d, %q, at HEAD %s. Finish your own implementation, commit it, and sign EXECUTE with duo_set_status ready=true when your worktree is clean. Do not review the peer yet.", signer, snap.Step, len(snap.Steps), step.Title, shortSHA(snap.Evidence[signer]))
+		case project.PhaseReview:
+			text = fmt.Sprintf("[Duo GOAL step]\n%s signed REVIEW for step %d of %d, %q. Review the peer's exact HEAD yourself, then sign REVIEW with duo_set_status ready=true. After both signatures Duo merges Tony's branch into Austin's for INTEGRATE.", signer, snap.Step, len(snap.Steps), step.Title)
+		case project.PhaseIntegrate:
+			text = fmt.Sprintf("[Duo GOAL step]\n%s signed INTEGRATE for step %d of %d, %q. Review the integrated Austin HEAD yourself, then sign INTEGRATE with duo_set_status ready=true. Duo lands the step after both signatures.", signer, snap.Step, len(snap.Steps), step.Title)
+		default:
+			return
+		}
+	}
+	if c.language == "zh" {
+		if !ready {
+			text = fmt.Sprintf("[Duo GOAL 步骤]\n%s 撤销了对第 %d/%d 步在 %s 阶段的就绪状态%s。请继续工作，直到问题解决。", signer, snap.Step, len(snap.Steps), snap.Phase, noteSuffix(note))
+		} else {
+			switch snap.Phase {
+			case project.PhaseExecute:
+				text = fmt.Sprintf("[Duo GOAL 步骤]\n%s 已完成第 %d/%d 步「%s」的 EXECUTE 工作，HEAD 为 %s。请完成你自己的实现、提交，并在工作区干净后用 duo_set_status ready=true 签署 EXECUTE。现在不要审查对方。", signer, snap.Step, len(snap.Steps), step.Title, shortSHA(snap.Evidence[signer]))
+			case project.PhaseReview:
+				text = fmt.Sprintf("[Duo GOAL 步骤]\n%s 已签署第 %d/%d 步「%s」的 REVIEW。请独立审查对方精确的 HEAD，然后用 duo_set_status ready=true 签署 REVIEW。双方签署后 Duo 会把 Tony 的分支合并到 Austin 的分支进入 INTEGRATE。", signer, snap.Step, len(snap.Steps), step.Title)
+			case project.PhaseIntegrate:
+				text = fmt.Sprintf("[Duo GOAL 步骤]\n%s 已签署第 %d/%d 步「%s」的 INTEGRATE。请审查集成后的 Austin HEAD，然后用 duo_set_status ready=true 签署 INTEGRATE。双方签署后 Duo 会把该步骤落地。", signer, snap.Step, len(snap.Steps), step.Title)
+			}
+		}
+	}
+	c.sendFastNotice(ctx, peer, text)
 }
 
 // stepPlanApproval is the queue's dual approval: the queue is the PLAN artifact,
@@ -130,6 +264,11 @@ func (c *Coordinator) stepQueueSignOff(ctx context.Context, client *transport.Cl
 	snapBefore := c.project.Snapshot()
 	evidence := ""
 	if *message.Ready {
+		if err := c.invalidateStaleApprovals(ctx, snapBefore); err != nil {
+			_ = c.respond(ctx, client, message.RequestID, false, err.Error(), c.statusText(ctx))
+			return
+		}
+		snapBefore = c.project.Snapshot()
 		ev, err := c.evidenceForReady(ctx, client.Identity(), snapBefore.Phase, snapBefore)
 		if err != nil {
 			_ = c.respond(ctx, client, message.RequestID, false, err.Error(), c.statusText(ctx))
@@ -149,6 +288,13 @@ func (c *Coordinator) stepQueueSignOff(ctx context.Context, client *transport.Cl
 			c.statusText(ctx))
 		return
 	}
+	if currentStepPolicy(snap) == project.ModeGoal {
+		if err := c.runTestGateIfSet(ctx); err != nil {
+			c.project.RevokeReady(client.Identity(), "automated test gate failed")
+			_ = c.respond(ctx, client, message.RequestID, false, err.Error(), c.statusText(ctx))
+			return
+		}
+	}
 	c.recordEvent("queue_signed_off", map[string]any{"steps": len(snap.Steps)})
 	_ = c.respond(ctx, client, message.RequestID, true,
 		fmt.Sprintf("Both agents signed the finished %d-step queue. Duo is completing the session.", len(snap.Steps)),
@@ -165,6 +311,11 @@ func (c *Coordinator) handleStepVerification(ctx context.Context, client *transp
 		return
 	}
 	snap := c.project.Snapshot()
+	if currentStepPolicy(snap) != project.ModeFast {
+		_ = c.respond(ctx, client, message.RequestID, false,
+			"this is a GOAL-policy step: cross-review it and sign with duo_set_status, not duo_set_verification", c.statusText(ctx))
+		return
+	}
 	if snap.Phase != project.PhaseReview {
 		_ = c.respond(ctx, client, message.RequestID, false,
 			"a step can only be verified during REVIEW", c.statusText(ctx))
@@ -252,12 +403,12 @@ func (c *Coordinator) handleStepVerification(ctx context.Context, client *transp
 func (c *Coordinator) notifyStepReviewRequested(ctx context.Context, snap project.Snapshot) {
 	step := snap.Steps[snap.Step-1]
 	text := fmt.Sprintf(
-		"[Duo step review]\nAustin submitted step %d of %d, %q, at HEAD %s.\n\nInspect that exact artifact yourself, then report a verdict with duo_set_verification: result=passed, or result=issue_found with a concrete note. STEP mode is single-writer: do not commit or edit the artifact; report the issue so Austin fixes it.",
+		"[Duo step review]\nAustin submitted FAST step %d of %d, %q, at HEAD %s.\n\nInspect that exact artifact yourself, then report a verdict with duo_set_verification: result=passed, or result=issue_found with a concrete note. This [fast] step is single-writer: do not commit or edit the artifact; report the issue so Austin fixes it.",
 		snap.Step, len(snap.Steps), step.Title, shortSHA(step.Head),
 	)
 	if c.language == "zh" {
 		text = fmt.Sprintf(
-			"[Duo 步骤审查]\nAustin 已提交第 %d/%d 步「%s」，HEAD 为 %s。\n\n请独立检查该精确产物，然后用 duo_set_verification 给出结论：result=passed，或 result=issue_found 并附上具体问题。STEP 模式只有 Austin 可以写入：不要提交或编辑产物；报告问题由 Austin 修复。",
+			"[Duo 步骤审查]\nAustin 已提交 FAST 第 %d/%d 步「%s」，HEAD 为 %s。\n\n请独立检查该精确产物，然后用 duo_set_verification 给出结论：result=passed，或 result=issue_found 并附上具体问题。这个 [fast] 步骤只有 Austin 可以写入：不要提交或编辑产物；报告问题由 Austin 修复。",
 			snap.Step, len(snap.Steps), step.Title, shortSHA(step.Head))
 	}
 	c.sendFastNotice(ctx, protocol.Tony, text)
@@ -323,10 +474,20 @@ func (c *Coordinator) notifyFinalStepSignOff(ctx context.Context, snap project.S
 }
 
 // stepIsFinal reports whether the verified HEAD under the cursor is the last step
-// of the queue. In STEP mode the final step is the one place a step needs both
-// agents to agree it is finished; every other step lands on Tony's verdict.
+// of the queue. Every step lands under its own policy, but the final step always
+// needs both agents to sign the finished queue.
 func stepIsFinal(snap project.Snapshot) bool {
 	return len(snap.Steps) == 0 || snap.Step >= len(snap.Steps)
+}
+
+// currentStepPolicy returns the policy of the step under the cursor. A missing
+// queue defaults to Fast; callers only use the policy once a phase proves there
+// is a current step.
+func currentStepPolicy(snap project.Snapshot) project.Mode {
+	if snap.Step >= 1 && snap.Step <= len(snap.Steps) {
+		return snap.Steps[snap.Step-1].EffectivePolicy()
+	}
+	return project.ModeFast
 }
 
 // revokeStepSubmission withdraws a step whose reviewed HEAD is no longer the

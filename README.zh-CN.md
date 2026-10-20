@@ -2,12 +2,13 @@
 
 > 一个通过隔离 Git worktree 协调两个平级 Coding Agent 的终端工具。
 
-**Duo 让两个 coding agent 以平级伙伴的方式协作，而不是把一个 Agent 设为 Planner、另一个设为 subordinate worker。** 会话在启动时固定为以下两种工作流之一：
+**Duo 让两个 coding agent 以平级伙伴的方式协作，而不是把一个 Agent 设为 Planner、另一个设为 subordinate worker。** 可从以下三种工作流启动，并可在运行中随时切换，无需重启 Agent：
 
 - **Fast（默认）。** Austin 负责实现，Tony 独立验证那个确切的 commit。`RUNNING → VERIFY → DONE`，没有共享 Plan、没有双重签字——大多数任务走这条路。
 - **Goal（`duo --mode goal`）。** 完整的协商式工作流：共享 Plan、隔离 worktree、交叉 Review、双重签字，`PLAN → EXECUTE → REVIEW → INTEGRATE → DONE`。
+- **Step（`duo --mode step`）。** 先制定有序队列，再让每个条目按自己的 **Fast** 或 **Goal** 策略执行；每一步通过后即落地到你的分支，步骤之间无需人工再次输入任务。
 
-两种模式下，Agent 都会在不停下的前提下实时互发消息、在隔离的 Git worktree 中各自工作，最终被验证的成果会交付回你启动 Duo 的那个仓库。
+三种模式下，Agent 都会在不停下的前提下实时互发消息、在隔离的 Git worktree 中各自工作，最终被验证的成果会交付回你启动 Duo 的那个仓库。
 
 运行时由 Go 协调核心、轻量 driver 插件和可选的 Agent bridge 组成。Duo 只强制那些确实需要确定性协调的东西——身份、路由、模式与阶段流转、验证、签字、Git 证据——其余部分留给模型自然地自行协作。
 
@@ -19,13 +20,15 @@
 cd /path/to/git/repo
 duo                 # FAST（默认），Legacy TUI
 duo --mode goal     # 完整协商式工作流
+duo --mode step     # 复杂任务：先列队列，再逐步落地
 duo --ui=gotui      # 可选的 gotui 仪表盘
 ```
 
-然后在 composer 里输入任务，按 `Enter`。composer 始终只发送给 **Austin**。
+然后在 composer 里输入任务，按 `Enter`。**Fast** 下只发送给 Austin；**Goal** 与 **Step** 下会同时发送给 Austin 和 Tony，让双方共同设计计划或队列。
 
 - **Fast** 下，Austin 在自己的 worktree 中实现并 commit，然后调用 `duo_set_status` 请求验证；Tony 用 `duo_set_verification` 验证那个确切的 commit，给出通过或一个具体问题。之后 Duo 交付被验证的 commit 并标记 `DONE`。
-- **Goal** 下，Austin 用 `duo_send` 唤醒 Tony，两人商定一份共享 Plan，之后由 Duo Core 推进 `PLAN → EXECUTE → REVIEW → INTEGRATE → DONE`。
+- **Goal** 下，Austin 和 Tony 同时收到任务，用 `duo_send` 与 `duo_set_plan` 商定共享计划，之后由 Duo Core 推进 `PLAN → EXECUTE → REVIEW → INTEGRATE → DONE`。
+- **Step** 下，双方先用 `duo_set_steps` 商定有序队列、用 `duo_set_plan` 写计划说明，并给每个条目标记 `[fast]` 或 `[goal]`。Fast 条目由 Austin 实现、Tony 验证；Goal 条目由双方共同实现、交叉审查并签署。Duo 会逐步落地并自动推进队列。
 
 运行要求：
 
@@ -52,7 +55,7 @@ curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-relea
 
 ## 协作如何运作
 
-会话可启动为 Fast（默认）或 Goal 模式。Fast 会话支持在运行中动态平滑升级至 Goal 模式（无需重建 worktree、保留已有 commit）。两种模式共用同一套隔离 worktree、Git 证据和交付流程；区别在于交付前需要多少协商。
+会话可启动为 Fast（默认）、Goal 或 Step 模式，并可随时用 `/mode fast|goal|step`（`/escalate` 是切换至 Goal 的简写）切换。运行中的一轮不能一半按一种工作流、一半按另一种：切换会重置当前计划、队列、阶段与所有签字，并按新模式的第一阶段重新开始；worktree 中已有的 commit 会保留。若当前处于 `DONE`，切换只改变下一个任务使用的模式，不会重新打开已完成的一轮。三种模式共用同一套隔离 worktree、Git 证据和交付流程；区别在于交付前需要多少协商。
 
 ### Fast（默认）
 
@@ -68,7 +71,7 @@ RUNNING → VERIFY → DONE
 
 Fast 没有共享 Plan，也没有双重签字。一次 `passed` 绑定到当时被请求验证的那个确切 commit；任何新 commit 都会使其失效并把会话退回 `RUNNING`。只有 Austin 会写进被交付的成果——Tony 的 worktree 永远不会被交付。
 
-**动态模式升级**：若 Fast 模式下的任务经探索后发现复杂度超出预期，人类可在 composer 中输入 `/escalate [理由]` 或 `/mode goal`，Agent 亦可主动调用 `duo_escalate` 工具将当前会话动态升级至 Goal 模式。会话将切换至 `PLAN` 阶段并初始化携带升级上下文的共享 Plan v1，Tony 切换为活跃的协作者，所有已提交代码无损保留。
+**切换模式**：人类可在 composer 中输入 `/mode goal`、`/escalate [理由]` 或 `/mode step`，Agent 也可调用 `duo_escalate`，无需重启任一 Agent。运行中的 Fast → Goal 保留原有的升级行为：会话进入 `PLAN`，用升级原因初始化共享计划，Tony 变为活跃协作者，已有 commit 无损保留。其他切换会按新模式的门禁开始新一轮。
 
 ### Goal（`duo --mode goal`）
 
@@ -84,9 +87,29 @@ PLAN → EXECUTE → REVIEW → INTEGRATE → DONE
 | **INTEGRATE** | Tony 的分支被合并进 Austin 的 integration worktree。 | 双方批准同一个 clean 的 integrated Austin HEAD。 |
 | **DONE** | 被批准的产物已交付回你的仓库。 | 交付成功。 |
 
-两种模式里，阶段都是**checkpoint，不是行为牢笼**：Duo 不会阻止 Agent 提前读代码或提前 Review；阶段只决定"推进需要哪些证据"。
+### Step（`duo --mode step`）
 
-`DONE` 是**这一轮的终点，不是整个会话的终点**。在 Duo composer 里再提交一个任务会为新一轮重新打开会话——Fast 回到 `RUNNING`，Goal 回到 `PLAN`——并清掉上一轮已完成的交付 checkpoint，让后续任务可以重新验证、独立交付。而通过 `Ctrl+A` / `Ctrl+T` 直接进入某个 Agent 自己的会话则绕过 Duo，不经过 composer；但在 Fast 模式下这条路依然可恢复：Austin 在那里提交了新代码并请求验证时，Duo 会基于新的 HEAD 开启新一轮，而不是拒绝该请求。若重复请求仍然指向已交付的那个 HEAD，则会被拒绝，避免误发把已交付的会话重新打开。
+适合一个值得分步落地的大型任务。队列就是契约：
+
+```text
+PLAN → (每一步：EXECUTE → REVIEW → INTEGRATE → 落地该步) → DONE
+```
+
+| 阶段 | Fast 策略步骤 | Goal 策略步骤 | 推进所需证据 |
+|---|---|---|---|
+| **PLAN** | 双方共同设计有序队列与文字计划。 | 相同。 | 双方批准**同一个**非空队列版本。每个条目标记 `[fast]` 或 `[goal]`，未标记默认为 Fast。 |
+| **EXECUTE** | Austin 只实现当前步骤，Tony 对产物只读。 | 双方都是共同作者，各自在自己的 worktree 实现。 | Fast：Austin 在 HEAD 干净时调用 `duo_set_status ready=true`。Goal：双方都签字。 |
+| **REVIEW** | Tony 验证 Austin 的确切 HEAD。 | 双方交叉审查对方的确切 HEAD，并签署 `REVIEW`。 | Fast：`duo_set_verification passed` 落地；`issue_found` 退回 EXECUTE。Goal：双方签字。 |
+| **INTEGRATE** | Duo 落地已验证的 HEAD 并推进队列。 | Duo 把 Tony 的分支合并进 Austin 的分支，双方审查并签署集成后的 HEAD；非最后一步在双方签字后落地。 | Fast：交付成功。Goal：双方对同一个干净的集成 HEAD 签字。 |
+| **DONE** | 所有步骤都已落地。 | 相同。 | **最后一步**无论采用哪种策略，都必须由双方签署。 |
+
+每个步骤都必须是可提交的增量，其测试命令在该步骤自己的 HEAD 上通过。队列与游标由 Duo 持有——Agent 绝不打勾；已落地的步骤不会被删除或重排；若某步过大，只能在队列末尾追加拆分后的新步骤。
+
+Fast 步骤保留较轻的单验证者门禁：Tony 对确切 HEAD 的独立检查足以保证安全，而让 Austin 为自己的 `INTEGRATE` 共同签字只是自我批准。Goal 步骤使用完整重流程——双方独立实现、交叉审查、合并并对集成结果双签——因为这是双方在 PLAN 中为该步骤选择的策略。最后一步始终保留双签，确保交付前双方都接受完成后的队列。每一步落地后都会进入你启动 Duo 的分支；对 Fast 步骤，Tony 的 worktree 会被快进到落地后的 HEAD，因此他审查和构建的始终是你实际收到的树，而不是过期版本。
+
+三种模式里，阶段都是**checkpoint，不是行为牢笼**：Duo 不会阻止 Agent 提前读代码或提前 Review；阶段只决定"推进需要哪些证据"。
+
+`DONE` 是**这一轮的终点，不是整个会话的终点**。在 Duo composer 里再提交一个任务会为新一轮重新打开会话——Fast 回到 `RUNNING`，Goal 回到 `PLAN`，Step 回到 `PLAN` 并使用新队列——并清掉上一轮已完成的交付 checkpoint，让后续任务可以重新验证、独立交付。而通过 `Ctrl+A` / `Ctrl+T` 直接进入某个 Agent 自己的会话则绕过 Duo，不经过 composer；但在 Fast 模式下这条路依然可恢复：Austin 在那里提交了新代码并请求验证时，Duo 会基于新的 HEAD 开启新一轮，而不是拒绝该请求。若重复请求仍然指向已交付的那个 HEAD，则会被拒绝，避免误发把已交付的会话重新打开。
 
 任何模式下，一轮走到 `DONE`，Duo 都会请 Austin 给你做一次总结：过程实际是怎么走的，以及仓库现在多了什么。Austin 用普通消息回答，因此这份总结在时间线里显示为 `Austin → Human`，和发给你自己的消息一样加粗。每轮只请求一次；下一轮会为自己的交付再总结一次。
 
@@ -100,14 +123,15 @@ Austin 和 Tony 共用一套随 Pi bridge 安装的小工具面。这是它们�
 
 | Tool | 适用模式 | 作用 |
 |---|---|---|
-| `duo_send` | 两种 | 在双方都继续工作的同时，给 Peer 发一条重要的实时消息。用于发现、疑问、冲突和提案，不是日常进度播报。 |
-| `duo_set_status` | 两种 | Goal 下为当前阶段签字（`ready: true`）或撤销签字（`ready: false`）。Fast 下 Austin 用 `ready: true` 请求验证；Tony 的签字会被拒绝并给出指引。 |
-| `duo_set_verification` | Fast（仅 Tony） | 对正在 Review 的 Austin 确切 commit 报告 `passed` 或 `issue_found`。`issue_found` 必须附具体 note。 |
-| `duo_set_plan` | Goal | 创建或整体替换共享 Plan。每次调用产生新版本并重置双方签字。Fast 下不可用。 |
-| `duo_escalate` | Fast | 动态升级会话至 Goal 模式（切换至 PLAN 阶段并初始化共享 Plan v1），已有代码成果完整保留。 |
-| `duo_status` | 两种 | 读取权威的 mode、phase、验证状态、Plan、签字，以及两个 worktree 的 branch、路径、HEAD、clean 状态和 ahead 数。 |
+| `duo_send` | 所有 | 在双方都继续工作的同时，给 Peer 发一条重要的实时消息。用于发现、疑问、冲突和提案，不是日常进度播报。 |
+| `duo_set_status` | 所有 | 为当前门禁签字（`ready: true`）或撤销签字（`ready: false`）。Fast 下 Austin 用它请求验证，Tony 必须改用 `duo_set_verification`。Goal 下双方签署每个阶段。Step 下双方批准队列；Fast 步骤使用 Tony 的验证结论，Goal 步骤使用双方签字。 |
+| `duo_set_verification` | Fast + Step（仅 Tony） | 对正在 Review 的 Austin 确切 commit 报告 `passed` 或 `issue_found`。`issue_found` 必须附具体 note。Step 下仅适用于 `[fast]` 步骤；`passed` 会落地该步骤并推进队列。 |
+| `duo_set_plan` | Goal + Step | 创建或整体替换共享 Plan。每次调用产生新版本并重置双方签字。Fast 下不可用。 |
+| `duo_set_steps` | Step | 创建或整体替换步骤队列（markdown 复选框列表），每个条目标记 `[fast]` 或 `[goal]`。每次调用产生新版本并重置双方签字。打勾由 Duo 维护。 |
+| `duo_escalate` | 所有 | 携带原因切换至 Goal 模式。Fast → Goal 保留升级时生成的计划；其他切换按 Goal 门禁开始新一轮。 |
+| `duo_status` | 所有 | 读取权威的 mode、phase、验证状态、Plan、步骤队列与游标、签字，以及两个 worktree 的 branch、路径、HEAD、clean 状态和 ahead 数。 |
 
-Duo Core 强制这些门禁而不是信任模型：Fast 拒绝 `duo_set_plan`，Fast 下 Tony 的 `duo_set_status` 会被拒绝并提示改用 `duo_set_verification`。Bridge 是一层薄适配器——Pi 事件转成 Duo 活动，Pi 工具转成 Duo 请求，Duo 消息转成 Pi 的 steer。它刻意不持有任何项目真相。
+Duo Core 强制这些门禁而不是信任模型：Fast 拒绝 `duo_set_plan`，Fast 下 Tony 的 `duo_set_status` 会被拒绝并提示改用 `duo_set_verification`。由于任一 Agent 都可能在不重启的情况下切换模式，bridge 在所有模式下注册全部工具，且不持有任何项目真相。Pi 事件转成 Duo 活动，Pi 工具转成 Duo 请求，Duo 消息转成 Pi 的 steer。
 
 ## 终端界面
 
@@ -123,7 +147,7 @@ Legacy TUI 的主界面是一条会话 **时间线**：单一时间顺序的消�
 
 | 按键 | 操作 |
 |---|---|
-| `Enter` | 把 composer 内容发送给 Austin |
+| `Enter` | 把 composer 内容发送给 Austin（Fast）或两个 Agent（Goal / Step） |
 | `Ctrl+Enter` / `Shift+Enter`\* | 在 composer 中插入换行 |
 | `Ctrl+A` | 直接进入 Austin 自己的 Agent 会话 |
 | `Ctrl+T` | 直接进入 Tony 自己的 Agent 会话 |
@@ -163,7 +187,7 @@ gotui 默认打开 **分栏仪表盘**：侧边栏显示阶段链、验证/交�
 
 | 按键 | 操作 |
 |---|---|
-| `Enter` | 把 composer 内容发送给 Austin（Fast）或两个 Agent（Goal） |
+| `Enter` | 把 composer 内容发送给 Austin（Fast）或两个 Agent（Goal / Step） |
 | `Ctrl+Enter` / `Shift+Enter`\* | 在 composer 中插入换行 |
 | `F2` / 点击 `Split` 或 `Timeline` 标签 | 在分栏仪表盘与单一时间线之间切换 |
 | `Ctrl+P` | 显示/隐藏工作流侧边栏 |
@@ -207,9 +231,9 @@ gotui 默认打开 **分栏仪表盘**：侧边栏显示阶段链、验证/交�
 
 | 命令 | 说明 |
 |---|---|
-| `/escalate [reason]` | 动态将当前 Fast 模式会话无缝升级为 Goal 模式 |
+| `/escalate [reason]` | 把当前会话切换为 Goal 模式（`/mode goal` 的简写） |
 | `/mode` | 打印当前会话模式 |
-| `/mode goal` | 把会话升级为 Goal 模式；`/mode fast` 会被拒绝，会话不会退回 Fast |
+| `/mode fast\|goal\|step` | 切换会话模式。运行中的一轮会按新模式的第一阶段重置；`DONE` 时切换则作用于下一个任务 |
 | `/model` | 打开 Austin/Tony 模型与思考强度选择器（等同于 `Ctrl+M`） |
 | `/overview` | 切换会话总览与 Git 变更统计详情（等同于 `Ctrl+O`） |
 | `/preview` | 展开或折叠 Legacy 的 Agent 工作预览带或 gotui 的工作流侧边栏（等同于 `Ctrl+P`） |
@@ -220,7 +244,7 @@ gotui 默认打开 **分栏仪表盘**：侧边栏显示阶段链、验证/交�
 | `/clear` | composer 里只有这条命令本身，因此已经是空的；Duo 会强制整屏重绘并给出提示 |
 | `/quit` 或 `/exit` | 退出 Duo 并保留当前会话状态 |
 
-未知命令会作为错误提示。`//text` 与绝对路径（例如 `/usr/bin/python`）会当作任务原样发送给 Austin。
+未知命令会作为错误提示。`//text` 与绝对路径（例如 `/usr/bin/python`）会当作任务发送（Fast 发给 Austin；Goal 与 Step 发给双方）。
 
 提交过的任务会追加到 `~/.duo/history`（可用 `DUO_HISTORY_FILE` 覆盖），因此 `↑`/`↓` 的历史回溯在重启或 resume 之后依然有效。
 
@@ -240,7 +264,7 @@ Legacy 的 Help 是一个完整的大屏视图，用 `↑`/`k`、`↓`/`j`、`Pg
 
 | 变量 | 默认值 | 含义 |
 |---|---|---|
-| `DUO_MODE` | `fast` | 会话模式：`fast` 或 `goal`。命令行 `--mode`/`-m` 优先；`duo resume` 保持持久化的模式。 |
+| `DUO_MODE` | `fast` | 会话模式：`fast`、`goal` 或 `step`。命令行 `--mode`/`-m` 优先；`duo resume` 保持持久化的模式。 |
 | `DUO_TEST_COMMAND` | （无） | 自动化测试门禁命令，在验证/交付前确定性执行（命令行 `--test-cmd`/`-t` 优先）。 |
 | `DUO_REPO` | 当前目录 | 启动时针对的仓库或子目录。命令行路径参数优先。 |
 | `DUO_SESSION` | 时间戳 + 随机 hex | 会话 id，格式 `YYYYMMDD-HHMMSS-xxxxxxxx`。 |
@@ -477,7 +501,7 @@ duo logs <repository>       # 列出另一个仓库的会话记录
 
 ## 使用边界
 
-Duo 固定使用 Austin 与 Tony 两个角色。Fast 可以升级为 Goal，但不能降回 Fast。崩溃恢复不会重建 Agent 的推理过程；Duo Core 自身崩溃后需手动运行 `duo resume`。会话绑定本机和仓库路径，辅助脚本面向 macOS/Linux。gotui 前端需要足够大的终端来显示分栏仪表盘，更小的终端会回退到它的时间线视图。交付安全边界与本地 TCP 信任模型见[架构说明](./docs/architecture.md)和 [SECURITY.md](./SECURITY.md)。
+Duo 固定使用 Austin 与 Tony 两个角色。可在 Fast、Goal 与 Step 之间随时切换；运行中的一轮切换后会按新模式的第一阶段重置。崩溃恢复不会重建 Agent 的推理过程；Duo Core 自身崩溃后需手动运行 `duo resume`。会话绑定本机和仓库路径，辅助脚本面向 macOS/Linux。gotui 前端需要足够大的终端来显示分栏仪表盘，更小的终端会回退到它的时间线视图。交付安全边界与本地 TCP 信任模型见[架构说明](./docs/architecture.md)和 [SECURITY.md](./SECURITY.md)。
 
 ## 开发
 

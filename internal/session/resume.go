@@ -47,8 +47,8 @@ func (s *Service) startResume(ctx context.Context) (Result, error) {
 	s.history = s.journal.TUIEntries()
 	s.logger.Printf("resuming Duo session %s from %s (persisted mode %s phase %s repository=%s scope=%s)", snap.SessionID, store.StatePath(), snap.EffectiveMode(), snap.Phase, snap.Repository, EffectiveScope(snap.ScopePath))
 
-	// Mode is fixed per session: the persisted mode always wins. An explicit
-	// --mode that disagrees is an error; an ambient DUO_MODE is only a warning.
+	// Resume restores the persisted current mode. An explicit --mode that
+	// disagrees is an error; an ambient DUO_MODE is only a warning.
 	mode, err := ResumeMode(s.opts.ModeRaw, s.opts.ModeExplicit, snap.EffectiveMode(), snap.SessionID, os.Getenv("DUO_MODE"), func(msg string) {
 		s.logger.Printf("warning: %s", msg)
 	})
@@ -294,9 +294,10 @@ func EffectiveScope(scope string) string {
 
 // ResumeMode decides the mode of a resumed session.
 //
-// Mode is fixed per session, so the persisted mode always wins: an explicit
-// requested mode that disagrees is an operator error, while an ambient one is only
-// a warning, so an exported environment variable can never break resume.
+// Mode is persisted per session, so resume always uses the mode in force when
+// the snapshot was written: an explicit requested mode that disagrees is an
+// operator error, while an ambient one is only a warning, so an exported
+// environment variable can never break resume.
 func ResumeMode(modeRaw string, modeExplicit bool, persisted project.Mode, sessionID, ambient string, warn func(string)) (project.Mode, error) {
 	if modeExplicit {
 		mode, err := project.ParseMode(modeRaw)
@@ -304,7 +305,7 @@ func ResumeMode(modeRaw string, modeExplicit bool, persisted project.Mode, sessi
 			return "", err
 		}
 		if mode != persisted {
-			return "", fmt.Errorf("session %s is a %s session; mode is fixed per session, so --mode %s cannot be applied", sessionID, persisted, mode)
+			return "", fmt.Errorf("session %s is persisted as %s; --mode %s cannot be applied on resume", sessionID, persisted, mode)
 		}
 		return persisted, nil
 	}

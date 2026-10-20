@@ -33,20 +33,25 @@ export default function (pi: any) {
   }
 
   const transport = new DuoTransport(AGENT, host, port, sessionId, token);
-  const mode = parseDuoMode(process.env.DUO_MODE);
+  const modeState = { current: parseDuoMode(process.env.DUO_MODE) };
+  transport.addHandler((message) => {
+    if (message.type === "mode_change" && message.mode) {
+      modeState.current = parseDuoMode(message.mode);
+    }
+  });
 
-  installDuoPrompt(pi, AGENT, mode);
+  installDuoPrompt(pi, AGENT, () => modeState.current);
   installLifecycle(pi, transport, AGENT);
   installModelBridge(pi, transport, AGENT);
 
   registerSendTool(pi, transport);
-  registerPlanTool(pi, transport, mode);
-  registerStepsTool(pi, transport, mode);
-  registerStatusTool(pi, transport, mode);
+  registerPlanTool(pi, transport);
+  registerStepsTool(pi, transport);
+  registerStatusTool(pi, transport);
   registerProjectStatusTool(pi, transport);
-  registerVerificationTool(pi, transport, mode, AGENT);
-  registerRestartTool(pi, transport, mode);
-  registerEscalateTool(pi, transport, mode);
+  registerVerificationTool(pi, transport, AGENT);
+  registerRestartTool(pi, transport);
+  registerEscalateTool(pi, transport);
 
   pi.registerCommand("duo-test", {
     description: "Test connection to Duo Core",

@@ -5,8 +5,9 @@ import (
 	"strings"
 )
 
-// Mode selects which Duo workflow a session runs. It is fixed for the lifetime
-// of a session: Fast and Goal never mix, and nothing switches modes at runtime.
+// Mode selects which Duo workflow a session runs. A session starts in one mode
+// but may switch at any time; a switch resets the round's plan, queue, phase and
+// signatures, and the new mode governs the next task.
 type Mode string
 
 const (
@@ -17,10 +18,11 @@ const (
 	// ModeGoal is the explicit heavy workflow: a negotiated shared plan,
 	// independent execution, cross-review and dual final approval.
 	ModeGoal Mode = "goal"
-	// ModeStep runs the Goal cycle once per step of a queue held in the shared
-	// plan, delivering each step to the user's repository before the next one
-	// starts. It is Goal repeated, not a lighter Goal: the per-step gate is the
-	// full EXECUTE → REVIEW → INTEGRATE sign-off.
+	// ModeStep plans a queue first, then runs each item under its own Fast or
+	// Goal policy. A Fast step is Austin implementing and Tony verifying; a Goal
+	// step is both agents executing, cross-reviewing and signing INTEGRATE.
+	// The queue is always dual-approved in PLAN, and the final step is signed
+	// off by both agents before the session can finish.
 	ModeStep Mode = "step"
 
 	// DefaultMode is the workflow of a brand-new session.

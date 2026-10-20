@@ -34,7 +34,7 @@ func (a *App) submit() {
 	}
 	a.refreshView()
 	status := "sent to Austin"
-	if a.live.EffectiveMode() == project.ModeGoal {
+	if a.live.EffectiveMode() != project.ModeFast {
 		status = "sent to Austin and Tony"
 	}
 	a.setStatus(status, false)
@@ -119,14 +119,7 @@ func (a *App) runSlash(text string) bool {
 	case "/mode":
 		if len(fields) == 1 {
 			mode := a.live.EffectiveMode().Display()
-			switch a.live.EffectiveMode() {
-			case project.ModeGoal:
-				a.setStatus("current mode: GOAL (use /mode goal to escalate)", false)
-			case project.ModeStep:
-				a.setStatus("current mode: STEP — Duo lands one reviewed step at a time", false)
-			default:
-				a.setStatus(fmt.Sprintf("current mode: %s (use /mode goal to escalate)", mode), false)
-			}
+			a.setStatus(fmt.Sprintf("current mode: %s (switch with /mode fast|goal|step)", mode), false)
 			return true
 		}
 		return false

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/session"
 )
@@ -18,8 +17,8 @@ type slashCmd struct {
 }
 
 var slashCommandList = []slashCmd{
-	{Name: "/escalate", Args: "[reason]", Description: "平滑升级至 Goal 模式 · Escalate to Goal mode", NeedsArgs: true},
-	{Name: "/mode", Args: "[fast|goal]", Description: "报告或升级会话模式 · Report or escalate session mode", NeedsArgs: true},
+	{Name: "/escalate", Args: "[reason]", Description: "切换至 Goal 模式 · Switch to Goal mode", NeedsArgs: true},
+	{Name: "/mode", Args: "[fast|goal|step]", Description: "切换会话模式 · Switch the session mode", NeedsArgs: true},
 	{Name: "/model", Args: "", Description: "选择模型与思考级别 · Model & thinking picker (Ctrl+M)", NeedsArgs: false},
 	{Name: "/language", Args: "[zh|en]", Description: "设置 Duo 语言并写入配置 · Set Duo language, saved to config", NeedsArgs: true},
 	{Name: "/copy", Args: "", Description: "复制 Austin 最新消息 · Copy Austin's latest message (Ctrl+X)", NeedsArgs: false},
@@ -236,19 +235,10 @@ func (a *App) runSlashCommand(ctx context.Context, text string) bool {
 	case "/mode":
 		if len(fields) == 1 {
 			mode := a.live.EffectiveMode().Display()
-			switch a.live.EffectiveMode() {
-			case project.ModeGoal:
-				a.setStatus("current mode: GOAL (use /mode goal to escalate)", false)
-			case project.ModeStep:
-				// STEP is chosen at start and has no escalation target, so unlike FAST
-				// there is nothing to offer here.
-				a.setStatus("current mode: STEP — Duo lands one reviewed step of the queue at a time", false)
-			default:
-				a.setStatus(fmt.Sprintf("current mode: %s (use /mode goal to escalate)", mode), false)
-			}
+			a.setStatus(fmt.Sprintf("current mode: %s (switch with /mode fast|goal|step)", mode), false)
 			return true
 		}
-		return false // e.g. /mode goal, pass to SubmitUserTask
+		return false // e.g. /mode step, pass to SubmitUserTask
 	case "/escalate":
 		return false // pass to SubmitUserTask
 	default:

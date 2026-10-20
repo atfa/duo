@@ -13,7 +13,13 @@ test("Chinese system prompt is installed with workflow rules intact", async () =
   expect(prompt).toContain("duo_set_status({ready:true})");
   const hooks: Record<string, (input: any) => void> = {};
   installDuoPrompt(
-    { session: { hook: (name: string, cb: any) => { hooks[name] = cb; } } } as any,
+    {
+      session: {
+        hook: (name: string, cb: any) => {
+          hooks[name] = cb;
+        },
+      },
+    } as any,
     "Tony",
     "fast",
     "zh",
@@ -26,25 +32,90 @@ test("Chinese system prompt is installed with workflow rules intact", async () =
   expect(input.system[0].text).toContain("duo_set_verification");
 });
 
+// Duo must never delegate a decision back to the human through opencode's
+// interactive question tool: the harness owns acknowledgements and both agents
+// run unattended. The context hook sees the final per-request tool map, so this
+// is the reliable place to remove it even for built-in build/plan agents.
+test("Duo context removes question and re-reads the live mode", async () => {
+  let mode: "fast" | "step" = "fast";
+  const hooks: Record<string, (input: any) => void> = {};
+  installDuoPrompt(
+    {
+      session: {
+        hook: (name: string, cb: any) => {
+          hooks[name] = cb;
+        },
+      },
+    } as any,
+    "Austin",
+    () => mode,
+    "en",
+  );
+
+  const first: any = { system: [], tools: { question: {}, bash: {} } };
+  await hooks["context"](first);
+  expect(first.tools.question).toBeUndefined();
+  expect(first.tools.bash).toBeDefined();
+  expect(first.system[0].text).toContain("DRIVER ROLE");
+
+  mode = "step";
+  const second: any = { system: [], tools: { question: {} } };
+  await hooks["context"](second);
+  expect(second.system[0].text).toContain("STEP ROLE");
+  expect(second.system[0].text).toContain("[fast] or [goal]");
+});
+
 // opencode 2.0 reports only assistant output on session.text.*; an injected
 // prompt arrives as an inbox item, never as an assistant part, so it can no
 // longer be echoed back into Duo's timeline as if the agent had said it.
 test("injected inbox prompts are not reported as assistant output", async () => {
   const sent: any[] = [];
   const handler = installLifecycle(
-    { sendActivity: (a: string, extra: any = {}) => { void extra; sent.push({ activity: a }); }, send: (m: any) => sent.push(m) } as any,
+    {
+      sendActivity: (a: string, extra: any = {}) => {
+        void extra;
+        sent.push({ activity: a });
+      },
+      send: (m: any) => sent.push(m),
+    } as any,
     "Austin",
     () => true,
   );
 
   // Duo injecting a steer prompt is visible on the inbox, not as assistant text.
-  await handler({ type: "session.inbox.enqueued", data: { sessionID: "ses_1", item: { payload: { text: "[Human task from Duo]\n\nfix it" }, delivery: "steer" } } });
+  await handler({
+    type: "session.inbox.enqueued",
+    data: {
+      sessionID: "ses_1",
+      item: {
+        payload: { text: "[Human task from Duo]\n\nfix it" },
+        delivery: "steer",
+      },
+    },
+  });
 
   // The agent then answers in its own message.
-  await handler({ type: "session.execution.started", data: { sessionID: "ses_1" } });
-  await handler({ type: "session.text.started", data: { sessionID: "ses_1", assistantMessageID: "msg_a", ordinal: 0 } });
-  await handler({ type: "session.text.ended", data: { sessionID: "ses_1", assistantMessageID: "msg_a", ordinal: 0, text: "I found the bug." } });
-  await handler({ type: "session.execution.succeeded", data: { sessionID: "ses_1" } });
+  await handler({
+    type: "session.execution.started",
+    data: { sessionID: "ses_1" },
+  });
+  await handler({
+    type: "session.text.started",
+    data: { sessionID: "ses_1", assistantMessageID: "msg_a", ordinal: 0 },
+  });
+  await handler({
+    type: "session.text.ended",
+    data: {
+      sessionID: "ses_1",
+      assistantMessageID: "msg_a",
+      ordinal: 0,
+      text: "I found the bug.",
+    },
+  });
+  await handler({
+    type: "session.execution.succeeded",
+    data: { sessionID: "ses_1" },
+  });
 
   const messages = sent.filter((m) => m.type === "assistant_message");
   expect(messages).toHaveLength(1);
@@ -67,22 +138,49 @@ test("a model call is reported as provider_start then provider_end", async () =>
     () => true,
   );
 
-  await handler({ type: "session.execution.started", data: { sessionID: "ses_1" } });
+  await handler({
+    type: "session.execution.started",
+    data: { sessionID: "ses_1" },
+  });
   expect(activities).toContain("agent_start");
 
-  await handler({ type: "session.step.started", data: { sessionID: "ses_1", assistantMessageID: "msg_a", model: { providerID: "anthropic", id: "claude" } } });
+  await handler({
+    type: "session.step.started",
+    data: {
+      sessionID: "ses_1",
+      assistantMessageID: "msg_a",
+      model: { providerID: "anthropic", id: "claude" },
+    },
+  });
   expect(activities).toContain("provider_start");
 
-  await handler({ type: "session.text.delta", data: { sessionID: "ses_1", assistantMessageID: "msg_a", ordinal: 0, delta: "hi" } });
+  await handler({
+    type: "session.text.delta",
+    data: {
+      sessionID: "ses_1",
+      assistantMessageID: "msg_a",
+      ordinal: 0,
+      delta: "hi",
+    },
+  });
   expect(activities).not.toContain("provider_end");
 
-  await handler({ type: "session.step.ended", data: { sessionID: "ses_1", assistantMessageID: "msg_a", tokens: {} } });
+  await handler({
+    type: "session.step.ended",
+    data: { sessionID: "ses_1", assistantMessageID: "msg_a", tokens: {} },
+  });
   expect(activities).toContain("provider_end");
 
   // A turn end without a step must still close the span, or the agent looks busy forever.
   activities.length = 0;
-  await handler({ type: "session.step.started", data: { sessionID: "ses_1", assistantMessageID: "msg_b" } });
-  await handler({ type: "session.execution.succeeded", data: { sessionID: "ses_1" } });
+  await handler({
+    type: "session.step.started",
+    data: { sessionID: "ses_1", assistantMessageID: "msg_b" },
+  });
+  await handler({
+    type: "session.execution.succeeded",
+    data: { sessionID: "ses_1" },
+  });
   expect(activities).toContain("provider_end");
 });
 
@@ -91,20 +189,44 @@ test("a model call is reported as provider_start then provider_end", async () =>
 test("real token counts are reported as context usage", async () => {
   const sent: any[] = [];
   const handler = installLifecycle(
-    { sendActivity: (a: string, extra: any = {}) => sent.push({ activity: a, ...extra }), send: () => {} } as any,
+    {
+      sendActivity: (a: string, extra: any = {}) =>
+        sent.push({ activity: a, ...extra }),
+      send: () => {},
+    } as any,
     "Austin",
     () => true,
     async () => 200000,
   );
 
-  await handler({ type: "session.step.started", data: { sessionID: "ses_1", assistantMessageID: "msg_a", model: { providerID: "anthropic", id: "claude" } } });
-  await handler({ type: "session.text.delta", data: { sessionID: "ses_1", assistantMessageID: "msg_a", ordinal: 0, delta: "hello" } });
+  await handler({
+    type: "session.step.started",
+    data: {
+      sessionID: "ses_1",
+      assistantMessageID: "msg_a",
+      model: { providerID: "anthropic", id: "claude" },
+    },
+  });
+  await handler({
+    type: "session.text.delta",
+    data: {
+      sessionID: "ses_1",
+      assistantMessageID: "msg_a",
+      ordinal: 0,
+      delta: "hello",
+    },
+  });
   await handler({
     type: "session.step.ended",
     data: {
       sessionID: "ses_1",
       assistantMessageID: "msg_a",
-      tokens: { input: 44000, output: 900, reasoning: 100, cache: { read: 4000, write: 0 } },
+      tokens: {
+        input: 44000,
+        output: 900,
+        reasoning: 100,
+        cache: { read: 4000, write: 0 },
+      },
     },
   });
 
@@ -120,12 +242,19 @@ test("real token counts are reported as context usage", async () => {
 test("stream events carry an output rate while the provider is active", async () => {
   const sent: any[] = [];
   const handler = installLifecycle(
-    { sendActivity: (a: string, extra: any = {}) => sent.push({ activity: a, ...extra }), send: () => {} } as any,
+    {
+      sendActivity: (a: string, extra: any = {}) =>
+        sent.push({ activity: a, ...extra }),
+      send: () => {},
+    } as any,
     "Austin",
     () => true,
   );
 
-  await handler({ type: "session.step.started", data: { sessionID: "ses_1", assistantMessageID: "msg_a" } });
+  await handler({
+    type: "session.step.started",
+    data: { sessionID: "ses_1", assistantMessageID: "msg_a" },
+  });
   // Delta frames are stream fragments; each must advance the output clock or the
   // samples collapse into one instant and the rate stays zero.
   let text = "";
@@ -134,7 +263,15 @@ test("stream events carry an output rate while the provider is active", async ()
     const now = Date.now() + i * 1100;
     const realNow = Date.now;
     Date.now = () => now;
-    await handler({ type: "session.text.delta", data: { sessionID: "ses_1", assistantMessageID: "msg_a", ordinal: 0, delta: "x".repeat(40) } });
+    await handler({
+      type: "session.text.delta",
+      data: {
+        sessionID: "ses_1",
+        assistantMessageID: "msg_a",
+        ordinal: 0,
+        delta: "x".repeat(40),
+      },
+    });
     Date.now = realNow;
   }
 
@@ -148,7 +285,11 @@ test("stream events carry an output rate while the provider is active", async ()
 test("provider_end retains the latest context usage", async () => {
   const sent: any[] = [];
   const handler = installLifecycle(
-    { sendActivity: (a: string, extra: any = {}) => sent.push({ activity: a, ...extra }), send: () => {} } as any,
+    {
+      sendActivity: (a: string, extra: any = {}) =>
+        sent.push({ activity: a, ...extra }),
+      send: () => {},
+    } as any,
     "Austin",
     () => true,
     async () => 100000,
@@ -156,13 +297,29 @@ test("provider_end retains the latest context usage", async () => {
 
   await handler({
     type: "session.step.started",
-    data: { sessionID: "ses_1", assistantMessageID: "msg_a", model: { providerID: "p", id: "m" } },
+    data: {
+      sessionID: "ses_1",
+      assistantMessageID: "msg_a",
+      model: { providerID: "p", id: "m" },
+    },
   });
   await handler({
     type: "session.step.ended",
-    data: { sessionID: "ses_1", assistantMessageID: "msg_a", tokens: { input: 12000, output: 10, reasoning: 0, cache: { read: 0, write: 0 } } },
+    data: {
+      sessionID: "ses_1",
+      assistantMessageID: "msg_a",
+      tokens: {
+        input: 12000,
+        output: 10,
+        reasoning: 0,
+        cache: { read: 0, write: 0 },
+      },
+    },
   });
-  await handler({ type: "session.execution.succeeded", data: { sessionID: "ses_1" } });
+  await handler({
+    type: "session.execution.succeeded",
+    data: { sessionID: "ses_1" },
+  });
 
   const end = sent.find((m) => m.activity === "provider_end");
   expect(end.contextTokens).toBe(12000);
@@ -179,11 +336,36 @@ test("text blocks across one assistant message are all reported", async () => {
     () => true,
   );
 
-  await handler({ type: "session.text.started", data: { sessionID: "ses_1", assistantMessageID: "msg_a", ordinal: 0 } });
-  await handler({ type: "session.text.ended", data: { sessionID: "ses_1", assistantMessageID: "msg_a", ordinal: 0, text: "first" } });
-  await handler({ type: "session.text.started", data: { sessionID: "ses_1", assistantMessageID: "msg_a", ordinal: 1 } });
-  await handler({ type: "session.text.ended", data: { sessionID: "ses_1", assistantMessageID: "msg_a", ordinal: 1, text: "second" } });
-  await handler({ type: "session.execution.succeeded", data: { sessionID: "ses_1" } });
+  await handler({
+    type: "session.text.started",
+    data: { sessionID: "ses_1", assistantMessageID: "msg_a", ordinal: 0 },
+  });
+  await handler({
+    type: "session.text.ended",
+    data: {
+      sessionID: "ses_1",
+      assistantMessageID: "msg_a",
+      ordinal: 0,
+      text: "first",
+    },
+  });
+  await handler({
+    type: "session.text.started",
+    data: { sessionID: "ses_1", assistantMessageID: "msg_a", ordinal: 1 },
+  });
+  await handler({
+    type: "session.text.ended",
+    data: {
+      sessionID: "ses_1",
+      assistantMessageID: "msg_a",
+      ordinal: 1,
+      text: "second",
+    },
+  });
+  await handler({
+    type: "session.execution.succeeded",
+    data: { sessionID: "ses_1" },
+  });
 
   const messages = sent.filter((m) => m.type === "assistant_message");
   expect(messages).toHaveLength(1);
@@ -195,14 +377,42 @@ test("text blocks across one assistant message are all reported", async () => {
 test("tool activities keep the tool name learned from input.started", async () => {
   const sent: any[] = [];
   const handler = installLifecycle(
-    { sendActivity: (a: string, extra: any = {}) => sent.push({ activity: a, ...extra }), send: () => {} } as any,
+    {
+      sendActivity: (a: string, extra: any = {}) =>
+        sent.push({ activity: a, ...extra }),
+      send: () => {},
+    } as any,
     "Austin",
     () => true,
   );
 
-  await handler({ type: "session.tool.input.started", data: { sessionID: "ses_1", assistantMessageID: "msg_a", id: "call_1", name: "read" } });
-  await handler({ type: "session.tool.called", data: { sessionID: "ses_1", assistantMessageID: "msg_a", id: "call_1", input: { filePath: "/a/b.txt" } } });
-  await handler({ type: "session.tool.success", data: { sessionID: "ses_1", assistantMessageID: "msg_a", id: "call_1", content: [] } });
+  await handler({
+    type: "session.tool.input.started",
+    data: {
+      sessionID: "ses_1",
+      assistantMessageID: "msg_a",
+      id: "call_1",
+      name: "read",
+    },
+  });
+  await handler({
+    type: "session.tool.called",
+    data: {
+      sessionID: "ses_1",
+      assistantMessageID: "msg_a",
+      id: "call_1",
+      input: { filePath: "/a/b.txt" },
+    },
+  });
+  await handler({
+    type: "session.tool.success",
+    data: {
+      sessionID: "ses_1",
+      assistantMessageID: "msg_a",
+      id: "call_1",
+      content: [],
+    },
+  });
 
   const start = sent.find((m) => m.activity === "tool_start");
   const end = sent.find((m) => m.activity === "tool_end");
@@ -217,15 +427,36 @@ test("tool activities keep the tool name learned from input.started", async () =
 test("aborts and interrupts are quiet but still settle the turn", async () => {
   const sent: any[] = [];
   const handler = installLifecycle(
-    { sendActivity: (a: string, extra: any = {}) => { void extra; sent.push({ activity: a }); }, send: (m: any) => sent.push(m) } as any,
+    {
+      sendActivity: (a: string, extra: any = {}) => {
+        void extra;
+        sent.push({ activity: a });
+      },
+      send: (m: any) => sent.push(m),
+    } as any,
     "Austin",
     () => true,
   );
 
-  await handler({ type: "session.execution.started", data: { sessionID: "ses_1" } });
-  await handler({ type: "session.step.started", data: { sessionID: "ses_1", assistantMessageID: "msg_a" } });
-  await handler({ type: "session.execution.failed", data: { sessionID: "ses_1", error: { type: "AbortError", message: "The operation was aborted" } } });
-  await handler({ type: "session.execution.interrupted", data: { sessionID: "ses_1", reason: "user" } });
+  await handler({
+    type: "session.execution.started",
+    data: { sessionID: "ses_1" },
+  });
+  await handler({
+    type: "session.step.started",
+    data: { sessionID: "ses_1", assistantMessageID: "msg_a" },
+  });
+  await handler({
+    type: "session.execution.failed",
+    data: {
+      sessionID: "ses_1",
+      error: { type: "AbortError", message: "The operation was aborted" },
+    },
+  });
+  await handler({
+    type: "session.execution.interrupted",
+    data: { sessionID: "ses_1", reason: "user" },
+  });
 
   expect(sent.filter((m) => m.type === "agent_error")).toHaveLength(0);
   expect(sent.filter((m) => m.activity === "agent_settled")).toHaveLength(2);
@@ -238,13 +469,28 @@ test("aborts and interrupts are quiet but still settle the turn", async () => {
 test("a real provider error is reported as agent_error", async () => {
   const sent: any[] = [];
   const handler = installLifecycle(
-    { sendActivity: (a: string, extra: any = {}) => { void extra; sent.push({ activity: a }); }, send: (m: any) => sent.push(m) } as any,
+    {
+      sendActivity: (a: string, extra: any = {}) => {
+        void extra;
+        sent.push({ activity: a });
+      },
+      send: (m: any) => sent.push(m),
+    } as any,
     "Austin",
     () => true,
   );
 
-  await handler({ type: "session.execution.started", data: { sessionID: "ses_1" } });
-  await handler({ type: "session.execution.failed", data: { sessionID: "ses_1", error: { type: "APIError", message: "rate limited", status: 429 } } });
+  await handler({
+    type: "session.execution.started",
+    data: { sessionID: "ses_1" },
+  });
+  await handler({
+    type: "session.execution.failed",
+    data: {
+      sessionID: "ses_1",
+      error: { type: "APIError", message: "rate limited", status: 429 },
+    },
+  });
 
   const errors = sent.filter((m) => m.type === "agent_error");
   expect(errors).toHaveLength(1);
@@ -268,7 +514,15 @@ test("the tracker adopts the root session and ignores another session's events",
   tracker.observe("session.created", { sessionID: "ses_root" });
   expect(tracker.sessionID).toBe("ses_root");
   // A side-task session reports a parentID and must not be adopted.
-  tracker.observe("session.created", { sessionID: "ses_child", parentID: "ses_root" });
-  expect(tracker.observe("session.text.delta", { sessionID: "ses_other", delta: "x" })).toBe(false);
+  tracker.observe("session.created", {
+    sessionID: "ses_child",
+    parentID: "ses_root",
+  });
+  expect(
+    tracker.observe("session.text.delta", {
+      sessionID: "ses_other",
+      delta: "x",
+    }),
+  ).toBe(false);
   expect(tracker.sessionID).toBe("ses_root");
 });

@@ -141,7 +141,7 @@ func (h *helpOverlay) rebuild() {
 		{"WORKFLOW", []string{
 			"FAST: RUNNING → VERIFY → DONE. Austin implements, Tony verifies, Duo lands the diff.",
 			"GOAL: PLAN → EXECUTE → REVIEW → INTEGRATE → DONE. Both agents agree on the plan first.",
-			"STEP: one reviewed, verified step of a Markdown queue is landed at a time.",
+			"STEP: plan a dual-approved queue, then run each step as FAST (Austin implements, Tony verifies) or GOAL (both implement and cross-sign).",
 		}},
 		{"KEYS", []string{
 			"Enter send  ·  Ctrl+Enter / Shift+Enter newline",
@@ -154,7 +154,7 @@ func (h *helpOverlay) rebuild() {
 		}},
 		{"SLASH COMMANDS", []string{
 			"/help · /overview · /model · /copy · /preview · /timestamps",
-			"/status · /language [zh|en] · /mode [fast|goal] · /escalate [reason] · /quit",
+			"/status · /language [zh|en] · /mode [fast|goal|step] · /escalate [reason] · /quit",
 		}},
 		{"NATIVE TERMINALS", []string{
 			"Attach suspends the dashboard and hands the real PTY to the agent. The",

@@ -32,7 +32,7 @@ func (a *App) startupMessage() string {
 		return "Duo " + a.version + " ready (FAST mode). Type a task and press Enter; Austin drives while Tony independently verifies before Duo delivers the result." + where
 	}
 	if a.live.EffectiveMode() == project.ModeStep {
-		return "Duo " + a.version + " ready (STEP mode). Type the complex task and press Enter; Duo and both agents split it into a step queue, then land one reviewed step at a time." + where
+		return "Duo " + a.version + " ready (STEP mode). Type the complex task and press Enter; both agents plan a queue tagged [fast] or [goal], then Duo lands each approved step." + where
 	}
 	return "Duo " + a.version + " ready (GOAL mode). Type a task and press Enter; Duo sends it to both Austin and Tony to co-design the shared plan." + where
 }
