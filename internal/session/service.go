@@ -847,7 +847,16 @@ func (s *Service) setModel(ctx context.Context, c SetModel) error {
 			}
 		}
 	}
+	if s.opts.AgentModels == nil {
+		s.opts.AgentModels = make(map[protocol.AgentID]string)
+	}
+	s.opts.AgentModels[c.Agent] = ref
 	s.persistProjectConfig()
+	if s.store != nil && s.state != nil {
+		if err := s.store.Save(s.composeSnapshot(s.coord)); err != nil && s.logger != nil {
+			s.logger.Printf("checkpoint after model switch: %v", err)
+		}
+	}
 	return nil
 }
 

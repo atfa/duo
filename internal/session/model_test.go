@@ -2,7 +2,10 @@ package session
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -106,7 +109,38 @@ func TestSetModelGivesTheDriverAReferenceItCanUse(t *testing.T) {
 			if d.model != tc.want {
 				t.Fatalf("driver model = %q, want %q", d.model, tc.want)
 			}
+			if got := svc.opts.AgentModels[protocol.Austin]; got != tc.want {
+				t.Fatalf("persisted model source = %q, want %q", got, tc.want)
+			}
 		})
+	}
+}
+
+func TestSetModelPersistsProjectConfig(t *testing.T) {
+	repo := gitRepo(t)
+	svc := New(headlessOptions(t, repo, t.TempDir(), "127.0.0.1:0"))
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer svc.Close()
+
+	if err := svc.Do(context.Background(), SetModel{Agent: protocol.Austin, Provider: "openai", Model: "gpt-5"}); err != nil {
+		t.Fatalf("SetModel: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(repo, ".duo", "config.json"))
+	if err != nil {
+		t.Fatalf("project config not written: %v", err)
+	}
+	var cfg struct {
+		Agents map[string]struct {
+			Model string `json:"model"`
+		} `json:"agents"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("parse project config: %v\n%s", err, data)
+	}
+	if got := cfg.Agents["austin"].Model; got != "openai/gpt-5" {
+		t.Fatalf("persisted Austin model = %q, want openai/gpt-5\n%s", got, data)
 	}
 }
 

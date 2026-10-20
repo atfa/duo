@@ -4,6 +4,7 @@ import (
 	"image"
 	"strings"
 
+	rw "github.com/mattn/go-runewidth"
 	ui "github.com/metaspartan/gotui/v5"
 )
 
@@ -107,6 +108,20 @@ func (s *slashMenu) Draw(buf *ui.Buffer) {
 	if s.offset > maxOffset {
 		s.offset = maxOffset
 	}
+	// The command column must fit the longest documented spelling, not a fixed
+	// guess. `/mode [fast|goal|step]` is 22 cells; the old 18-cell column cut it
+	// to `/mode [fast|goal…` and hid the mode this release added.
+	nameWidth := 18
+	for _, cmd := range s.commands {
+		name := cmd.name
+		if cmd.args != "" {
+			name += " " + cmd.args
+		}
+		if w := rw.StringWidth(name) + 1; w > nameWidth {
+			nameWidth = w
+		}
+	}
+	nameWidth = min(nameWidth, max(1, s.Inner.Dx()-1))
 	for i := 0; i < rows; i++ {
 		idx := s.offset + i
 		if idx >= len(s.commands) {
@@ -125,12 +140,12 @@ func (s *slashMenu) Draw(buf *ui.Buffer) {
 		if cmd.args != "" {
 			name += " " + cmd.args
 		}
-		buf.SetString(fitText(name, 18), style, image.Pt(s.Inner.Min.X, y))
+		buf.SetString(fitText(name, nameWidth), style, image.Pt(s.Inner.Min.X, y))
 		descStyle := s.theme.BodyMuted
 		if idx == s.cursor {
 			descStyle = style
 		}
-		buf.SetString(fitText(cmd.desc, max(1, s.Inner.Dx()-19)), descStyle, image.Pt(s.Inner.Min.X+19, y))
+		buf.SetString(fitText(cmd.desc, max(1, s.Inner.Dx()-nameWidth)), descStyle, image.Pt(s.Inner.Min.X+nameWidth, y))
 	}
 	if s.Inner.Dy() > 0 {
 		buf.SetString(fitText("↑/↓ choose  ·  Tab complete  ·  Enter select  ·  Esc dismiss", s.Inner.Dx()), s.theme.Timestamp, image.Pt(s.Inner.Min.X, s.Inner.Max.Y-1))
