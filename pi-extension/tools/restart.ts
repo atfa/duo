@@ -1,19 +1,16 @@
 import { Type } from "@earendil-works/pi-ai";
-import { isToolEnabledForMode, type DuoMode } from "../mode";
 import { DuoTransport } from "../transport";
 import { failureResult, resultFromResponse } from "./common";
 
 /**
- * STEP mode only. Asks Duo to stop so the launcher can resume the session on a
- * newly installed binary; the durable queue continues at the same step.
+ * Asks Duo to stop so the launcher can resume the session on a newly installed
+ * binary; the durable work continues at the same point.
  *
  * Keep this a deliberate, explicit action: it kills both agent processes. The
  * coordinator accepts it only in STEP mode during EXECUTE, i.e. between steps,
  * and the resume prompt re-injects the queue afterwards.
  */
-export function registerRestartTool(pi: any, transport: DuoTransport, mode: DuoMode) {
-  if (!isToolEnabledForMode("restart", mode)) return;
-
+export function registerRestartTool(pi: any, transport: DuoTransport) {
   pi.registerTool({
     name: "duo_restart_duo",
     label: "Duo Restart",
@@ -31,15 +28,20 @@ export function registerRestartTool(pi: any, transport: DuoTransport, mode: DuoM
         }),
       ),
     }),
-    promptSnippet: "duo_restart_duo: restart Duo between steps, optionally installing the new binary",
+    promptSnippet:
+      "duo_restart_duo: restart Duo between steps, optionally installing the new binary",
     promptGuidelines: [
       "Only call this between steps (EXECUTE), after the current step has landed, never while a step is in REVIEW or being delivered.",
       "Report it once and then stop: Duo is stopping, so there is nothing further to do in this process.",
       "Set install=true only when the landed work should replace the running Duo itself.",
     ],
-    async execute(_toolCallId: string, params: { reason: string; install?: boolean }) {
+    async execute(
+      _toolCallId: string,
+      params: { reason: string; install?: boolean },
+    ) {
       const reason = params.reason.trim();
-      if (!reason) return failureResult("Duo restart failed", "a reason is required");
+      if (!reason)
+        return failureResult("Duo restart failed", "a reason is required");
       try {
         return resultFromResponse(
           await transport.request("restart_duo", {

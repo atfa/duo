@@ -17,6 +17,13 @@ type Step struct {
 	Title string `json:"title"`
 	Done  bool   `json:"done"`
 
+	// Policy decides how this one step is executed: Fast (the default) has
+	// Austin implement and Tony verify; Goal makes both agents execute,
+	// cross-review and sign INTEGRATE before the step lands. The queue itself
+	// is always dual-approved in PLAN, and the final step still needs both
+	// agents to sign the finished queue.
+	Policy Mode `json:"policy,omitempty"`
+
 	// Head is the Austin artifact Tony reviewed for this step, and Verification is
 	// Tony's verdict bound to it. Both are per-step so a step can be audited after
 	// the session is long finished.
@@ -30,9 +37,25 @@ type Step struct {
 	DeliveredAt  string `json:"deliveredAt,omitempty"`
 }
 
+// EffectivePolicy normalizes an absent or unknown per-step policy to Fast. A
+// queue written before policies existed has no recorded choice, so the lighter
+// default is the only safe interpretation: it cannot silently acquire the
+// heavier dual-agent workflow.
+func (st Step) EffectivePolicy() Mode {
+	if st.Policy == ModeGoal {
+		return ModeGoal
+	}
+	return ModeFast
+}
+
 // checkboxLine matches the Markdown task item Duo reads as one step. It accepts
 // the `-`, `*` and `+` bullets and both checkbox states.
 var checkboxLine = regexp.MustCompile(`^\s*[-*+] \[( |x|X)\] (.*)$`)
+
+// stepPolicyPrefix recognizes an explicit per-step policy at the start of a
+// checkbox title. The queue is authored as Markdown, so the tag is part of the
+// list rather than a second, invisible syntax.
+var stepPolicyPrefix = regexp.MustCompile(`(?i)^(?:\[(fast|goal)\]|\((fast|goal)\)|(fast|goal)\s*:)\s+`)
 
 // Steps is a Step-mode queue. It is a named slice so the renderers are methods on
 // the queue: prompts, the TUI and duo_status all call the same two functions, so
@@ -49,7 +72,7 @@ func (s Steps) Render() string {
 		if st.Done {
 			box = "x"
 		}
-		fmt.Fprintf(&b, "%d. [%s] %s", i+1, box, st.Title)
+		fmt.Fprintf(&b, "%d. [%s] [%s] %s", i+1, box, st.EffectivePolicy(), st.Title)
 		if st.DeliveryHead != "" {
 			fmt.Fprintf(&b, " — landed %s", shortHash(st.DeliveryHead))
 		} else if st.Head != "" {
@@ -76,13 +99,13 @@ func (s Steps) RenderCursor() string {
 		return b.String()
 	}
 	current := s[open-1]
-	fmt.Fprintf(&b, "step %d/%d: %s", open, len(s), current.Title)
+	fmt.Fprintf(&b, "step %d/%d [%s]: %s", open, len(s), current.EffectivePolicy(), current.Title)
 	if current.DeliveryHead != "" {
 		fmt.Fprintf(&b, " [landed %s]", shortHash(current.DeliveryHead))
 	}
 	b.WriteString("\n")
 	for i := open; i < len(s); i++ {
-		fmt.Fprintf(&b, "- step %d: %s\n", i+1, s[i].Title)
+		fmt.Fprintf(&b, "- step %d [%s]: %s\n", i+1, s[i].EffectivePolicy(), s[i].Title)
 	}
 	return b.String()
 }
@@ -97,12 +120,23 @@ func ParseSteps(list string) Steps {
 			continue
 		}
 		title := strings.TrimSpace(m[2])
+		policy := ModeFast
+		if p := stepPolicyPrefix.FindStringSubmatch(title); p != nil {
+			for _, tag := range p[1:] {
+				if tag != "" {
+					policy = Mode(strings.ToLower(tag))
+					break
+				}
+			}
+			title = strings.TrimSpace(title[len(p[0]):])
+		}
 		if title == "" {
 			continue
 		}
 		steps = append(steps, Step{
-			Title: title,
-			Done:  strings.EqualFold(strings.TrimSpace(m[1]), "x"),
+			Title:  title,
+			Policy: policy,
+			Done:   strings.EqualFold(strings.TrimSpace(m[1]), "x"),
 		})
 	}
 	return steps

@@ -157,6 +157,7 @@ type App struct {
 
 	native          protocol.AgentID
 	escBuf          []byte
+	inputUTF8       []byte // incomplete UTF-8 rune from the terminal
 	nativeDetachBuf []byte
 	nativeInput     nativeInputAssembler
 	selection       paneSelection
@@ -418,7 +419,7 @@ func (a *App) submit(ctx context.Context) bool {
 		a.add(protocol.Duo, "ERROR: "+err.Error())
 	} else {
 		status := "sent to Austin"
-		if a.live.EffectiveMode() == project.ModeGoal {
+		if a.live.EffectiveMode() != project.ModeFast {
 			status = "sent to Austin and Tony"
 		}
 		a.setStatus(status, false)

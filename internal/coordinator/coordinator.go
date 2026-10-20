@@ -147,7 +147,7 @@ func (c *Coordinator) sendToAgent(ctx context.Context, agent protocol.AgentID, m
 	// prompt type cannot forget to do it.
 	switch message.Type {
 	case protocol.MsgHumanPrompt, protocol.MsgHarnessPrompt, protocol.MsgResumePrompt,
-		protocol.MsgDuoNotice, protocol.MsgSteer:
+		protocol.MsgDuoNotice, protocol.MsgSteer, protocol.MsgModeChange:
 		c.noteInjected(agent, message.Text)
 	}
 	// The bridge may only carry a request whose capability the driver declared.
@@ -390,8 +390,8 @@ func (c *Coordinator) emit(kind events.Kind, agent, peer protocol.AgentID, text 
 	c.bus.Emit(events.Event{Kind: kind, Agent: agent, Peer: peer, Text: text})
 }
 
-// SubmitUserTask is the single human entry point used by the Duo TUI. Goal
-// tasks are sent to both agents; Fast tasks go only to Austin. On a DONE
+// SubmitUserTask is the single human entry point used by the Duo TUI. Goal and
+// Step tasks are sent to both agents; Fast tasks go only to Austin. On a DONE
 // session it first reopens the round, so a composer follow-up is a normal task.
 func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 	text = strings.TrimSpace(text)
@@ -399,33 +399,35 @@ func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 		return nil
 	}
 
-	if text == "/mode goal" || strings.HasPrefix(text, "/escalate") {
-		reason := ""
-		if strings.HasPrefix(text, "/escalate") {
-			reason = strings.TrimSpace(strings.TrimPrefix(text, "/escalate"))
-			if strings.HasPrefix(reason, ":") {
-				reason = strings.TrimSpace(strings.TrimPrefix(reason, ":"))
-			}
-		}
-		c.reopenFinishedSession()
-		if err := c.EscalateToGoal(ctx, reason); err != nil {
-			c.emit(events.KindSystem, protocol.Duo, "", fmt.Sprintf("cannot escalate: %v", err))
+	if strings.HasPrefix(text, "/mode") {
+		fields := strings.Fields(text)
+		if len(fields) != 2 {
+			err := fmt.Errorf("usage: /mode [fast|goal|step]")
+			c.emit(events.KindSystem, protocol.Duo, "", err.Error())
 			return err
 		}
-		return nil
+		target, err := project.ParseMode(fields[1])
+		if err != nil {
+			c.emit(events.KindSystem, protocol.Duo, "", err.Error())
+			return err
+		}
+		return c.SwitchMode(ctx, target, "")
 	}
-	if text == "/mode fast" {
-		err := fmt.Errorf("cannot switch to Fast mode: sessions can only escalate from Fast to Goal")
-		c.emit(events.KindSystem, protocol.Duo, "", err.Error())
-		return err
+	if strings.HasPrefix(text, "/escalate") {
+		reason := strings.TrimSpace(strings.TrimPrefix(text, "/escalate"))
+		if strings.HasPrefix(reason, ":") {
+			reason = strings.TrimSpace(strings.TrimPrefix(reason, ":"))
+		}
+		return c.SwitchMode(ctx, project.ModeGoal, reason)
 	}
 
 	if !c.IsAgentConnected(protocol.Austin) {
 		return fmt.Errorf("Austin is not connected yet")
 	}
-	goal := c.project.Snapshot().EffectiveMode() == project.ModeGoal
-	if goal && !c.IsAgentConnected(protocol.Tony) {
-		return fmt.Errorf("Tony is not connected; Goal mode requires both Austin and Tony")
+	mode := c.project.Snapshot().EffectiveMode()
+	collaborative := mode != project.ModeFast
+	if collaborative && !c.IsAgentConnected(protocol.Tony) {
+		return fmt.Errorf("Tony is not connected; %s mode requires both Austin and Tony", mode.Display())
 	}
 	c.reopenFinishedSession()
 	c.project.MarkStarted()
@@ -434,31 +436,70 @@ func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 	if c.language == "zh" {
 		promptText = "[Human task from Duo]\n\n以下是用户提交的原始任务，请按原文执行：\n\n" + text
 	}
-	if goal {
+	if collaborative {
 		for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
 			c.tracker.Touch(agent)
 			c.emit(events.KindUser, protocol.Duo, agent, text)
+			prompt := goalTaskPrompt(agent, text, c.language)
+			if mode == project.ModeStep {
+				prompt = stepTaskPrompt(agent, text, c.language)
+			}
 			if err := c.sendToAgent(ctx, agent, protocol.Message{
 				Version: 1, Type: protocol.MsgHumanPrompt, From: protocol.Duo, To: agent,
-				Text: goalTaskPrompt(agent, text, c.language), Timestamp: time.Now().UnixMilli(),
+				Text: prompt, Timestamp: time.Now().UnixMilli(),
 			}); err != nil {
-				return fmt.Errorf("send Goal task to %s: %w", agent, err)
+				return fmt.Errorf("send %s task to %s: %w", mode.Display(), agent, err)
 			}
 		}
+		c.acknowledgeTask(mode)
 		return nil
 	}
 	c.emit(events.KindUser, protocol.Duo, protocol.Austin, text)
-	if c.project.Snapshot().EffectiveMode() == project.ModeFast {
-		guidance := "(Duo guidance: Once your work is committed and your worktree is clean, request verification with duo_set_status ready=true so Tony can independently verify.)"
-		if c.language == "zh" {
-			guidance = "（Duo 提示：工作提交完成且 worktree 干净后，调用 duo_set_status ready=true 请求 Tony 独立验证。）"
-		}
-		promptText += "\n\n" + guidance
+	guidance := "(Duo guidance: Once your work is committed and your worktree is clean, request verification with duo_set_status ready=true so Tony can independently verify.)"
+	if c.language == "zh" {
+		guidance = "（Duo 提示：工作提交完成且 worktree 干净后，调用 duo_set_status ready=true 请求 Tony 独立验证。）"
 	}
-	return c.sendToAgent(ctx, protocol.Austin, protocol.Message{
+	promptText += "\n\n" + guidance
+	if err := c.sendToAgent(ctx, protocol.Austin, protocol.Message{
 		Version: 1, Type: protocol.MsgHumanPrompt, From: protocol.Duo, To: protocol.Austin,
 		Text: promptText, Timestamp: time.Now().UnixMilli(),
-	})
+	}); err != nil {
+		return err
+	}
+	c.acknowledgeTask(mode)
+	return nil
+}
+
+// acknowledgeTask closes the gap between "duo accepted the task" and an agent's
+// first token. Model latency is outside Duo's control, but the harness can always
+// tell the human immediately that the task was accepted and who is working on it.
+func (c *Coordinator) acknowledgeTask(mode project.Mode) {
+	text := "Task received. Austin is working on it."
+	if mode != project.ModeFast {
+		text = fmt.Sprintf("Task received. Austin and Tony are working on it in %s mode.", mode.Display())
+	}
+	if c.language == "zh" {
+		text = "任务已收到。Austin 正在处理。"
+		if mode != project.ModeFast {
+			text = fmt.Sprintf("任务已收到。Austin 和 Tony 正在按 %s 模式协作处理。", mode.Display())
+		}
+	}
+	c.emit(events.KindHarness, protocol.Duo, "", text)
+}
+
+func stepTaskPrompt(agent protocol.AgentID, task, language string) string {
+	if language == "zh" {
+		role := "你是 Austin，STEP 模式的协作成员。"
+		if agent == protocol.Tony {
+			role = "你是 Tony，STEP 模式的独立共同设计者和验证者。"
+		}
+		return fmt.Sprintf("[Duo Step task: PLAN]\n%s\n\nDuo 已把任务同时发送给双方。当前阶段是 PLAN：先调用 duo_status 查看权威状态。双方共同把任务拆成有序队列，用 duo_set_plan 写计划说明、用 duo_set_steps 提交 Markdown 复选框队列；每个条目标记 [fast] 或 [goal]（未标记默认 fast）。FAST 步骤由 Austin 实现、Tony 用 duo_set_verification 验证；GOAL 步骤由双方共同实现、交叉审查并签署 EXECUTE/REVIEW/INTEGRATE。最后一步始终需要双方签署完成队列。队列商定后，双方调用 duo_set_status ready=true 批准并进入第一步。\n\n用户原始任务：\n%s", role, task)
+	}
+	role := "You are Austin, a collaborating agent in STEP mode."
+	if agent == protocol.Tony {
+		role = "You are Tony, an independent co-designer and reviewer in STEP mode."
+	}
+	return fmt.Sprintf("[Duo Step task: PLAN]\n%s\n\nDuo sent the task to both of you. The current phase is PLAN: call duo_status first to inspect authoritative state. Together, split the task into an ordered queue: use duo_set_plan for the plan prose and duo_set_steps for a Markdown checkbox queue. Tag each item [fast] or [goal]; an untagged item defaults to FAST. A FAST item is Austin implementing and Tony verifying with duo_set_verification. A GOAL item is both agents implementing, cross-reviewing and signing EXECUTE/REVIEW/INTEGRATE. The final step always needs both agents' signatures. Once aligned, both call duo_set_status ready=true to approve the queue and start step 1.\n\nOriginal human task:\n%s", role, task)
 }
 
 func goalTaskPrompt(agent protocol.AgentID, task, language string) string {
@@ -501,6 +542,9 @@ func (c *Coordinator) EscalateToGoal(ctx context.Context, reason string) error {
 	c.emit(events.KindSystem, protocol.Duo, "", msg)
 
 	_ = c.persistStrict("mode escalated")
+	if c.agents != nil {
+		c.agents.SetMode(project.ModeGoal.String())
+	}
 
 	reasonDesc := "(none provided)"
 	if reason != "" {
@@ -544,7 +588,134 @@ func (c *Coordinator) EscalateToGoal(ctx context.Context, reason string) error {
 		c.tracker.Touch(protocol.Tony)
 	}
 
+	// The two detailed notices above carry the instructions. This bare message
+	// updates the adapters' current mode so their next prompt is Goal-shaped
+	// without restarting either agent.
+	c.sendModeChange(ctx, project.ModeGoal, "")
 	return nil
+}
+
+// SwitchMode changes the session's workflow at any time. The domain resets the
+// round so the new mode never inherits a plan, queue or signature that was
+// produced under different gates; the adapters receive a mode_change message so
+// their prompt follows immediately, without restarting opencode or Pi.
+func (c *Coordinator) SwitchMode(ctx context.Context, target project.Mode, reason string) error {
+	if target != project.ModeFast && target != project.ModeGoal && target != project.ModeStep {
+		return fmt.Errorf("unknown Duo mode %q (expected fast, goal or step)", target)
+	}
+	reason = strings.TrimSpace(reason)
+	before := c.project.Snapshot()
+	from := before.EffectiveMode()
+	if target == from {
+		c.emit(events.KindSystem, protocol.Duo, "", fmt.Sprintf("already in %s mode", target.Display()))
+		return nil
+	}
+
+	// Fast → Goal keeps its historical escalation behavior: seed the goal plan
+	// with the reason and any prior verification note.
+	if from == project.ModeFast && target == project.ModeGoal && before.Phase != project.PhaseDone {
+		return c.EscalateToGoal(ctx, reason)
+	}
+
+	snap, err := c.project.SwitchMode(target, reason)
+	if err != nil {
+		return err
+	}
+	if snap.Phase != project.PhaseDone {
+		// A pending delivery or merge belongs to the previous mode's round.
+		c.SetDelivery(sessionstore.Delivery{})
+		c.SetIntegration(workspace.IntegrationResult{})
+	}
+	c.unclaimFinalSummary()
+	c.recordEvent("mode_switched", map[string]any{
+		"from":   from.String(),
+		"to":     target.String(),
+		"reason": reason,
+		"phase":  string(snap.Phase),
+	})
+	msg := fmt.Sprintf("mode switched: %s → %s", from.Display(), target.Display())
+	if reason != "" {
+		msg += fmt.Sprintf(" (reason: %s)", reason)
+	}
+	c.emit(events.KindSystem, protocol.Duo, "", msg)
+	if err := c.persistStrict("mode switched"); err != nil {
+		c.logf("persist mode switch: %v", err)
+		c.emit(events.KindError, protocol.Duo, "", "mode changed in memory but could not be persisted: "+err.Error())
+	}
+	if c.agents != nil {
+		c.agents.SetMode(target.String())
+	}
+
+	for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		text := c.modeSwitchNotice(agent, target, reason, snap.Phase == project.PhaseDone)
+		c.sendModeChange(ctx, target, text, agent)
+	}
+	if c.tracker != nil {
+		c.tracker.Touch(protocol.Austin)
+		c.tracker.Touch(protocol.Tony)
+	}
+	return nil
+}
+
+// sendModeChange updates one or both adapters' current mode. The text is the
+// prompt Duo injects; an empty text is used when another detailed notice already
+// carries the instructions.
+func (c *Coordinator) sendModeChange(ctx context.Context, mode project.Mode, text string, agents ...protocol.AgentID) {
+	if len(agents) == 0 {
+		agents = []protocol.AgentID{protocol.Austin, protocol.Tony}
+	}
+	for _, agent := range agents {
+		_ = c.sendToAgent(ctx, agent, protocol.Message{
+			Version:   protocol.Version,
+			Type:      protocol.MsgModeChange,
+			From:      protocol.Duo,
+			To:        agent,
+			Mode:      mode.String(),
+			Text:      text,
+			Timestamp: time.Now().UnixMilli(),
+		})
+	}
+}
+
+func (c *Coordinator) modeSwitchNotice(agent protocol.AgentID, target project.Mode, reason string, done bool) string {
+	if c.language == "zh" {
+		return c.modeSwitchNoticeZh(agent, target, reason, done)
+	}
+	var text string
+	switch target {
+	case project.ModeFast:
+		text = "[Duo mode change: FAST]\nThe session is now in FAST mode. Austin implements; Tony independently verifies from his own worktree. There is no shared plan and no step queue. Austin: commit your work, keep the worktree clean, then call duo_set_status ready=true to request verification. Tony: do not commit or edit; report with duo_set_verification when requested."
+	case project.ModeGoal:
+		text = "[Duo mode change: GOAL]\nThe session is now in GOAL mode and the current round starts in PLAN. Both agents co-design the plan with duo_send and duo_set_plan, then both approve with duo_set_status ready=true. In EXECUTE both implement in their own worktrees; REVIEW cross-checks the peer's HEAD; INTEGRATE merges Tony's branch into Austin's and both sign the integrated HEAD."
+	case project.ModeStep:
+		text = "[Duo mode change: STEP]\nThe session is now in STEP mode and the current round starts in PLAN. Both agents agree on a queue with duo_set_steps and approve it with duo_set_status ready=true. Tag each item [fast] or [goal]. A FAST item is Austin implementing and Tony verifying with duo_set_verification. A GOAL item is both implementing, cross-reviewing and signing EXECUTE/REVIEW/INTEGRATE. Every final step also needs both agents' signatures."
+	}
+	if done {
+		text += "\nThe current round is DONE; the new mode applies to the next task."
+	}
+	if reason != "" {
+		text += "\nReason: " + reason
+	}
+	return text
+}
+
+func (c *Coordinator) modeSwitchNoticeZh(agent protocol.AgentID, target project.Mode, reason string, done bool) string {
+	var text string
+	switch target {
+	case project.ModeFast:
+		text = "[Duo 模式切换：FAST]\n会话已切换到 FAST 模式。Austin 负责实现；Tony 在自己的 worktree 中独立验证。没有共享计划和步骤队列。Austin：提交工作并保持 worktree 干净，然后调用 duo_set_status ready=true 请求验证。Tony：不要提交或编辑；收到请求后用 duo_set_verification 报告结论。"
+	case project.ModeGoal:
+		text = "[Duo 模式切换：GOAL]\n会话已切换到 GOAL 模式，当前轮次从 PLAN 开始。双方通过 duo_send 和 duo_set_plan 共同设计计划，然后各自调用 duo_set_status ready=true 批准。EXECUTE 阶段双方在各自 worktree 实现；REVIEW 阶段交叉审查对方的 HEAD；INTEGRATE 阶段把 Tony 的分支合并到 Austin 的分支，双方签署集成后的 HEAD。"
+	case project.ModeStep:
+		text = "[Duo 模式切换：STEP]\n会话已切换到 STEP 模式，当前轮次从 PLAN 开始。双方用 duo_set_steps 商定队列，并用 duo_set_status ready=true 批准。每个条目标记 [fast] 或 [goal]：FAST 条目由 Austin 实现、Tony 用 duo_set_verification 验证；GOAL 条目由双方共同实现、交叉审查并签署 EXECUTE/REVIEW/INTEGRATE。最后一步还需要双方签署完成队列。"
+	}
+	if done {
+		text += "\n当前轮次已 DONE；新模式从下一个任务开始生效。"
+	}
+	if reason != "" {
+		text += "\n原因：" + reason
+	}
+	return text
 }
 
 // reopenFinishedSession turns a DONE session back into an active round when the
@@ -1438,11 +1609,11 @@ func (c *Coordinator) handleEscalate(ctx context.Context, client *transport.Clie
 	if reason == "" {
 		reason = strings.TrimSpace(message.Text)
 	}
-	if err := c.EscalateToGoal(ctx, reason); err != nil {
+	if err := c.SwitchMode(ctx, project.ModeGoal, reason); err != nil {
 		_ = c.respond(ctx, client, message.RequestID, false, err.Error(), c.statusText(ctx))
 		return
 	}
-	_ = c.respond(ctx, client, message.RequestID, true, "escalated to Goal mode successfully; session is now in PLAN phase", c.statusText(ctx))
+	_ = c.respond(ctx, client, message.RequestID, true, "switched to Goal mode successfully; open duo_status for the current phase", c.statusText(ctx))
 }
 
 func (c *Coordinator) sendFastNotice(ctx context.Context, agent protocol.AgentID, text string) {
@@ -1559,9 +1730,11 @@ func (c *Coordinator) deliverFinal(ctx context.Context, _ project.Snapshot) {
 		if snap.Phase != project.PhaseIntegrate {
 			return
 		}
-		// Requiring Ready mid-queue would be self-approval: the independent check
-		// on a step is Tony's verdict, which setVerification already enforced.
-		if stepIsFinal(snap) && (!snap.Ready[protocol.Austin] || !snap.Ready[protocol.Tony]) {
+		// A FAST step mid-queue lands on Tony's verdict. A GOAL step lands on
+		// both agents' INTEGRATE signatures. The final step always needs both
+		// agents to sign the finished queue, whatever its per-step policy.
+		if (stepIsFinal(snap) || currentStepPolicy(snap) == project.ModeGoal) &&
+			(!snap.Ready[protocol.Austin] || !snap.Ready[protocol.Tony]) {
 			return
 		}
 	default:
@@ -1605,11 +1778,11 @@ func (c *Coordinator) deliverFinal(ctx context.Context, _ project.Snapshot) {
 		}
 
 	case project.ModeStep:
-		// Mid-queue the reference artifact is the step's own submitted HEAD, never
-		// Austin's live HEAD: landing the live HEAD would deliver commits Tony never
-		// reviewed. The final step is the one signed INTEGRATE, so there the Goal
-		// rule applies.
-		if !stepIsFinal(snap) {
+		// A FAST step mid-queue uses the step's own submitted HEAD, never Austin's
+		// live HEAD: landing the live HEAD would deliver commits Tony never
+		// reviewed. GOAL steps and every final step use the signatures, which bind
+		// the exact integrated HEAD the agents approved.
+		if !stepIsFinal(snap) && currentStepPolicy(snap) == project.ModeFast {
 			stepHead := ""
 			if snap.Step >= 1 && snap.Step <= len(snap.Steps) {
 				stepHead = strings.TrimSpace(snap.Steps[snap.Step-1].Head)

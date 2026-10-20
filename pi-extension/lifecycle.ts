@@ -2,7 +2,11 @@ import type { AgentName, DuoMessage } from "./protocol";
 import { DuoTransport } from "./transport";
 
 function extractAssistantText(message: any): string | null {
-  if (!message || message.role !== "assistant" || !Array.isArray(message.content)) {
+  if (
+    !message ||
+    message.role !== "assistant" ||
+    !Array.isArray(message.content)
+  ) {
     return null;
   }
 
@@ -16,7 +20,10 @@ function extractAssistantText(message: any): string | null {
 }
 
 function isCompactionAbort(error: unknown): boolean {
-  return error === "This operation was aborted" || error === "Error: This operation was aborted";
+  return (
+    error === "This operation was aborted" ||
+    error === "Error: This operation was aborted"
+  );
 }
 
 /**
@@ -30,7 +37,16 @@ function compactDetail(value: unknown, max = 160): string {
     text = value;
   } else if (value && typeof value === "object") {
     const record = value as Record<string, unknown>;
-    const key = ["command", "path", "file_path", "pattern", "query", "url", "prompt", "task"].find(
+    const key = [
+      "command",
+      "path",
+      "file_path",
+      "pattern",
+      "query",
+      "url",
+      "prompt",
+      "task",
+    ].find(
       (candidate) => typeof record[candidate] === "string" && record[candidate],
     );
     text = key ? String(record[key]) : JSON.stringify(record);
@@ -48,12 +64,23 @@ function tailText(text: string | null, max: number): string {
   return flat.length > max ? flat.slice(flat.length - max) : flat;
 }
 
-function contextUsage(ctx: any): { contextTokens?: number; contextWindow?: number } {
+function contextUsage(ctx: any): {
+  contextTokens?: number;
+  contextWindow?: number;
+} {
   try {
     if (typeof ctx?.getContextUsage !== "function") return {};
     const usage = ctx.getContextUsage();
-    if (!Number.isFinite(usage?.tokens) || !Number.isFinite(usage?.contextWindow) || usage.contextWindow <= 0) return {};
-    return { contextTokens: Math.max(0, Math.round(usage.tokens)), contextWindow: Math.round(usage.contextWindow) };
+    if (
+      !Number.isFinite(usage?.tokens) ||
+      !Number.isFinite(usage?.contextWindow) ||
+      usage.contextWindow <= 0
+    )
+      return {};
+    return {
+      contextTokens: Math.max(0, Math.round(usage.tokens)),
+      contextWindow: Math.round(usage.contextWindow),
+    };
   } catch {
     return {};
   }
@@ -61,11 +88,19 @@ function contextUsage(ctx: any): { contextTokens?: number; contextWindow?: numbe
 
 function outputDeltaChars(event: any): number {
   const update = event?.assistantMessageEvent;
-  if (!update || !["text_delta", "thinking_delta", "toolcall_delta"].includes(update.type)) return 0;
+  if (
+    !update ||
+    !["text_delta", "thinking_delta", "toolcall_delta"].includes(update.type)
+  )
+    return 0;
   return typeof update.delta === "string" ? update.delta.length : 0;
 }
 
-export function installLifecycle(pi: any, transport: DuoTransport, agent: AgentName) {
+export function installLifecycle(
+  pi: any,
+  transport: DuoTransport,
+  agent: AgentName,
+) {
   let lastAssistantText: string | null = null;
   let lastStreamActivityAt = 0;
   let speedSamples: Array<{ at: number; chars: number }> = [];
@@ -75,26 +110,41 @@ export function installLifecycle(pi: any, transport: DuoTransport, agent: AgentN
     if (speedSamples.length < 2) return 0;
     const elapsed = (now - speedSamples[0].at) / 1000;
     if (elapsed < 0.5) return 0;
-    const chars = speedSamples.reduce((total, sample) => total + sample.chars, 0);
+    const chars = speedSamples.reduce(
+      (total, sample) => total + sample.chars,
+      0,
+    );
     return chars / 4 / elapsed;
   };
 
   transport.setHandler((message: DuoMessage) => {
-    if (!["steer", "duo_notice", "harness_prompt", "human_prompt", "resume_prompt"].includes(message.type)) return;
+    if (
+      ![
+        "steer",
+        "duo_notice",
+        "harness_prompt",
+        "human_prompt",
+        "resume_prompt",
+        "mode_change",
+      ].includes(message.type)
+    ) {
+      return;
+    }
     if (message.to && message.to.toLowerCase() !== agent.toLowerCase()) return;
     if (!message.text) return;
 
-    const text = message.type === "steer"
-      ? `[Peer message from ${message.from ?? "peer"}]\n\n${message.text}`
-      : message.text;
+    const text =
+      message.type === "steer"
+        ? `[Peer message from ${message.from ?? "peer"}]\n\n${message.text}`
+        : message.text;
 
-    Promise.resolve(
-      pi.sendUserMessage(text, { deliverAs: "steer" }),
-    ).catch((error: any) => {
-      console.error(
-        `[duo] failed to inject ${message.type}: ${error?.message ?? String(error)}`,
-      );
-    });
+    Promise.resolve(pi.sendUserMessage(text, { deliverAs: "steer" })).catch(
+      (error: any) => {
+        console.error(
+          `[duo] failed to inject ${message.type}: ${error?.message ?? String(error)}`,
+        );
+      },
+    );
   });
 
   pi.on("agent_start", async () => {
@@ -124,7 +174,10 @@ export function installLifecycle(pi: any, transport: DuoTransport, agent: AgentN
   });
 
   pi.on("tool_execution_start", async (event: any) => {
-    transport.sendActivity("tool_start", { tool: event?.toolName, detail: compactDetail(event?.args) });
+    transport.sendActivity("tool_start", {
+      tool: event?.toolName,
+      detail: compactDetail(event?.args),
+    });
   });
 
   pi.on("tool_execution_end", async (event: any) => {
@@ -155,7 +208,8 @@ export function installLifecycle(pi: any, transport: DuoTransport, agent: AgentN
 
   pi.on("message_end", async (event: any) => {
     const message = event?.message;
-    const errorMessage = message?.errorMessage || `Request ${message?.stopReason}`;
+    const errorMessage =
+      message?.errorMessage || `Request ${message?.stopReason}`;
     if (
       message?.role === "assistant" &&
       (message.stopReason === "error" || message.errorMessage) &&

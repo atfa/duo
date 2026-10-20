@@ -1,0 +1,22 @@
+ ◆ DUO test /tmp/example  ·   main           FAST  ·   RUNNING
+────────────────────────────────────────────────────────────────
+    Split    Timeline
+ ╭─ CONVERSATION ─────────────────────────────────────────────╮
+ │     •  OpenAPI updated                                   │ │
+ │                                                          │ │
+ │     page, err := store.Sessions(ctx, limit, cursor)      │ │
+ │                                                          │ │
+ │   Tests: go test ./internal/sessionstore —  你好世界     │ │
+ │                                                          │ │
+ │ 16:03  Tony →  Austin                                    ┃ │
+ │   Verified the boundary cases. One request with an       ┃ │
+ │   expired cursor returns 400 rather than silently        ┃ │
+ │   restarting.                                            ┃ │
+ │                                                          ┃ │
+ │ 16:03  Duo →  Human                                      ┃ │
+ │   Verification passed. The change is ready to deliver.   ┃ │
+ ╰────────────────────────────────────────────────────────────╯
+ ╭─ Message ──────────────────────────────────────────────────╮
+ │ › Message Duo…   Enter sends ·  Ctrl+Enter newline         │
+ ╰────────────────────────────────────────────────────────────╯
+ Enter send ·  F1 help ·  F2 view ·  Ctrl+Q quit    ·  TIMELINE

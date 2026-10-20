@@ -13,10 +13,8 @@ import (
 // TestSessionExportsModeForThePiExtension keeps the Go/TypeScript contract: the
 // session's real mode reaches the adapter as DUO_MODE and the driver as the launch
 // request's Mode. Every mode Core knows is exported as itself, because the
-// extension registers its tools from this value and a folded mode is a tool set
-// nobody can use — folding step into goal left a STEP session without
-// duo_set_steps and deadlocked PLAN. An absent mode is still the legacy Goal rule,
-// and an unknown value must never be forwarded as-is.
+// extension's prompt is built from this value. An absent mode is still the legacy
+// Goal rule, and an unknown value must never be forwarded as-is.
 func TestSessionExportsModeForThePiExtension(t *testing.T) {
 	for _, tc := range []struct {
 		mode string
@@ -79,4 +77,18 @@ func TestSessionExportsSelectedLanguage(t *testing.T) {
 		}
 	}
 	t.Fatal("agent environment does not contain DUO_LANGUAGE=zh")
+}
+
+// TestSetModeUpdatesRestartEnvironment pins the mode switch/restart boundary: a
+// mode change is delivered live to the running adapter, and a later restart must
+// launch that same mode rather than the mode the process started with.
+func TestSetModeUpdatesRestartEnvironment(t *testing.T) {
+	s := mustSession(t, "stub", Config{Agent: protocol.Austin, Mode: "fast", Dir: t.TempDir()})
+	s.SetMode("step")
+	for _, entry := range coreEnv(s) {
+		if entry == "DUO_MODE=step" {
+			return
+		}
+	}
+	t.Fatal("agent environment kept the pre-switch mode")
 }

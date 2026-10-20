@@ -111,7 +111,10 @@ export function installLifecycle(
     if (speedSamples.length < 2) return 0;
     const elapsed = (now - speedSamples[0].at) / 1000;
     if (elapsed < 0.5) return 0;
-    const chars = speedSamples.reduce((total, sample) => total + sample.chars, 0);
+    const chars = speedSamples.reduce(
+      (total, sample) => total + sample.chars,
+      0,
+    );
     return chars / 4 / elapsed;
   };
 
@@ -149,8 +152,17 @@ export function installLifecycle(
       text = value;
     } else if (typeof value === "object") {
       const record = value as Record<string, unknown>;
-      const key = ["command", "path", "filePath", "file_path", "pattern", "query", "url", "prompt", "message"]
-        .find((k) => typeof record[k] === "string" && record[k]);
+      const key = [
+        "command",
+        "path",
+        "filePath",
+        "file_path",
+        "pattern",
+        "query",
+        "url",
+        "prompt",
+        "message",
+      ].find((k) => typeof record[k] === "string" && record[k]);
       text = key ? String(record[key]) : JSON.stringify(record);
     } else {
       text = String(value);
@@ -191,9 +203,10 @@ export function installLifecycle(
     }
     // `delta` frames are live fragments; `ended` carries the full block value
     // and wins over whatever was streamed before it.
-    const text = kind === "ended"
-      ? String(data?.text ?? "")
-      : previous + String(data?.delta ?? "");
+    const text =
+      kind === "ended"
+        ? String(data?.text ?? "")
+        : previous + String(data?.delta ?? "");
     blocks.set(key, text);
     maybeStream(Math.max(0, text.length - previous.length));
   };
@@ -235,7 +248,10 @@ export function installLifecycle(
 
       case "session.step.started": {
         beginTurn();
-        model = { providerID: data?.model?.providerID, modelID: data?.model?.id };
+        model = {
+          providerID: data?.model?.providerID,
+          modelID: data?.model?.id,
+        };
         // Fire and forget: a pending window lookup must not delay the event
         // pump, and the next usage update carries whatever it resolved.
         void windowFor(model.providerID, model.modelID);
@@ -273,7 +289,10 @@ export function installLifecycle(
       case "session.text.started":
       case "session.text.delta":
       case "session.text.ended": {
-        const kind = event.type.split(".").pop() as "started" | "delta" | "ended";
+        const kind = event.type.split(".").pop() as
+          | "started"
+          | "delta"
+          | "ended";
         ingestText(data, kind);
         break;
       }
@@ -289,12 +308,18 @@ export function installLifecycle(
         if (providerOpen) closeProvider();
         // tool_end deliberately carries no detail: Duo keeps the arguments from
         // tool_start visible in the work preview.
-        transport.sendActivity("tool_start", { tool: nameOf(data?.id), detail: compact(data?.input) });
+        transport.sendActivity("tool_start", {
+          tool: nameOf(data?.id),
+          detail: compact(data?.input),
+        });
         break;
       }
 
       case "session.tool.success": {
-        transport.sendActivity("tool_end", { tool: nameOf(data?.id), detail: "" });
+        transport.sendActivity("tool_end", {
+          tool: nameOf(data?.id),
+          detail: "",
+        });
         break;
       }
 

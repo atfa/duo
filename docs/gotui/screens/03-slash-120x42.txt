@@ -1,0 +1,42 @@
+ ◆ DUO test /tmp/example  ·   main                                                                   FAST  ·   RUNNING
+ session session-1   ·    2/2 agents online
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+    Split    Timeline
+ ╭─ WORKFLOW ───────────────────────╮ ╭─ CONVERSATION ────────────────────────────────────────────────────────────────╮
+ │ ●  RUNNING  ○  VERIFY  ○  DONE   │ │ 16:02  Human →  Austin                                                        │
+ │ verify    passed                 │ │   Add cursor pagination to GET /sessions and document the new parameters.     │
+ │ delivery  pending                │ │                                                                               │
+ │ worktrees     /tmp/example       │ │ 16:02  Austin →  Human                                                        │
+ │                                  │ │   Result                                                                      │
+ │                                  │ │                                                                               │
+ │                                  │ │   Implemented cursor pagination.                                              │
+ │                                  │ │                                                                               │
+ │                                  │ │     •  limit is capped at 200                                                 │
+ │                                  │ │     •  opaque cursor values                                                   │
+ ╰──────────────────────────────────╯ │     •  OpenAPI updated                                                        │
+                                      │                                                                               │
+ ╭─ AUSTIN ─────────────────────────╮ │     page, err := store.Sessions(ctx, limit, cursor)                           │
+ │ ⠋ working ·  tool                │ │                                                                               │
+ │ model    openai/gpt-5            │ │   Tests: go test ./internal/sessionstore —  你好世界                          │
+ │ driver   test                    │ │                                                                               │
+ │ thinking high                    │ │ 16:03  Tony →  Austin                                                         │
+ │ context  48.2k / 200.0k  24%     │ │   Verified the boundary cases. One request with an expired cursor returns     │
+ │ tool     exec  go test ./...     │ │   400 rather than silently restarting.                                        │
+ │ turn     1m35s  ·   7 tools      │ │                                                                               │
+ ╰──────────────────────────────────╯ │ 16:03  Duo →  Human                                                           │
+                                      ╭─ COMMANDS ────────────────────────────────────────────────────────────────────╮
+ ╭─ TONY ───────────────────────────╮ │ /escalate [reason] Switch to Goal mode                                        │
+ │ ready                            │ │ /mode [fast|goal…  Switch the session mode                                    │
+ │ model    anthropic/claude-sonnet │ │ /model             Model & thinking picker (Ctrl+M)                           │
+ │ driver   test                    │ │ /language [zh|en]  Set Duo's language and save it                             │
+ │ thinking medium                  │ │ /copy              Copy Austin's latest message (Ctrl+X)                      │
+ │ context  22.0k / 200.0k  11%     │ │ /overview          Session overview and diffstat (Ctrl+O)                     │
+ │ idle     32s ago                 │ │ /preview           Toggle the workflow sidebar (Ctrl+P)                       │
+ │                                  │ │ ↑ /↓  choose  ·   Tab complete  ·   Enter select  ·   Esc dismiss             │
+ ╰──────────────────────────────────╯ ╰───────────────────────────────────────────────────────────────────────────────╯
+ ╭─ Message ──────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+ │ › /                                                                                                                │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+ Enter send ·  Ctrl+Enter newline ·  Ctrl+M models ·  Ctrl+A/T native ·  F1 help ·  F2 view ·  Ctrl+Q quit  ·  TIMELINE

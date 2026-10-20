@@ -2,11 +2,11 @@
 
 **Two peer coding agents in a terminal, coordinated through isolated Git worktrees.**
 
-Duo runs two coding agents as *peers* rather than as a planner and a subordinate worker, in one of three fixed workflows:
+Duo runs two coding agents as *peers* rather than as a planner and a subordinate worker. Start in one of three workflows and switch at any time without restarting the agents:
 
-- **Fast (default).** Austin drives the implementation; Tony independently verifies the exact commit. `RUNNING → VERIFY → DONE`, with no shared Plan and no dual sign-off — the quick path for most tasks.
-- **Goal (`duo --mode goal`).** The full negotiated workflow: a shared Plan, isolated worktrees, cross-review and dual sign-off, `PLAN → EXECUTE → REVIEW → INTEGRATE → DONE`.
-- **Step (`duo --mode step`).** For one complex task that splits into an ordered queue: the Goal phase chain runs **once per step**, and each step is landed on your branch as it is verified, with no human task entry between steps.
+- **Fast (default).** Austin drives the implementation; Tony independently verifies the exact commit. `RUNNING → VERIFY → DONE`, with no shared plan and no dual sign-off — the quick path for most tasks.
+- **Goal (`duo --mode goal`).** The full negotiated workflow: a shared plan, isolated worktrees, cross-review and dual sign-off, `PLAN → EXECUTE → REVIEW → INTEGRATE → DONE`.
+- **Step (`duo --mode step`).** Plan an ordered queue first, then run every item under its own **Fast** or **Goal** policy. Each step lands on your branch as it is approved, with no human task entry between steps.
 
 In all three modes the agents message each other while both keep working, changes stay in isolated Git worktrees, and the verified result is handed back to the repository you launched Duo from.
 
@@ -16,16 +16,17 @@ The runtime is a Go coordination core plus thin driver plugins and optional agen
 
 ```bash
 cd /path/to/git/repo
-duo              # FAST (default)
-duo --mode goal  # full negotiated workflow
-duo --mode step  # one complex task, landed step by step
+duo                 # FAST (default), Legacy TUI
+duo --mode goal     # full negotiated workflow
+duo --mode step     # one complex task, landed step by step
+duo --ui=gotui      # opt-in dashboard frontend
 ```
 
 Then type a task in the composer and press `Enter`. In **Fast**, Duo sends it to **Austin**. In **Goal** and **Step**, Duo sends it to **both Austin and Tony** so they can co-design the shared Plan.
 
 - In **Fast**, Austin works in its own worktree, commits, and calls `duo_set_status` to request verification; Tony verifies that exact commit with `duo_set_verification` and either passes it or returns a concrete issue. Duo then delivers the verified commit and marks `DONE`.
 - In **Goal**, Austin and Tony receive the task together, agree a shared Plan with `duo_send` and `duo_set_plan`, and Duo Core drives `PLAN → EXECUTE → REVIEW → INTEGRATE → DONE` from there.
-- In **Step**, Austin publishes an ordered queue with `duo_set_steps` and a prose design with `duo_set_plan`; both agents approve the queue, then Duo runs the Goal cycle once per step, landing each verified step on your branch and advancing the queue by itself.
+- In **Step**, both agents first agree on an ordered queue with `duo_set_steps` and a prose design with `duo_set_plan`, tagging each item `[fast]` or `[goal]`. A Fast item is Austin implementing and Tony verifying; a Goal item is both executing, cross-reviewing and signing. Duo lands each step on your branch and advances the queue by itself.
 
 Requirements:
 
@@ -43,7 +44,7 @@ curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-relea
 ```
 
 **From source** (runs the Go test suite, then installs Duo and its driver bridges;
-requires Go 1.22+):
+requires Go 1.24+):
 
 ```bash
 ./scripts/install.sh
@@ -53,7 +54,7 @@ Restart any running Pi or opencode processes after installing the bridges.
 
 ## How the collaboration works
 
-A session launches in Fast (default), Goal or Step mode. A Fast session can dynamically escalate to Goal mode on the fly without losing in-flight work or recreating worktrees. All modes share the same isolated worktrees, Git evidence and delivery handoff; they differ in how much negotiation is required before delivery.
+A session launches in Fast (default), Goal or Step mode, and can switch to another mode at any time with `/mode fast|goal|step` (or `/escalate`, which is shorthand for Goal). A running round cannot be half one workflow and half another: a switch resets the current plan, queue, phase and signatures and starts the new mode's first phase, while commits already in the worktrees are preserved. Switching in `DONE` changes the mode for the next task without reopening the completed round. All modes share the same isolated worktrees, Git evidence and delivery handoff; they differ in how much negotiation is required before delivery.
 
 ### Fast (default)
 
@@ -69,7 +70,7 @@ RUNNING → VERIFY → DONE
 
 Fast has no shared Plan and no dual sign-off. A passed verification is bound to the exact commit that was requested; any new commit invalidates it and returns the session to `RUNNING`. Only Austin writes to the delivered artifact — Tony's worktree is never delivered.
 
-**Dynamic Escalation**: If a task started in Fast mode turns out to be more complex than expected, either the human (typing `/escalate [reason]` or `/mode goal` in the composer) or an agent (calling `duo_escalate`) can dynamically upgrade the session to Goal mode. The session transitions to `PLAN` with a shared plan v1 seeded with the escalation reason, Tony becomes an active co-developer, and all prior commits are preserved.
+**Switching modes**: Either the human (`/mode goal`, `/escalate [reason]`, or `/mode step`) or an agent (`duo_escalate`) can switch at any time without restarting either agent. A Fast → Goal switch while work is active keeps its historical escalation behavior: the session transitions to `PLAN` with a shared plan seeded from the escalation reason, Tony becomes an active co-developer, and all prior commits are preserved. Other switches start a fresh round under the new mode's gates.
 
 ### Goal (`duo --mode goal`)
 
@@ -93,17 +94,17 @@ For one complex task that is worth landing in increments. The queue is the contr
 PLAN → (per step: EXECUTE → REVIEW → INTEGRATE → land the step) → DONE
 ```
 
-| Phase | What happens | Evidence required to advance |
-|---|---|---|
-| **PLAN** | Agents co-design an ordered queue (Austin publishes it with `duo_set_steps`, the prose design with `duo_set_plan`). | Both approve the *same* queue version, which must be non-empty. |
-| **EXECUTE** | Austin implements exactly the current step. Tony is read-only on the artifact. | Austin calls `duo_set_status ready=true` with a committed, clean HEAD. |
-| **REVIEW** | Tony verifies that exact HEAD. | `duo_set_verification` with `passed` (→ land the step) or `issue_found` with a concrete note (→ back to `EXECUTE`). |
-| **INTEGRATE** | Duo lands the step on your branch, fast-forwards Tony's worktree to the landed head, and advances the queue. | Delivery succeeded. The **final** step additionally needs both agents to sign `INTEGRATE`. |
-| **DONE** | Every step has landed and the final one was signed by both agents. | Delivery succeeded. |
+| Phase | Fast-policy step | Goal-policy step | Evidence required to advance |
+|---|---|---|---|
+| **PLAN** | Both agents co-design the ordered queue and prose plan. | Same. | Both approve the *same* non-empty queue version. Tag each item `[fast]` or `[goal]`; untagged means Fast. |
+| **EXECUTE** | Austin implements exactly the current step. Tony is read-only. | Both agents are co-authors and implement in their own worktrees. | Fast: Austin signs `duo_set_status ready=true` with a clean HEAD. Goal: both agents sign. |
+| **REVIEW** | Tony verifies Austin's exact HEAD. | Both agents cross-review the peer's exact HEAD and sign `REVIEW`. | Fast: `duo_set_verification passed` lands it, `issue_found` returns it to EXECUTE. Goal: both signatures. |
+| **INTEGRATE** | Duo lands the verified HEAD and advances the queue. | Duo merges Tony's branch into Austin's; both review and sign the integrated HEAD. Non-final: land on both signatures. | Fast: delivery succeeded. Goal: both signatures on the same clean integrated HEAD. |
+| **DONE** | Every step has landed. | Same. | The **final** step always needs both agents' signatures, whichever policy it uses. |
 
 Each step must be a committable increment whose test command passes at its own HEAD. Duo owns the queue and its cursor — agents never tick a box, and a landed step is never removed or reordered; a step that turns out to be too big is split by appending to the end of the queue.
 
-The per-step gate is deliberately lighter than Goal's: one HEAD-bound verification instead of dual sign-off per step, because the independent check is what makes the mode worth having and Austin signing his own `INTEGRATE` would be self-approval. The full dual sign-off is kept where it buys real agreement — the queue in `PLAN`, and the final step. Because each landed step goes to the branch you launched Duo from, the verifier's worktree is fast-forwarded to the landed head after every step, so Tony always reviews and builds the tree you actually received rather than a stale one.
+A Fast step keeps the lighter single-verifier gate: Tony's independent check of one exact HEAD is what makes it safe, and asking Austin to co-sign his own `INTEGRATE` would be self-approval. A Goal step uses the full heavy chain — independent execution, cross-review, merge and dual integration sign-off — because that is the policy the two agents chose for it in PLAN. The final step always keeps the dual sign-off, so the finished queue is accepted by both agents before delivery. Because each landed step goes to the branch you launched Duo from, the verifier's worktree is fast-forwarded to the landed head after every Fast step, so Tony always reviews and builds the tree you actually received rather than a stale one.
 
 In all modes a phase is a **checkpoint, not a behavioral cage**: Duo does not stop an agent from reading code or reviewing a diff early; the phase only decides what evidence is required to advance.
 
@@ -119,25 +120,31 @@ Austin and Tony share a small tool surface installed with the Pi bridge. It is t
 
 | Tool | Modes | Purpose |
 |---|---|---|
-| `duo_send` | both | Send an important live message to the peer while both keep working. For findings, questions, conflicts and proposals — not routine progress chatter. |
-| `duo_set_status` | all | In Goal and Step, sign the current phase (`ready: true`) or revoke your signature (`ready: false`). In Fast, Austin uses `ready: true` to request verification; a Tony sign-off is rejected with guidance. |
-| `duo_set_verification` | Fast + Step (Tony only) | Report `passed` or `issue_found` for Austin's exact commit under review. `issue_found` requires a concrete note. In Step, `passed` lands the step and advances the queue. |
+| `duo_send` | all | Send an important live message to the peer while both keep working. For findings, questions, conflicts and proposals — not routine progress chatter. |
+| `duo_set_status` | all | Sign the current gate (`ready: true`) or revoke your signature (`ready: false`). In Fast, Austin uses it to request verification while Tony must use `duo_set_verification`. In Goal, both agents sign every phase. In Step, both approve the queue; Fast steps use Tony's verdict, Goal steps use dual signatures. |
+| `duo_set_verification` | Fast + Step (Tony only) | Report `passed` or `issue_found` for Austin's exact commit under review. `issue_found` requires a concrete note. In Step this applies to a `[fast]` step; `passed` lands it and advances the queue. |
 | `duo_set_plan` | Goal + Step | Create or replace the whole shared Plan. Each call makes a new version and resets both signatures. Not available in Fast. |
-| `duo_set_steps` | Step | Create or replace the step queue as a markdown checkbox list. Each call makes a new version and resets both signatures. Duo owns the ticks. |
-| `duo_escalate` | Fast | Dynamically escalate the session to Goal mode on the fly (switches to PLAN phase and initializes shared plan v1). Step is chosen at start and is not an escalation target. |
+| `duo_set_steps` | Step | Create or replace the step queue as a markdown checkbox list, tagging each item `[fast]` or `[goal]`. Each call makes a new version and resets both signatures. Duo owns the ticks. |
+| `duo_escalate` | all | Switch the session to Goal mode with a reason. Fast → Goal preserves its escalation-seeded plan; other switches start a fresh Goal round. |
 | `duo_status` | all | Read the authoritative mode, phase, verification status, Plan, step queue and cursor, signatures, and both worktrees' branch, path, HEAD, cleanliness and ahead count. |
 
-Duo Core enforces these gates rather than trusting the model: Fast rejects `duo_set_plan`, and a Tony `duo_set_status` in Fast is rejected with guidance to use `duo_set_verification`. The bridge is a thin adapter — Pi events become Duo activity, Pi tools become Duo requests, Duo messages become Pi steering. It deliberately holds no project truth of its own.
+Duo Core enforces these gates rather than trusting the model: Fast rejects `duo_set_plan`, and a Tony `duo_set_status` in Fast is rejected with guidance to use `duo_set_verification`. The bridge registers all tools in every mode and holds no project truth of its own, because either agent can switch modes without restarting. Pi events become Duo activity, Pi tools become Duo requests, and Duo messages become Pi steering.
 
 ## Terminal UI
 
-Duo's main view is one conversation **timeline**: a single chronological stream in which each message appears on its speaker's own side — Austin, the human and Duo system lines on the left, Tony's pushed to the right — under a `Sender → Receiver` header. Headers are coloured by speaker: a message addressed to the human is bold in the speaker's own colour, while agent-to-agent and system headers stay dim. System notices, harness notes, errors and verdicts are labeled the same way (`Duo → Human`, `Duo → Tony`, …), never with a bare speaker name. Both speakers share the same bubble width (about three quarters of the row), so the side a block sits on, not a heavier header, tells you who is speaking; a Tony message that fits on one line hugs the right edge, while a wrapped one is left-anchored at its indent. The top border row names the Git repository Duo resolved (never the launch directory), so the target of the session is visible without opening Help. Human tasks, peer messages, verifier verdicts and Duo system messages are interleaved in arrival order, and the current mode, phase, verification/Plan state and transient feedback stay below the timeline.
+Duo has two terminal frontends over the same core. The **Legacy TUI** is the default: `duo` and `duo --ui=legacy` open it. The opt-in **gotui dashboard** (`duo --ui=gotui`) adds a split workflow/agent layout and a toggleable timeline; see the [gotui frontend guide](./docs/gotui.md) for its architecture, layout, captures and comparison. Both share the composer, slash commands, model picker, clipboard, native attach and resumed session history, but a few navigation keys and modal behaviours differ; each frontend has its own key reference below.
+
+### Legacy TUI (default)
+
+The Legacy TUI's main view is one conversation **timeline**: a single chronological stream in which each message appears on its speaker's own side — Austin, the human and Duo system lines on the left, Tony's pushed to the right — under a `Sender → Receiver` header. Headers are coloured by speaker: a message addressed to the human is bold in the speaker's own colour, while agent-to-agent and system headers stay dim. System notices, harness notes, errors and verdicts are labeled the same way (`Duo → Human`, `Duo → Tony`, …), never with a bare speaker name. Both speakers share the same bubble width (about three quarters of the row), so the side a block sits on, not a heavier header, tells you who is speaking; a Tony message that fits on one line hugs the right edge, while a wrapped one is left-anchored at its indent. The top border row names the Git repository Duo resolved (never the launch directory), so the target of the session is visible without opening Help. Human tasks, peer messages, verifier verdicts and Duo system messages are interleaved in arrival order, and the current mode, phase, verification/Plan state and transient feedback stay below the timeline.
 
 A build can take a long time, and the timeline only changes when an agent finishes a message. Below it Duo therefore keeps a **work preview** for each agent. Its header names the agent, its driver, its animated state and how long the current turn has been running (`Austin preview (agy) · working · 5s`, `Tony preview (pi) · idle`) — the state spinner and the `[↗]` attach button live here now; the rows below show what it is doing *now* (the running tool and how long it has been running, or the model and thinking level it is thinking with), the turn's recent tool trail with ✓/✗ and durations, the turn's last error, and the tail of the text being streamed. A failed tool or a provider error is visible there immediately, so waiting does not mean guessing. `Ctrl+P` collapses the band when you want the rows back for the timeline; on a short terminal it is hidden automatically.
 
+**Legacy keyboard shortcuts**
+
 | Key | Action |
 |---|---|
-| `Enter` | Send composer text to Austin in Fast, or both agents in Goal |
+| `Enter` | Send composer text to Austin in Fast, or both agents in Goal and Step |
 | `Ctrl+Enter` / `Shift+Enter`\* | Insert a newline in the composer |
 | `Ctrl+A` | Attach to Austin's own agent session directly |
 | `Ctrl+T` | Attach to Tony's own agent session directly |
@@ -167,18 +174,66 @@ Each timeline message header carries its `HH:MM:SS` time by default (`Austin →
 
 The composer holds multiple lines and shows up to four at a time. Native attach is a fullscreen takeover: inside Pi, `/model`, `/settings`, `/tree` and all Pi shortcuts belong to Pi.
 
+### gotui dashboard
+
+Select the dashboard for one invocation with `duo --ui=gotui`, `duo --ui gotui`, or `duo resume --ui=gotui`. The default is unchanged: plain `duo` and `duo --ui=legacy` run the Legacy TUI.
+
+The gotui frontend opens in a **split dashboard**: a workflow sidebar with the phase chain, verification/delivery state, worktrees and two agent cards; Austin and Tony in side-by-side transcripts; and a Duo/Human conversation pane below. `F2`, the `Split` / `Timeline` tabs, or a click on either tab switches to the single chronological timeline.
+
+**gotui keyboard shortcuts**
+
+| Key | Action |
+|---|---|
+| `Enter` | Send composer text to Austin in Fast, or both agents in Goal and Step |
+| `Ctrl+Enter` / `Shift+Enter`\* | Insert a newline in the composer |
+| `F2` / click the `Split` or `Timeline` tab | Switch between the split dashboard and the single timeline |
+| `Ctrl+P` | Show or hide the workflow sidebar |
+| `F1` / `Ctrl+/` / `Alt+H` | Open Help |
+| `Ctrl+O` / `Alt+O` | Open session details and the Git diffstat |
+| `Ctrl+M` / `Alt+M` | Open the model and thinking picker |
+| `Ctrl+G` | Toggle message timestamps |
+| `Ctrl+A` / `Alt+A` | Attach to Austin's own agent session |
+| `Ctrl+T` / `Alt+T` | Attach to Tony's own agent session |
+| `Ctrl+]` / `Ctrl+\` / `Ctrl+】` | Detach from the agent's own session back to gotui |
+| `Ctrl+R` / `Ctrl+Y` | Restart Austin / Tony if exited or failed |
+| `Ctrl+X` | Copy Austin's latest message to the human to the clipboard |
+| `Shift+Tab` | Cycle the target agent's thinking level |
+| `Ctrl+Q` / `Ctrl+D` | Quit Duo and preserve the session |
+| `←` / `→`, `Alt+←` / `Alt+→` | Move the composer cursor by character or word |
+| `Home` / `End` | Move to the start or end of the composer line |
+| `Ctrl+U` / `Ctrl+K`, `Ctrl+W` | Delete to line start/end, or delete the previous word |
+| `Backspace` / `Del` | Delete the preceding or following composer character |
+| `↑` / `↓` | Move between composer lines; recall task history at the first/last line |
+| `Tab` | Insert four spaces, or autocomplete the highlighted slash command |
+| `PgUp` / `PgDn` | Scroll the active conversation pane (or an open modal) |
+| Mouse wheel / drag | Scroll the pane under the pointer, or select and copy transcript text |
+| `Esc` | Close an overlay, dismiss the slash menu, or clear a selection/status |
+
+**Differences from Legacy**
+
+- `Ctrl+P` toggles the gotui **workflow sidebar**; in Legacy it toggles the Austin/Tony work-preview band.
+- `Ctrl+O` opens a centered **details modal** in gotui; in Legacy it switches the main view to the session overview.
+- Help opens with `F1`, `Ctrl+/` or `Alt+H` in gotui. It is a scrollable modal: use `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End`, and close with `Esc`. Legacy Help is a full-screen view scrolled with `↑`/`k`, `↓`/`j`, `Home`/`g`, `End`/`G` and closed with `Esc` or `Ctrl+/`.
+- The model picker has its own navigation in gotui: `Tab` or `Shift+Tab` switches the target agent, `Ctrl+T` switches between the Models and Thinking tabs, `Enter` applies a model or advances the thinking level, `Space` applies a model without closing, and `Esc` closes. In Legacy, `Shift+Tab` cycles the thinking level directly.
+- gotui has no Legacy work-preview band, so there is no `[↗]` header to click. Use `Ctrl+A` / `Ctrl+T` (or `Alt+A` / `Alt+T`) to attach.
+- **Not available in gotui:** `j`/`k`/`g`/`G` Help scrolling; `Ctrl+/` as a Help close key; and `Shift+Tab` as the thinking shortcut inside the model picker (there it switches agent).
+
+The layout responds to the terminal: the workflow sidebar needs at least 104 columns, the split view needs a 72-column by 16-row main pane, and narrower terminals fall back to the timeline. The sidebar phase chain wraps when it does not fit, and the footer uses compact hints below 80 columns. A resumed session starts with its restored conversation; the startup banner is only added to a new session.
+
+The deterministic tcell captures in the [gotui guide](./docs/gotui.md#captures) show the dashboard, timeline, slash palette, help, details, model picker, confirmation dialog and a narrow terminal.
+
 ### Slash Commands
 
 Typing `/` in the composer opens an interactive command palette showing available slash commands and descriptions. Use `↑` / `↓` to cycle through selections, `Tab` to autocomplete the command name, `Enter` to select (which executes immediate commands or fills in the command prefix for commands that take arguments), and `Esc` to dismiss the menu.
 
 | Command | Description |
 |---|---|
-| `/escalate [reason]` | Dynamically upgrade the current Fast mode session to Goal mode |
+| `/escalate [reason]` | Switch the current session to Goal mode (shorthand for `/mode goal`) |
 | `/mode` | Print the current session mode |
-| `/mode goal` | Upgrade the session to Goal mode; `/mode fast` is rejected, a session never returns to Fast |
+| `/mode fast\|goal\|step` | Switch the session mode. A running round resets to the new mode's first phase; switching in `DONE` applies the mode to the next task |
 | `/model` | Open the model and thinking level picker (`Ctrl+M`) |
 | `/overview` | Toggle the session overview and git diffstat (`Ctrl+O`) |
-| `/preview` | Toggle the agent work preview band (`Ctrl+P`) |
+| `/preview` | Toggle the Legacy agent work preview band or the gotui workflow sidebar (`Ctrl+P`) |
 | `/timestamps` | Toggle timeline message timestamps (`Ctrl+G`) |
 | `/copy` | Copy Austin's latest message to the human to the clipboard (`Ctrl+X`) |
 | `/help` | Open the full Duo interactive help screen (`Ctrl+/`) |
@@ -186,11 +241,11 @@ Typing `/` in the composer opens an interactive command palette showing availabl
 | `/clear` | The composer only holds this command, so it is already empty; Duo forces a full redraw and says so |
 | `/quit` or `/exit` | Exit Duo and preserve session state |
 
-An unknown command is reported as an error. `//text` and an absolute path (e.g. `/usr/bin/python`) are sent as a task (Austin in Fast; both agents in Goal).
+An unknown command is reported as an error. `//text` and an absolute path (e.g. `/usr/bin/python`) are sent as a task (Austin in Fast; both agents in Goal and Step).
 
 Submitted tasks are appended to `~/.duo/history` (override with `DUO_HISTORY_FILE`), so `↑`/`↓` recall survives restarting or resuming Duo.
 
-The model picker (`Ctrl+M`) lists the catalog the *target's own driver* reports for the very installation Duo launched (`pi --list-models`, `agy models`, `opencode models`), so Austin and Tony can sit on different catalogs in the same session. Type to filter, move with `↑`/`↓` (or `PgUp`/`PgDn`, `Home`/`End`), switch the target between Austin and Tony with `Tab`, cycle that agent's thinking level with `Shift+Tab`, and apply the model with `Enter` (apply and close) or `Space` (apply and keep the picker open, so a model and a thinking level can be set in one visit). On `pi` the switch is live: Pi keeps the conversation and records both the model and the thinking level in the session transcript, so a restart or resume (`Ctrl+R`/`Ctrl+Y`) keeps the choice. `agy` and `opencode` take model and effort as startup flags, so Duo restarts that agent instead — the conversation survives, because the session id is persisted, but in-flight work is interrupted. `▶` marks the picker cursor and `●` the target's current model.
+The model picker (`Ctrl+M`) lists the catalog the *target's own driver* reports for the very installation Duo launched (`pi --list-models`, `agy models`, `opencode models`), so Austin and Tony can sit on different catalogs in the same session. Type to filter, and move with `↑`/`↓` (or `PgUp`/`PgDn`, `Home`/`End`). In Legacy, switch the target between Austin and Tony with `Tab`, cycle that agent's thinking level with `Shift+Tab`, and apply the model with `Enter` (apply and close) or `Space` (apply and keep the picker open, so a model and a thinking level can be set in one visit). In gotui, `Tab` or `Shift+Tab` switches the target, `Ctrl+T` switches between the Models and Thinking tabs, `Enter` applies a model or advances the thinking level, `Space` applies a model without closing, and `Esc` closes the picker. On `pi` the switch is live: Pi keeps the conversation and records both the model and the thinking level in the session transcript, so a restart or resume (`Ctrl+R`/`Ctrl+Y`) keeps the choice. `agy` and `opencode` apply model and effort when the agent starts, so Duo restarts that agent instead — the conversation survives, because the session id is persisted, but in-flight work is interrupted. `▶` marks the picker cursor and `●` the target's current model.
 
 Agent output is rendered as lightweight markdown: headings, blockquotes, links and bold/italic/code spans are styled, and markdown tables are drawn with real, aligned borders. A table wider than the timeline is narrowed by wrapping the widest cells instead of truncating them, and a wrapped list keeps a hanging indent so continuation lines stay under the item text.
 
@@ -198,7 +253,7 @@ Mouse selection copies through terminal OSC 52 escape sequences (works seamlessl
 
 \* A newline is inserted only when the terminal reports the combination distinctly (`\x1b[13;2u` CSI-u or `\x1b[27;2;13~` modifyOtherKeys, which Duo enables). Terminals that send a bare `\r` for `Shift+Enter` will **submit** instead — use `Ctrl+Enter`, which arrives as `\n`, if `Shift+Enter` submits in your terminal. The same limit applies to `Ctrl+M`: it is reported as the `m` key with Ctrl (`\x1b[27;5;109~` or `\x1b[109;5u`) only on terminals that honor those modes, and on the others it is indistinguishable from `Enter` — use `Alt+M` there.
 
-Help is a full alternate-screen view; scroll it with `↑`/`k`, `↓`/`j`, `PgUp`, `PgDn`, `Home`/`g`, `End`/`G`, and close it with `Esc` or `Ctrl+/`. It covers the keybindings, the slash commands and the model picker above, plus a **Command Line** section listing every `duo` subcommand and flag; run `duo --help` for the full usage, every environment variable and each command's own detail.
+In Legacy, Help is a full alternate-screen view; scroll it with `↑`/`k`, `↓`/`j`, `PgUp`, `PgDn`, `Home`/`g`, `End`/`G`, and close it with `Esc` or `Ctrl+/`. Legacy Help covers the keybindings, slash commands and the model picker above, plus a **Command Line** section listing every `duo` subcommand and flag. In gotui, `F1`, `Ctrl+/` or `Alt+H` opens a Help modal; scroll with `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End` and close with `Esc`; it is a compact dashboard key and workflow reference. Run `duo --help` for the full usage, every environment variable and each command's own detail.
 
 ## Configuration
 
@@ -206,7 +261,7 @@ Everything has a working default; `duo` needs no configuration to run.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `DUO_MODE` | `fast` | Session mode: `fast` or `goal`. A CLI `--mode`/`-m` wins; `duo resume` keeps the persisted mode. |
+| `DUO_MODE` | `fast` | Session mode: `fast`, `goal` or `step`. A CLI `--mode`/`-m` wins; `duo resume` keeps the persisted mode. |
 | `DUO_TEST_COMMAND` | (none) | Automated deterministic test command run before verification / delivery (CLI `--test-cmd` / `-t` wins). |
 | `DUO_REPO` | current directory | Repository or subdirectory to launch against. A CLI path argument wins. |
 | `DUO_SESSION` | timestamp + random hex | Session id, formatted `YYYYMMDD-HHMMSS-xxxxxxxx`. |
@@ -271,8 +326,9 @@ Two notes specific to `opencode`:
   `duo resume` after a crash — passes `--session <id>` so the agent keeps its
   conversation.
 - **The model is yours to choose.** Duo does not inject a default model for
-  opencode; it uses whatever your opencode config or catalog already resolves,
-  and `--variant` carries a configured reasoning effort.
+  opencode; it uses whatever your opencode config or catalog already resolves.
+  A model picked in Duo is passed at startup through opencode's config
+  environment, because its TUI has no `--model` flag.
 
 Codex is available as `--agent codex` or per agent with `--austin-driver codex`
 and `--tony-driver codex`. Duo passes model and reasoning selections to the Codex
@@ -352,8 +408,9 @@ You can persist settings globally in `~/.duo/config.json` or per-repository in `
 
 `agents.<name>.command` overrides the launch command and `agents.<name>.driver`
 the driver for one agent only; the top-level `driver` and `piCommand` set the
-defaults both agents start from. Duo appends `--model` and the thinking flag
-(`--variant` for opencode) unless the command already carries them.
+defaults both agents start from. Duo passes the selected model and thinking level
+to the driver unless the command already carries them; opencode receives the
+model through its config environment because its TUI has no `--model` flag.
 
 Precedence: explicit CLI flags (`--mode`, `--language`, `--test-cmd`, `--agent`/`--austin-driver`/`--tony-driver`) > environment variables (`DUO_*`) > repository `.duo/config.json` > global `~/.duo/config.json` > built-in defaults. Set `language` to `zh` or `en`; `duo --language zh` (or `duo -l zh`) overrides the file. This changes Duo-authored messages to agents and the human, not the TUI labels.
 
@@ -467,17 +524,26 @@ The remaining commands do not touch sessions: `duo plugins` lists the built-in d
 
 ## Limits that affect use
 
-Duo supports two fixed roles, Austin and Tony. Fast can escalate to Goal but cannot return to Fast. A session cannot recover agent reasoning, and Duo Core does not restart itself after a crash; run `duo resume`. Session data is local to the machine and repository path. The shell scripts target macOS/Linux. Delivery safety and local TCP trust boundaries are described in [architecture](./docs/architecture.md) and [SECURITY.md](./SECURITY.md).
+Duo supports two fixed roles, Austin and Tony. Fast can escalate to Goal but cannot return to Fast. A session cannot recover agent reasoning, and Duo Core does not restart itself after a crash; run `duo resume`. Session data is local to the machine and repository path. The shell scripts target macOS/Linux. The gotui frontend is opt-in and needs a terminal large enough for its split dashboard; smaller terminals fall back to its timeline view. Delivery safety and local TCP trust boundaries are described in [architecture](./docs/architecture.md) and [SECURITY.md](./SECURITY.md).
 
 ## Development
 
 `make check` runs Go tests, vet and command builds. If you change the Pi bridge,
-also run `cd pi-extension && bun test`. Pushing a `v*` tag runs release validation
-and publishes macOS/Linux archives for amd64/arm64.
+also run `cd pi-extension && bun test`. The gotui frontend additionally has a
+deterministic SimulationScreen capture test; regenerate its committed frames with:
+
+```bash
+DUO_GOTUI_CAPTURE_DIR="$PWD/docs/gotui/screens" \
+  go test ./internal/gotui -run TestCaptureFrames -count=1
+```
+
+Pushing a `v*` tag runs release validation and publishes macOS/Linux archives for
+amd64/arm64.
 
 ## Documentation
 
 - [Architecture and invariants](./docs/architecture.md)
+- [gotui terminal frontend](./docs/gotui.md)
 - [Driver plugin protocol](./docs/driver-plugin-protocol.md) and [development guide](./docs/plugin-development-guide.md)
 - [Bridge protocol](./docs/duo-bridge-protocol.md)
 - [Security boundaries](./SECURITY.md)

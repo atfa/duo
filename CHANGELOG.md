@@ -4,6 +4,27 @@ All notable project milestones are documented here.
 
 ## v0.12.2 — unreleased
 
+### Runtime mode switching and per-step policies
+
+- Fast, Goal and Step can now be switched at any time with `/mode fast|goal|step`
+  or `duo_escalate`, without restarting either agent. A switch resets the current
+  plan, queue, phase and signatures; switching while `DONE` changes the mode of
+  the next task without reopening the finished round. Fast → Goal keeps the
+  historical escalation-seeded plan.
+- Step is now a meta-workflow: each queue item is tagged `[fast]` or `[goal]`.
+  A Fast item has Austin implement and Tony verify; a Goal item runs the full
+  dual-agent EXECUTE/REVIEW/INTEGRATE chain. Untagged items default to Fast, the
+  queue is always dual-approved in PLAN, and the final item always needs both
+  signatures.
+- Both adapters register every Duo tool in every mode and read the live mode
+  from Duo Core, so a switch changes the next prompt without a process restart.
+  The harness acknowledges every submitted task as soon as required sends
+  succeed, and the opencode context hook removes the interactive `question` tool
+  so an unattended Duo session cannot stall on a human prompt.
+- Step phase and resume prompts now explain the current item's policy, and the
+  TUI help, slash palette, README and gotui captures reflect the three
+  switchable modes.
+
 ### Session selection and xduo inspection
 
 - `duo resume` now offers a numbered choice when several inactive unfinished

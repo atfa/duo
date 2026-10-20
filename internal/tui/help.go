@@ -110,18 +110,18 @@ func (a *App) helpLines(width int) []string {
 	if a.live.EffectiveMode() == project.ModeStep {
 		quickStart = []string{
 			"1. Type the complex task in the Duo composer and press Enter.",
-			"2. Austin and Tony co-design the step queue: Austin publishes it with duo_set_steps, the prose design with duo_set_plan.",
+			"2. Austin and Tony co-design the step queue with duo_set_steps and the prose design with duo_set_plan; tag each item [fast] or [goal].",
 			"3. Both sign the queue with duo_set_status ready=true. Duo then runs one step at a time.",
-			"4. Per step: Austin implements and commits it, Tony verifies that exact HEAD with duo_set_verification.",
-			"5. A passed verification lands the step on the original branch and Duo advances the queue. issue_found returns the step to EXECUTE.",
-			"6. On the last step both agents sign INTEGRATE, and Duo marks DONE.",
+			"4. [fast] step: Austin implements and commits it, Tony verifies that exact HEAD with duo_set_verification.",
+			"5. [goal] step: both implement and sign EXECUTE, cross-review and sign REVIEW, then Duo merges and both sign INTEGRATE.",
+			"6. A landed step advances the queue; the last step always needs both agents' signatures before DONE.",
 		}
 		lifecycle = []string{
 			"PLAN → (per step: EXECUTE → REVIEW → INTEGRATE → land the step) → DONE (Step mode)",
-			"PLAN: both agents approve the step queue; it is the contract of the session.",
-			"EXECUTE: Austin implements exactly the current step and puts his HEAD up for review.",
-			"REVIEW: Tony verifies that exact HEAD; passed lands the step, issue_found returns it.",
-			"INTEGRATE: Duo lands the step on the original branch, syncs Tony's worktree and advances the queue.",
+			"PLAN: both agents approve the queue and choose FAST or GOAL for each step.",
+			"EXECUTE: fast → Austin implements; goal → both agents implement and sign.",
+			"REVIEW: fast → Tony verifies one exact HEAD; goal → both cross-review and sign.",
+			"INTEGRATE: fast → Duo lands the verified step; goal → Duo merges Tony's branch and both sign the integrated HEAD.",
 			"DONE: every step has landed and both agents signed the final one.",
 		}
 	}
@@ -151,8 +151,8 @@ func (a *App) helpLines(width int) []string {
 		{"Mode", []string{
 			"FAST (default): Austin drives, Tony independently verifies. No shared plan, no dual sign-off.",
 			"GOAL (duo --mode goal): shared plan + independent work + cross-review + dual sign-off.",
-			"STEP (duo --mode step): Goal's chain once per step of a queue, landing each step. The queue is dual-approved; each step is gated by Tony's verification of one exact HEAD.",
-			"Escalate FAST to GOAL on the fly: type /escalate [reason] or /mode goal in the composer, or agents call duo_escalate.",
+			"STEP (duo --mode step): plan a dual-approved queue first, then run each step as FAST or GOAL. A FAST step has Austin implement and Tony verify; a GOAL step has both implement, cross-review and sign.",
+			"Switch at any time: /mode fast|goal|step in the composer, or /escalate [reason] / duo_escalate for Goal. The current round resets to the new mode's first phase; switching while DONE applies the mode to the next task.",
 			"duo resume always uses the persisted mode.",
 		}},
 		{"Keyboard", helpKeyboardLines()},
@@ -160,9 +160,9 @@ func (a *App) helpLines(width int) []string {
 		{"Slash Commands", []string{
 			"Type / in the composer to open the interactive command palette.",
 			"Navigate with ↑/↓, Tab to autocomplete, Enter to select/execute, Esc to dismiss.",
-			"/escalate [reason]  Dynamically upgrade a Fast session to Goal mode.",
+			"/escalate [reason]  Switch the session to Goal mode (shorthand for /mode goal).",
 			"/mode                Print the current session mode.",
-			"/mode goal           Upgrade the session to Goal mode; /mode fast is rejected, a session never returns to Fast.",
+			"/mode fast|goal|step  Switch the session mode. The current round restarts under the new mode's gates.",
 			"/model               Open the model and thinking level picker (Ctrl+M).",
 			"/language [zh|en]    Set Duo language for this repository, saved to .duo/config.json; without an argument it reports the current language.",
 			"/overview            Toggle the session overview and git diffstat (Ctrl+O).",
@@ -173,7 +173,7 @@ func (a *App) helpLines(width int) []string {
 			"/status              Print authoritative session and worktree status.",
 			"/clear               The composer only holds this command, so it is already empty; Duo forces a full redraw and says so.",
 			"/quit or /exit       Exit Duo and preserve session state.",
-			"An unknown command is reported as an error. //text and an absolute path (e.g. /usr/bin/python) are sent as a task (Austin in Fast; both agents in Goal).",
+			"An unknown command is reported as an error. //text and an absolute path (e.g. /usr/bin/python) are sent as a task (Austin in Fast; both agents in Goal and Step).",
 			"Composer history is persisted to ~/.duo/history (override with DUO_HISTORY_FILE) and is recalled with ↑/↓ at the first/last line.",
 			"Ctrl+Shift+Enter and Ctrl+M need a terminal that reports them distinctly (CSI-u or modifyOtherKeys); use Ctrl+Enter and Alt+M elsewhere.",
 		}},
@@ -201,7 +201,7 @@ func (a *App) helpLines(width int) []string {
 			"Scope is a default working directory, not a filesystem sandbox.",
 		}},
 		{"Agent Status", []string{
-			"The main view is one conversation timeline: Austin's messages on the left, Tony's on the right, under a top row that leads with the workflow mode — `[FAST]` or `[GOAL]` in bold — and then names the Git repository Duo resolved. The frame lines are tinted by mode, cyan for Fast and magenta for Goal. Every message header names a direction — for example `Austin → Human`, `Austin → Tony` or `Duo → Tony` — in the speaker's own colour, with messages addressed to the human highlighted in bold. Each agent's connection, process and working state, with the animated spinner and the attach button, live in that agent's work preview header; Duo phase, plan, and transient feedback stay below the timeline.",
+			"The main view is one conversation timeline: Austin's messages on the left, Tony's on the right, under a top row that leads with the workflow mode — `[FAST]`, `[GOAL]` or `[STEP]` in bold — and then names the Git repository Duo resolved. Every message header names a direction — for example `Austin → Human`, `Austin → Tony` or `Duo → Tony` — in the speaker's own colour, with messages addressed to the human highlighted in bold. Each agent's connection, process and working state, with the animated spinner and the attach button, live in that agent's work preview header; Duo phase, plan, and transient feedback stay below the timeline.",
 		}},
 	}
 	var out []string

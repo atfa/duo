@@ -482,8 +482,20 @@ func TestFastModeEscalateViaComposer(t *testing.T) {
 		t.Fatalf("expected PhasePlan, got %s", snap.Phase)
 	}
 
-	// Attempting /mode fast must be rejected
-	if err := coord.SubmitUserTask(ctx, "/mode fast"); err == nil {
-		t.Fatal("expected error when attempting to switch from Goal to Fast")
+	// A later /mode fast switches the same live session back to Fast. The
+	// unfinished Goal plan and its approvals belong to the previous mode, so the
+	// new round starts in RUNNING with no plan or queue inherited.
+	if err := coord.SubmitUserTask(ctx, "/mode fast"); err != nil {
+		t.Fatalf("/mode fast failed: %v", err)
+	}
+	snap = state.Snapshot()
+	if snap.EffectiveMode() != project.ModeFast {
+		t.Fatalf("expected ModeFast, got %s", snap.EffectiveMode())
+	}
+	if snap.Phase != project.PhaseRunning {
+		t.Fatalf("expected PhaseRunning after switching to Fast, got %s", snap.Phase)
+	}
+	if snap.Plan != "" || snap.PlanVersion != 0 || len(snap.Steps) != 0 {
+		t.Fatalf("mode switch kept previous plan/queue: plan=%q version=%d steps=%d", snap.Plan, snap.PlanVersion, len(snap.Steps))
 	}
 }

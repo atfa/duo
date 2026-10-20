@@ -24,14 +24,14 @@ Everything else should remain flexible enough for the models to collaborate natu
 
 | Area | Owns | Boundary to preserve |
 |---|---|---|
-| `internal/project` | Mode, phase, Plan (Goal), step queue (Step), verification (Fast, and the Step per-step gate), signatures and evidence | The authoritative state machine; UI and adapters do not keep competing copies. |
+| `internal/project` | Mode, phase, Plan (Goal), step queue and per-step policy (Step), verification (Fast and Step `[fast]`), signatures and evidence | The authoritative state machine; UI and adapters do not keep competing copies. A runtime mode switch resets the round's plan, queue, phase and signatures. |
 | `internal/coordinator` | Wire requests, gates, phase transitions, peer routing and notices | Apply mode policy once and validate claims against Git evidence. |
 | `internal/transport`, `internal/protocol`, `internal/mcp` | Local bridge messages, stable identities and stdio MCP transport | Transport carries requests; it does not own workflow policy. |
 | `internal/driver`, `plugins/`, `internal/agent` | Plugin contract/discovery, per-agent CLI behavior and process/PTY lifecycle | Core has no driver-name branches; plugins own CLI flags, identity and capabilities. |
 | `internal/models` | A driver's model catalog and how a reported reference is spelled | The catalog arrives over the plugin protocol; Core never builds a catalog command of its own, and a driver without one is reported rather than guessed at. |
-| `internal/workspace` | Isolated worktrees, commit evidence, Goal integration and the Step verifier sync | Austin and Tony never edit the same worktree; conflicts remain visible for resolution. |
+| `internal/workspace` | Isolated worktrees, commit evidence, Goal integration and the Step `[goal]` merge plus verifier sync | Austin and Tony never edit the same worktree; conflicts remain visible for resolution. |
 | `internal/recovery`, `internal/sessionstore` | Snapshot reconciliation, journal, transcript replay and session lock | Revoke unverifiable approvals before agents start; never discard user files or rewrite user history. |
-| `internal/delivery` | Read-only safety decision and final handoff, repeated once per landed Step step | Move only the recorded branch by a provably safe fast-forward; otherwise refuse without changing the checkout. |
+| `internal/delivery` | Read-only safety decision and final handoff, repeated once per landed Step | Move only the recorded branch by a provably safe fast-forward; otherwise refuse without changing the checkout. |
 | `internal/harness`, `internal/events` | Runtime activity tracking, nudges and event fan-out | Harness observes runtime state; events are non-blocking and do not become project state. |
 | `internal/session` | The composition root, session lock, agent bridge, lifecycle observer and delivery handoff, behind `Options`, `View`, `Command` and `Subscribe` | Every frontend drives a session only through this seam; a frontend that re-implements part of it will disagree with the others. |
 | `internal/tui` | Input, rendering, help and timeline | A projection of project state, never another source of truth. It depends on the `session.Session` interface and holds no core handle; a parser check in the package enforces both. |
@@ -75,16 +75,18 @@ The phase determines what evidence is required to advance:
 |---|---|
 | RUNNING (Fast) | a clean committed Austin HEAD; `duo_set_status ready=true` |
 | VERIFY (Fast) | Tony's `passed` or `issue_found` + note for that exact Austin HEAD |
-| PLAN (Goal) | both approve the same Plan version |
-| EXECUTE (Goal) | clean commit artifact for each agent |
-| REVIEW (Goal) | each approves the exact peer HEAD reviewed |
-| INTEGRATE (Goal) | both approve the same clean integrated Austin HEAD |
+| PLAN (Goal / Step) | both approve the same Plan or step-queue version |
+| EXECUTE (Goal; Step `[goal]`) | clean commit artifact for each agent, both signatures |
+| REVIEW (Goal; Step `[goal]`) | each approves the exact peer HEAD reviewed |
+| INTEGRATE (Goal; Step `[goal]`) | both approve the same clean integrated Austin HEAD |
+| EXECUTE → REVIEW (Step `[fast]`) | clean committed Austin HEAD, then Tony's verdict for that exact HEAD |
+| INTEGRATE (Step `[fast]`) | Duo lands the verified step; the final step needs both signatures |
 
 This keeps coordination deterministic without making agent behavior rigid.
 
 ## Integration and delivery boundary
 
-Integration **inside** Duo is intentionally asymmetric: Austin is the integration worktree, and Duo merges Tony into Austin after REVIEW. Conflicts stay visible in Austin's worktree for the agents or human to resolve; the core does not guess at a resolution. Fast has no integration step by design: Tony is read-only, so Austin's branch is already the deliverable and only Austin's HEAD is ever delivered.
+Integration **inside** Duo is intentionally asymmetric: Austin is the integration worktree, and Duo merges Tony into Austin after REVIEW. This applies to Goal and to a Step `[goal]` step; a Step `[fast]` step has no merge. Conflicts stay visible in Austin's worktree for the agents or human to resolve; the core does not guess at a resolution. Fast has no integration step by design: Tony is read-only, so Austin's branch is already the deliverable and only Austin's HEAD is ever delivered.
 
 The handoff **back to the human** is deliberately narrower than a merge. Once the artifact is approved — both agents sign INTEGRATE in Goal, or Tony's verification passes in Fast — Duo fast-forwards only the branch it recorded when the session started, and only to the final result. It never creates a merge commit, never rebases, and never rewrites history in the user's repository.
 
@@ -104,8 +106,8 @@ Two properties make this safe to automate:
 
 So the boundary is not "Duo never moves your branch". It is: **Duo only ever moves the recorded branch forward, by an amount Git itself proves to be lossless, and refuses rather than guesses.** When it refuses, the human finishes the handoff from the printed final HEAD with `git merge --no-ff <final-head>` and re-runs `duo apply`, which then recognizes the result as already applied. A cherry-pick does not work here: it leaves the final HEAD out of the branch's history, so `duo apply` refuses again until the histories are merged.
 
-This integration strategy is fixed: Austin is the integration worktree in Goal, and
-Fast delivers Austin's verified commit directly.
+This integration strategy is fixed: Austin is the integration worktree in Goal and
+in a Step `[goal]` step, while Fast and Step `[fast]` deliver Austin's verified commit directly.
 
 ## Driving a session from a frontend
 

@@ -63,6 +63,7 @@ const (
 	MsgSetVerification MessageType = "set_verification"
 	MsgGetStatus       MessageType = "get_status"
 	MsgEscalate        MessageType = "escalate"
+	MsgModeChange      MessageType = "mode_change"
 	MsgResponse        MessageType = "response"
 
 	// MsgSetModel asks a Pi agent to switch its active model (Duo Core → bridge).

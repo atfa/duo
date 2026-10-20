@@ -210,8 +210,9 @@ func stepCursor(snap project.Snapshot) string {
 	return fmt.Sprintf("%d/%d", cursor, total)
 }
 
-// stepSummary names the step under work, so the human can tell which increment is
-// in flight without opening the plan.
+// stepSummary names the step under work and its policy, so the human can tell
+// which increment is in flight and whether it uses the Fast or Goal gate without
+// opening the plan.
 func stepSummary(snap project.Snapshot) string {
 	if len(snap.Steps) == 0 {
 		return "No step queue yet"
@@ -219,9 +220,9 @@ func stepSummary(snap project.Snapshot) string {
 	if snap.Step >= 1 && snap.Step <= len(snap.Steps) {
 		step := snap.Steps[snap.Step-1]
 		if landed := shortHead(step.DeliveryHead); landed != "" {
-			return fmt.Sprintf("Step: %s · landed %s", step.Title, landed)
+			return fmt.Sprintf("Step [%s]: %s · landed %s", strings.ToUpper(step.EffectivePolicy().String()), step.Title, landed)
 		}
-		return "Step: " + step.Title
+		return fmt.Sprintf("Step [%s]: %s", strings.ToUpper(step.EffectivePolicy().String()), step.Title)
 	}
 	return fmt.Sprintf("Queue complete: %d step(s) landed", len(snap.Steps))
 }
@@ -241,9 +242,9 @@ func (a *App) writeFrameTail(b *strings.Builder, w int, composer composerLayout)
 			second += " — " + strings.ReplaceAll(note, "\n", " ")
 		}
 	} else if snap.EffectiveMode() == project.ModeStep {
-		// STEP is the Goal chain per queue step, so the operator needs the cursor
-		// and the current step's title, not the plan prose: the plan is stable for
-		// the whole session and the step is what is happening now.
+		// STEP is a per-item Fast/Goal chain, so the operator needs the cursor,
+		// the current step's policy and its title, not the plan prose: the plan is
+		// stable for the whole session and the step is what is happening now.
 		readyA, readyT := "○", "○"
 		if snap.Ready[protocol.Austin] {
 			readyA = "✓"

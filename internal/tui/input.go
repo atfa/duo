@@ -102,6 +102,8 @@ type inputAction struct {
 
 func (a *App) handleByte(b byte) inputAction {
 	if len(a.escBuf) > 0 || b == 0x1b {
+		// An escape sequence or key interrupts any incomplete UTF-8 rune.
+		a.inputUTF8 = nil
 		a.escBuf = append(a.escBuf, b)
 		if bytes.HasPrefix(a.escBuf, []byte(bracketedPasteStart)) {
 			if bytes.HasSuffix(a.escBuf, []byte(bracketedPasteEnd)) {
@@ -167,6 +169,26 @@ func (a *App) handleByte(b byte) inputAction {
 		}
 		return inputAction{}
 	}
+	if b >= utf8.RuneSelf {
+		a.inputUTF8 = append(a.inputUTF8, b)
+		if !utf8.FullRune(a.inputUTF8) {
+			return inputAction{}
+		}
+		r, size := utf8.DecodeRune(a.inputUTF8)
+		if r == utf8.RuneError && size == 1 {
+			// There is no rune boundary to preserve. Replace the malformed
+			// prefix so Backspace can still delete one visible character.
+			a.inputUTF8 = nil
+			return a.handleKey(string(utf8.RuneError))
+		}
+		a.inputUTF8 = a.inputUTF8[size:]
+		if len(a.inputUTF8) == 0 {
+			a.inputUTF8 = nil
+		}
+		return a.handleKey(string(r))
+	}
+	// An ASCII key interrupted an incomplete rune; drop the malformed prefix.
+	a.inputUTF8 = nil
 	return a.handleKey(keyForByte(b))
 }
 
@@ -474,7 +496,8 @@ func (a *App) handleKey(key string) inputAction {
 			a.clampSlashCursor()
 		}
 	default:
-		if (len(key) == 1 && key[0] >= 32) || (len(key) == 1 && key[0] >= 0x80) {
+		r, size := utf8.DecodeRuneInString(key)
+		if key != "" && size == len(key) && r >= ' ' && r != 0x7f {
 			a.slashDismissed = false
 			a.insertInput(key)
 			a.setStatus("", false)

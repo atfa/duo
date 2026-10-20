@@ -104,6 +104,7 @@ Core sends these. The ones that matter for an Agent Adapter:
 | `duo_notice` | Duo has something to say. |
 | `harness_prompt` | Duo's watchdog noticed you are idle. |
 | `resume_prompt` | this session was resumed; re-read the current state. |
+| `mode_change` | Duo switched Fast/Goal/Step; update the prompt mode and deliver any text. |
 | `set_model` | switch model. Only sent when you declared `liveModelSwitch`. |
 | `cycle_thinking` | advance reasoning effort. Only sent when you declared `liveThinkingSwitch`. |
 | `get_status` | answer with the shared plan and phase (`duo_status`). |
@@ -170,12 +171,12 @@ same socket, and `internal/mcp` implements them:
 
 | call | purpose |
 |---|---|
-| `duo_set_plan` | publish the shared plan (Goal mode) |
+| `duo_set_plan` | publish the shared plan (Goal, or the prose plan in Step) |
 | `duo_status` | read the shared plan, phase and signatures |
-| `duo_set_status` | sign the current phase (Goal) or request verification (Fast) |
-| `duo_set_verification` | publish a Fast-mode verdict |
+| `duo_set_status` | sign the current gate (Goal/Step) or request verification (Fast) |
+| `duo_set_verification` | publish a Fast-mode or Step `[fast]` verdict |
 | `duo_send` | send a message to the peer or the human |
-| `duo_escalate` | upgrade the session from Fast to Goal |
+| `duo_escalate` | switch the session to Goal from any mode |
 
 These six are the whole set today, and they are the same tools Duo exposes over MCP,
 so an adapter can serve them either way.

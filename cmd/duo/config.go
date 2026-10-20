@@ -20,10 +20,18 @@ import (
 	"github.com/atfa/duo/internal/workspace"
 )
 
+const (
+	uiLegacy = "legacy"
+	uiGotUI  = "gotui"
+)
+
 type config struct {
 	listen         string
 	harnessEnabled bool
 	harness        harness.Config
+	// ui selects the terminal frontend. Legacy remains the default; the value is
+	// settled while parsing so an unsupported name cannot start a session.
+	ui string
 
 	repository          string
 	launchDir           string
@@ -177,6 +185,7 @@ type cliArgs struct {
 	mode         string
 	language     string
 	modeExplicit bool
+	ui           string
 	testCommand  string
 	driver       string
 	austinDriver string
@@ -196,7 +205,7 @@ func parseArgs(args []string) (cliArgs, error) {
 			out.help = true
 		case arg == "--mode" || arg == "-m":
 			if i+1 >= len(args) {
-				return out, fmt.Errorf("--mode requires a value (fast or goal)")
+				return out, fmt.Errorf("--mode requires a value (fast, goal or step)")
 			}
 			out.mode = strings.TrimSpace(args[i+1])
 			out.modeExplicit = true
@@ -212,6 +221,22 @@ func parseArgs(args []string) (cliArgs, error) {
 		case strings.HasPrefix(arg, "--mode=") || strings.HasPrefix(arg, "-m="):
 			out.mode = strings.TrimSpace(strings.SplitN(arg, "=", 2)[1])
 			out.modeExplicit = true
+		case arg == "--ui":
+			if i+1 >= len(args) {
+				return out, fmt.Errorf("--ui requires a value (legacy or gotui)")
+			}
+			value, err := parseUI(args[i+1])
+			if err != nil {
+				return out, err
+			}
+			out.ui = value
+			i++
+		case strings.HasPrefix(arg, "--ui="):
+			value, err := parseUI(strings.SplitN(arg, "=", 2)[1])
+			if err != nil {
+				return out, err
+			}
+			out.ui = value
 		case arg == "--test-cmd" || arg == "-t":
 			if i+1 >= len(args) {
 				return out, fmt.Errorf("--test-cmd requires a value (e.g. \"go test ./...\")")
@@ -283,10 +308,10 @@ func resolveNewMode(parsed cliArgs, fileMode ...string) (project.Mode, string, e
 	return project.DefaultMode, "default", nil
 }
 
-// resumeMode decides the mode of a resumed session. Mode is fixed per session,
-// so the persisted mode always wins: an explicit --mode that disagrees is an
-// operator error, while an ambient DUO_MODE is only a warning so an exported
-// environment can never break resume.
+// resumeMode decides the mode of a resumed session. The persisted mode always
+// wins, so an explicit --mode that disagrees is an operator error, while an
+// ambient DUO_MODE is only a warning so an exported environment can never break
+// resume.
 func resumeMode(cfg config, persisted project.Mode, sessionID string, warn func(string)) (project.Mode, error) {
 	return session.ResumeMode(cfg.modeRaw, cfg.modeExplicit, persisted, sessionID, os.Getenv("DUO_MODE"), warn)
 }
@@ -300,16 +325,29 @@ func loadResumeConfig(args []string) (config, error) {
 }
 
 func parseResumeArgs(args []string) (cliArgs, error) {
-	root := ""
-	if len(args) > 1 {
-		root, args = args[1], args[:1]
-	}
 	parsed, err := parseArgs(args)
-	if err == nil {
-		parsed.resume = true
-		parsed.sessionID, parsed.repository = parsed.repository, root
+	if err != nil {
+		return parsed, err
 	}
-	return parsed, err
+	parsed.resume = true
+	// `duo resume [session-id]` has one optional positional argument. parseArgs
+	// stores a positional as the repository because that is what it means for a
+	// new session; here the same token is the session to resume. Parsing the
+	// whole argument list, rather than splitting off one token, lets flags appear
+	// before or after the id.
+	parsed.sessionID, parsed.repository = parsed.repository, ""
+	return parsed, nil
+}
+
+func parseUI(raw string) (string, error) {
+	switch value := strings.ToLower(strings.TrimSpace(raw)); value {
+	case uiLegacy:
+		return uiLegacy, nil
+	case uiGotUI:
+		return uiGotUI, nil
+	default:
+		return "", fmt.Errorf("invalid UI %q: must be legacy or gotui", strings.TrimSpace(raw))
+	}
 }
 
 func loadConfigCommand(args []string, resume bool) (config, error) {
@@ -325,6 +363,10 @@ func loadConfigCommand(args []string, resume bool) (config, error) {
 	}
 	if parsed.help {
 		return config{help: true}, nil
+	}
+	ui := parsed.ui
+	if ui == "" {
+		ui = uiLegacy
 	}
 
 	cwd, _ := os.Getwd()
@@ -504,6 +546,7 @@ func loadConfigCommand(args []string, resume bool) (config, error) {
 		listen:              envString("DUO_LISTEN", "127.0.0.1:0"),
 		harnessEnabled:      harnessEnabled,
 		harness:             harnessConfig,
+		ui:                  ui,
 		repository:          launch,
 		launchDir:           launch,
 		worktreeRoot:        strings.TrimSpace(os.Getenv("DUO_WORKTREE_ROOT")),

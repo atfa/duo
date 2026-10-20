@@ -17,6 +17,10 @@ type Message struct {
 	Plan string `json:"plan,omitempty"`
 	Note string `json:"note,omitempty"`
 
+	// Mode carries the target of a MsgModeChange. The adapters keep their
+	// mode-dependent prompt current without restarting the agent process.
+	Mode string `json:"mode,omitempty"`
+
 	// Steps carries the raw Markdown checkbox list of a Step-mode queue on a
 	// MsgSetSteps. It stays raw text on the wire: parsing lives in one place
 	// (internal/project), so an adapter is a pipe and cannot invent its own syntax.

@@ -42,8 +42,17 @@ export default {
     }
 
     const transport = new DuoTransport(AGENT, host, port, sessionId, token);
-    const mode = parseDuoMode(process.env.DUO_MODE);
-    const tracker = new SessionTracker(process.env.DUO_OPENCODE_SESSION_FILE ?? "");
+    const modeState = { current: parseDuoMode(process.env.DUO_MODE) };
+    // A human or the other agent can switch modes without restarting opencode.
+    // The prompt reads this mutable value on every model request.
+    transport.addHandler((message) => {
+      if (message.type === "mode_change" && message.mode) {
+        modeState.current = parseDuoMode(message.mode);
+      }
+    });
+    const tracker = new SessionTracker(
+      process.env.DUO_OPENCODE_SESSION_FILE ?? "",
+    );
 
     // The context window is not carried by any event: it lives in the model
     // catalog, so it costs one request the first time a model is seen.
@@ -80,7 +89,11 @@ export default {
       try {
         // Returns an inbox item immediately, so a peer message does not block
         // Duo's coordinator and can arrive while the agent is mid-turn.
-        await context.session.prompt({ sessionID: target, text, delivery: "steer" });
+        await context.session.prompt({
+          sessionID: target,
+          text,
+          delivery: "steer",
+        });
       } catch (error) {
         console.error(`[duo] failed to inject ${type}:`, error);
       }
@@ -89,13 +102,19 @@ export default {
     // Inbound Duo messages become prompts on the live session.
     const deliver = async (message: any) => {
       if (
-        !["steer", "duo_notice", "harness_prompt", "human_prompt", "resume_prompt"].includes(
-          message.type,
-        )
+        ![
+          "steer",
+          "duo_notice",
+          "harness_prompt",
+          "human_prompt",
+          "resume_prompt",
+          "mode_change",
+        ].includes(message.type)
       ) {
         return;
       }
-      if (message.to && message.to.toLowerCase() !== AGENT.toLowerCase()) return;
+      if (message.to && message.to.toLowerCase() !== AGENT.toLowerCase())
+        return;
       if (!message.text) return;
 
       await inject(
@@ -108,10 +127,11 @@ export default {
 
     transport.setHandler(deliver);
 
-    // Setup-time registrations.
-    installDuoPrompt(context, AGENT, mode);
+    // Setup-time registrations. All tools are registered in every mode because
+    // opencode is never restarted just to switch workflow.
+    installDuoPrompt(context, AGENT, () => modeState.current);
     await context.tool.transform((editor: any) => {
-      for (const tool of buildDuoTools(transport, AGENT, mode)) {
+      for (const tool of buildDuoTools(transport, AGENT)) {
         editor.add(tool);
       }
     });
@@ -134,7 +154,9 @@ export default {
     // The one event pump: it feeds the activity mapping, schedules the connect
     // once a session id is known, and flushes everything queued before then.
     void (async () => {
-      for await (const event of context.event.subscribe({ signal: controller.signal })) {
+      for await (const event of context.event.subscribe({
+        signal: controller.signal,
+      })) {
         try {
           await lifecycle(event);
         } catch (error) {

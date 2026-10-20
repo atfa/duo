@@ -323,6 +323,15 @@ func (s *Session) SetModel(model string) {
 	s.model = strings.TrimSpace(model)
 }
 
+// SetMode updates the workflow reported to the driver environment and launch
+// request. It is called after Duo switches modes so a later agent restart cannot
+// resurrect the mode the process started with.
+func (s *Session) SetMode(mode string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.cfg.Mode = strings.TrimSpace(mode)
+}
+
 func (s *Session) Model() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

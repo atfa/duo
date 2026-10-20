@@ -1,56 +1,40 @@
 import { Type } from "@earendil-works/pi-ai";
-import type { DuoMode } from "../mode";
 import { DuoTransport } from "../transport";
 import { failureResult, resultFromResponse } from "./common";
 
-export function registerStatusTool(pi: any, transport: DuoTransport, mode: DuoMode = "goal") {
-  const fast = mode === "fast";
-  const step = mode === "step";
-
+/**
+ * Sign-off tool for every mode. It is registered unconditionally because Duo
+ * can switch workflow without restarting Pi; Duo Core decides which gate the
+ * signature belongs to and rejects calls the current mode does not accept.
+ */
+export function registerStatusTool(pi: any, transport: DuoTransport) {
   pi.registerTool({
     name: "duo_set_status",
     label: "Duo Set Status",
-    description: fast
-      ? "FAST mode: Austin-only readiness. Austin uses ready=true to request verification; Tony cannot sign and must use duo_set_verification instead."
-      : step
-        ? "STEP mode: sign the gates that need dual sign-off — the step queue in PLAN, and the final step in INTEGRATE. Austin also uses ready=true to put the current step up for review. Duo Core advances the queue cursor itself once Tony's verification passes."
-        : "Set your own sign-off state for the current Duo phase. Duo Core advances only when both Austin and Tony have valid, non-stale signatures.",
+    description:
+      "Set your own sign-off state for the current Duo gate. In FAST, Austin uses ready=true to request verification and Tony reports with duo_set_verification. In GOAL, both agents sign PLAN/EXECUTE/REVIEW/INTEGRATE. In STEP, both approve the queue and a [goal] step uses the same dual signatures; a [fast] step is verified by Tony. Duo Core enforces the actual gate.",
     parameters: Type.Object({
       ready: Type.Boolean({
-        description: fast
-          ? "FAST mode: Austin-only. ready=true requests independent verification of your committed, clean HEAD; ready=false withdraws a pending request. It is not a phase sign-off."
-          : step
-            ? "true = sign the current STEP gate (approve the queue in PLAN, put your committed HEAD up for review in EXECUTE, accept the final step in INTEGRATE); false = revoke."
-            : "true = sign current phase; false = revoke your signature because work or objections remain.",
+        description:
+          "true = sign the current gate or request verification (FAST Austin); false = revoke your signature or pending request because work or objections remain.",
       }),
       note: Type.Optional(
-        Type.String({ description: "Optional concise reason or completion note." }),
+        Type.String({
+          description: "Optional concise reason or completion note.",
+        }),
       ),
     }),
-    promptSnippet: fast
-      ? "duo_set_status: Austin requests FAST-mode verification"
-      : step
-        ? "duo_set_status: sign the STEP queue, put a step up for review, or accept the final step"
-        : "duo_set_status: sign or revoke your readiness for the current phase",
-    promptGuidelines: fast
-      ? [
-          "FAST is Austin-driven: only Austin calls duo_set_status ready=true, and only to request verification once the work is committed and the worktree is clean.",
-          "Tony cannot sign in FAST mode; Duo rejects it and points to duo_set_verification.",
-        ]
-      : step
-        ? [
-            "PLAN ready=true approves the exact current queue version; a queue update resets both signatures.",
-            "EXECUTE ready=true is Austin-only and requires a committed, clean worktree: Duo binds it to that HEAD and hands the step to Tony for verification.",
-            "Tony verifies with duo_set_verification, not with ready=true, for every step except the last.",
-            "INTEGRATE ready=true is required from both agents on the FINAL step only; it accepts the landed artifact and marks DONE.",
-          ]
-      : [
-          "PLAN ready=true means you approve the exact current plan version; provisional edits do not count as plan approval.",
-          "EXECUTE ready=true requires your own worktree to be clean; Duo records your current commit SHA as evidence.",
-          "REVIEW ready=true means you reviewed the peer's exact current commit and have no unresolved objections.",
-          "INTEGRATE ready=true means the clean integrated Austin HEAD has been validated/reviewed and is acceptable.",
-          "Use ready=false if later information reopens your work or review.",
-        ],
+    promptSnippet:
+      "duo_set_status: sign or revoke your readiness for the current Duo gate",
+    promptGuidelines: [
+      "PLAN ready=true approves the exact current plan or step-queue version; an update resets both signatures.",
+      "EXECUTE ready=true requires your own worktree to be clean; Duo records your current commit SHA as evidence.",
+      "In FAST, only Austin calls it, and only to request verification once the work is committed. Tony uses duo_set_verification.",
+      "In STEP, a [fast] step uses Tony's verification; a [goal] step uses the same dual sign-off as GOAL.",
+      "REVIEW ready=true means you reviewed the peer's exact current commit and have no unresolved objections.",
+      "INTEGRATE ready=true means the clean integrated Austin HEAD has been validated and is acceptable. The final step always needs both agents.",
+      "Use ready=false if later information reopens your work or review.",
+    ],
     async execute(
       _toolCallId: string,
       params: { ready: boolean; note?: string },

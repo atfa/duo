@@ -84,6 +84,74 @@ func TestStepQueueParsesAtTheEdgeAndRenders(t *testing.T) {
 
 // TestStepGateWalksTheQueue is the mode's contract: two gate calls per step, the
 // queue advances by Duo, and only a finished queue can end the session.
+// TestStepPolicyTagsAndGoalGates covers the Step meta-workflow: each queue item
+// carries its own Fast or Goal policy, an untagged item stays Fast for backward
+// compatibility, and a Goal item requires both agents at EXECUTE, REVIEW and
+// INTEGRATE while a Fast item keeps the single verifier gate.
+func TestStepPolicyTagsAndGoalGates(t *testing.T) {
+	steps := ParseSteps("- [ ] plain\n- [ ] [fast] quick\n- [ ] (goal) shared\n- [ ] goal: also shared")
+	if len(steps) != 4 {
+		t.Fatalf("parsed %d steps, want 4", len(steps))
+	}
+	want := []Mode{ModeFast, ModeFast, ModeGoal, ModeGoal}
+	for i, policy := range want {
+		if got := steps[i].EffectivePolicy(); got != policy {
+			t.Fatalf("step %d policy = %s, want %s", i+1, got, policy)
+		}
+	}
+	if got := steps[2].Title; got != "shared" {
+		t.Fatalf("policy tag leaked into title: %q", got)
+	}
+	if rendered := steps.Render(); !strings.Contains(rendered, "[goal] shared") {
+		t.Fatalf("queue rendering must expose each policy:\n%s", rendered)
+	}
+
+	st := NewStateFor(ModeStep)
+	if _, err := st.SetPlan(protocol.Austin, "one shared step"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.SetSteps(protocol.Austin, "- [ ] [goal] shared\n- [ ] final", false); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := st.SetReady(protocol.Austin, true, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, tr, err := st.SetReady(protocol.Tony, true, "", ""); err != nil || !tr.Advanced || tr.Next != PhaseExecute {
+		t.Fatalf("queue approval = %s/%t/%v, want EXECUTE", tr.Next, tr.Advanced, err)
+	}
+
+	// EXECUTE: both agents sign their own work; neither signature advances alone.
+	if _, tr, err := st.SetReady(protocol.Austin, true, "austin", "head-a"); err != nil || tr.Advanced {
+		t.Fatalf("Austin's GOAL EXECUTE sign = %s/%t/%v", tr.Next, tr.Advanced, err)
+	}
+	if _, tr, err := st.SetReady(protocol.Tony, true, "tony", "head-t"); err != nil || !tr.Advanced || tr.Next != PhaseReview {
+		t.Fatalf("both GOAL EXECUTE signs = %s/%t/%v, want REVIEW", tr.Next, tr.Advanced, err)
+	}
+
+	// REVIEW: both cross-review signatures move to INTEGRATE.
+	if _, tr, err := st.SetReady(protocol.Austin, true, "reviewed tony", "head-t"); err != nil || tr.Advanced {
+		t.Fatalf("Austin's GOAL REVIEW sign = %s/%t/%v", tr.Next, tr.Advanced, err)
+	}
+	if _, tr, err := st.SetReady(protocol.Tony, true, "reviewed austin", "head-a"); err != nil || !tr.Advanced || tr.Next != PhaseIntegrate {
+		t.Fatalf("both GOAL REVIEW signs = %s/%t/%v, want INTEGRATE", tr.Next, tr.Advanced, err)
+	}
+
+	// INTEGRATE: the merged HEAD lands only after both signatures. Tony's verdict
+	// tool is explicitly not the gate for a Goal step.
+	if _, _, err := st.SetVerification(protocol.Tony, VerificationPassed, "ok", "merged"); err == nil {
+		t.Fatal("a GOAL step accepted duo_set_verification instead of cross-sign-off")
+	}
+	if _, tr, err := st.SetReady(protocol.Austin, true, "merged", "merged"); err != nil || tr.ReadyForDelivery {
+		t.Fatalf("one GOAL INTEGRATE sign = ready=%t err=%v", tr.ReadyForDelivery, err)
+	}
+	if _, tr, err := st.SetReady(protocol.Tony, true, "merged", "merged"); err != nil || !tr.ReadyForDelivery {
+		t.Fatalf("both GOAL INTEGRATE signs = ready=%t err=%v", tr.ReadyForDelivery, err)
+	}
+	if snap, _, err := st.LandStep("merged"); err != nil || snap.Phase != PhaseExecute || snap.Step != 2 {
+		t.Fatalf("land GOAL step = phase=%s cursor=%d err=%v", snap.Phase, snap.Step, err)
+	}
+}
+
 func TestStepGateWalksTheQueue(t *testing.T) {
 	st := NewStateFor(ModeStep)
 
