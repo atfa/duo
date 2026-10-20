@@ -1,0 +1,24 @@
+ ◆ DUO test /tmp/example  ·   main                           FAST  ·   RUNNING
+────────────────────────────────────────────────────────────────────────────────
+    Split    Timeline
+
+
+
+
+
+      ╭─ Quit Duo? ──────────────────────────────────────────────────────╮
+      │ The session is not finished. It will be preserved and can be     │
+      │ resumed with `duo resume`.                                       │
+      │                                                                  │
+      │ ← /→  choose  ·   Enter select  ·   Esc cancel                   │
+      │                                 Cancel     Confirm               │
+      ╰──────────────────────────────────────────────────────────────────╯
+
+
+
+
+
+ ╭─ Message ──────────────────────────────────────────────────────────────────╮
+ │ › Message Duo…   Enter sends ·  Ctrl+Enter newline                         │
+ ╰────────────────────────────────────────────────────────────────────────────╯
+

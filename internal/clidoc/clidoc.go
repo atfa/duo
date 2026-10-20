@@ -40,12 +40,12 @@ func (c Command) Is(token string) bool {
 var commands = []Command{
 	{
 		Name:      "duo",
-		Signature: "duo [repository] [--mode|-m fast|goal|step] [--language|-l zh|en] [--test-cmd|-t <cmd>] [--agent|-a <driver>] [--austin-driver|-A <driver>] [--tony-driver|-T <driver>]",
+		Signature: "duo [repository] [--mode|-m fast|goal|step] [--language|-l zh|en] [--test-cmd|-t <cmd>] [--agent|-a <driver>] [--austin-driver|-A <driver>] [--tony-driver|-T <driver>] [--ui legacy|gotui]",
 		Summary:   "start a new session (Fast by default: Austin drives, Tony verifies)",
 	},
 	{
 		Name:      "resume",
-		Signature: "duo resume [session-id]",
+		Signature: "duo resume [session-id] [--ui legacy|gotui]",
 		Summary:   "resume the unfinished session for this repository",
 	},
 	{

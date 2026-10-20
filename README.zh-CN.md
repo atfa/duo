@@ -17,8 +17,9 @@
 
 ```bash
 cd /path/to/git/repo
-duo              # FAST（默认）
-duo --mode goal  # 完整协商式工作流
+duo                 # FAST（默认），Legacy TUI
+duo --mode goal     # 完整协商式工作流
+duo --ui=gotui      # 可选的 gotui 仪表盘
 ```
 
 然后在 composer 里输入任务，按 `Enter`。composer 始终只发送给 **Austin**。
@@ -47,7 +48,7 @@ curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-relea
 ./scripts/install.sh
 ```
 
-装完 bridge 后请重启所有正在运行的 Pi 与 opencode 进程。从源码构建还需要 Go 1.22+。
+装完 bridge 后请重启所有正在运行的 Pi 与 opencode 进程。从源码构建还需要 Go 1.24+。
 
 ## 协作如何运作
 
@@ -110,7 +111,9 @@ Duo Core 强制这些门禁而不是信任模型：Fast 拒绝 `duo_set_plan`，
 
 ## 终端界面
 
-Duo 的主界面是一条会话 **时间线**：单一时间顺序的消息流，每条消息都显示在说话者自己那一侧——Austin、人类与 Duo 系统消息靠左，Tony 的消息靠右——上方是按说话方着色的 `说话方 → 接收方` 标题行：发送给人类的消息用说话方本色的高亮粗体，Agent 之间与系统消息则保持暗色。系统通知、harness 提示、错误与验证结论也一律标注方向（如 `Duo → Human`、`Duo → Tony`），不会只显示一个名字。双方使用相同的气泡宽度（约占整行四分之三），因此判断谁在说话看的是消息所在的一侧，而不是更粗的标题样式；Tony 的消息如果一行就能显示完整，会靠右边缘对齐，需要换行的消息则固定左缩进对齐。顶部边框行显示 Duo 解析出的 Git 仓库目录（不是启动目录），无需打开 Help 就能确认本轮的目标仓库。人类任务、peer 消息、验证结论与 Duo 系统消息按到达顺序交织排列，当前模式、阶段、验证/Plan 状态与瞬时反馈位于时间线下方。
+Duo 有两个共享同一 Core 的终端前端。**Legacy TUI** 仍是默认：`duo` 与 `duo --ui=legacy` 打开它；可选的 **gotui 仪表盘**（`duo --ui=gotui`）增加分栏工作流/Agent 布局和可切换的时间线。架构、布局、截图和对比见 [gotui 前端指南](./docs/gotui.md)。两者共享 composer、斜杠命令、模型选择器、剪贴板、原生接管与恢复的会话历史。
+
+Legacy TUI 的主界面是一条会话 **时间线**：单一时间顺序的消息流，每条消息都显示在说话者自己那一侧——Austin、人类与 Duo 系统消息靠左，Tony 的消息靠右——上方是按说话方着色的 `说话方 → 接收方` 标题行：发送给人类的消息用说话方本色的高亮粗体，Agent 之间与系统消息则保持暗色。系统通知、harness 提示、错误与验证结论也一律标注方向（如 `Duo → Human`、`Duo → Tony`），不会只显示一个名字。双方使用相同的气泡宽度（约占整行四分之三），因此判断谁在说话看的是消息所在的一侧，而不是更粗的标题样式；Tony 的消息如果一行就能显示完整，会靠右边缘对齐，需要换行的消息则固定左缩进对齐。顶部边框行显示 Duo 解析出的 Git 仓库目录（不是启动目录），无需打开 Help 就能确认本轮的目标仓库。人类任务、peer 消息、验证结论与 Duo 系统消息按到达顺序交织排列，当前模式、阶段、验证/Plan 状态与瞬时反馈位于时间线下方。
 
 一次构建可能很久，而时间线只在 Agent 完成一条消息时变化。因此时间线下方为每个 Agent 保留一条 **工作预览**：标题行是 Agent、它的 driver、带动画的状态与本轮已运行时长（如 `Austin preview (agy) · working · 5s`、`Tony preview (pi) · idle`）——状态 spinner 与 `[↗]` 附着按钮现在都在这里；下方各行显示"此刻在做什么"（正在跑的工具及其已运行时间，或正在思考所用的模型与思考级别）、本轮最近的工具轨迹（✓/✗ 与耗时）、本轮最近一次错误、以及正在流式输出的文本尾巴。工具失败或 provider 报错会立刻在那里显示，等待时不必靠猜。`Ctrl+P` 可以收起这条预览带，把行数还给时间线；终端太矮时会自动隐藏。
 
@@ -146,6 +149,16 @@ Duo 的主界面是一条会话 **时间线**：单一时间顺序的消息流�
 
 composer 支持多行，一次最多显示四行。原生接管是全屏接管：在 Pi 里，`/model`、`/settings`、`/tree` 以及所有 Pi 快捷键都归 Pi 管。
 
+### gotui 仪表盘
+
+用 `duo --ui=gotui`、`duo --ui gotui` 或 `duo resume --ui=gotui` 为本次运行选择仪表盘。默认行为不变：直接运行 `duo` 或 `duo --ui=legacy` 仍是 Legacy TUI。
+
+gotui 默认打开 **分栏仪表盘**：侧边栏显示阶段链、验证/交付状态、worktree 与两张 Agent 卡片；Austin 和 Tony 的会话左右并列；下方是 Duo/人类会话区。按 `F2`、点击 `Split` / `Timeline` 标签可切换到单一时间线；`Ctrl+P` 显示/隐藏工作流侧边栏，`Ctrl+O` 打开会话详情，`F1` 打开帮助，`Ctrl+G` 切换时间戳。原生接管与脱离、composer、斜杠面板、模型选择器、鼠标划选、剪贴板行为与恢复的会话历史都与 Legacy 共享。
+
+布局会随终端调整：工作流侧边栏至少需要 104 列，分栏视图需要 72×16 的主区域；更窄或更矮时回退到时间线。侧边栏的阶段链在空间不足时换行，宽度小于 80 列时页脚使用紧凑提示。恢复会话直接显示已有对话，启动横幅只出现在新会话中。
+
+[gotui 指南](./docs/gotui.md#captures)中的确定性 tcell 截图覆盖仪表盘、时间线、斜杠面板、帮助、详情、模型选择器、确认对话框和窄终端。
+
 ### 斜杠命令（Slash Commands）
 
 在 composer 中输入 `/` 即可实时弹出交互式斜杠命令选择菜单与说明。使用 `↑` / `↓` 循环上下选择候选命令，按 `Tab` 补全命令名，按 `Enter` 确认执行（无参命令直接触发，有参命令如 `/escalate` 和 `/mode` 自动补全前缀便于继续输入参数），按 `Esc` 随时关闭菜单。
@@ -157,7 +170,7 @@ composer 支持多行，一次最多显示四行。原生接管是全屏接管�
 | `/mode goal` | 把会话升级为 Goal 模式；`/mode fast` 会被拒绝，会话不会退回 Fast |
 | `/model` | 打开 Austin/Tony 模型与思考强度选择器（等同于 `Ctrl+M`） |
 | `/overview` | 切换会话总览与 Git 变更统计详情（等同于 `Ctrl+O`） |
-| `/preview` | 展开或折叠 Agent 工作预览带（等同于 `Ctrl+P`） |
+| `/preview` | 展开或折叠 Legacy 的 Agent 工作预览带或 gotui 的工作流侧边栏（等同于 `Ctrl+P`） |
 | `/timestamps` | 切换时间线消息时间戳显示（等同于 `Ctrl+G`） |
 | `/copy` | 复制 Austin 最新发给人类的消息到剪贴板（等同于 `Ctrl+X`） |
 | `/help` | 打开 Duo 交互式帮助大屏（等同于 `Ctrl+/`） |
@@ -421,17 +434,24 @@ duo logs <repository>       # 列出另一个仓库的会话记录
 
 ## 使用边界
 
-Duo 固定使用 Austin 与 Tony 两个角色。Fast 可以升级为 Goal，但不能降回 Fast。崩溃恢复不会重建 Agent 的推理过程；Duo Core 自身崩溃后需手动运行 `duo resume`。会话绑定本机和仓库路径，辅助脚本面向 macOS/Linux。交付安全边界与本地 TCP 信任模型见[架构说明](./docs/architecture.md)和 [SECURITY.md](./SECURITY.md)。
+Duo 固定使用 Austin 与 Tony 两个角色。Fast 可以升级为 Goal，但不能降回 Fast。崩溃恢复不会重建 Agent 的推理过程；Duo Core 自身崩溃后需手动运行 `duo resume`。会话绑定本机和仓库路径，辅助脚本面向 macOS/Linux。gotui 前端需要足够大的终端来显示分栏仪表盘，更小的终端会回退到它的时间线视图。交付安全边界与本地 TCP 信任模型见[架构说明](./docs/architecture.md)和 [SECURITY.md](./SECURITY.md)。
 
 ## 开发
 
 运行 `make check` 执行 Go 测试、vet 和命令构建。若改动 Pi bridge，也运行
-`cd pi-extension && bun test`。推送 `v*` tag 会执行发布验证，并发布 macOS/Linux
-的 amd64/arm64 归档。
+`cd pi-extension && bun test`。gotui 前端另有确定性 SimulationScreen 截图测试，可用以下命令重新生成：
+
+```bash
+DUO_GOTUI_CAPTURE_DIR="$PWD/docs/gotui/screens" \
+  go test ./internal/gotui -run TestCaptureFrames -count=1
+```
+
+推送 `v*` tag 会执行发布验证，并发布 macOS/Linux 的 amd64/arm64 归档。
 
 ## 文档
 
 - [架构与关键约束](./docs/architecture.md)
+- [gotui 终端前端](./docs/gotui.md)
 - [Driver 插件协议](./docs/driver-plugin-protocol.md)与[开发指南](./docs/plugin-development-guide.md)
 - [Bridge 协议](./docs/duo-bridge-protocol.md)
 - [安全边界](./SECURITY.md)

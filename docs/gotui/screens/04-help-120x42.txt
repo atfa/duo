@@ -1,0 +1,42 @@
+ ◆ DUO test /tmp/example  ·   main                                                                   FAST  ·   RUNNING
+ session session-1   ·    2/2 agents online
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+    Split    Timeline
+
+                 ╭─ HELP ─────────────────────────────────────────────────────────────────────────────╮
+                 │                                                                                    │
+                 │ WORKFLOW                                                                           │
+                 │   FAST: RUNNING →  VERIFY →  DONE. Austin implements, Tony verifies, Duo lands     │
+                 │   the diff.                                                                        │
+                 │   GOAL: PLAN →  EXECUTE →  REVIEW →  INTEGRATE →  DONE. Both agents agree on the   │
+                 │   plan first.                                                                      │
+                 │   STEP: one reviewed, verified step of a Markdown queue is landed at a time.       │
+                 │                                                                                    │
+                 │ KEYS                                                                               │
+                 │   Enter send  ·   Ctrl+Enter / Shift+Enter newline                                 │
+                 │   Ctrl+M model & thinking picker  ·   F2 split / timeline  ·   F1 help             │
+                 │   Ctrl+A attach Austin  ·   Ctrl+T attach Tony  ·   Ctrl+] or Ctrl+\ detach        │
+                 │   Ctrl+R restart Austin  ·   Ctrl+Y restart Tony  ·   Ctrl+/ help                  │
+                 │   Ctrl+O details & changes  ·   Ctrl+X copy Austin's latest  ·   Ctrl+P sidebar    │
+                 │   Ctrl+G timestamps  ·   PgUp/PgDn scroll  ·   Ctrl+Q / Ctrl+D quit                │
+                 │   Esc closes dialogs  ·   Tab autocompletes slash commands  ·   ↑ /↓  recalls      │
+                 │   history                                                                          │
+                 │                                                                                    │
+                 │ SLASH COMMANDS                                                                     │
+                 │   /help ·  /overview ·  /model ·  /copy ·  /preview ·  /timestamps                 │
+                 │   /status ·  /language [zh|en] ·  /mode [fast|goal] ·  /escalate [reason] ·  /quit │
+                 │                                                                                    │
+                 │ NATIVE TERMINALS                                                                   │
+                 │   Attach suspends the dashboard and hands the real PTY to the agent. The           │
+                 │   terminal is restored on detach. Use Ctrl+] (or Ctrl+\, Ctrl+】) to return.       │
+                 │                                                                                    │
+                 │ SESSION                                                                            │
+                 │ ↑ /↓  scroll  ·   Esc close                                                        │
+                 ╰────────────────────────────────────────────────────────────────────────────────────╯
+
+ ╭─ Message ──────────────────────────────────────────────────────────────────────────────────────────────────────────╮
+ │ › Message Duo…   Enter sends ·  Ctrl+Enter newline                                                                 │
+ │                                                                                                                    │
+ │                                                                                                                    │
+ ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+

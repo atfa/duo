@@ -16,9 +16,10 @@ The runtime is a Go coordination core plus thin driver plugins and optional agen
 
 ```bash
 cd /path/to/git/repo
-duo              # FAST (default)
-duo --mode goal  # full negotiated workflow
-duo --mode step  # one complex task, landed step by step
+duo                 # FAST (default), Legacy TUI
+duo --mode goal     # full negotiated workflow
+duo --mode step     # one complex task, landed step by step
+duo --ui=gotui      # opt-in dashboard frontend
 ```
 
 Then type a task in the composer and press `Enter`. In **Fast**, Duo sends it to **Austin**. In **Goal** and **Step**, Duo sends it to **both Austin and Tony** so they can co-design the shared Plan.
@@ -43,7 +44,7 @@ curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-relea
 ```
 
 **From source** (runs the Go test suite, then installs Duo and its driver bridges;
-requires Go 1.22+):
+requires Go 1.24+):
 
 ```bash
 ./scripts/install.sh
@@ -131,7 +132,9 @@ Duo Core enforces these gates rather than trusting the model: Fast rejects `duo_
 
 ## Terminal UI
 
-Duo's main view is one conversation **timeline**: a single chronological stream in which each message appears on its speaker's own side — Austin, the human and Duo system lines on the left, Tony's pushed to the right — under a `Sender → Receiver` header. Headers are coloured by speaker: a message addressed to the human is bold in the speaker's own colour, while agent-to-agent and system headers stay dim. System notices, harness notes, errors and verdicts are labeled the same way (`Duo → Human`, `Duo → Tony`, …), never with a bare speaker name. Both speakers share the same bubble width (about three quarters of the row), so the side a block sits on, not a heavier header, tells you who is speaking; a Tony message that fits on one line hugs the right edge, while a wrapped one is left-anchored at its indent. The top border row names the Git repository Duo resolved (never the launch directory), so the target of the session is visible without opening Help. Human tasks, peer messages, verifier verdicts and Duo system messages are interleaved in arrival order, and the current mode, phase, verification/Plan state and transient feedback stay below the timeline.
+Duo has two terminal frontends over the same core. The **Legacy TUI** is the default: `duo` and `duo --ui=legacy` open it. The opt-in **gotui dashboard** (`duo --ui=gotui`) adds a split workflow/agent layout and a toggleable timeline; see the [gotui frontend guide](./docs/gotui.md) for its architecture, layout, captures and comparison. Both share the composer, slash commands, model picker, clipboard, native attach and resumed session history.
+
+The Legacy TUI's main view is one conversation **timeline**: a single chronological stream in which each message appears on its speaker's own side — Austin, the human and Duo system lines on the left, Tony's pushed to the right — under a `Sender → Receiver` header. Headers are coloured by speaker: a message addressed to the human is bold in the speaker's own colour, while agent-to-agent and system headers stay dim. System notices, harness notes, errors and verdicts are labeled the same way (`Duo → Human`, `Duo → Tony`, …), never with a bare speaker name. Both speakers share the same bubble width (about three quarters of the row), so the side a block sits on, not a heavier header, tells you who is speaking; a Tony message that fits on one line hugs the right edge, while a wrapped one is left-anchored at its indent. The top border row names the Git repository Duo resolved (never the launch directory), so the target of the session is visible without opening Help. Human tasks, peer messages, verifier verdicts and Duo system messages are interleaved in arrival order, and the current mode, phase, verification/Plan state and transient feedback stay below the timeline.
 
 A build can take a long time, and the timeline only changes when an agent finishes a message. Below it Duo therefore keeps a **work preview** for each agent. Its header names the agent, its driver, its animated state and how long the current turn has been running (`Austin preview (agy) · working · 5s`, `Tony preview (pi) · idle`) — the state spinner and the `[↗]` attach button live here now; the rows below show what it is doing *now* (the running tool and how long it has been running, or the model and thinking level it is thinking with), the turn's recent tool trail with ✓/✗ and durations, the turn's last error, and the tail of the text being streamed. A failed tool or a provider error is visible there immediately, so waiting does not mean guessing. `Ctrl+P` collapses the band when you want the rows back for the timeline; on a short terminal it is hidden automatically.
 
@@ -167,6 +170,16 @@ Each timeline message header carries its `HH:MM:SS` time by default (`Austin →
 
 The composer holds multiple lines and shows up to four at a time. Native attach is a fullscreen takeover: inside Pi, `/model`, `/settings`, `/tree` and all Pi shortcuts belong to Pi.
 
+### gotui dashboard
+
+Select the dashboard for one invocation with `duo --ui=gotui`, `duo --ui gotui`, or `duo resume --ui=gotui`. The default is unchanged: plain `duo` and `duo --ui=legacy` run the Legacy TUI.
+
+The gotui frontend opens in a **split dashboard**: a workflow sidebar with the phase chain, verification/delivery state, worktrees and two agent cards; Austin and Tony in side-by-side transcripts; and a Duo/Human conversation pane below. `F2`, the `Split` / `Timeline` tabs, or a click on either tab switches to the single chronological timeline. `Ctrl+P` toggles the workflow sidebar, `Ctrl+O` opens session details, `F1` opens help, and `Ctrl+G` toggles timestamps. Native attach and detach, the composer, slash palette, model picker, mouse selection, clipboard behavior and the session history are shared with Legacy.
+
+The layout responds to the terminal: the workflow sidebar needs at least 104 columns, the split view needs a 72-column by 16-row main pane, and narrower terminals fall back to the timeline. The sidebar phase chain wraps when it does not fit, and the footer uses compact hints below 80 columns. A resumed session starts with its restored conversation; the startup banner is only added to a new session.
+
+The deterministic tcell captures in the [gotui guide](./docs/gotui.md#captures) show the dashboard, timeline, slash palette, help, details, model picker, confirmation dialog and a narrow terminal.
+
 ### Slash Commands
 
 Typing `/` in the composer opens an interactive command palette showing available slash commands and descriptions. Use `↑` / `↓` to cycle through selections, `Tab` to autocomplete the command name, `Enter` to select (which executes immediate commands or fills in the command prefix for commands that take arguments), and `Esc` to dismiss the menu.
@@ -178,7 +191,7 @@ Typing `/` in the composer opens an interactive command palette showing availabl
 | `/mode goal` | Upgrade the session to Goal mode; `/mode fast` is rejected, a session never returns to Fast |
 | `/model` | Open the model and thinking level picker (`Ctrl+M`) |
 | `/overview` | Toggle the session overview and git diffstat (`Ctrl+O`) |
-| `/preview` | Toggle the agent work preview band (`Ctrl+P`) |
+| `/preview` | Toggle the Legacy agent work preview band or the gotui workflow sidebar (`Ctrl+P`) |
 | `/timestamps` | Toggle timeline message timestamps (`Ctrl+G`) |
 | `/copy` | Copy Austin's latest message to the human to the clipboard (`Ctrl+X`) |
 | `/help` | Open the full Duo interactive help screen (`Ctrl+/`) |
@@ -467,17 +480,26 @@ The remaining commands do not touch sessions: `duo plugins` lists the built-in d
 
 ## Limits that affect use
 
-Duo supports two fixed roles, Austin and Tony. Fast can escalate to Goal but cannot return to Fast. A session cannot recover agent reasoning, and Duo Core does not restart itself after a crash; run `duo resume`. Session data is local to the machine and repository path. The shell scripts target macOS/Linux. Delivery safety and local TCP trust boundaries are described in [architecture](./docs/architecture.md) and [SECURITY.md](./SECURITY.md).
+Duo supports two fixed roles, Austin and Tony. Fast can escalate to Goal but cannot return to Fast. A session cannot recover agent reasoning, and Duo Core does not restart itself after a crash; run `duo resume`. Session data is local to the machine and repository path. The shell scripts target macOS/Linux. The gotui frontend is opt-in and needs a terminal large enough for its split dashboard; smaller terminals fall back to its timeline view. Delivery safety and local TCP trust boundaries are described in [architecture](./docs/architecture.md) and [SECURITY.md](./SECURITY.md).
 
 ## Development
 
 `make check` runs Go tests, vet and command builds. If you change the Pi bridge,
-also run `cd pi-extension && bun test`. Pushing a `v*` tag runs release validation
-and publishes macOS/Linux archives for amd64/arm64.
+also run `cd pi-extension && bun test`. The gotui frontend additionally has a
+deterministic SimulationScreen capture test; regenerate its committed frames with:
+
+```bash
+DUO_GOTUI_CAPTURE_DIR="$PWD/docs/gotui/screens" \
+  go test ./internal/gotui -run TestCaptureFrames -count=1
+```
+
+Pushing a `v*` tag runs release validation and publishes macOS/Linux archives for
+amd64/arm64.
 
 ## Documentation
 
 - [Architecture and invariants](./docs/architecture.md)
+- [gotui terminal frontend](./docs/gotui.md)
 - [Driver plugin protocol](./docs/driver-plugin-protocol.md) and [development guide](./docs/plugin-development-guide.md)
 - [Bridge protocol](./docs/duo-bridge-protocol.md)
 - [Security boundaries](./SECURITY.md)

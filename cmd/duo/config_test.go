@@ -132,6 +132,50 @@ func TestParseResumeArgsRejectsUnknownFlag(t *testing.T) {
 	}
 }
 
+func TestUIFrontendSelection(t *testing.T) {
+	repo := t.TempDir()
+	t.Setenv("DUO_REPO", "")
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{repo}, uiLegacy},
+		{[]string{repo, "--ui", "legacy"}, uiLegacy},
+		{[]string{repo, "--ui=gotui"}, uiGotUI},
+		{[]string{repo, "--ui", "GOTUI"}, uiGotUI},
+	} {
+		cfg, err := loadConfig(tc.args)
+		if err != nil {
+			t.Fatalf("loadConfig(%v): %v", tc.args, err)
+		}
+		if cfg.ui != tc.want {
+			t.Fatalf("loadConfig(%v) ui = %q, want %q", tc.args, cfg.ui, tc.want)
+		}
+	}
+	for _, args := range [][]string{{repo, "--ui", "web"}, {repo, "--ui"}, {repo, "--ui="}} {
+		if _, err := loadConfig(args); err == nil {
+			t.Errorf("loadConfig(%v) accepted an invalid --ui", args)
+		}
+	}
+}
+
+func TestResumeUIFlagsBeforeOrAfterSessionID(t *testing.T) {
+	for _, args := range [][]string{
+		{"--ui=gotui", "session-1"},
+		{"session-1", "--ui=gotui"},
+		{"--ui", "gotui", "session-1"},
+		{"session-1", "--ui", "gotui"},
+	} {
+		cfg, err := loadResumeConfig(args)
+		if err != nil {
+			t.Fatalf("loadResumeConfig(%v): %v", args, err)
+		}
+		if !cfg.resume || cfg.resumeSession != "session-1" || cfg.ui != uiGotUI {
+			t.Fatalf("loadResumeConfig(%v) = resume=%t id=%q ui=%q", args, cfg.resume, cfg.resumeSession, cfg.ui)
+		}
+	}
+}
+
 func TestParseShortOptionEqualsForms(t *testing.T) {
 	got, err := parseArgs([]string{"-m=goal", "-l=zh", "-t=go test ./...", "-a=codex", "-A=pi", "-T=opencode"})
 	if err != nil {

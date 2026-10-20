@@ -15,7 +15,7 @@ jobs:
       matrix:
         include:
           - os: ubuntu-latest
-            go: 1.22.x
+            go: 1.24.x
           - os: ubuntu-latest
             go: stable
           - os: macos-latest

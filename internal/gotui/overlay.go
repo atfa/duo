@@ -1,0 +1,338 @@
+package gotui
+
+import (
+	"image"
+	"strings"
+
+	rw "github.com/mattn/go-runewidth"
+	ui "github.com/metaspartan/gotui/v5"
+)
+
+type overlayKind int
+
+const (
+	overlayNone overlayKind = iota
+	overlayPicker
+	overlayHelp
+	overlayDetails
+	overlayConfirm
+)
+
+func newModalBlock(t theme) *ui.Block {
+	b := ui.NewBlock()
+	b.BorderRounded = true
+	b.BorderStyle = ui.Style{Fg: t.Border, Bg: t.PanelHigh}
+	b.BackgroundColor = t.Panel
+	b.TitleStyle = ui.Style{Fg: t.Accent, Bg: t.Panel, Modifier: ui.ModifierBold}
+	b.PaddingLeft, b.PaddingRight = 1, 1
+	return b
+}
+
+func centered(l layout, width, height int) image.Rectangle {
+	top, bottom := l.main.Min.Y, l.main.Max.Y
+	if bottom <= top {
+		top, bottom = 0, l.height
+	}
+	if width > l.width-2 {
+		width = l.width - 2
+	}
+	if height > bottom-top-2 {
+		height = bottom - top - 2
+	}
+	if width < 12 {
+		width = max(1, l.width)
+	}
+	if height < 3 {
+		height = max(1, bottom-top)
+	}
+	x := (l.width - width) / 2
+	y := top + (bottom-top-height)/2
+	if x < 0 {
+		x = 0
+	}
+	if y < top {
+		y = max(0, top)
+	}
+	return image.Rect(x, y, x+width, y+height)
+}
+
+// confirmOverlay is used for quit and destructive choices. A modal that can
+// silently discard work would defeat the point of the session journal, so the
+// default focus is always Cancel.
+type confirmOverlay struct {
+	*ui.Block
+	theme   theme
+	title   string
+	text    string
+	choice1 string
+	choice2 string
+	active  int
+	onYes   func()
+	box     image.Rectangle
+}
+
+func (c *confirmOverlay) place(l layout) {
+	c.box = centered(l, 68, 7)
+	c.Block.SetRect(c.box.Min.X, c.box.Min.Y, c.box.Max.X, c.box.Max.Y)
+	c.Title = " " + c.title + " "
+}
+
+func (c *confirmOverlay) Draw(buf *ui.Buffer) {
+	fillBlock(buf, c.GetRect(), ui.Style{Fg: c.theme.Fg, Bg: c.theme.PanelHigh})
+	c.Block.Draw(buf)
+	width := c.Inner.Dx()
+	y := c.Inner.Min.Y
+	lines := wrapText(c.text, c.theme.BodyMuted, max(1, width))
+	for i, line := range lines {
+		if y+i >= c.Inner.Max.Y-2 {
+			break
+		}
+		buf.SetString(fitText(line.text(), width), c.theme.BodyMuted, image.Pt(c.Inner.Min.X, y+i))
+	}
+	y = c.Inner.Max.Y - 1
+	drawChoice := func(label string, active bool, x int) int {
+		st := ui.Style{Fg: c.theme.Muted, Bg: c.theme.Panel}
+		if active {
+			st = ui.Style{Fg: c.theme.Bg, Bg: c.theme.Accent, Modifier: ui.ModifierBold}
+		}
+		text := "  " + label + "  "
+		buf.SetString(text, st, image.Pt(x, y))
+		return x + rw.StringWidth(text)
+	}
+	x := max(c.Inner.Min.X, c.Inner.Max.X-34)
+	x = drawChoice(c.choice2, c.active == 0, x)
+	x++
+	drawChoice(c.choice1, c.active == 1, x)
+	buf.SetString(fitText("←/→ choose  ·  Enter select  ·  Esc cancel", width), c.theme.Timestamp, image.Pt(c.Inner.Min.X, c.Inner.Max.Y-2))
+}
+
+// helpOverlay is a scrollable guide. Content is rebuilt on width changes, so a
+// resize does not leave half-wrapped instructions behind.
+type helpOverlay struct {
+	*ui.Block
+	theme  theme
+	offset int
+	lines  []renderLine
+	box    image.Rectangle
+	width  int
+}
+
+func newHelp(t theme) *helpOverlay {
+	h := &helpOverlay{Block: newModalBlock(t), theme: t}
+	h.Title = " HELP "
+	return h
+}
+
+func (h *helpOverlay) place(l layout) {
+	h.box = centered(l, 86, 30)
+	h.Block.SetRect(h.box.Min.X, h.box.Min.Y, h.box.Max.X, h.box.Max.Y)
+	if h.width != h.Inner.Dx() {
+		h.width = h.Inner.Dx()
+		h.rebuild()
+	}
+}
+
+func (h *helpOverlay) rebuild() {
+	type section struct {
+		title string
+		lines []string
+	}
+	sections := []section{
+		{"WORKFLOW", []string{
+			"FAST: RUNNING → VERIFY → DONE. Austin implements, Tony verifies, Duo lands the diff.",
+			"GOAL: PLAN → EXECUTE → REVIEW → INTEGRATE → DONE. Both agents agree on the plan first.",
+			"STEP: one reviewed, verified step of a Markdown queue is landed at a time.",
+		}},
+		{"KEYS", []string{
+			"Enter send  ·  Ctrl+Enter / Shift+Enter newline",
+			"Ctrl+M model & thinking picker  ·  F2 split / timeline  ·  F1 help",
+			"Ctrl+A attach Austin  ·  Ctrl+T attach Tony  ·  Ctrl+] or Ctrl+\\ detach",
+			"Ctrl+R restart Austin  ·  Ctrl+Y restart Tony  ·  Ctrl+/ help",
+			"Ctrl+O details & changes  ·  Ctrl+X copy Austin's latest  ·  Ctrl+P sidebar",
+			"Ctrl+G timestamps  ·  PgUp/PgDn scroll  ·  Ctrl+Q / Ctrl+D quit",
+			"Esc closes dialogs  ·  Tab autocompletes slash commands  ·  ↑/↓ recalls history",
+		}},
+		{"SLASH COMMANDS", []string{
+			"/help · /overview · /model · /copy · /preview · /timestamps",
+			"/status · /language [zh|en] · /mode [fast|goal] · /escalate [reason] · /quit",
+		}},
+		{"NATIVE TERMINALS", []string{
+			"Attach suspends the dashboard and hands the real PTY to the agent. The",
+			"terminal is restored on detach. Use Ctrl+] (or Ctrl+\\, Ctrl+】) to return.",
+		}},
+		{"SESSION", []string{
+			"Every visible message is recorded through the session journal, so resume",
+			"restores the same conversation in either frontend.",
+		}},
+	}
+	var lines []renderLine
+	for _, s := range sections {
+		lines = append(lines, makeLine("", h.theme.Body, 0))
+		lines = append(lines, makeLine(s.title, ui.Style{Fg: h.theme.Accent, Bg: h.theme.Panel, Modifier: ui.ModifierBold}, 0))
+		for _, text := range s.lines {
+			wrapped := wrapText(text, h.theme.BodyMuted, max(1, h.Inner.Dx()-2))
+			for _, line := range wrapped {
+				line.runs = append([]textRun{{"  ", h.theme.BodyMuted}}, line.runs...)
+				lines = append(lines, line)
+			}
+		}
+	}
+	h.lines = lines
+}
+
+func (h *helpOverlay) Draw(buf *ui.Buffer) {
+	h.DrawBase(buf)
+}
+
+func (h *helpOverlay) DrawBase(buf *ui.Buffer) {
+	fillBlock(buf, h.GetRect(), ui.Style{Fg: h.theme.Fg, Bg: h.theme.PanelHigh})
+	h.Block.Draw(buf)
+	height := max(0, h.Inner.Dy()-1)
+	for i := 0; i < height; i++ {
+		idx := h.offset + i
+		if idx >= len(h.lines) {
+			break
+		}
+		x := h.Inner.Min.X
+		for _, run := range h.lines[idx].runs {
+			buf.SetString(run.text, run.style, image.Pt(x, h.Inner.Min.Y+i))
+			x += rw.StringWidth(run.text)
+		}
+	}
+	hint := "↑/↓ scroll  ·  Esc close"
+	if h.Inner.Dy() > 0 {
+		buf.SetString(fitText(hint, h.Inner.Dx()), h.theme.Timestamp, image.Pt(h.Inner.Min.X, h.Inner.Max.Y-1))
+	}
+}
+
+func (h *helpOverlay) Scroll(delta int) {
+	h.offset += delta
+	maxOffset := max(0, len(h.lines)-max(1, h.Inner.Dy()-1))
+	if h.offset > maxOffset {
+		h.offset = maxOffset
+	}
+	if h.offset < 0 {
+		h.offset = 0
+	}
+}
+
+// detailOverlay shows the same facts as /status plus a diffstat. Both reads are
+// asynchronous because they can wait on a driver or git.
+type detailOverlay struct {
+	*ui.Block
+	theme   theme
+	loading bool
+	err     string
+	status  string
+	changes []string
+	offset  int
+	lines   []renderLine
+	width   int
+	box     image.Rectangle
+}
+
+func newDetails(t theme) *detailOverlay {
+	d := &detailOverlay{Block: newModalBlock(t), theme: t}
+	d.Title = " SESSION DETAILS "
+	return d
+}
+
+func (d *detailOverlay) place(l layout) {
+	d.box = centered(l, 92, 22)
+	d.Block.SetRect(d.box.Min.X, d.box.Min.Y, d.box.Max.X, d.box.Max.Y)
+	if d.width != d.Inner.Dx() {
+		d.width = d.Inner.Dx()
+		d.rebuild()
+	}
+	height := min(22, max(9, len(d.lines)+3))
+	if height != d.box.Dy() {
+		d.box = centered(l, 92, height)
+		d.Block.SetRect(d.box.Min.X, d.box.Min.Y, d.box.Max.X, d.box.Max.Y)
+	}
+}
+
+func (d *detailOverlay) begin() {
+	d.loading = true
+	d.err = ""
+	d.status = ""
+	d.changes = nil
+	d.offset = 0
+	d.rebuild()
+}
+
+func (d *detailOverlay) loaded(payload any, err error) {
+	d.loading = false
+	if err != nil {
+		d.err = err.Error()
+	}
+	if p, ok := payload.(detailPayload); ok {
+		d.status = p.status
+		d.changes = p.changes
+	}
+	d.rebuild()
+}
+
+type detailPayload struct {
+	status  string
+	changes []string
+}
+
+func (d *detailOverlay) rebuild() {
+	d.lines = nil
+	add := func(text string, style ui.Style) {
+		wrapped := wrapText(text, style, max(1, d.Inner.Dx()))
+		d.lines = append(d.lines, wrapped...)
+	}
+	add("SESSION STATUS", ui.Style{Fg: d.theme.Accent, Bg: d.theme.Panel, Modifier: ui.ModifierBold})
+	if d.loading {
+		add("loading…", d.theme.Subtle)
+	}
+	if d.err != "" {
+		add("error: "+d.err, d.theme.Error)
+	}
+	for _, line := range strings.Split(strings.TrimRight(d.status, "\n"), "\n") {
+		add(line, d.theme.Body)
+	}
+	d.lines = append(d.lines, renderLine{})
+	add("CHANGES", ui.Style{Fg: d.theme.Accent, Bg: d.theme.Panel, Modifier: ui.ModifierBold})
+	if len(d.changes) == 0 {
+		add("working tree clean", d.theme.Subtle)
+	} else {
+		for _, line := range d.changes {
+			st := d.theme.Body
+			if strings.HasPrefix(strings.TrimSpace(line), "D") {
+				st = d.theme.Warning
+			}
+			add(line, st)
+		}
+	}
+}
+
+func (d *detailOverlay) Draw(buf *ui.Buffer) {
+	fillBlock(buf, d.GetRect(), ui.Style{Fg: d.theme.Fg, Bg: d.theme.PanelHigh})
+	d.Block.Draw(buf)
+	height := max(0, d.Inner.Dy()-1)
+	for i := 0; i < height; i++ {
+		idx := d.offset + i
+		if idx >= len(d.lines) {
+			break
+		}
+		x := d.Inner.Min.X
+		for _, run := range d.lines[idx].runs {
+			buf.SetString(run.text, run.style, image.Pt(x, d.Inner.Min.Y+i))
+			x += rw.StringWidth(run.text)
+		}
+	}
+	buf.SetString(fitText("↑/↓ scroll  ·  Esc close", d.Inner.Dx()), d.theme.Timestamp, image.Pt(d.Inner.Min.X, d.Inner.Max.Y-1))
+}
+
+func (d *detailOverlay) Scroll(delta int) {
+	d.offset += delta
+	maxOffset := max(0, len(d.lines)-max(1, d.Inner.Dy()-1))
+	if d.offset > maxOffset {
+		d.offset = maxOffset
+	}
+	if d.offset < 0 {
+		d.offset = 0
+	}
+}
