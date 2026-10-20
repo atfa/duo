@@ -12,7 +12,6 @@ import (
 	"github.com/atfa/duo/internal/clidoc"
 	gotui "github.com/atfa/duo/internal/gotui"
 	"github.com/atfa/duo/internal/session"
-	"github.com/atfa/duo/internal/tui"
 	"github.com/atfa/duo/internal/version"
 )
 
@@ -122,20 +121,12 @@ func main() {
 // interface it attaches and the lines it prints afterwards.
 func run(ctx context.Context, cfg config) error {
 	return runWith(ctx, cfg, func(ctx context.Context, svc *session.Service) error {
-		if cfg.ui == uiGotUI {
-			app := gotui.New(svc)
-			// Drivers are built before the interface exists, so any diagnostic one
-			// of them reported is shown now, in its own words.
-			app.Notices(svc.Notices())
-			if err := app.Run(ctx); err != nil && ctx.Err() == nil {
-				log.Printf("Duo gotui: %v", err)
-			}
-			return nil
-		}
-		app := tui.New(svc)
+		app := gotui.New(svc)
+		// Drivers are built before the interface exists, so any diagnostic one
+		// of them reported is shown now, in its own words.
 		app.Notices(svc.Notices())
 		if err := app.Run(ctx); err != nil && ctx.Err() == nil {
-			log.Printf("Duo TUI: %v", err)
+			log.Printf("Duo gotui: %v", err)
 		}
 		return nil
 	})
@@ -231,7 +222,7 @@ func printUsage() {
 	fmt.Println("  duo --mode step        start a new Step session (a queue tagged [fast] or [goal], landed step by step)")
 	fmt.Println("  duo --language zh        set the language (or -l zh; values: zh, en)")
 	fmt.Println("  duo --test-cmd \"go test ./...\"  run the test command before accepting verification (short: -t)")
-	fmt.Println("  duo --ui gotui          use the new gotui dashboard (default: legacy)")
+	fmt.Println("  duo --ui gotui          select the gotui dashboard (the default and only bundled frontend)")
 	fmt.Println("  duo --agent pi           select both agents' driver (short: -a)")
 	fmt.Println("  duo --austin-driver pi   select Austin's driver (short: -A)")
 	fmt.Println("  duo --tony-driver pi     select Tony's driver (short: -T)")
@@ -240,7 +231,7 @@ func printUsage() {
 	fmt.Println("  duo plugins test <path…> [--all|-a] [--verbose|-v]")
 	fmt.Println("                       check Driver Plugins against the protocol; --all")
 	fmt.Println("                       checks every driver Duo can see, -v lists each check")
-	fmt.Println("  duo resume [id] [--ui legacy|gotui]")
+	fmt.Println("  duo resume [id] [--ui gotui]")
 	fmt.Println("                       resume this repository's unfinished session or a specific session")
 	fmt.Println()
 	fmt.Println("Environment:")

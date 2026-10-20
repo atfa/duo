@@ -58,7 +58,7 @@ Recommended policy, unchanged: upgrade **per delivered release**, not per micro-
 - **Duo already prints the relaunch command.** On exit it prints "Duo stopped.
   Session … was preserved; resume it with `duo resume …`" (`cmd/duo/main.go:144`).
   `duo resume` with no id resumes this repository's unfinished session. **read**
-- **Quitting is a supported, guarded operation** (`internal/tui/app.go:210`), and the
+- **Quitting is a supported, guarded operation** (`internal/gotui/keys.go`), and the
   session is preserved by it. **read**
 - **Agents can already change session state from inside.** The command surface is
   small and extensible: `SubmitTask`, `SetModel`, `RestartAgent`, `SetLanguage`

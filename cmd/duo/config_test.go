@@ -139,8 +139,7 @@ func TestUIFrontendSelection(t *testing.T) {
 		args []string
 		want string
 	}{
-		{[]string{repo}, uiLegacy},
-		{[]string{repo, "--ui", "legacy"}, uiLegacy},
+		{[]string{repo}, uiGotUI},
 		{[]string{repo, "--ui=gotui"}, uiGotUI},
 		{[]string{repo, "--ui", "GOTUI"}, uiGotUI},
 	} {
@@ -152,7 +151,7 @@ func TestUIFrontendSelection(t *testing.T) {
 			t.Fatalf("loadConfig(%v) ui = %q, want %q", tc.args, cfg.ui, tc.want)
 		}
 	}
-	for _, args := range [][]string{{repo, "--ui", "web"}, {repo, "--ui"}, {repo, "--ui="}} {
+	for _, args := range [][]string{{repo, "--ui", "legacy"}, {repo, "--ui", "web"}, {repo, "--ui"}, {repo, "--ui="}} {
 		if _, err := loadConfig(args); err == nil {
 			t.Errorf("loadConfig(%v) accepted an invalid --ui", args)
 		}

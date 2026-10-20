@@ -34,7 +34,7 @@ Everything else should remain flexible enough for the models to collaborate natu
 | `internal/delivery` | Read-only safety decision and final handoff, repeated once per landed Step | Move only the recorded branch by a provably safe fast-forward; otherwise refuse without changing the checkout. |
 | `internal/harness`, `internal/events` | Runtime activity tracking, nudges and event fan-out | Harness observes runtime state; events are non-blocking and do not become project state. |
 | `internal/session` | The composition root, session lock, agent bridge, lifecycle observer and delivery handoff, behind `Options`, `View`, `Command` and `Subscribe` | Every frontend drives a session only through this seam; a frontend that re-implements part of it will disagree with the others. |
-| `internal/tui` | Input, rendering, help and timeline | A projection of project state, never another source of truth. It depends on the `session.Session` interface and holds no core handle; a parser check in the package enforces both. |
+| `internal/gotui` | Input, dashboard/timeline rendering, help, overlays and transcript | A projection of project state, never another source of truth. It depends on the `session.Service` seam and holds no core handle. The retired hand-written TUI is preserved on the `legacy-tui` branch and is not built from main. |
 | `pi-extension/`, `opencode-extension/` | Agent-side tool, activity and prompt adapters | Keep the adapter thin; Go Core remains responsible for shared state and authorization. |
 
 The Driver Plugin Protocol is specified in [driver-plugin-protocol.md](driver-plugin-protocol.md),

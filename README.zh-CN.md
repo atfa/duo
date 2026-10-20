@@ -18,10 +18,10 @@
 
 ```bash
 cd /path/to/git/repo
-duo                 # FAST（默认），Legacy TUI
+duo                 # FAST（默认），gotui 仪表盘
 duo --mode goal     # 完整协商式工作流
 duo --mode step     # 复杂任务：先列队列，再逐步落地
-duo --ui=gotui      # 可选的 gotui 仪表盘
+duo --ui=gotui      # 显式选择 gotui（默认前端）
 ```
 
 然后在 composer 里输入任务，按 `Enter`。**Fast** 下只发送给 Austin；**Goal** 与 **Step** 下会同时发送给 Austin 和 Tony，让双方共同设计计划或队列。
@@ -135,51 +135,11 @@ Duo Core 强制这些门禁而不是信任模型：Fast 拒绝 `duo_set_plan`，
 
 ## 终端界面
 
-Duo 有两个共享同一 Core 的终端前端。**Legacy TUI** 仍是默认：`duo` 与 `duo --ui=legacy` 打开它；可选的 **gotui 仪表盘**（`duo --ui=gotui`）增加分栏工作流/Agent 布局和可切换的时间线。架构、布局、截图和对比见 [gotui 前端指南](./docs/gotui.md)。两者共享 composer、斜杠命令、模型选择器、剪贴板、原生接管与恢复的会话历史，但部分导航键和弹窗操作不同；下面的两张按键表分别对应两个前端。
-
-### Legacy TUI（默认）
-
-Legacy TUI 的主界面是一条会话 **时间线**：单一时间顺序的消息流，每条消息都显示在说话者自己那一侧——Austin、人类与 Duo 系统消息靠左，Tony 的消息靠右——上方是按说话方着色的 `说话方 → 接收方` 标题行：发送给人类的消息用说话方本色的高亮粗体，Agent 之间与系统消息则保持暗色。系统通知、harness 提示、错误与验证结论也一律标注方向（如 `Duo → Human`、`Duo → Tony`），不会只显示一个名字。双方使用相同的气泡宽度（约占整行四分之三），因此判断谁在说话看的是消息所在的一侧，而不是更粗的标题样式；Tony 的消息如果一行就能显示完整，会靠右边缘对齐，需要换行的消息则固定左缩进对齐。顶部边框行显示 Duo 解析出的 Git 仓库目录（不是启动目录），无需打开 Help 就能确认本轮的目标仓库。人类任务、peer 消息、验证结论与 Duo 系统消息按到达顺序交织排列，当前模式、阶段、验证/Plan 状态与瞬时反馈位于时间线下方。
-
-一次构建可能很久，而时间线只在 Agent 完成一条消息时变化。因此时间线下方为每个 Agent 保留一条 **工作预览**：标题行是 Agent、它的 driver、带动画的状态与本轮已运行时长（如 `Austin preview (agy) · working · 5s`、`Tony preview (pi) · idle`）——状态 spinner 与 `[↗]` 附着按钮现在都在这里；下方各行显示"此刻在做什么"（正在跑的工具及其已运行时间，或正在思考所用的模型与思考级别）、本轮最近的工具轨迹（✓/✗ 与耗时）、本轮最近一次错误、以及正在流式输出的文本尾巴。工具失败或 provider 报错会立刻在那里显示，等待时不必靠猜。`Ctrl+P` 可以收起这条预览带，把行数还给时间线；终端太矮时会自动隐藏。
-
-**Legacy 按键**
-
-| 按键 | 操作 |
-|---|---|
-| `Enter` | 把 composer 内容发送给 Austin（Fast）或两个 Agent（Goal / Step） |
-| `Ctrl+Enter` / `Shift+Enter`\* | 在 composer 中插入换行 |
-| `Ctrl+A` | 直接进入 Austin 自己的 Agent 会话 |
-| `Ctrl+T` | 直接进入 Tony 自己的 Agent 会话 |
-| `Ctrl+]` / `Ctrl+\` / `Ctrl+】` | 从该 Agent 自己的会话返回 Duo |
-| `Ctrl+R` / `Ctrl+Y` | 若 Austin / Tony 进程已退出或失败，重启它 |
-| `Ctrl+/` | 打开或关闭 Duo Help |
-| `Ctrl+P` | 显示或隐藏 Austin/Tony 的工作预览带 |
-| `Ctrl+M` / `Alt+M` | 打开 Austin 或 Tony 的模型选择器 |
-| `Ctrl+O` | 切换会话总览：worktree、验证或 Plan、交付状态与 Git 变更 diffstat |
-| `Ctrl+G` | 切换消息时间戳 |
-| `Ctrl+X` | 复制 Austin 最新发给人类的消息到剪贴板 |
-| `Shift+Tab` | 循环切换目标 Agent 的思考强度 |
-| `Ctrl+Q` / `Ctrl+D` | 退出 Duo 并保留 session |
-| `←` / `→` | 移动 composer 光标 |
-| `Alt+←` / `Alt+→` | 按词移动 composer 光标 |
-| `↑` / `↓` | 在 composer 各行间移动；在首行/末行时改为回溯历史任务 |
-| `Home` / `End` | 移到 composer 当前行的开头/结尾 |
-| `Ctrl+U` / `Ctrl+K` | 删除到 composer 当前行的开头/结尾 |
-| `Ctrl+W` | 删除前一个词 |
-| `Backspace` / `Del` | 删除前一个/后一个 composer 字符 |
-| `PgUp` / `PgDn` | 向上/向下滚动会话时间线 |
-| 鼠标滚轮悬停在时间线上 | 滚动更早的消息 |
-| 鼠标在时间线上拖拽选择 | 选中文本并复制到剪贴板 |
-| 鼠标点击预览标题行的 `[↗]` | 进入该 Agent 自己的会话，等同于 `Ctrl+A` / `Ctrl+T` |
-
-时间线上的每条消息标题默认带上 `HH:MM:SS` 时间（`Austin → Tony · 14:30:05`），一次往来可以完整阅读；`Ctrl+G` 可隐藏或恢复这些时间。
-
-composer 支持多行，一次最多显示四行。原生接管是全屏接管：在 Pi 里，`/model`、`/settings`、`/tree` 以及所有 Pi 快捷键都归 Pi 管。
+Duo 默认且唯一内置的终端前端是 **gotui 仪表盘**：直接运行 `duo` 即可打开。它把分栏工作流/Agent 布局与可切换的时间线合在一起；架构、布局和截图见 [gotui 前端指南](./docs/gotui.md)。老的手搓 TUI 已保存在 `legacy-tui` Git 分支中，仅作参考，`main` 不再构建或安装它。
 
 ### gotui 仪表盘
 
-用 `duo --ui=gotui`、`duo --ui gotui` 或 `duo resume --ui=gotui` 为本次运行选择仪表盘。默认行为不变：直接运行 `duo` 或 `duo --ui=legacy` 仍是 Legacy TUI。
+`duo --ui=gotui` 可以显式选择同一个仪表盘，`duo resume --ui=gotui` 对恢复会话做同样的事。
 
 gotui 默认打开 **分栏仪表盘**：侧边栏显示阶段链、验证/交付状态、worktree 与两张 Agent 卡片；Austin 和 Tony 的会话左右并列；下方是 Duo/人类会话区。按 `F2`，或点击 `Split` / `Timeline` 标签，可切换到单一时间线。
 
@@ -212,17 +172,6 @@ gotui 默认打开 **分栏仪表盘**：侧边栏显示阶段链、验证/交�
 | 鼠标滚轮 / 拖拽 | 滚动指针所在窗格，或划选并复制会话文本 |
 | `Esc` | 关闭弹窗、收起斜杠面板，或清除选择/状态提示 |
 
-**与 Legacy 的差异**
-
-- `Ctrl+P` 在 gotui 中切换**工作流侧边栏**；在 Legacy 中切换 Austin/Tony 的工作预览带。
-- `Ctrl+O` 在 gotui 中打开居中的**详情弹窗**；在 Legacy 中把主视图切换到会话总览。
-- gotui 用 `F1`、`Ctrl+/` 或 `Alt+H` 打开帮助。帮助是可滚动弹窗：用 `↑`/`↓`、`PgUp`/`PgDn`、`Home`/`End` 滚动，用 `Esc` 关闭。Legacy 帮助是全屏视图，用 `↑`/`k`、`↓`/`j`、`Home`/`g`、`End`/`G` 滚动，用 `Esc` 或 `Ctrl+/` 关闭。
-- gotui 的模型选择器有独立导航：`Tab` 或 `Shift+Tab` 切换目标 Agent，`Ctrl+T` 在 Models 与 Thinking 两个标签间切换，`Enter` 应用模型或前进思考强度，`Space` 应用模型但不关闭，`Esc` 关闭。Legacy 中 `Shift+Tab` 直接循环思考强度。
-- gotui 没有 Legacy 的工作预览带，因此没有可点击的 `[↗]` 标题；请用 `Ctrl+A` / `Ctrl+T`（或 `Alt+A` / `Alt+T`）进入 Agent 会话。
-- **gotui 中不存在：** Help 中用 `j`/`k`/`g`/`G` 滚动以及用 `Ctrl+/` 关闭；模型选择器内用 `Shift+Tab` 切换思考强度（gotui 在选择器内用它切换 Agent）。
-
-布局会随终端调整：工作流侧边栏至少需要 104 列，分栏视图需要 72×16 的主区域；更窄或更矮时回退到时间线。侧边栏的阶段链在空间不足时换行，宽度小于 80 列时页脚使用紧凑提示。恢复会话直接显示已有对话，启动横幅只出现在新会话中。
-
 [gotui 指南](./docs/gotui.md#captures)中的确定性 tcell 截图覆盖仪表盘、时间线、斜杠面板、帮助、详情、模型选择器、确认对话框和窄终端。
 
 ### 斜杠命令（Slash Commands）
@@ -236,7 +185,7 @@ gotui 默认打开 **分栏仪表盘**：侧边栏显示阶段链、验证/交�
 | `/mode fast\|goal\|step` | 切换会话模式。运行中的一轮会按新模式的第一阶段重置；`DONE` 时切换则作用于下一个任务 |
 | `/model` | 打开 Austin/Tony 模型与思考强度选择器（等同于 `Ctrl+M`） |
 | `/overview` | 切换会话总览与 Git 变更统计详情（等同于 `Ctrl+O`） |
-| `/preview` | 展开或折叠 Legacy 的 Agent 工作预览带或 gotui 的工作流侧边栏（等同于 `Ctrl+P`） |
+| `/preview` | 展开或折叠 gotui 的工作流侧边栏（等同于 `Ctrl+P`） |
 | `/timestamps` | 切换时间线消息时间戳显示（等同于 `Ctrl+G`） |
 | `/copy` | 复制 Austin 最新发给人类的消息到剪贴板（等同于 `Ctrl+X`） |
 | `/help` | 打开 Duo 交互式帮助大屏（等同于 `Ctrl+/`） |
@@ -248,13 +197,13 @@ gotui 默认打开 **分栏仪表盘**：侧边栏显示阶段链、验证/交�
 
 提交过的任务会追加到 `~/.duo/history`（可用 `DUO_HISTORY_FILE` 覆盖），因此 `↑`/`↓` 的历史回溯在重启或 resume 之后依然有效。
 
-模型选择器（`Ctrl+M`）列出**目标 Agent 自己那个 driver** 所上报的模型目录——即 Duo 启动该 Agent 所用的同一套安装（`pi --list-models`、`agy models`、`opencode models`），因此同一会话里 Austin 与 Tony 可以各自使用不同目录。输入即可过滤，用 `↑`/`↓`（或 `PgUp`/`PgDn`、`Home`/`End`）移动。Legacy 中用 `Tab` 在 Austin 与 Tony 之间切换目标，用 `Shift+Tab` 循环该 Agent 的思考强度，用 `Enter` 应用模型并关闭，或用 `Space` 应用模型但不关闭——这样一次打开就能同时设好模型和思考强度。gotui 中用 `Tab` 或 `Shift+Tab` 切换目标 Agent，用 `Ctrl+T` 在 Models 与 Thinking 两个标签间切换，用 `Enter` 应用模型或前进思考强度，用 `Space` 应用模型但不关闭，用 `Esc` 关闭。在 `pi` 上切换是实时的：Pi 保留对话，并把模型与思考强度记入 session 记录，因此重启或 resume（`Ctrl+R`/`Ctrl+Y`）后仍然有效。`agy` 与 `opencode` 会在 Agent 启动时应用模型和思考强度，因此 Duo 会重启该 Agent——对话仍会保留（session id 已持久化），但正在进行的工作会被打断。`▶` 标记选择器光标，`●` 标记目标 Agent 当前使用的模型。
+模型选择器（`Ctrl+M`）列出**目标 Agent 自己那个 driver** 所上报的模型目录——即 Duo 启动该 Agent 所用的同一套安装（`pi --list-models`、`agy models`、`opencode models`），因此同一会话里 Austin 与 Tony 可以各自使用不同目录。输入即可过滤，用 `↑`/`↓`（或 `PgUp`/`PgDn`、`Home`/`End`）移动。用 `Tab` 或 `Shift+Tab` 切换目标 Agent，用 `Ctrl+T` 在 Models 与 Thinking 两个标签间切换，用 `Enter` 应用模型或前进思考强度，用 `Space` 应用模型但不关闭，用 `Esc` 关闭。在 `pi` 上切换是实时的：Pi 保留对话，并把模型与思考强度记入 session 记录，因此重启或 resume（`Ctrl+R`/`Ctrl+Y`）后仍然有效。`agy` 与 `opencode` 会在 Agent 启动时应用模型和思考强度，因此 Duo 会重启该 Agent——对话仍会保留（session id 已持久化），但正在进行的工作会被打断。`▶` 标记选择器光标，`●` 标记目标 Agent 当前使用的模型。
 
 Agent 输出按轻量 markdown 渲染：标题、引用、链接以及粗体/斜体/行内代码都有样式，markdown 表格会画出对齐的真实边框。表格宽度超过时间线时，Duo 会折行最宽的单元格，而不是截断内容；折行的列表项会保持悬挂缩进，续行对齐在条目正文下方。
 
 鼠标划选复制支持终端标准 OSC 52 转义序列（在远程 SSH、tmux 以及 Ghostty/WezTerm/Alacritty/Kitty 等现代终端中原生直通）并自动回退至宿主系统剪贴板工具（macOS 下 `pbcopy`、Wayland 下 `wl-copy`、X11 下 `xclip`/`xsel`）。
 
-Legacy 的 Help 是一个完整的大屏视图，用 `↑`/`k`、`↓`/`j`、`PgUp`、`PgDn`、`Home`/`g`、`End`/`G` 滚动，用 `Esc` 或 `Ctrl+/` 关闭；内容覆盖上面的快捷键、斜杠命令与模型选择器，还有一个 **命令行（Command Line）** 小节，列出全部 `duo` 子命令与参数。进入 Agent 自己的会话后，`Ctrl+/` 仍直接交给该 Agent，不会打开 Duo Help。gotui 用 `F1`、`Ctrl+/` 或 `Alt+H` 打开 Help 弹窗，用 `↑`/`↓`、`PgUp`/`PgDn`、`Home`/`End` 滚动，用 `Esc` 关闭；它是仪表盘快捷键与工作流的精简参考。完整用法、全部环境变量以及每个命令的详细说明见 `duo --help`。
+gotui 用 `F1`、`Ctrl+/` 或 `Alt+H` 打开 Help 弹窗，用 `↑`/`↓`、`PgUp`/`PgDn`、`Home`/`End` 滚动，用 `Esc` 关闭；它是仪表盘快捷键与工作流的精简参考。完整用法、全部环境变量以及每个命令的详细说明见 `duo --help`。
 
 \* 只有当终端能明确区分上报该组合键时才会插入换行（`\x1b[13;2u` CSI-u 或 Duo 启用 modifyOtherKeys 后的 `\x1b[27;2;13~`）。若你的终端把 `Shift+Enter` 发成裸 `\r`，它会**提交**而不是换行——这种情况请改用 `Ctrl+Enter`（到达时是 `\n`）。`Ctrl+M` 有同样的限制：只有支持上述模式的终端才会把它上报成带 Ctrl 的 `m` 键（`\x1b[27;5;109~` 或 `\x1b[109;5u`），其余终端上与 `Enter` 无法区分——这种情况请用 `Alt+M`。
 
@@ -501,7 +450,7 @@ duo logs <repository>       # 列出另一个仓库的会话记录
 
 ## 使用边界
 
-Duo 固定使用 Austin 与 Tony 两个角色。可在 Fast、Goal 与 Step 之间随时切换；运行中的一轮切换后会按新模式的第一阶段重置。崩溃恢复不会重建 Agent 的推理过程；Duo Core 自身崩溃后需手动运行 `duo resume`。会话绑定本机和仓库路径，辅助脚本面向 macOS/Linux。gotui 前端需要足够大的终端来显示分栏仪表盘，更小的终端会回退到它的时间线视图。交付安全边界与本地 TCP 信任模型见[架构说明](./docs/architecture.md)和 [SECURITY.md](./SECURITY.md)。
+Duo 固定使用 Austin 与 Tony 两个角色。可在 Fast、Goal 与 Step 之间随时切换；运行中的一轮切换后会按新模式的第一阶段重置。崩溃恢复不会重建 Agent 的推理过程；Duo Core 自身崩溃后需手动运行 `duo resume`。会话绑定本机和仓库路径，辅助脚本面向 macOS/Linux。gotui 需要足够大的终端来显示分栏仪表盘，更小的终端会回退到时间线视图；老的手搓 TUI 保留在 `legacy-tui` 分支。交付安全边界与本地 TCP 信任模型见[架构说明](./docs/architecture.md)和 [SECURITY.md](./SECURITY.md)。
 
 ## 开发
 

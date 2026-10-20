@@ -16,10 +16,10 @@ The runtime is a Go coordination core plus thin driver plugins and optional agen
 
 ```bash
 cd /path/to/git/repo
-duo                 # FAST (default), Legacy TUI
+duo                 # FAST (default), gotui dashboard
 duo --mode goal     # full negotiated workflow
 duo --mode step     # one complex task, landed step by step
-duo --ui=gotui      # opt-in dashboard frontend
+duo --ui=gotui      # explicit gotui selection (the default)
 ```
 
 Then type a task in the composer and press `Enter`. In **Fast**, Duo sends it to **Austin**. In **Goal** and **Step**, Duo sends it to **both Austin and Tony** so they can co-design the shared Plan.
@@ -132,51 +132,11 @@ Duo Core enforces these gates rather than trusting the model: Fast rejects `duo_
 
 ## Terminal UI
 
-Duo has two terminal frontends over the same core. The **Legacy TUI** is the default: `duo` and `duo --ui=legacy` open it. The opt-in **gotui dashboard** (`duo --ui=gotui`) adds a split workflow/agent layout and a toggleable timeline; see the [gotui frontend guide](./docs/gotui.md) for its architecture, layout, captures and comparison. Both share the composer, slash commands, model picker, clipboard, native attach and resumed session history, but a few navigation keys and modal behaviours differ; each frontend has its own key reference below.
-
-### Legacy TUI (default)
-
-The Legacy TUI's main view is one conversation **timeline**: a single chronological stream in which each message appears on its speaker's own side — Austin, the human and Duo system lines on the left, Tony's pushed to the right — under a `Sender → Receiver` header. Headers are coloured by speaker: a message addressed to the human is bold in the speaker's own colour, while agent-to-agent and system headers stay dim. System notices, harness notes, errors and verdicts are labeled the same way (`Duo → Human`, `Duo → Tony`, …), never with a bare speaker name. Both speakers share the same bubble width (about three quarters of the row), so the side a block sits on, not a heavier header, tells you who is speaking; a Tony message that fits on one line hugs the right edge, while a wrapped one is left-anchored at its indent. The top border row names the Git repository Duo resolved (never the launch directory), so the target of the session is visible without opening Help. Human tasks, peer messages, verifier verdicts and Duo system messages are interleaved in arrival order, and the current mode, phase, verification/Plan state and transient feedback stay below the timeline.
-
-A build can take a long time, and the timeline only changes when an agent finishes a message. Below it Duo therefore keeps a **work preview** for each agent. Its header names the agent, its driver, its animated state and how long the current turn has been running (`Austin preview (agy) · working · 5s`, `Tony preview (pi) · idle`) — the state spinner and the `[↗]` attach button live here now; the rows below show what it is doing *now* (the running tool and how long it has been running, or the model and thinking level it is thinking with), the turn's recent tool trail with ✓/✗ and durations, the turn's last error, and the tail of the text being streamed. A failed tool or a provider error is visible there immediately, so waiting does not mean guessing. `Ctrl+P` collapses the band when you want the rows back for the timeline; on a short terminal it is hidden automatically.
-
-**Legacy keyboard shortcuts**
-
-| Key | Action |
-|---|---|
-| `Enter` | Send composer text to Austin in Fast, or both agents in Goal and Step |
-| `Ctrl+Enter` / `Shift+Enter`\* | Insert a newline in the composer |
-| `Ctrl+A` | Attach to Austin's own agent session directly |
-| `Ctrl+T` | Attach to Tony's own agent session directly |
-| `Ctrl+]` / `Ctrl+\` / `Ctrl+】` | Return from the agent's own session to Duo |
-| `Ctrl+R` / `Ctrl+Y` | Restart Austin / Tony if the process exited or failed |
-| `Ctrl+/` | Open or close Duo Help |
-| `Ctrl+P` | Show or hide the Austin/Tony work preview band |
-| `Ctrl+M` / `Alt+M` | Open the model picker for Austin or Tony |
-| `Ctrl+O` | Toggle session overview: worktrees, verification or Plan, delivery state, and Git changes diffstat |
-| `Ctrl+G` | Toggle message timestamps |
-| `Ctrl+X` | Copy Austin's latest message to the human to the clipboard |
-| `Shift+Tab` | Cycle the target agent's thinking level |
-| `Ctrl+Q` / `Ctrl+D` | Quit Duo and preserve the session |
-| `←` / `→` | Move the composer cursor |
-| `Alt+←` / `Alt+→` | Move the composer cursor by word |
-| `↑` / `↓` | Move between composer lines; recall task history at the first/last line |
-| `Home` / `End` | Move to the start or end of the composer line |
-| `Ctrl+U` / `Ctrl+K` | Delete to the start or end of the composer line |
-| `Ctrl+W` | Delete the previous word |
-| `Backspace` / `Del` | Delete the preceding or following composer character |
-| `PgUp` / `PgDn` | Scroll the conversation timeline earlier or later |
-| Mouse wheel over the timeline | Scroll earlier messages |
-| Mouse drag over the timeline | Select text and copy it to the clipboard |
-| Mouse click on `[↗]` in a preview header | Attach that agent's own session, the same as `Ctrl+A` / `Ctrl+T` |
-
-Each timeline message header carries its `HH:MM:SS` time by default (`Austin → Tony · 14:30:05`), so one exchange is readable end to end; `Ctrl+G` hides or restores those stamps.
-
-The composer holds multiple lines and shows up to four at a time. Native attach is a fullscreen takeover: inside Pi, `/model`, `/settings`, `/tree` and all Pi shortcuts belong to Pi.
+Duo's default and only bundled terminal frontend is the **gotui dashboard**: `duo` opens it directly. It combines a split workflow/agent layout with a toggleable chronological timeline; see the [gotui frontend guide](./docs/gotui.md) for its architecture, layout and captures. The old hand-written TUI is preserved on the `legacy-tui` Git branch for reference, but it is no longer built or installable from `main`.
 
 ### gotui dashboard
 
-Select the dashboard for one invocation with `duo --ui=gotui`, `duo --ui gotui`, or `duo resume --ui=gotui`. The default is unchanged: plain `duo` and `duo --ui=legacy` run the Legacy TUI.
+`duo --ui=gotui` selects the same dashboard explicitly and `duo resume --ui=gotui` does the same for a resumed session.
 
 The gotui frontend opens in a **split dashboard**: a workflow sidebar with the phase chain, verification/delivery state, worktrees and two agent cards; Austin and Tony in side-by-side transcripts; and a Duo/Human conversation pane below. `F2`, the `Split` / `Timeline` tabs, or a click on either tab switches to the single chronological timeline.
 
@@ -209,15 +169,6 @@ The gotui frontend opens in a **split dashboard**: a workflow sidebar with the p
 | Mouse wheel / drag | Scroll the pane under the pointer, or select and copy transcript text |
 | `Esc` | Close an overlay, dismiss the slash menu, or clear a selection/status |
 
-**Differences from Legacy**
-
-- `Ctrl+P` toggles the gotui **workflow sidebar**; in Legacy it toggles the Austin/Tony work-preview band.
-- `Ctrl+O` opens a centered **details modal** in gotui; in Legacy it switches the main view to the session overview.
-- Help opens with `F1`, `Ctrl+/` or `Alt+H` in gotui. It is a scrollable modal: use `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End`, and close with `Esc`. Legacy Help is a full-screen view scrolled with `↑`/`k`, `↓`/`j`, `Home`/`g`, `End`/`G` and closed with `Esc` or `Ctrl+/`.
-- The model picker has its own navigation in gotui: `Tab` or `Shift+Tab` switches the target agent, `Ctrl+T` switches between the Models and Thinking tabs, `Enter` applies a model or advances the thinking level, `Space` applies a model without closing, and `Esc` closes. In Legacy, `Shift+Tab` cycles the thinking level directly.
-- gotui has no Legacy work-preview band, so there is no `[↗]` header to click. Use `Ctrl+A` / `Ctrl+T` (or `Alt+A` / `Alt+T`) to attach.
-- **Not available in gotui:** `j`/`k`/`g`/`G` Help scrolling; `Ctrl+/` as a Help close key; and `Shift+Tab` as the thinking shortcut inside the model picker (there it switches agent).
-
 The layout responds to the terminal: the workflow sidebar needs at least 104 columns, the split view needs a 72-column by 16-row main pane, and narrower terminals fall back to the timeline. The sidebar phase chain wraps when it does not fit, and the footer uses compact hints below 80 columns. A resumed session starts with its restored conversation; the startup banner is only added to a new session.
 
 The deterministic tcell captures in the [gotui guide](./docs/gotui.md#captures) show the dashboard, timeline, slash palette, help, details, model picker, confirmation dialog and a narrow terminal.
@@ -233,7 +184,7 @@ Typing `/` in the composer opens an interactive command palette showing availabl
 | `/mode fast\|goal\|step` | Switch the session mode. A running round resets to the new mode's first phase; switching in `DONE` applies the mode to the next task |
 | `/model` | Open the model and thinking level picker (`Ctrl+M`) |
 | `/overview` | Toggle the session overview and git diffstat (`Ctrl+O`) |
-| `/preview` | Toggle the Legacy agent work preview band or the gotui workflow sidebar (`Ctrl+P`) |
+| `/preview` | Toggle the gotui workflow sidebar (`Ctrl+P`) |
 | `/timestamps` | Toggle timeline message timestamps (`Ctrl+G`) |
 | `/copy` | Copy Austin's latest message to the human to the clipboard (`Ctrl+X`) |
 | `/help` | Open the full Duo interactive help screen (`Ctrl+/`) |
@@ -245,7 +196,7 @@ An unknown command is reported as an error. `//text` and an absolute path (e.g. 
 
 Submitted tasks are appended to `~/.duo/history` (override with `DUO_HISTORY_FILE`), so `↑`/`↓` recall survives restarting or resuming Duo.
 
-The model picker (`Ctrl+M`) lists the catalog the *target's own driver* reports for the very installation Duo launched (`pi --list-models`, `agy models`, `opencode models`), so Austin and Tony can sit on different catalogs in the same session. Type to filter, and move with `↑`/`↓` (or `PgUp`/`PgDn`, `Home`/`End`). In Legacy, switch the target between Austin and Tony with `Tab`, cycle that agent's thinking level with `Shift+Tab`, and apply the model with `Enter` (apply and close) or `Space` (apply and keep the picker open, so a model and a thinking level can be set in one visit). In gotui, `Tab` or `Shift+Tab` switches the target, `Ctrl+T` switches between the Models and Thinking tabs, `Enter` applies a model or advances the thinking level, `Space` applies a model without closing, and `Esc` closes the picker. On `pi` the switch is live: Pi keeps the conversation and records both the model and the thinking level in the session transcript, so a restart or resume (`Ctrl+R`/`Ctrl+Y`) keeps the choice. `agy` and `opencode` apply model and effort when the agent starts, so Duo restarts that agent instead — the conversation survives, because the session id is persisted, but in-flight work is interrupted. `▶` marks the picker cursor and `●` the target's current model.
+The model picker (`Ctrl+M`) lists the catalog the *target's own driver* reports for the very installation Duo launched (`pi --list-models`, `agy models`, `opencode models`), so Austin and Tony can sit on different catalogs in the same session. Type to filter, and move with `↑`/`↓` (or `PgUp`/`PgDn`, `Home`/`End`). `Tab` or `Shift+Tab` switches the target, `Ctrl+T` switches between the Models and Thinking tabs, `Enter` applies a model or advances the thinking level, `Space` applies a model without closing, and `Esc` closes the picker. On `pi` the switch is live: Pi keeps the conversation and records both the model and the thinking level in the session transcript, so a restart or resume (`Ctrl+R`/`Ctrl+Y`) keeps the choice. `agy` and `opencode` apply model and effort when the agent starts, so Duo restarts that agent instead — the conversation survives, because the session id is persisted, but in-flight work is interrupted. `▶` marks the picker cursor and `●` the target's current model.
 
 Agent output is rendered as lightweight markdown: headings, blockquotes, links and bold/italic/code spans are styled, and markdown tables are drawn with real, aligned borders. A table wider than the timeline is narrowed by wrapping the widest cells instead of truncating them, and a wrapped list keeps a hanging indent so continuation lines stay under the item text.
 
@@ -253,7 +204,7 @@ Mouse selection copies through terminal OSC 52 escape sequences (works seamlessl
 
 \* A newline is inserted only when the terminal reports the combination distinctly (`\x1b[13;2u` CSI-u or `\x1b[27;2;13~` modifyOtherKeys, which Duo enables). Terminals that send a bare `\r` for `Shift+Enter` will **submit** instead — use `Ctrl+Enter`, which arrives as `\n`, if `Shift+Enter` submits in your terminal. The same limit applies to `Ctrl+M`: it is reported as the `m` key with Ctrl (`\x1b[27;5;109~` or `\x1b[109;5u`) only on terminals that honor those modes, and on the others it is indistinguishable from `Enter` — use `Alt+M` there.
 
-In Legacy, Help is a full alternate-screen view; scroll it with `↑`/`k`, `↓`/`j`, `PgUp`, `PgDn`, `Home`/`g`, `End`/`G`, and close it with `Esc` or `Ctrl+/`. Legacy Help covers the keybindings, slash commands and the model picker above, plus a **Command Line** section listing every `duo` subcommand and flag. In gotui, `F1`, `Ctrl+/` or `Alt+H` opens a Help modal; scroll with `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End` and close with `Esc`; it is a compact dashboard key and workflow reference. Run `duo --help` for the full usage, every environment variable and each command's own detail.
+`F1`, `Ctrl+/` or `Alt+H` opens the gotui Help modal; scroll with `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End` and close with `Esc`; it is a compact dashboard key and workflow reference. Run `duo --help` for the full usage, every environment variable and each command's own detail.
 
 ## Configuration
 
@@ -524,7 +475,7 @@ The remaining commands do not touch sessions: `duo plugins` lists the built-in d
 
 ## Limits that affect use
 
-Duo supports two fixed roles, Austin and Tony. Fast can escalate to Goal but cannot return to Fast. A session cannot recover agent reasoning, and Duo Core does not restart itself after a crash; run `duo resume`. Session data is local to the machine and repository path. The shell scripts target macOS/Linux. The gotui frontend is opt-in and needs a terminal large enough for its split dashboard; smaller terminals fall back to its timeline view. Delivery safety and local TCP trust boundaries are described in [architecture](./docs/architecture.md) and [SECURITY.md](./SECURITY.md).
+Duo supports two fixed roles, Austin and Tony, across switchable Fast, Goal and Step modes. A session cannot recover agent reasoning, and Duo Core does not restart itself after a crash; run `duo resume`. Session data is local to the machine and repository path. The shell scripts target macOS/Linux. gotui needs a terminal large enough for its split dashboard; smaller terminals fall back to its timeline view, and the retired hand-written TUI remains on the `legacy-tui` branch. Delivery safety and local TCP trust boundaries are described in [architecture](./docs/architecture.md) and [SECURITY.md](./SECURITY.md).
 
 ## Development
 

@@ -1,23 +1,23 @@
 # gotui terminal frontend
 
-Duo has two terminal frontends over the same Go core. The **Legacy TUI** is still
-the default, so `duo` and `duo --ui=legacy` behave exactly as before. The gotui
-frontend is opt-in:
+gotui is Duo's default and only bundled terminal frontend. Plain `duo` opens it;
+the explicit form is available for scripts and for resumed sessions:
 
 ```bash
+duo
 duo --ui=gotui
 duo --ui gotui --mode goal
 duo resume --ui=gotui
 duo resume <session-id> --ui=gotui
 ```
 
-`duo resume --ui=legacy` selects the original interface explicitly. The choice is
-per invocation; there is no UI setting in the config file or environment.
+The retired hand-written TUI is preserved on the `legacy-tui` Git branch. It is
+not built or installed from `main`.
 
 ## What it shows
 
-The gotui frontend is a live dashboard over the same `session.Service` used by
-Legacy. It never owns workflow state or makes project transitions:
+The gotui frontend is a live dashboard over the same `session.Service` as every
+other Duo frontend. It never owns workflow state or makes project transitions:
 
 - **Split dashboard (default).** A workflow sidebar with the phase chain,
   verification/delivery state, worktrees and two agent cards; Austin and Tony in
@@ -119,17 +119,6 @@ plus `Sync()` and a full layout rebuild. Escape sequences are assembled across
 reads so a split function-key reply is not sent to the agent as a bare Escape.
 The detach chord itself is consumed, not forwarded.
 
-## Legacy comparison
-
-| | Legacy (default) | gotui (`--ui=gotui`) |
-|---|---|---|
-| Layout | single timeline with an Austin/Tony work-preview band | split workflow/agent dashboard with a toggleable timeline |
-| Workflow context | inline phase and verification status | dedicated sidebar, phase chain, agent cards and worktrees |
-| Conversation | one chronological stream | per-agent panes plus a Duo/Human pane, or one timeline |
-| Styling | Legacy styling | rounded panels, TrueColor theme, responsive footer |
-| Shared behavior | composer, slash commands, picker, help/details, native attach, clipboard, resume, Core | the same, through the same `Session` surface |
-| Default | yes | no |
-
 ## Captures
 
 These are real text frames rendered by tcell's SimulationScreen during the
@@ -171,7 +160,6 @@ make check
 
 ## Known limitations
 
-- Legacy remains the default; `--ui=gotui` is opt-in.
 - The split view and workflow sidebar intentionally disappear on terminals that
   are too small rather than squeezing unreadable panes.
 - Captures are deterministic text frames; they do not preserve colour or style.

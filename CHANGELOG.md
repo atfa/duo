@@ -4,6 +4,15 @@ All notable project milestones are documented here.
 
 ## v0.12.2 — unreleased
 
+### gotui becomes the terminal frontend
+
+- The gotui dashboard is now the default and only bundled terminal frontend, so
+  `duo` opens it directly and `--ui=gotui` is an explicit compatibility spelling.
+  The old hand-written TUI is preserved on the `legacy-tui` Git branch and is no
+  longer built or installed from `main`.
+- `scripts/install.sh` now builds the gotui-based `duo` with the rest of the
+  commands, so a source install and the release archives ship the same frontend.
+
 ### Runtime mode switching and per-step policies
 
 - Fast, Goal and Step can now be switched at any time with `/mode fast|goal|step`
@@ -22,8 +31,7 @@ All notable project milestones are documented here.
   succeed, and the opencode context hook removes the interactive `question` tool
   so an unattended Duo session cannot stall on a human prompt.
 - Step phase and resume prompts now explain the current item's policy, and the
-  TUI help, slash palette, README and gotui captures reflect the three
-  switchable modes.
+  gotui help, slash palette, README and captures reflect the three switchable modes.
 
 ### Session selection and xduo inspection
 

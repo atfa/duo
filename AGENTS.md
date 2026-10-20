@@ -13,7 +13,7 @@
 - `internal/coordinator/`: message handling, gates and phase changes.
 - `internal/driver/`, `plugins/`: driver plugin contract and built-in drivers.
 - `internal/workspace/`, `internal/delivery/`, `internal/recovery/`: Git isolation, safe handoff and resume reconciliation.
-- `internal/tui/`: terminal UI projection; it must not become a second source of project state.
+- `internal/gotui/`: the terminal UI projection; it must not become a second source of project state.
 - `pi-extension/`, `opencode-extension/`: agent-side bridge adapters.
 
 Read [architecture](docs/architecture.md) for boundaries/invariants, the relevant [protocol](docs/driver-plugin-protocol.md) or [bridge protocol](docs/duo-bridge-protocol.md) when changing those interfaces, and the [plugin guide](docs/plugin-development-guide.md) when adding a driver.

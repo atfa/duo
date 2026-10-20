@@ -21,16 +21,16 @@ import (
 )
 
 const (
-	uiLegacy = "legacy"
-	uiGotUI  = "gotui"
+	uiGotUI = "gotui"
 )
 
 type config struct {
 	listen         string
 	harnessEnabled bool
 	harness        harness.Config
-	// ui selects the terminal frontend. Legacy remains the default; the value is
-	// settled while parsing so an unsupported name cannot start a session.
+	// ui is retained as a compatibility selector. gotui is the only bundled
+	// terminal frontend; the old hand-written TUI lives on the legacy-tui branch
+	// and is no longer built from main.
 	ui string
 
 	repository          string
@@ -223,7 +223,7 @@ func parseArgs(args []string) (cliArgs, error) {
 			out.modeExplicit = true
 		case arg == "--ui":
 			if i+1 >= len(args) {
-				return out, fmt.Errorf("--ui requires a value (legacy or gotui)")
+				return out, fmt.Errorf("--ui requires a value (gotui)")
 			}
 			value, err := parseUI(args[i+1])
 			if err != nil {
@@ -341,12 +341,10 @@ func parseResumeArgs(args []string) (cliArgs, error) {
 
 func parseUI(raw string) (string, error) {
 	switch value := strings.ToLower(strings.TrimSpace(raw)); value {
-	case uiLegacy:
-		return uiLegacy, nil
 	case uiGotUI:
 		return uiGotUI, nil
 	default:
-		return "", fmt.Errorf("invalid UI %q: must be legacy or gotui", strings.TrimSpace(raw))
+		return "", fmt.Errorf("invalid UI %q: gotui is the only frontend in this branch (the old TUI is archived on legacy-tui)", strings.TrimSpace(raw))
 	}
 }
 
@@ -366,7 +364,7 @@ func loadConfigCommand(args []string, resume bool) (config, error) {
 	}
 	ui := parsed.ui
 	if ui == "" {
-		ui = uiLegacy
+		ui = uiGotUI
 	}
 
 	cwd, _ := os.Getwd()

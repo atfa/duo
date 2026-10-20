@@ -12,10 +12,9 @@ import (
 
 // Session is everything this frontend needs from Duo Core and nothing else.
 //
-// It is intentionally the same shape as the Legacy TUI's seam. Keeping the
-// method set local means this frontend does not import internal/tui; the
-// compile-time assertion below is the contract that *session.Service still
-// implements it.
+// Keeping the method set local means this package depends only on the
+// session.Service seam; the compile-time assertion below is the contract that
+// *session.Service still implements it.
 type Session interface {
 	View() session.View
 	History() []sessionstore.TUIEntry
