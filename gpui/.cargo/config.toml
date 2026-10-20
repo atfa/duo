@@ -1,7 +1,0 @@
-# The build tree is a dot-directory on purpose. This repository's Go tooling walks
-# `./...` from its root, and `go test ./...` fails with "no such file or directory"
-# when the walk touches a Cargo target directory that a concurrent build is
-# rewriting. Go skips a directory whose name begins with a dot, and `target` does
-# not, so the Rust tree lives in `.target`.
-[build]
-target-dir = ".target"

@@ -51,16 +51,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: stable
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install Linux build dependencies
-        if: matrix.os == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libasound2-dev libfontconfig1-dev libfreetype6-dev \
-            libwayland-dev libx11-dev libx11-xcb-dev libxcb-render0-dev \
-            libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev \
-            libxkbcommon-x11-dev libvulkan-dev pkg-config
-      - name: Build Duo and xduo archive
+      - name: Build Duo archive
         env:
           TARGET_OS: ${{ matrix.os }}
           TARGET_ARCH: ${{ matrix.arch }}
@@ -77,12 +68,6 @@ jobs:
             CGO_ENABLED=0 GOOS="$TARGET_OS" GOARCH="$TARGET_ARCH" \
               go build -trimpath -ldflags="-s -w" -o "dist/package/$name" "$pkg"
           done
-          (cd gpui && cargo build --release --locked)
-          install -m 0755 gpui/.target/release/xduo-renderer dist/package/xduo-renderer
-          install -m 0644 resources/xduo.png resources/xduo.icns resources/xduo.desktop dist/package/
-          if [ "$TARGET_OS" = darwin ]; then
-            scripts/package-xduo-macos.sh dist/package/xduo.app dist/package/xduo-renderer dist/package/duo dist/package
-          fi
           cp -R pi-extension dist/package/pi-extension
           mkdir -p dist/package/opencode-extension
           cp opencode-extension/*.ts dist/package/opencode-extension/

@@ -133,9 +133,6 @@ type Config struct {
 	PluginState json.RawMessage
 	// BaseCommand is the operator's own command for this agent, if any.
 	BaseCommand string
-	// RuntimePath is supplied by desktop frontends whose login shell may replace
-	// the process PATH before launching an agent.
-	RuntimePath string
 	// Model is the model to run with, empty when none was selected.
 	Model string
 	// Thinking is the reasoning effort to run with, empty when none was selected.
@@ -471,9 +468,6 @@ func (s *Session) Start(ctx context.Context) error {
 	// A shell preserves the existing DUO_PI_COMMAND behaviour (including arguments)
 	// and expands any variable the plugin's own environment supplies.
 	command := "exec " + plan.Command
-	if s.cfg.RuntimePath != "" {
-		command = "export PATH=" + driver.ShellQuote(s.cfg.RuntimePath) + "; " + command
-	}
 	cmd := exec.Command("sh", "-lc", command)
 	cmd.Dir = s.cfg.Dir
 	cmd.Env = append(os.Environ(), coreEnv(s)...)

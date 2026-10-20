@@ -1,6 +1,6 @@
 # Duo
 
-**Two peer coding agents in a terminal or graphical window, coordinated through isolated Git worktrees.**
+**Two peer coding agents in a terminal, coordinated through isolated Git worktrees.**
 
 Duo runs two coding agents as *peers* rather than as a planner and a subordinate worker, in one of three fixed workflows:
 
@@ -36,23 +36,18 @@ Requirements:
 
 ## Install
 
-**Released binaries** (macOS/Linux, amd64/arm64; installs `duo`, `xduo`, driver helpers and agent bridges, plus a Linux desktop entry or macOS app bundle):
+**Released binaries** (macOS/Linux, amd64/arm64; installs `duo`, driver helpers and agent bridges):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash
 ```
 
-**From source** (runs the Go test suite, then installs Duo, its driver bridges and
-the `xduo` app with its desktop entry or macOS app bundle; requires Go 1.22+,
-and cargo for the renderer):
+**From source** (runs the Go test suite, then installs Duo and its driver bridges;
+requires Go 1.22+):
 
 ```bash
 ./scripts/install.sh
 ```
-
-Without cargo the terminal install still succeeds and the renderer is skipped with
-a notice. `make gpui` is the renderer build on its own, and
-`scripts/install-xduo-desktop.sh` registers the Linux desktop entry on its own.
 
 Restart any running Pi or opencode processes after installing the bridges.
 
@@ -204,83 +199,6 @@ Mouse selection copies through terminal OSC 52 escape sequences (works seamlessl
 \* A newline is inserted only when the terminal reports the combination distinctly (`\x1b[13;2u` CSI-u or `\x1b[27;2;13~` modifyOtherKeys, which Duo enables). Terminals that send a bare `\r` for `Shift+Enter` will **submit** instead — use `Ctrl+Enter`, which arrives as `\n`, if `Shift+Enter` submits in your terminal. The same limit applies to `Ctrl+M`: it is reported as the `m` key with Ctrl (`\x1b[27;5;109~` or `\x1b[109;5u`) only on terminals that honor those modes, and on the others it is indistinguishable from `Enter` — use `Alt+M` there.
 
 Help is a full alternate-screen view; scroll it with `↑`/`k`, `↓`/`j`, `PgUp`, `PgDn`, `Home`/`g`, `End`/`G`, and close it with `Esc` or `Ctrl+/`. It covers the keybindings, the slash commands and the model picker above, plus a **Command Line** section listing every `duo` subcommand and flag; run `duo --help` for the full usage, every environment variable and each command's own detail.
-
-## Graphical frontend (`duo gui`)
-
-`duo gui` starts the same session `duo` does and attaches a native window instead
-of the terminal. The window is built with [GPUI](https://gpui.rs), the Rust UI
-framework Zed uses. It shows session state and work previews, and it sends the
-same human commands as the terminal interface.
-
-```sh
-duo gui                       # a new Fast session, in the window
-duo gui --mode step           # every session flag works the same way
-duo gui resume <session-id>   # open the window on a session already in flight
-```
-
-Build the renderer once — `make gpui`, which needs cargo — and `duo gui` finds
-`xduo-renderer` through `--gui-binary <path>`, then `DUO_GPUI_BIN`, then `PATH`,
-then next to the `duo` binary. Run `xduo` to open the full welcome app; it starts
-the matching Duo host and renderer, or opens the installed macOS app bundle so
-the Dock uses the designed icon.
-
-The GUI follows the system light/dark appearance. macOS uses its native titlebar;
-Linux requests client-side decorations and draws a titlebar with minimize,
-maximize and close controls plus resize borders when GPUI reports client
-decorations active, leaving server-side decorations to the compositor when they
-are negotiated. On Linux, `install.sh` runs
-`scripts/install-xduo-desktop.sh` to register the app icon and launcher. On
-macOS, the release archive includes an `xduo.app` with the Dock icon. For a
-source bundle, use `scripts/package-xduo-macos.sh` with matching Duo,
-`xduo-renderer` and agent-helper binaries.
-
-`xduo` opens the welcome window, where you can choose a repository and resume an
-unfinished session. The Linux release renderer requires glibc 2.34 or newer.
-The graphical renderer also needs a working Vulkan driver.
-
-The composer wraps long lines and supports keyboard selection. Select a timeline
-message with a click or the navigation keys, then copy its original text with
-`Ctrl+C`. The overview includes Git diffstat and verification evidence, while
-work previews show elapsed time and keep the current step visible. Use
-`scripts/xduo-window-smoke.sh` and [the desktop checklist](./docs/xduo-window-smoke.md)
-to inspect the native window on supported desktops.
-If a driver cannot change models live, the model picker asks for confirmation
-before restarting that agent and interrupting its current turn.
-F1 opens searchable keyboard help. Type `/` in the task composer to see common
-commands; unknown slash text is sent as an ordinary task.
-Use `Ctrl+F` (or `Cmd+F` on macOS) to search the recent timeline and move through
-matches with Enter or Shift+Enter. Each agent card can open a bounded preview of
-its tracked Git changes; the preview labels truncated output.
-
-| Key | Action |
-| --- | --- |
-| `Enter` | Send the typed task through Duo. |
-| `Shift+Enter` | Insert a newline in the task. |
-| `Shift` + arrows / `Home` / `End` | Select text in the composer. |
-| `Ctrl+A` | Select all composer text. |
-| Arrows / `PageUp` / `PageDown` / `Home` / `End` | Navigate timeline messages when the composer is not focused. |
-| `Ctrl+C` | Copy the selected timeline message. |
-| `Ctrl+F` / `Cmd+F` | Search recent timeline messages; Enter / Shift+Enter move between matches, Esc closes search. |
-| `Esc` | Clear the input. |
-| `Ctrl+G` | Ask for Goal mode. Fast sessions only. |
-| `Ctrl+L` | Switch the language Duo writes in. |
-| `Ctrl+R` | Restart Austin's process. |
-| `Ctrl+Y` | Restart Tony's process. |
-| `Ctrl+O` | Show or hide the session status, Plan, and agent worktree paths, branches, and HEADs. |
-| `Ctrl+P` | Show or hide both agents' structured work previews. |
-| `Ctrl+M` / `Ctrl+Shift+M` | Open Austin's / Tony's model picker. Type to filter, use Up/Down to choose, Enter to apply, Tab to switch agents, and Esc to close. |
-| `Ctrl+Alt+T` / `Ctrl+Shift+T` | Cycle Austin's / Tony's thinking level. Each agent card also has model and thinking controls. |
-| `Ctrl+T` | Show or hide timeline timestamps. |
-| `Ctrl+X` | Copy Austin's latest message to the human to the clipboard. |
-| `F1` / `Ctrl+H` | Show or hide keyboard help. |
-| `Ctrl+Q` / window close | Quit; an unfinished session asks for a second confirmation within 3 seconds. |
-
-Duo Core is unchanged by this frontend: `internal/session` is still the only seam
-a frontend drives, the terminal interface gains nothing, and the two frontends do
-not import each other. The contract between the window and the session is
-[gui-protocol.md](./docs/gui-protocol.md), the build details are in
-[gpui/README.md](./gpui/README.md), and `scripts/gui-smoke.sh` proves the two
-halves still meet — headless, plus the window itself when a display is available.
 
 ## Configuration
 
@@ -562,7 +480,6 @@ and publishes macOS/Linux archives for amd64/arm64.
 - [Architecture and invariants](./docs/architecture.md)
 - [Driver plugin protocol](./docs/driver-plugin-protocol.md) and [development guide](./docs/plugin-development-guide.md)
 - [Bridge protocol](./docs/duo-bridge-protocol.md)
-- [GUI protocol](./docs/gui-protocol.md)
 - [Security boundaries](./SECURITY.md)
 - [Release history](./CHANGELOG.md)
 

@@ -48,12 +48,11 @@ type config struct {
 	// mode is the resolved workflow of a NEW session. For resume the persisted
 	// mode wins, so only the explicit CLI intent is recorded here and validated
 	// once the session is loaded.
-	mode             project.Mode
-	modeSource       string
-	modeRaw          string
-	modeExplicit     bool
-	language         string
-	agentRuntimePath string
+	mode         project.Mode
+	modeSource   string
+	modeRaw      string
+	modeExplicit bool
+	language     string
 
 	// help is set by -h/--help/help, which prints the usage and exits without
 	// starting or touching a session.
@@ -140,7 +139,6 @@ func (c config) sessionOptions() session.Options {
 		AgentModels:         c.agentModels,
 		AgentThinkings:      c.agentThinkings,
 		AgentDriverExplicit: c.agentDriverExplicit,
-		AgentRuntimePath:    c.agentRuntimePath,
 		TestCommand:         c.testCommand,
 		RegisterDrivers:     registerDrivers,
 	}

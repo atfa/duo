@@ -109,7 +109,7 @@ Fast delivers Austin's verified commit directly.
 
 ## Driving a session from a frontend
 
-A frontend that is not `cmd/duo` — a GUI, an editor plugin, a test — drives one Duo
+A frontend or test outside `cmd/duo` drives one Duo
 session through `internal/session` and implements nothing about a session itself.
 `session.Options` is the whole of a session's configuration and names no flag,
 terminal or environment variable. The frontend selects the default driver and passes

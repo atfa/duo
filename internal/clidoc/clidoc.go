@@ -44,11 +44,6 @@ var commands = []Command{
 		Summary:   "start a new session (Fast by default: Austin drives, Tony verifies)",
 	},
 	{
-		Name:      "gui",
-		Signature: "duo gui [--gui-binary <path>] [duo arguments…]",
-		Summary:   "start the same session in the GPUI graphical window instead of the terminal",
-	},
-	{
 		Name:      "resume",
 		Signature: "duo resume [session-id]",
 		Summary:   "resume the unfinished session for this repository",

@@ -69,9 +69,8 @@ type Result struct {
 //   - Attach, Detach, Write and Resize move an agent's process bytes, which are
 //     inherently not serializable.
 //
-// Everything else about a session is private to this package. That is what lets a
-// terminal interface and a graphical one be the same program with different
-// output.
+// Everything else about a session is private to this package, so interfaces are
+// projections of the same program rather than separate coordinators.
 type Service struct {
 	opts Options
 
@@ -366,7 +365,6 @@ func (s *Service) launch(ctx context.Context) (Result, error) {
 			Plugin:         plugin,
 			PluginState:    s.driverState[agentID].State,
 			BaseCommand:    baseCommand,
-			RuntimePath:    s.opts.AgentRuntimePath,
 			Model:          modelName,
 			Thinking:       effort,
 			Notices:        s.collectNotice,
@@ -900,27 +898,6 @@ func (s *Service) Models(ctx context.Context, agent protocol.AgentID) ([]models.
 	return models.Load(ctx, d)
 }
 
-// AvailableDrivers lists local drivers whose probe confirms they can run now.
-// Each check is bounded so one broken plugin cannot hold up the GUI.
-func (s *Service) AvailableDrivers(ctx context.Context) []string {
-	var available []string
-	for _, entry := range driver.Discover() {
-		probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		plugin, err := driver.Resolve(probeCtx, entry.Name, nil, nil)
-		if err == nil {
-			if plugin != nil {
-				result, probeErr := plugin.Probe(probeCtx)
-				if probeErr == nil && result != nil && result.Available {
-					available = append(available, entry.Name)
-				}
-				plugin.Close()
-			}
-		}
-		cancel()
-	}
-	return available
-}
-
 // StatusText renders the workflow status the way the coordinator would answer a
 // status request over the bridge.
 func (s *Service) StatusText(ctx context.Context) string {
@@ -1003,17 +980,6 @@ func (s *Service) Attach(agent protocol.AgentID, w io.Writer) ([]byte, error) {
 	return d.Attach(w), nil
 }
 
-// NativeRunning reports whether the selected agent still has a live PTY process.
-func (s *Service) NativeRunning(agent protocol.AgentID) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.agents == nil {
-		return false
-	}
-	d, ok := s.agents.Session(agent)
-	return ok && d.Running()
-}
-
 // Detach undoes Attach.
 func (s *Service) Detach(agent protocol.AgentID) {
 	s.mu.RLock()
@@ -1051,18 +1017,6 @@ func (s *Service) Resize(cols, rows int) error {
 		return nil
 	}
 	return s.agents.ResizeAll(cols, rows)
-}
-
-// ResizeAgent changes only the selected agent's PTY size. The graphical
-// terminal pane has its own dimensions, while Resize remains the shared
-// terminal frontend's operation.
-func (s *Service) ResizeAgent(agent protocol.AgentID, cols, rows int) error {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if s.agents == nil {
-		return nil
-	}
-	return s.agents.ResizeAgent(agent, cols, rows)
 }
 
 // collectNotice records a diagnostic a driver reported while preparing a launch.
