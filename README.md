@@ -19,7 +19,6 @@ cd /path/to/git/repo
 duo                 # FAST (default), gotui dashboard
 duo --mode goal     # full negotiated workflow
 duo --mode step     # one complex task, landed step by step
-duo --ui=gotui      # explicit gotui selection (the default)
 ```
 
 Then type a task in the composer and press `Enter`. In **Fast**, Duo sends it to **Austin**. In **Goal** and **Step**, Duo sends it to **both Austin and Tony** so they can co-design the shared Plan.
@@ -136,7 +135,7 @@ Duo's default and only bundled terminal frontend is the **gotui dashboard**: `du
 
 ### gotui dashboard
 
-`duo --ui=gotui` selects the same dashboard explicitly and `duo resume --ui=gotui` does the same for a resumed session.
+`duo` opens the gotui dashboard; there is no separate UI-selection flag.
 
 The gotui frontend opens in a **split dashboard**: a workflow sidebar with the phase chain, verification/delivery state, worktrees and two agent cards; Austin and Tony in side-by-side transcripts; and a Duo/Human conversation pane below. `F2`, the `Split` / `Timeline` tabs, or a click on either tab switches to the single chronological timeline.
 

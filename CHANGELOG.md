@@ -7,9 +7,9 @@ All notable project milestones are documented here.
 ### gotui becomes the terminal frontend
 
 - The gotui dashboard is now the default and only bundled terminal frontend, so
-  `duo` opens it directly and `--ui=gotui` is an explicit compatibility spelling.
-  The old hand-written TUI is preserved on the `legacy-tui` Git branch and is no
-  longer built or installed from `main`.
+  `duo` opens it directly. The old hand-written TUI is preserved on the
+  `legacy-tui` Git branch and is no longer built or installed from `main`; the
+  UI-selection flag has been removed.
 - `scripts/install.sh` now builds the gotui-based `duo` with the rest of the
   commands, so a source install and the release archives ship the same frontend.
 

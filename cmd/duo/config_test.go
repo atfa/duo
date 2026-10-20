@@ -124,54 +124,17 @@ func TestParseResumeCommandArgs(t *testing.T) {
 			t.Errorf("root parser accepted removed alias %s", flag)
 		}
 	}
+	if _, err := parseArgs([]string{"--ui", "gotui"}); err == nil {
+		t.Fatal("root parser accepted the removed --ui flag")
+	}
+	if _, err := parseResumeArgs([]string{"--ui", "gotui"}); err == nil {
+		t.Fatal("resume parser accepted the removed --ui flag")
+	}
 }
 
 func TestParseResumeArgsRejectsUnknownFlag(t *testing.T) {
 	if _, err := parseArgs([]string{"--nope"}); err == nil {
 		t.Fatal("expected an error for an unknown flag")
-	}
-}
-
-func TestUIFrontendSelection(t *testing.T) {
-	repo := t.TempDir()
-	t.Setenv("DUO_REPO", "")
-	for _, tc := range []struct {
-		args []string
-		want string
-	}{
-		{[]string{repo}, uiGotUI},
-		{[]string{repo, "--ui=gotui"}, uiGotUI},
-		{[]string{repo, "--ui", "GOTUI"}, uiGotUI},
-	} {
-		cfg, err := loadConfig(tc.args)
-		if err != nil {
-			t.Fatalf("loadConfig(%v): %v", tc.args, err)
-		}
-		if cfg.ui != tc.want {
-			t.Fatalf("loadConfig(%v) ui = %q, want %q", tc.args, cfg.ui, tc.want)
-		}
-	}
-	for _, args := range [][]string{{repo, "--ui", "legacy"}, {repo, "--ui", "web"}, {repo, "--ui"}, {repo, "--ui="}} {
-		if _, err := loadConfig(args); err == nil {
-			t.Errorf("loadConfig(%v) accepted an invalid --ui", args)
-		}
-	}
-}
-
-func TestResumeUIFlagsBeforeOrAfterSessionID(t *testing.T) {
-	for _, args := range [][]string{
-		{"--ui=gotui", "session-1"},
-		{"session-1", "--ui=gotui"},
-		{"--ui", "gotui", "session-1"},
-		{"session-1", "--ui", "gotui"},
-	} {
-		cfg, err := loadResumeConfig(args)
-		if err != nil {
-			t.Fatalf("loadResumeConfig(%v): %v", args, err)
-		}
-		if !cfg.resume || cfg.resumeSession != "session-1" || cfg.ui != uiGotUI {
-			t.Fatalf("loadResumeConfig(%v) = resume=%t id=%q ui=%q", args, cfg.resume, cfg.resumeSession, cfg.ui)
-		}
 	}
 }
 

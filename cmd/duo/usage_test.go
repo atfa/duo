@@ -340,8 +340,8 @@ var parsersByCommand = map[string]bool{
 // that owns it, so the usage text cannot document a flag Duo would reject.
 func TestUsageAcceptsEveryDocumentedFlag(t *testing.T) {
 	perCommand := map[string][]string{
-		"duo":        {"--mode", "-m", "--language", "-l", "--test-cmd", "-t", "--agent", "-a", "--austin-driver", "-A", "--tony-driver", "-T", "--ui", "-h", "--help"},
-		"resume":     {"--ui", "-h", "--help"},
+		"duo":        {"--mode", "-m", "--language", "-l", "--test-cmd", "-t", "--agent", "-a", "--austin-driver", "-A", "--tony-driver", "-T", "-h", "--help"},
+		"resume":     {"-h", "--help"},
 		"apply":      {"-h", "--help"},
 		"sessions":   {"--all", "-a", "-h", "--help"},
 		"logs":       {"-h", "--help"},
@@ -387,8 +387,6 @@ func acceptsFlag(t *testing.T, command, flag string) error {
 		if command == "mcp-server" {
 			value = "austin"
 		}
-	case "--ui":
-		value = "gotui"
 	}
 	return accepts(t, command, flag, value)
 }

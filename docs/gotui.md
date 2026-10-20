@@ -5,10 +5,9 @@ the explicit form is available for scripts and for resumed sessions:
 
 ```bash
 duo
-duo --ui=gotui
-duo --ui gotui --mode goal
-duo resume --ui=gotui
-duo resume <session-id> --ui=gotui
+duo --mode goal
+duo resume
+duo resume <session-id>
 ```
 
 The retired hand-written TUI is preserved on the `legacy-tui` Git branch. It is

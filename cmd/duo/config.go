@@ -20,18 +20,10 @@ import (
 	"github.com/atfa/duo/internal/workspace"
 )
 
-const (
-	uiGotUI = "gotui"
-)
-
 type config struct {
 	listen         string
 	harnessEnabled bool
 	harness        harness.Config
-	// ui is retained as a compatibility selector. gotui is the only bundled
-	// terminal frontend; the old hand-written TUI lives on the legacy-tui branch
-	// and is no longer built from main.
-	ui string
 
 	repository          string
 	launchDir           string
@@ -185,7 +177,6 @@ type cliArgs struct {
 	mode         string
 	language     string
 	modeExplicit bool
-	ui           string
 	testCommand  string
 	driver       string
 	austinDriver string
@@ -221,22 +212,6 @@ func parseArgs(args []string) (cliArgs, error) {
 		case strings.HasPrefix(arg, "--mode=") || strings.HasPrefix(arg, "-m="):
 			out.mode = strings.TrimSpace(strings.SplitN(arg, "=", 2)[1])
 			out.modeExplicit = true
-		case arg == "--ui":
-			if i+1 >= len(args) {
-				return out, fmt.Errorf("--ui requires a value (gotui)")
-			}
-			value, err := parseUI(args[i+1])
-			if err != nil {
-				return out, err
-			}
-			out.ui = value
-			i++
-		case strings.HasPrefix(arg, "--ui="):
-			value, err := parseUI(strings.SplitN(arg, "=", 2)[1])
-			if err != nil {
-				return out, err
-			}
-			out.ui = value
 		case arg == "--test-cmd" || arg == "-t":
 			if i+1 >= len(args) {
 				return out, fmt.Errorf("--test-cmd requires a value (e.g. \"go test ./...\")")
@@ -339,15 +314,6 @@ func parseResumeArgs(args []string) (cliArgs, error) {
 	return parsed, nil
 }
 
-func parseUI(raw string) (string, error) {
-	switch value := strings.ToLower(strings.TrimSpace(raw)); value {
-	case uiGotUI:
-		return uiGotUI, nil
-	default:
-		return "", fmt.Errorf("invalid UI %q: gotui is the only frontend in this branch (the old TUI is archived on legacy-tui)", strings.TrimSpace(raw))
-	}
-}
-
 func loadConfigCommand(args []string, resume bool) (config, error) {
 	var parsed cliArgs
 	var err error
@@ -361,10 +327,6 @@ func loadConfigCommand(args []string, resume bool) (config, error) {
 	}
 	if parsed.help {
 		return config{help: true}, nil
-	}
-	ui := parsed.ui
-	if ui == "" {
-		ui = uiGotUI
 	}
 
 	cwd, _ := os.Getwd()
@@ -544,7 +506,6 @@ func loadConfigCommand(args []string, resume bool) (config, error) {
 		listen:              envString("DUO_LISTEN", "127.0.0.1:0"),
 		harnessEnabled:      harnessEnabled,
 		harness:             harnessConfig,
-		ui:                  ui,
 		repository:          launch,
 		launchDir:           launch,
 		worktreeRoot:        strings.TrimSpace(os.Getenv("DUO_WORKTREE_ROOT")),

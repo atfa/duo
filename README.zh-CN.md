@@ -21,7 +21,6 @@ cd /path/to/git/repo
 duo                 # FAST（默认），gotui 仪表盘
 duo --mode goal     # 完整协商式工作流
 duo --mode step     # 复杂任务：先列队列，再逐步落地
-duo --ui=gotui      # 显式选择 gotui（默认前端）
 ```
 
 然后在 composer 里输入任务，按 `Enter`。**Fast** 下只发送给 Austin；**Goal** 与 **Step** 下会同时发送给 Austin 和 Tony，让双方共同设计计划或队列。
@@ -139,7 +138,7 @@ Duo 默认且唯一内置的终端前端是 **gotui 仪表盘**：直接运行 `
 
 ### gotui 仪表盘
 
-`duo --ui=gotui` 可以显式选择同一个仪表盘，`duo resume --ui=gotui` 对恢复会话做同样的事。
+直接运行 `duo` 即打开 gotui；没有单独的 UI 选择参数。
 
 gotui 默认打开 **分栏仪表盘**：侧边栏显示阶段链、验证/交付状态、worktree 与两张 Agent 卡片；Austin 和 Tony 的会话左右并列；下方是 Duo/人类会话区。按 `F2`，或点击 `Split` / `Timeline` 标签，可切换到单一时间线。
 
