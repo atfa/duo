@@ -157,6 +157,7 @@ type App struct {
 
 	native          protocol.AgentID
 	escBuf          []byte
+	inputUTF8       []byte // incomplete UTF-8 rune from the terminal
 	nativeDetachBuf []byte
 	nativeInput     nativeInputAssembler
 	selection       paneSelection

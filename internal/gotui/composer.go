@@ -311,6 +311,14 @@ func (c *composer) visualRows(width int) []visualRow {
 		if start < len(line) || len(out) == 0 || out[len(out)-1].row != row {
 			out = append(out, visualRow{row: row, start: start, end: len(line)})
 		}
+		// A line ending exactly at the right edge still needs a cell for the
+		// cursor. Give the last line an empty visual row instead of letting the
+		// cursor fall back onto its final character. At one row high there is no
+		// room for both the text and the cursor row; prepare keeps the cursor in
+		// the right padding instead.
+		if c.Inner.Dy() > 1 && row == len(c.lines)-1 && len(line) > 0 && start == len(line) && cells == 0 {
+			out = append(out, visualRow{row: row, start: start, end: start})
+		}
 	}
 	return out
 }
@@ -321,7 +329,10 @@ func (c *composer) currentVisual(rows []visualRow) int {
 			continue
 		}
 		if c.col >= r.start && c.col <= r.end {
-			if c.col == r.end && c.col == r.start && i+1 < len(rows) && rows[i+1].row == c.row {
+			// A soft wrap shares its boundary between two rows. The cursor is
+			// after the last cell of this row, so it belongs at the start of the
+			// next one rather than visually covering the final character.
+			if c.col == r.end && i+1 < len(rows) && rows[i+1].row == c.row && rows[i+1].start == c.col {
 				continue
 			}
 			return i
@@ -364,8 +375,8 @@ func (c *composer) prepare() (int, int) {
 	}
 	x := c.Inner.Min.X + 2 + c.visualColumn(rows[cur])
 	y := c.Inner.Min.Y + cur - c.scroll
-	if x >= c.Inner.Max.X {
-		x = c.Inner.Max.X - 1
+	if x > c.Inner.Max.X {
+		x = c.Inner.Max.X
 	}
 	if y >= c.Inner.Max.Y {
 		y = c.Inner.Max.Y - 1

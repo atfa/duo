@@ -195,7 +195,18 @@ func (p *Plugin) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
 		base = Name
 	}
 
-	command := driver.SetFlag(base, "--model", strings.TrimSpace(req.Model))
+	// The full TUI has no --model flag: opencode treats it as an unknown option
+	// and exits before the bridge can connect. Model selection is a config value,
+	// and OPENCODE_CONFIG_CONTENT is the config source opencode merges last.
+	command := base
+	env := map[string]string{}
+	if model := strings.TrimSpace(req.Model); model != "" {
+		content, err := json.Marshal(map[string]string{"model": model})
+		if err != nil {
+			return nil, err
+		}
+		env["OPENCODE_CONFIG_CONTENT"] = string(content)
+	}
 
 	parts := []string{command}
 	// A placeholder from an older Duo is ignored rather than passed through: it
@@ -258,12 +269,11 @@ func (p *Plugin) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
 	// an id it never issued and mints another, and the only way to learn the id it
 	// actually used is to read it back.
 	p.watch(sessionFile)
+	env["DUO_OPENCODE_SESSION_ID"] = sessionID
+	env["DUO_OPENCODE_SESSION_FILE"] = sessionFile
 	return &driver.LaunchPlan{
-		Command: strings.Join(parts, " "),
-		Env: map[string]string{
-			"DUO_OPENCODE_SESSION_ID":   sessionID,
-			"DUO_OPENCODE_SESSION_FILE": sessionFile,
-		},
+		Command:         strings.Join(parts, " "),
+		Env:             env,
 		State:           raw,
 		SessionIdentity: sessionID,
 		// The Agent Adapter rewrites this file with the id opencode assigned, so a

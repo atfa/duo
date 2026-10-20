@@ -111,11 +111,15 @@ Duo Core 强制这些门禁而不是信任模型：Fast 拒绝 `duo_set_plan`，
 
 ## 终端界面
 
-Duo 有两个共享同一 Core 的终端前端。**Legacy TUI** 仍是默认：`duo` 与 `duo --ui=legacy` 打开它；可选的 **gotui 仪表盘**（`duo --ui=gotui`）增加分栏工作流/Agent 布局和可切换的时间线。架构、布局、截图和对比见 [gotui 前端指南](./docs/gotui.md)。两者共享 composer、斜杠命令、模型选择器、剪贴板、原生接管与恢复的会话历史。
+Duo 有两个共享同一 Core 的终端前端。**Legacy TUI** 仍是默认：`duo` 与 `duo --ui=legacy` 打开它；可选的 **gotui 仪表盘**（`duo --ui=gotui`）增加分栏工作流/Agent 布局和可切换的时间线。架构、布局、截图和对比见 [gotui 前端指南](./docs/gotui.md)。两者共享 composer、斜杠命令、模型选择器、剪贴板、原生接管与恢复的会话历史，但部分导航键和弹窗操作不同；下面的两张按键表分别对应两个前端。
+
+### Legacy TUI（默认）
 
 Legacy TUI 的主界面是一条会话 **时间线**：单一时间顺序的消息流，每条消息都显示在说话者自己那一侧——Austin、人类与 Duo 系统消息靠左，Tony 的消息靠右——上方是按说话方着色的 `说话方 → 接收方` 标题行：发送给人类的消息用说话方本色的高亮粗体，Agent 之间与系统消息则保持暗色。系统通知、harness 提示、错误与验证结论也一律标注方向（如 `Duo → Human`、`Duo → Tony`），不会只显示一个名字。双方使用相同的气泡宽度（约占整行四分之三），因此判断谁在说话看的是消息所在的一侧，而不是更粗的标题样式；Tony 的消息如果一行就能显示完整，会靠右边缘对齐，需要换行的消息则固定左缩进对齐。顶部边框行显示 Duo 解析出的 Git 仓库目录（不是启动目录），无需打开 Help 就能确认本轮的目标仓库。人类任务、peer 消息、验证结论与 Duo 系统消息按到达顺序交织排列，当前模式、阶段、验证/Plan 状态与瞬时反馈位于时间线下方。
 
 一次构建可能很久，而时间线只在 Agent 完成一条消息时变化。因此时间线下方为每个 Agent 保留一条 **工作预览**：标题行是 Agent、它的 driver、带动画的状态与本轮已运行时长（如 `Austin preview (agy) · working · 5s`、`Tony preview (pi) · idle`）——状态 spinner 与 `[↗]` 附着按钮现在都在这里；下方各行显示"此刻在做什么"（正在跑的工具及其已运行时间，或正在思考所用的模型与思考级别）、本轮最近的工具轨迹（✓/✗ 与耗时）、本轮最近一次错误、以及正在流式输出的文本尾巴。工具失败或 provider 报错会立刻在那里显示，等待时不必靠猜。`Ctrl+P` 可以收起这条预览带，把行数还给时间线；终端太矮时会自动隐藏。
+
+**Legacy 按键**
 
 | 按键 | 操作 |
 |---|---|
@@ -153,7 +157,45 @@ composer 支持多行，一次最多显示四行。原生接管是全屏接管�
 
 用 `duo --ui=gotui`、`duo --ui gotui` 或 `duo resume --ui=gotui` 为本次运行选择仪表盘。默认行为不变：直接运行 `duo` 或 `duo --ui=legacy` 仍是 Legacy TUI。
 
-gotui 默认打开 **分栏仪表盘**：侧边栏显示阶段链、验证/交付状态、worktree 与两张 Agent 卡片；Austin 和 Tony 的会话左右并列；下方是 Duo/人类会话区。按 `F2`、点击 `Split` / `Timeline` 标签可切换到单一时间线；`Ctrl+P` 显示/隐藏工作流侧边栏，`Ctrl+O` 打开会话详情，`F1` 打开帮助，`Ctrl+G` 切换时间戳。原生接管与脱离、composer、斜杠面板、模型选择器、鼠标划选、剪贴板行为与恢复的会话历史都与 Legacy 共享。
+gotui 默认打开 **分栏仪表盘**：侧边栏显示阶段链、验证/交付状态、worktree 与两张 Agent 卡片；Austin 和 Tony 的会话左右并列；下方是 Duo/人类会话区。按 `F2`，或点击 `Split` / `Timeline` 标签，可切换到单一时间线。
+
+**gotui 按键**
+
+| 按键 | 操作 |
+|---|---|
+| `Enter` | 把 composer 内容发送给 Austin（Fast）或两个 Agent（Goal） |
+| `Ctrl+Enter` / `Shift+Enter`\* | 在 composer 中插入换行 |
+| `F2` / 点击 `Split` 或 `Timeline` 标签 | 在分栏仪表盘与单一时间线之间切换 |
+| `Ctrl+P` | 显示/隐藏工作流侧边栏 |
+| `F1` / `Ctrl+/` / `Alt+H` | 打开帮助 |
+| `Ctrl+O` / `Alt+O` | 打开会话详情与 Git diffstat |
+| `Ctrl+M` / `Alt+M` | 打开模型与思考强度选择器 |
+| `Ctrl+G` | 切换消息时间戳 |
+| `Ctrl+A` / `Alt+A` | 进入 Austin 自己的 Agent 会话 |
+| `Ctrl+T` / `Alt+T` | 进入 Tony 自己的 Agent 会话 |
+| `Ctrl+]` / `Ctrl+\` / `Ctrl+】` | 从 Agent 自己的会话返回 gotui |
+| `Ctrl+R` / `Ctrl+Y` | 若 Austin / Tony 进程已退出或失败，重启它 |
+| `Ctrl+X` | 复制 Austin 最新发给人类的消息到剪贴板 |
+| `Shift+Tab` | 循环切换目标 Agent 的思考强度 |
+| `Ctrl+Q` / `Ctrl+D` | 退出 Duo 并保留 session |
+| `←` / `→`，`Alt+←` / `Alt+→` | 按字符或按词移动 composer 光标 |
+| `Home` / `End` | 移到 composer 当前行的开头/结尾 |
+| `Ctrl+U` / `Ctrl+K`，`Ctrl+W` | 删除到当前行开头/结尾，或删除前一个词 |
+| `Backspace` / `Del` | 删除前一个/后一个 composer 字符 |
+| `↑` / `↓` | 在 composer 各行间移动；在首行/末行时改为回溯历史任务 |
+| `Tab` | 插入四个空格；斜杠面板打开时补全当前命令 |
+| `PgUp` / `PgDn` | 滚动当前会话窗格（或打开中的弹窗） |
+| 鼠标滚轮 / 拖拽 | 滚动指针所在窗格，或划选并复制会话文本 |
+| `Esc` | 关闭弹窗、收起斜杠面板，或清除选择/状态提示 |
+
+**与 Legacy 的差异**
+
+- `Ctrl+P` 在 gotui 中切换**工作流侧边栏**；在 Legacy 中切换 Austin/Tony 的工作预览带。
+- `Ctrl+O` 在 gotui 中打开居中的**详情弹窗**；在 Legacy 中把主视图切换到会话总览。
+- gotui 用 `F1`、`Ctrl+/` 或 `Alt+H` 打开帮助。帮助是可滚动弹窗：用 `↑`/`↓`、`PgUp`/`PgDn`、`Home`/`End` 滚动，用 `Esc` 关闭。Legacy 帮助是全屏视图，用 `↑`/`k`、`↓`/`j`、`Home`/`g`、`End`/`G` 滚动，用 `Esc` 或 `Ctrl+/` 关闭。
+- gotui 的模型选择器有独立导航：`Tab` 或 `Shift+Tab` 切换目标 Agent，`Ctrl+T` 在 Models 与 Thinking 两个标签间切换，`Enter` 应用模型或前进思考强度，`Space` 应用模型但不关闭，`Esc` 关闭。Legacy 中 `Shift+Tab` 直接循环思考强度。
+- gotui 没有 Legacy 的工作预览带，因此没有可点击的 `[↗]` 标题；请用 `Ctrl+A` / `Ctrl+T`（或 `Alt+A` / `Alt+T`）进入 Agent 会话。
+- **gotui 中不存在：** Help 中用 `j`/`k`/`g`/`G` 滚动以及用 `Ctrl+/` 关闭；模型选择器内用 `Shift+Tab` 切换思考强度（gotui 在选择器内用它切换 Agent）。
 
 布局会随终端调整：工作流侧边栏至少需要 104 列，分栏视图需要 72×16 的主区域；更窄或更矮时回退到时间线。侧边栏的阶段链在空间不足时换行，宽度小于 80 列时页脚使用紧凑提示。恢复会话直接显示已有对话，启动横幅只出现在新会话中。
 
@@ -182,13 +224,13 @@ gotui 默认打开 **分栏仪表盘**：侧边栏显示阶段链、验证/交�
 
 提交过的任务会追加到 `~/.duo/history`（可用 `DUO_HISTORY_FILE` 覆盖），因此 `↑`/`↓` 的历史回溯在重启或 resume 之后依然有效。
 
-模型选择器（`Ctrl+M`）列出**目标 Agent 自己那个 driver** 所上报的模型目录——即 Duo 启动该 Agent 所用的同一套安装（`pi --list-models`、`agy models`、`opencode models`），因此同一会话里 Austin 与 Tony 可以各自使用不同目录。输入即可过滤，用 `↑`/`↓`（或 `PgUp`/`PgDn`、`Home`/`End`）移动，用 `Tab` 在 Austin 与 Tony 之间切换目标，用 `Shift+Tab` 循环该 Agent 的思考强度，用 `Enter` 应用模型并关闭，或用 `Space` 应用模型但不关闭——这样一次打开就能同时设好模型和思考强度。在 `pi` 上切换是实时的：Pi 保留对话，并把模型与思考强度记入 session 记录，因此重启或 resume（`Ctrl+R`/`Ctrl+Y`）后仍然有效。`agy` 与 `opencode` 把模型和思考强度当作启动参数，因此 Duo 会重启该 Agent——对话仍会保留（session id 已持久化），但正在进行的工作会被打断。`▶` 标记选择器光标，`●` 标记目标 Agent 当前使用的模型。
+模型选择器（`Ctrl+M`）列出**目标 Agent 自己那个 driver** 所上报的模型目录——即 Duo 启动该 Agent 所用的同一套安装（`pi --list-models`、`agy models`、`opencode models`），因此同一会话里 Austin 与 Tony 可以各自使用不同目录。输入即可过滤，用 `↑`/`↓`（或 `PgUp`/`PgDn`、`Home`/`End`）移动。Legacy 中用 `Tab` 在 Austin 与 Tony 之间切换目标，用 `Shift+Tab` 循环该 Agent 的思考强度，用 `Enter` 应用模型并关闭，或用 `Space` 应用模型但不关闭——这样一次打开就能同时设好模型和思考强度。gotui 中用 `Tab` 或 `Shift+Tab` 切换目标 Agent，用 `Ctrl+T` 在 Models 与 Thinking 两个标签间切换，用 `Enter` 应用模型或前进思考强度，用 `Space` 应用模型但不关闭，用 `Esc` 关闭。在 `pi` 上切换是实时的：Pi 保留对话，并把模型与思考强度记入 session 记录，因此重启或 resume（`Ctrl+R`/`Ctrl+Y`）后仍然有效。`agy` 与 `opencode` 会在 Agent 启动时应用模型和思考强度，因此 Duo 会重启该 Agent——对话仍会保留（session id 已持久化），但正在进行的工作会被打断。`▶` 标记选择器光标，`●` 标记目标 Agent 当前使用的模型。
 
 Agent 输出按轻量 markdown 渲染：标题、引用、链接以及粗体/斜体/行内代码都有样式，markdown 表格会画出对齐的真实边框。表格宽度超过时间线时，Duo 会折行最宽的单元格，而不是截断内容；折行的列表项会保持悬挂缩进，续行对齐在条目正文下方。
 
 鼠标划选复制支持终端标准 OSC 52 转义序列（在远程 SSH、tmux 以及 Ghostty/WezTerm/Alacritty/Kitty 等现代终端中原生直通）并自动回退至宿主系统剪贴板工具（macOS 下 `pbcopy`、Wayland 下 `wl-copy`、X11 下 `xclip`/`xsel`）。
 
-Help 是一个完整的大屏视图，用 `↑`/`k`、`↓`/`j`、`PgUp`、`PgDn`、`Home`/`g`、`End`/`G` 滚动，用 `Esc` 或 `Ctrl+/` 关闭。进入 Agent 自己的会话后，`Ctrl+/` 仍直接交给该 Agent，不会打开 Duo Help。Help 里除了上面的快捷键、斜杠命令与模型选择器，还有一个 **命令行（Command Line）** 小节，列出全部 `duo` 子命令与参数；完整用法、全部环境变量以及每个命令的详细说明见 `duo --help`。
+Legacy 的 Help 是一个完整的大屏视图，用 `↑`/`k`、`↓`/`j`、`PgUp`、`PgDn`、`Home`/`g`、`End`/`G` 滚动，用 `Esc` 或 `Ctrl+/` 关闭；内容覆盖上面的快捷键、斜杠命令与模型选择器，还有一个 **命令行（Command Line）** 小节，列出全部 `duo` 子命令与参数。进入 Agent 自己的会话后，`Ctrl+/` 仍直接交给该 Agent，不会打开 Duo Help。gotui 用 `F1`、`Ctrl+/` 或 `Alt+H` 打开 Help 弹窗，用 `↑`/`↓`、`PgUp`/`PgDn`、`Home`/`End` 滚动，用 `Esc` 关闭；它是仪表盘快捷键与工作流的精简参考。完整用法、全部环境变量以及每个命令的详细说明见 `duo --help`。
 
 \* 只有当终端能明确区分上报该组合键时才会插入换行（`\x1b[13;2u` CSI-u 或 Duo 启用 modifyOtherKeys 后的 `\x1b[27;2;13~`）。若你的终端把 `Shift+Enter` 发成裸 `\r`，它会**提交**而不是换行——这种情况请改用 `Ctrl+Enter`（到达时是 `\n`）。`Ctrl+M` 有同样的限制：只有支持上述模式的终端才会把它上报成带 Ctrl 的 `m` 键（`\x1b[27;5;109~` 或 `\x1b[109;5u`），其余终端上与 `Enter` 无法区分——这种情况请用 `Alt+M`。
 
@@ -261,7 +303,8 @@ duo --austin-driver opencode --tony-driver pi
   因此首次运行时 Duo 让 opencode 自己生成一个，从 bridge 读到后随会话持久化。
   之后每次运行（包括崩溃后 `duo resume`）都会带上 `--session <id>`，让 Agent 保留上下文。
 - **模型由你决定。** Duo 不会为 opencode 注入默认模型，而是沿用你的 opencode 配置
-  或模型目录解析出的结果；配置了思考强度时通过 `--variant` 传递。
+  或模型目录解析出的结果。在 Duo 中选择的模型会在启动时通过 opencode 的配置环境传入，
+  因为它的 TUI 没有 `--model` 参数。
 
 Duo 以自动批准工具调用的方式运行 Agent（opencode 用 `--auto`，agy 用
 `--dangerously-skip-permissions`），因为它们要在各自隔离的 worktree 中无人值守地工作。
@@ -322,8 +365,8 @@ duo mcp-server config --agent tony            # 打印 MCP 客户端配置 JSON
 
 `agents.<name>.command` 只覆盖这一个 Agent 的启动命令，`agents.<name>.driver`
 只覆盖它自己的 driver；顶层的 `driver` 与 `piCommand` 则是两个 Agent 的共同默认。
-除非命令里已经带了这些参数，Duo 会自行追加 `--model` 以及思考强度参数
-（opencode 用 `--variant`）。
+除非命令里已经带了这些参数，Duo 会把选定的模型与思考强度交给 driver；
+opencode 的 TUI 没有 `--model` 参数，因此模型通过它的配置环境传入。
 
 优先级顺序：显式命令行参数（`--mode`/`-m`, `--language`/`-l`, `--test-cmd`/`-t`, `--agent`/`-a`, `--austin-driver`/`-A`, `--tony-driver`/`-T`）> 环境变量（`DUO_*`）> 仓库 `.duo/config.json` > 全局 `~/.duo/config.json` > 内置默认值。
 

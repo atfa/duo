@@ -49,11 +49,12 @@ The dashboard adds:
 |---|---|
 | `F2` or the `Split` / `Timeline` tabs | Toggle the dashboard view |
 | `Ctrl+P` | Show or hide the workflow sidebar |
-| `F1` / `Ctrl+/` | Open help |
-| `Ctrl+O` | Open session details and the Git diffstat |
+| `F1` / `Ctrl+/` / `Alt+H` | Open help |
+| `Ctrl+O` / `Alt+O` | Open session details and the Git diffstat |
 | `Ctrl+M` / `Alt+M` | Open the model and thinking picker |
 | `Ctrl+G` | Toggle message timestamps |
-| `Ctrl+A` / `Ctrl+T` | Attach to Austin / Tony |
+| `Ctrl+A` / `Alt+A` | Attach to Austin |
+| `Ctrl+T` / `Alt+T` | Attach to Tony |
 | `Ctrl+]` / `Ctrl+\` / `Ctrl+】` | Detach from an attached agent |
 | `Ctrl+Q` / `Ctrl+D` | Quit and preserve the session |
 | Mouse wheel | Scroll the transcript or an open help/details modal |
@@ -61,7 +62,9 @@ The dashboard adds:
 | Click on a tab | Switch view |
 
 Modal choices are keyboard-driven (`←` / `→`, `Enter`, `Esc`). The model picker
-uses `Tab` to switch the target agent and `Space` to apply without closing.
+uses `Tab` or `Shift+Tab` to switch the target agent, `Ctrl+T` to switch between
+the Models and Thinking tabs, `Enter` to apply a model or advance the thinking
+level, and `Space` to apply a model without closing.
 
 ## Responsive layout
 

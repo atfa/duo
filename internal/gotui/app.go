@@ -339,8 +339,15 @@ func (a *App) draw() {
 	a.layout = a.computeLayout(w, h)
 	a.updateWidgets()
 	// Scroll the composer before drawing so the frame and the terminal cursor
-	// come from the same visual row. prepare is idempotent.
-	a.composer.prepare()
+	// come from the same visual row. Set the cursor before Render: gotui flushes
+	// it during Show(), so updating it afterwards leaves the terminal one frame
+	// behind the text.
+	x, y := a.composer.prepare()
+	if a.overlay == overlayNone {
+		a.screen.ShowCursor(x, y)
+	} else {
+		a.screen.HideCursor()
+	}
 	items := make([]ui.Drawable, 0, 14)
 	items = append(items, a.background, a.header)
 	if a.layout.tabs.Dy() > 0 {
@@ -373,12 +380,6 @@ func (a *App) draw() {
 		}
 	}
 	a.backend.Render(items...)
-	if a.overlay == overlayNone {
-		x, y := a.composer.prepare()
-		a.screen.ShowCursor(x, y)
-	} else {
-		a.screen.HideCursor()
-	}
 }
 
 func (a *App) updateWidgets() {

@@ -107,9 +107,9 @@ func TestModelRowMarksCursorAndCurrentSeparately(t *testing.T) {
 	}
 }
 
-// opencode only accepts provider/model as --model and aborts on a bare id, so
-// the launch flag must receive the provider-qualified reference. agy strips any
-// provider prefix itself, and pi takes the model over the bridge.
+// opencode only accepts a provider/model reference and rejects a bare id, so
+// its launch configuration must receive the provider-qualified reference. agy
+// strips any provider prefix itself, and pi takes the model over the bridge.
 // The interface's job is to ask for the switch. Applying it to a running driver —
 // including the restart a CLI-only driver needs — is the session's, and is covered
 // there. What this pins is that the picker sends the provider-qualified reference

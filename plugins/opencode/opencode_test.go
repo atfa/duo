@@ -123,10 +123,30 @@ func TestPrepareOmitsUnsupportedTUIThinkingFlag(t *testing.T) {
 	}
 }
 
-func TestPrepareAppliesModelAndKeepsAQualifiedReference(t *testing.T) {
-	plan := prepare(t, driver.LaunchRequest{BaseCommand: Name, Model: "anthropic/claude-sonnet-4-6"})
-	if !strings.Contains(plan.Command, "--model 'anthropic/claude-sonnet-4-6'") {
-		t.Errorf("model missing or stripped: %s", plan.Command)
+// opencode's full TUI has no --model flag; passing one makes it print help and
+// exit before the bridge can connect. The model must arrive through the config
+// document instead, with the provider/model reference intact.
+func TestPrepareAppliesModelThroughConfig(t *testing.T) {
+	const model = "anthropic/claude-sonnet-4-6"
+	plan := prepare(t, driver.LaunchRequest{BaseCommand: Name, Model: model})
+	if strings.Contains(plan.Command, "--model") {
+		t.Errorf("the TUI rejects --model: %s", plan.Command)
+	}
+	var cfg struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal([]byte(plan.Env["OPENCODE_CONFIG_CONTENT"]), &cfg); err != nil {
+		t.Fatalf("model config = %q: %v", plan.Env["OPENCODE_CONFIG_CONTENT"], err)
+	}
+	if cfg.Model != model {
+		t.Errorf("model = %q, want %q", cfg.Model, model)
+	}
+
+	// As with every other driver, an unset model adds nothing and lets opencode
+	// resolve its own default.
+	unset := prepare(t, driver.LaunchRequest{BaseCommand: Name})
+	if content, ok := unset.Env["OPENCODE_CONFIG_CONTENT"]; ok {
+		t.Errorf("unset model injected config %q", content)
 	}
 }
 
