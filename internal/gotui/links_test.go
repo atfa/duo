@@ -90,6 +90,7 @@ func TestMouseClickOpensURLAndFile(t *testing.T) {
 		{Time: time.Now(), Pane: "Duo", Text: "see https://example.com/path and note.md"},
 	}
 	app := New(fake)
+	app.viewMode = viewSplit
 	app.width, app.height = 120, 42
 	app.layout = app.computeLayout(app.width, app.height)
 	app.updateWidgets()

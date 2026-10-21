@@ -148,6 +148,68 @@ func SaveProjectLanguage(repoRoot, language string) error {
 	return os.Rename(tmpFile, configPath)
 }
 
+// ProjectTUIView returns the saved TUI view for repoRoot. An empty result means
+// no view has been saved yet.
+func ProjectTUIView(repoRoot string) (string, error) {
+	repoRoot = strings.TrimSpace(repoRoot)
+	if repoRoot == "" {
+		return "", nil
+	}
+	data, err := os.ReadFile(filepath.Join(repoRoot, ".duo", "config.json"))
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("read Duo project config: %w", err)
+	}
+	var config struct {
+		TUIView string `json:"tuiMode"`
+	}
+	if err := json.Unmarshal(data, &config); err != nil {
+		return "", fmt.Errorf("read Duo project config: %w", err)
+	}
+	return config.TUIView, nil
+}
+
+// SaveProjectTUIView records the TUI view in .duo/config.json while preserving
+// the project's other settings.
+func SaveProjectTUIView(repoRoot, view string) error {
+	repoRoot = strings.TrimSpace(repoRoot)
+	if repoRoot == "" {
+		return nil
+	}
+	duoDir := filepath.Join(repoRoot, ".duo")
+	if err := os.MkdirAll(duoDir, 0755); err != nil {
+		return err
+	}
+	_ = EnsureGitIgnore(repoRoot)
+
+	configPath := filepath.Join(duoDir, "config.json")
+	config := make(map[string]json.RawMessage)
+	data, err := os.ReadFile(configPath)
+	if err == nil {
+		if err := json.Unmarshal(data, &config); err != nil || config == nil {
+			if err == nil {
+				err = fmt.Errorf("expected a JSON object")
+			}
+			return fmt.Errorf("read Duo project config: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("read Duo project config: %w", err)
+	}
+	config["tuiMode"], _ = json.Marshal(view)
+	data, err = json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	tmpFile := configPath + ".tmp"
+	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmpFile, configPath)
+}
+
 // SaveProjectThinking records one agent's reasoning effort in .duo/config.json,
 // preserving the driver, model and every other key. An empty level removes the
 // key so a later run falls back to the driver's own default.

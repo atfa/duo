@@ -546,9 +546,9 @@ func (a *App) handleMouse(ev *tcell.EventMouse) {
 		point := image.Pt(x, y)
 		if point.In(a.layout.tabSplit) || point.In(a.layout.tabTimeline) {
 			if point.In(a.layout.tabSplit) {
-				a.viewMode = viewSplit
+				a.setViewMode(viewSplit)
 			} else {
-				a.viewMode = viewTimeline
+				a.setViewMode(viewTimeline)
 			}
 			return
 		}

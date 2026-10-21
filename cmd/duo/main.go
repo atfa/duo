@@ -235,7 +235,7 @@ func printUsage() {
 	fmt.Println()
 	fmt.Println("Environment:")
 	fmt.Println("  DUO_MODE               default mode for new sessions: fast, goal or step (an explicit --mode wins)")
-	fmt.Println("  .duo/config.json       may set \"language\": \"zh\" or \"en\"; --language overrides it")
+	fmt.Println("  .duo/config.json       may set \"language\": \"zh\" or \"en\" and \"tuiMode\": \"timeline\" or \"split\"")
 	fmt.Println("  DUO_TEST_COMMAND       automated test command run before accepting verification")
 	fmt.Println("  DUO_REPO               repository or subdirectory to launch against (a path argument wins)")
 	fmt.Println("  DUO_SESSION            session id to use (default: timestamp + random hex)")

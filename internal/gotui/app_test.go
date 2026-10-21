@@ -194,6 +194,7 @@ func (f *fakeSession) snapshotRecorded() []sessionstore.TUIEntry {
 func TestSimulationDashboardCommandsAndOverlays(t *testing.T) {
 	fake := newFakeSession()
 	app := New(fake)
+	app.viewMode = viewSplit
 	backend, err := ui.NewBackend(&ui.InitConfig{SimulationMode: true, SimulationSize: image.Pt(120, 42)})
 	if err != nil {
 		t.Fatal(err)
@@ -667,6 +668,30 @@ func TestMainViewBacktabDoesNotChangeThinking(t *testing.T) {
 	app.handleKey(tcell.NewEventKey(tcell.KeyBacktab, "", tcell.ModNone))
 	if commands := fake.snapshotCommands(); len(commands) != 0 {
 		t.Fatalf("main-view Shift+Tab sent commands %#v; it must only work in the picker", commands)
+	}
+}
+
+func TestTUIViewDefaultsToTimelineAndPersistsSelection(t *testing.T) {
+	repo := t.TempDir()
+	fake := newFakeSession()
+	fake.view.Worktrees.Repository = repo
+
+	app := New(fake)
+	if app.viewMode != viewTimeline {
+		t.Fatalf("default TUI view = %v, want timeline", app.viewMode)
+	}
+	app.toggleView()
+	if app.viewMode != viewSplit {
+		t.Fatalf("toggled TUI view = %v, want split", app.viewMode)
+	}
+
+	restarted := New(fake)
+	if restarted.viewMode != viewSplit {
+		t.Fatalf("reloaded TUI view = %v, want split", restarted.viewMode)
+	}
+	restarted.toggleView()
+	if got, err := workspace.ProjectTUIView(repo); err != nil || got != "timeline" {
+		t.Fatalf("saved TUI view = %q, %v; want timeline", got, err)
 	}
 }
 

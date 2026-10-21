@@ -14,6 +14,7 @@ import (
 	"github.com/atfa/duo/internal/session"
 	"github.com/atfa/duo/internal/sessionstore"
 	"github.com/atfa/duo/internal/terminal"
+	"github.com/atfa/duo/internal/workspace"
 	"github.com/gdamore/tcell/v3"
 	ui "github.com/metaspartan/gotui/v5"
 )
@@ -21,8 +22,8 @@ import (
 type viewMode int
 
 const (
-	viewSplit viewMode = iota
-	viewTimeline
+	viewTimeline viewMode = iota
+	viewSplit
 )
 
 // sidebarPanel identifies one expandable dashboard panel. Only one panel is
@@ -182,6 +183,13 @@ func New(svc Session) *App {
 	a.confirm = &confirmOverlay{Block: newModalBlock(t), theme: t, active: 0, choice2: "Cancel", choice1: "Confirm"}
 	if svc != nil {
 		a.live = svc.View()
+		if saved, err := workspace.ProjectTUIView(a.live.Worktrees.Repository); err == nil {
+			if saved == "split" {
+				a.viewMode = viewSplit
+			}
+		} else {
+			a.setStatus("could not read TUI view preference: "+err.Error(), true)
+		}
 		a.applyLanguage()
 		before := len(a.entries)
 		for _, item := range svc.History() {
@@ -190,6 +198,20 @@ func New(svc Session) *App {
 		a.hadHistory = len(a.entries) > before
 	}
 	return a
+}
+
+func (a *App) setViewMode(mode viewMode) {
+	if a.viewMode == mode {
+		return
+	}
+	a.viewMode = mode
+	view := "timeline"
+	if mode == viewSplit {
+		view = "split"
+	}
+	if err := workspace.SaveProjectTUIView(a.live.Worktrees.Repository, view); err != nil {
+		a.setStatus("could not save TUI view preference: "+err.Error(), true)
+	}
 }
 
 // Notices shows driver diagnostics that existed before the interface. They are
@@ -649,10 +671,10 @@ func (a *App) activeTranscript() *transcript {
 
 func (a *App) toggleView() {
 	if a.viewMode == viewSplit {
-		a.viewMode = viewTimeline
+		a.setViewMode(viewTimeline)
 		return
 	}
-	a.viewMode = viewSplit
+	a.setViewMode(viewSplit)
 	// The tab pane already shows which view is active. Only explain a
 	// fallback, where the split view cannot actually be drawn.
 	if !a.layout.split {
