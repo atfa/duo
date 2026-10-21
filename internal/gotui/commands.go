@@ -139,9 +139,24 @@ func (a *App) runSlash(text string) bool {
 			a.setStatus(fmt.Sprintf("current mode: %s (switch with /mode fast|goal|step)", mode), false)
 			return true
 		}
-		return false
+		if len(fields) != 2 {
+			a.setStatus("usage: /mode [fast|goal|step]", true)
+			return true
+		}
+		target, err := project.ParseMode(fields[1])
+		if err != nil {
+			a.setStatus(err.Error(), true)
+			return true
+		}
+		a.switchModeFromComposer(target, "")
+		return true
 	case "/escalate":
-		return false
+		reason := strings.TrimSpace(strings.TrimPrefix(text, "/escalate"))
+		if strings.HasPrefix(reason, ":") {
+			reason = strings.TrimSpace(strings.TrimPrefix(reason, ":"))
+		}
+		a.switchModeFromComposer(project.ModeGoal, reason)
+		return true
 	default:
 		if strings.Contains(cmd[1:], "/") {
 			return false
@@ -149,6 +164,30 @@ func (a *App) runSlash(text string) bool {
 		a.setStatus(fmt.Sprintf("unknown command %q (type / to see commands)", cmd), true)
 		return true
 	}
+}
+
+// switchModeFromComposer applies a slash-command mode change quietly, then
+// offers the explicit resume step. Both /mode and /escalate go through here so
+// a mode switch never wakes the agents by itself.
+func (a *App) switchModeFromComposer(target project.Mode, reason string) {
+	if target == a.live.EffectiveMode() {
+		a.setStatus("already in "+target.Display()+" mode", false)
+		return
+	}
+	if a.svc == nil {
+		return
+	}
+	if err := a.svc.Do(context.Background(), session.SwitchMode{Mode: target.String(), Reason: reason, Quiet: true}); err != nil {
+		a.setStatus(err.Error(), true)
+		return
+	}
+	a.refreshView()
+	if a.live.Language == "zh" {
+		a.setStatus("模式 → "+target.Display()+"；尚未恢复 Agent 工作", false)
+	} else {
+		a.setStatus("mode → "+target.Display()+"; agents not resumed yet", false)
+	}
+	a.openModeResumePrompt(target)
 }
 
 func (a *App) openHelp() {

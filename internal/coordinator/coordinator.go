@@ -535,6 +535,10 @@ func goalTaskPrompt(agent protocol.AgentID, task, language string) string {
 // with the escalation reason, invalidates approvals, persists the updated state,
 // and notifies both agents of their updated roles.
 func (c *Coordinator) EscalateToGoal(ctx context.Context, reason string) error {
+	return c.escalateToGoal(ctx, reason, true)
+}
+
+func (c *Coordinator) escalateToGoal(ctx context.Context, reason string, notify bool) error {
 	reason = strings.TrimSpace(reason)
 	if _, err := c.project.EscalateToGoal(reason); err != nil {
 		return err
@@ -555,6 +559,15 @@ func (c *Coordinator) EscalateToGoal(ctx context.Context, reason string) error {
 	_ = c.persistStrict("mode escalated")
 	if c.agents != nil {
 		c.agents.SetMode(project.ModeGoal.String())
+	}
+	if c.tracker != nil {
+		c.tracker.Touch(protocol.Austin)
+		c.tracker.Touch(protocol.Tony)
+	}
+	if !notify {
+		// Update the adapters' prompt mode without injecting a user turn.
+		c.sendModeChange(ctx, project.ModeGoal, "")
+		return nil
 	}
 
 	reasonDesc := "(none provided)"
@@ -594,11 +607,6 @@ func (c *Coordinator) EscalateToGoal(ctx context.Context, reason string) error {
 		Timestamp: time.Now().UnixMilli(),
 	})
 
-	if c.tracker != nil {
-		c.tracker.Touch(protocol.Austin)
-		c.tracker.Touch(protocol.Tony)
-	}
-
 	// The two detailed notices above carry the instructions. This bare message
 	// updates the adapters' current mode so their next prompt is Goal-shaped
 	// without restarting either agent.
@@ -606,11 +614,21 @@ func (c *Coordinator) EscalateToGoal(ctx context.Context, reason string) error {
 	return nil
 }
 
-// SwitchMode changes the session's workflow at any time. The domain resets the
-// round so the new mode never inherits a plan, queue or signature that was
-// produced under different gates; the adapters receive a mode_change message so
-// their prompt follows immediately, without restarting opencode or Pi.
+// SwitchMode changes the session's workflow at any time and tells both agents
+// about the new mode. The domain resets the round so the new mode never inherits
+// a plan, queue or signature that was produced under different gates.
 func (c *Coordinator) SwitchMode(ctx context.Context, target project.Mode, reason string) error {
+	return c.switchMode(ctx, target, reason, true)
+}
+
+// SwitchModeQuiet changes the workflow without injecting the mode notice into
+// the agents. The interactive frontend uses it before asking whether the human
+// wants the agents to resume; a mode change by itself must not start work.
+func (c *Coordinator) SwitchModeQuiet(ctx context.Context, target project.Mode, reason string) error {
+	return c.switchMode(ctx, target, reason, false)
+}
+
+func (c *Coordinator) switchMode(ctx context.Context, target project.Mode, reason string, notify bool) error {
 	if target != project.ModeFast && target != project.ModeGoal && target != project.ModeStep {
 		return fmt.Errorf("unknown Duo mode %q (expected fast, goal or step)", target)
 	}
@@ -625,7 +643,7 @@ func (c *Coordinator) SwitchMode(ctx context.Context, target project.Mode, reaso
 	// Fast → Goal keeps its historical escalation behavior: seed the goal plan
 	// with the reason and any prior verification note.
 	if from == project.ModeFast && target == project.ModeGoal && before.Phase != project.PhaseDone {
-		return c.EscalateToGoal(ctx, reason)
+		return c.escalateToGoal(ctx, reason, notify)
 	}
 
 	snap, err := c.project.SwitchMode(target, reason)
@@ -657,9 +675,32 @@ func (c *Coordinator) SwitchMode(ctx context.Context, target project.Mode, reaso
 		c.agents.SetMode(target.String())
 	}
 
+	if notify {
+		for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+			text := c.modeSwitchNotice(agent, target, reason, snap.Phase == project.PhaseDone)
+			c.sendModeChange(ctx, target, text, agent)
+		}
+	} else {
+		// The bridge still needs the target mode to shape its next prompt; an
+		// empty text updates that state without becoming a user turn.
+		c.sendModeChange(ctx, target, "")
+	}
+	if c.tracker != nil {
+		c.tracker.Touch(protocol.Austin)
+		c.tracker.Touch(protocol.Tony)
+	}
+	return nil
+}
+
+// ResumeMode sends the current mode's work notice to both agents. It performs no
+// state transition: the frontend uses it after a quiet SwitchMode, once the
+// human confirms that the agents should resume now.
+func (c *Coordinator) ResumeMode(ctx context.Context) error {
+	snap := c.project.Snapshot()
+	mode := snap.EffectiveMode()
 	for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
-		text := c.modeSwitchNotice(agent, target, reason, snap.Phase == project.PhaseDone)
-		c.sendModeChange(ctx, target, text, agent)
+		text := c.modeSwitchNotice(agent, mode, "", snap.Phase == project.PhaseDone)
+		c.sendModeChange(ctx, mode, text, agent)
 	}
 	if c.tracker != nil {
 		c.tracker.Touch(protocol.Austin)

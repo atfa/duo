@@ -104,7 +104,7 @@ Core sends these. The ones that matter for an Agent Adapter:
 | `duo_notice` | Duo has something to say. |
 | `harness_prompt` | Duo's watchdog noticed you are idle. |
 | `resume_prompt` | this session was resumed; re-read the current state. |
-| `mode_change` | Duo switched Fast/Goal/Step; update the prompt mode and deliver any text. |
+| `mode_change` | Duo switched Fast/Goal/Step; update the prompt mode and deliver any text. An empty `text` updates the stored mode without starting a user turn, so a bare mode change does not wake the agent. |
 | `set_model` | switch model. Only sent when you declared `liveModelSwitch`. |
 | `cycle_thinking` | advance reasoning effort. Only sent when you declared `liveThinkingSwitch`. |
 | `get_status` | answer with the shared plan and phase (`duo_status`). |

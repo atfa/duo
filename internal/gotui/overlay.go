@@ -100,7 +100,11 @@ func (c *confirmOverlay) Draw(buf *ui.Buffer) {
 		buf.SetString(text, st, image.Pt(x, y))
 		return x + rw.StringWidth(text)
 	}
-	x := max(c.Inner.Min.X, c.Inner.Max.X-34)
+	choiceWidth := func(label string) int {
+		return rw.StringWidth("  " + c.theme.tr(label) + "  ")
+	}
+	buttonsWidth := choiceWidth(c.choice2) + 1 + choiceWidth(c.choice1)
+	x := max(c.Inner.Min.X, c.Inner.Max.X-buttonsWidth)
 	x = drawChoice(c.choice2, c.active == 0, x)
 	x++
 	drawChoice(c.choice1, c.active == 1, x)

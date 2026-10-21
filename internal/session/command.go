@@ -29,7 +29,16 @@ type SubmitTask struct {
 type SwitchMode struct {
 	Mode   string `json:"mode"`
 	Reason string `json:"reason,omitempty"`
+	// Quiet applies the mode change without injecting a resume notice into the
+	// agents. The interactive frontend uses this so simply changing mode does not
+	// wake both agents before the human has written their next prompt.
+	Quiet bool `json:"quiet,omitempty"`
 }
+
+// ResumeModeWork sends the current mode's work notice to both agents. The
+// frontend runs it only after the human confirms that they want the agents to
+// resume.
+type ResumeModeWork struct{}
 
 // EscalateToGoal is the historical Fast → Goal command. New frontends use
 // SwitchMode; this stays so existing clients keep working.
@@ -79,6 +88,7 @@ type RestartDuo struct {
 
 func (SubmitTask) Kind() string     { return "submit_task" }
 func (SwitchMode) Kind() string     { return "switch_mode" }
+func (ResumeModeWork) Kind() string { return "resume_mode_work" }
 func (EscalateToGoal) Kind() string { return "escalate_to_goal" }
 func (SetModel) Kind() string       { return "set_model" }
 func (CycleThinking) Kind() string  { return "cycle_thinking" }
@@ -89,6 +99,7 @@ func (RestartDuo) Kind() string     { return "restart_duo" }
 
 func (SubmitTask) command()     {}
 func (SwitchMode) command()     {}
+func (ResumeModeWork) command() {}
 func (EscalateToGoal) command() {}
 func (SetModel) command()       {}
 func (CycleThinking) command()  {}

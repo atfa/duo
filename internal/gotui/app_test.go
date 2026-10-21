@@ -474,6 +474,82 @@ func TestExpandedWorkflowWrapsCurrentStep(t *testing.T) {
 	waitForText(t, sim, "TAIL-MARKER")
 }
 
+// A mode switch is a configuration change until the human explicitly resumes
+// the agents. Otherwise merely preparing the next prompt wakes both of them.
+func TestModeSwitchAsksBeforeWakingAgents(t *testing.T) {
+	fake := newFakeSession()
+	app := New(fake)
+	backend, err := ui.NewBackend(&ui.InitConfig{SimulationMode: true, SimulationSize: image.Pt(120, 42)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sim, ok := backend.Screen.(tcell.SimulationScreen)
+	if !ok {
+		t.Fatalf("screen %T is not a simulation screen", backend.Screen)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- app.runWithBackend(ctx, backend) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Error("runWithBackend did not stop")
+		}
+	})
+
+	waitForText(t, sim, "DUO")
+	typeText(sim, "/mode goal")
+	injectKey(sim, tcell.KeyEnter, 0, tcell.ModNone)
+	waitForText(t, sim, "Mode switched to GOAL")
+	waitForText(t, sim, "Resume work")
+	waitForCommands(t, fake, func(commands []session.Command) bool {
+		for _, command := range commands {
+			if set, ok := command.(session.SwitchMode); ok && set.Mode == "goal" && set.Quiet {
+				return true
+			}
+		}
+		return false
+	})
+
+	// Not now: the mode is already selected, but no resume command is sent.
+	injectKey(sim, tcell.KeyRune, 'n', tcell.ModNone)
+	waitGone(t, sim, "Resume work")
+	for _, command := range fake.snapshotCommands() {
+		if _, ok := command.(session.ResumeModeWork); ok {
+			t.Fatal("Not now unexpectedly resumed the agents")
+		}
+	}
+
+	// Resume work: the explicit confirmation wakes both agents in the new mode.
+	typeText(sim, "/mode step")
+	injectKey(sim, tcell.KeyEnter, 0, tcell.ModNone)
+	waitForText(t, sim, "Mode switched to STEP")
+	injectKey(sim, tcell.KeyRune, 'y', tcell.ModNone)
+	waitForCommands(t, fake, func(commands []session.Command) bool {
+		for _, command := range commands {
+			if _, ok := command.(session.ResumeModeWork); ok {
+				return true
+			}
+		}
+		return false
+	})
+
+	// /escalate is a mode switch too, so it must use the same quiet path.
+	typeText(sim, "/escalate testing")
+	injectKey(sim, tcell.KeyEnter, 0, tcell.ModNone)
+	waitForText(t, sim, "Mode switched to GOAL")
+	waitForCommands(t, fake, func(commands []session.Command) bool {
+		for _, command := range commands {
+			if set, ok := command.(session.SwitchMode); ok && set.Mode == "goal" && set.Reason == "testing" && set.Quiet {
+				return true
+			}
+		}
+		return false
+	})
+}
+
 func TestLanguageCommandTranslatesDashboard(t *testing.T) {
 	fake := newFakeSession()
 	app := New(fake)

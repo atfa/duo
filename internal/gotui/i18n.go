@@ -71,7 +71,7 @@ var zhUI = map[string]string{
 	"working tree clean":       "工作区干净",
 	"↑/↓ scroll  ·  Esc close": "↑/↓ 滚动  ·  Esc 关闭",
 	"←/→ choose  ·  Enter select  ·  Esc cancel": "←/→ 选择  ·  Enter 确认  ·  Esc 取消",
-	"Cancel": "取消", "Confirm": "确认",
+	"Cancel": "取消", "Confirm": "确认", "Not now": "暂不恢复", "Resume work": "恢复工作",
 	"agent": "Agent", "search": "搜索", "all models": "全部模型", "Tab switch agent": "Tab 切换 Agent",
 	"images": "图像",
 	"thinking level  ·  Enter advances · shifts the driver's reasoning effort": "思考强度  ·  Enter 提升 · 改变该驱动的推理强度",

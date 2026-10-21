@@ -589,6 +589,10 @@ func (a *App) toggleView() {
 }
 
 func (a *App) openConfirm(title, text string, onYes func()) {
+	a.openConfirmChoices(title, text, "Cancel", "Confirm", onYes)
+}
+
+func (a *App) openConfirmChoices(title, text, no, yes string, onYes func()) {
 	a.confirm = &confirmOverlay{
 		Block:   newModalBlock(a.theme),
 		theme:   a.theme,
@@ -596,10 +600,36 @@ func (a *App) openConfirm(title, text string, onYes func()) {
 		text:    text,
 		onYes:   onYes,
 		active:  0,
-		choice2: "Cancel",
-		choice1: "Confirm",
+		choice2: no,
+		choice1: yes,
 	}
 	a.overlay = overlayConfirm
+}
+
+// openModeResumePrompt asks a question that a bare mode switch cannot answer:
+// should the agents be woken now, or should Duo wait for the human's next task?
+// The safe default is "Not now".
+func (a *App) openModeResumePrompt(target project.Mode) {
+	title := "Mode switched to " + target.Display()
+	text := "No resume message was sent to Austin and Tony. Resume their work in this mode now? Choose Not now if you only want to type the next prompt first."
+	if a.live.Language == "zh" {
+		title = "已切换到 " + target.Display() + " 模式"
+		text = "尚未向 Austin 和 Tony 发送恢复消息。现在让他们按新模式恢复工作吗？如果只想先输入下一条提示词，请选择“暂不恢复”。"
+	}
+	a.openConfirmChoices(title, text, "Not now", "Resume work", func() {
+		if a.svc == nil {
+			return
+		}
+		if err := a.svc.Do(context.Background(), session.ResumeModeWork{}); err != nil {
+			a.setStatus(err.Error(), true)
+			return
+		}
+		if a.live.Language == "zh" {
+			a.setStatus("已在 "+target.Display()+" 模式恢复 Austin 和 Tony 的工作", false)
+		} else {
+			a.setStatus("Austin and Tony resumed in "+target.Display()+" mode", false)
+		}
+	})
 }
 
 func (a *App) closeOverlay() {

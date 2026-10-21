@@ -650,11 +650,18 @@ func (s *Service) Do(ctx context.Context, cmd Command) error {
 		if err != nil {
 			return err
 		}
-		if err := s.coord.SwitchMode(ctx, target, c.Reason); err != nil {
+		if c.Quiet {
+			err = s.coord.SwitchModeQuiet(ctx, target, c.Reason)
+		} else {
+			err = s.coord.SwitchMode(ctx, target, c.Reason)
+		}
+		if err != nil {
 			return err
 		}
 		s.syncMode()
 		return nil
+	case ResumeModeWork:
+		return s.coord.ResumeMode(ctx)
 	case EscalateToGoal:
 		err := s.coord.SwitchMode(ctx, project.ModeGoal, c.Reason)
 		s.syncMode()

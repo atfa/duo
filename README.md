@@ -53,7 +53,7 @@ Restart any running Pi or opencode processes after installing the bridges.
 
 ## How the collaboration works
 
-A session launches in Fast (default), Goal or Step mode, and can switch to another mode at any time with `/mode fast|goal|step` (or `/escalate`, which is shorthand for Goal). A running round cannot be half one workflow and half another: a switch resets the current plan, queue, phase and signatures and starts the new mode's first phase, while commits already in the worktrees are preserved. Switching in `DONE` changes the mode for the next task without reopening the completed round. All modes share the same isolated worktrees, Git evidence and delivery handoff; they differ in how much negotiation is required before delivery.
+A session launches in Fast (default), Goal or Step mode, and can switch to another mode at any time with `/mode fast|goal|step` (or `/escalate`, which is shorthand for Goal). A running round cannot be half one workflow and half another: a switch resets the current plan, queue, phase and signatures and starts the new mode's first phase, while commits already in the worktrees are preserved. Switching in `DONE` changes the mode for the next task without reopening the completed round. In gotui, a slash-command mode switch (`/mode` or `/escalate`) asks whether Austin and Tony should resume immediately; the safe default is **Not now**, so changing mode before writing the next prompt does not wake either agent. All modes share the same isolated worktrees, Git evidence and delivery handoff; they differ in how much negotiation is required before delivery.
 
 ### Fast (default)
 
@@ -69,7 +69,7 @@ RUNNING → VERIFY → DONE
 
 Fast has no shared Plan and no dual sign-off. A passed verification is bound to the exact commit that was requested; any new commit invalidates it and returns the session to `RUNNING`. Only Austin writes to the delivered artifact — Tony's worktree is never delivered.
 
-**Switching modes**: Either the human (`/mode goal`, `/escalate [reason]`, or `/mode step`) or an agent (`duo_escalate`) can switch at any time without restarting either agent. A Fast → Goal switch while work is active keeps its historical escalation behavior: the session transitions to `PLAN` with a shared plan seeded from the escalation reason, Tony becomes an active co-developer, and all prior commits are preserved. Other switches start a fresh round under the new mode's gates.
+**Switching modes**: Either the human (`/mode goal`, `/escalate [reason]`, or `/mode step`) or an agent (`duo_escalate`) can switch at any time without restarting either agent. In gotui, `/mode` and `/escalate` change the mode first and then ask **Resume work?** — choosing **Not now** leaves both agents idle until the human submits the next task. A Fast → Goal switch while work is active keeps its historical escalation behavior: the session transitions to `PLAN` with a shared plan seeded from the escalation reason, Tony becomes an active co-developer, and all prior commits are preserved. Other switches start a fresh round under the new mode's gates.
 
 ### Goal (`duo --mode goal`)
 
@@ -178,9 +178,9 @@ Typing `/` in the composer opens an interactive command palette showing availabl
 
 | Command | Description |
 |---|---|
-| `/escalate [reason]` | Switch the current session to Goal mode (shorthand for `/mode goal`) |
+| `/escalate [reason]` | Switch the current session to Goal mode (shorthand for `/mode goal`), then choose whether to resume the agents |
 | `/mode` | Print the current session mode |
-| `/mode fast\|goal\|step` | Switch the session mode. A running round resets to the new mode's first phase; switching in `DONE` applies the mode to the next task |
+| `/mode fast\|goal\|step` | Switch the session mode, then choose whether to resume the agents. A running round resets to the new mode's first phase; switching in `DONE` applies the mode to the next task |
 | `/model` | Open the model and thinking level picker (`Ctrl+M`) |
 | `/overview` | Toggle the session overview and git diffstat (`Ctrl+O`) |
 | `/preview` | Toggle the gotui workflow sidebar (`Ctrl+P`) |

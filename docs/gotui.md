@@ -27,6 +27,10 @@ other Duo frontend. It never owns workflow state or makes project transitions:
 - **Language.** `/language zh|en` changes Duo-authored messages and the dashboard
   chrome immediately, and the choice is persisted in `.duo/config.json` for the
   next launch. Protocol names such as FAST/GOAL/STEP stay canonical.
+- **Mode switching.** `/mode fast|goal|step` and `/escalate` apply the new mode
+  immediately, then ask whether to resume Austin and Tony. The safe default is
+  **Not now**, which leaves both agents idle until the human submits the next
+  task.
 - **Overlays.** Help, session details, model picker and destructive confirmations
   are centered modals with a cleared content backdrop. The slash palette occupies
   the conversation pane so no text or border fragments show through it.

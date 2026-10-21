@@ -11,7 +11,7 @@
       │ resumed with `duo resume`.                                       │
       │                                                                  │
       │ ← /→  choose  ·   Enter select  ·   Esc cancel                   │
-      │                                 Cancel     Confirm               │
+      │                                             Cancel     Confirm   │
       ╰──────────────────────────────────────────────────────────────────╯
 
 
