@@ -133,6 +133,14 @@ func (f *fakeSession) Models(ctx context.Context, id protocol.AgentID) ([]models
 	}, nil
 }
 
+func (f *fakeSession) Drivers(ctx context.Context) ([]session.DriverChoice, error) {
+	return []session.DriverChoice{
+		{Name: "pi", Shipped: true},
+		{Name: "codex"},
+		{Name: "opencode", Shipped: true},
+	}, nil
+}
+
 func (f *fakeSession) StatusText(ctx context.Context) string { return "STATUS OK" }
 
 func (f *fakeSession) Changes(ctx context.Context) []string {
@@ -271,8 +279,12 @@ func TestSimulationDashboardCommandsAndOverlays(t *testing.T) {
 	injectKey(sim, tcell.KeyCtrlU, 0, tcell.ModNone)
 	waitGone(t, sim, "/he")
 
-	// Help and details are independent scrollable overlays.
+	// Help and details are independent scrollable overlays. The pause guide sits
+	// above the terminal section, so the first page shows it and one page down
+	// reaches NATIVE TERMINALS.
 	injectKey(sim, tcell.KeyF1, 0, tcell.ModNone)
+	waitForText(t, sim, "PAUSE & DRIVERS")
+	injectKey(sim, tcell.KeyPgDn, 0, tcell.ModNone)
 	waitForText(t, sim, "NATIVE TERMINALS")
 	injectKey(sim, tcell.KeyEsc, 0, tcell.ModNone)
 	waitGone(t, sim, "NATIVE TERMINALS")

@@ -28,10 +28,10 @@
  │ ready                            │ │ /escalate [reason]     Switch to Goal mode                                    │
  │ model    anthropic/claude-sonnet │ │ /mode [fast|goal|step] Switch the session mode                                │
  │ driver   test                    │ │ /model                 Model & thinking picker (Ctrl+M)                       │
- │ thinking medium                  │ │ /language [zh|en]      Set Duo's language and save it                         │
- │ context  22.0k / 200.0k  11%     │ │ /copy                  Copy Austin's latest message (Ctrl+X)                  │
- │ idle     32s ago                 │ │ /overview              Session overview and diffstat (Ctrl+O)                 │
- │                                  │ │ /preview               Toggle the workflow sidebar (Ctrl+P)                   │
+ │ thinking medium                  │ │ /pause                 Pause after the current turns finish                   │
+ │ context  22.0k / 200.0k  11%     │ │ /unpause               Cancel a pending pause (use /continue once paused)     │
+ │ idle     32s ago                 │ │ /continue              Resume work after a full pause                         │
+ │                                  │ │ /driver                Driver picker (only while paused)                      │
  │                                  │ │ ↑ /↓  choose  ·   Tab complete  ·   Enter select  ·   Esc dismiss             │
  ╰──────────────────────────────────╯ ╰───────────────────────────────────────────────────────────────────────────────╯
  ╭─ Message ──────────────────────────────────────────────────────────────────────────────────────────────────────────╮

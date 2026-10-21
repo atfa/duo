@@ -71,6 +71,8 @@ Fast has no shared Plan and no dual sign-off. A passed verification is bound to 
 
 **Switching modes**: Either the human (`/mode goal`, `/escalate [reason]`, or `/mode step`) or an agent (`duo_escalate`) can switch at any time without restarting either agent. In gotui, `/mode` and `/escalate` change the mode first and then ask **Resume work?** — choosing **Not now** leaves both agents idle until the human submits the next task. The harness watchdog is held as part of **Not now**, so it cannot nudge an agent into starting on its own. A Fast → Goal switch while work is active keeps its historical escalation behavior: the session transitions to `PLAN` with a shared plan seeded from the escalation reason, Tony becomes an active co-developer, and all prior commits are preserved. Other switches start a fresh round under the new mode's gates.
 
+**Pausing and switching drivers**: `/pause` records a pause request and never interrupts a turn. Duo holds every new prompt, watchdog nudge and peer message, and reports `PAUSING` until both Austin and Tony reach an idle turn boundary; the header then shows `PAUSED` and the footer names any agent still working. `/unpause` cancels a pause that has not completed. Once fully paused, `/continue` is the only way back to work: it sends one resume prompt carrying the current phase, plan or queue, and any messages Duo held. A fully paused session also accepts `/driver`, a picker shaped like the model picker (`Tab` switches agent, type to filter, `Enter` applies, `Esc` closes). Switching a driver restarts only that agent's process and does not resume work. The new driver's conversation starts empty — native session state belongs to the old driver — so after `/continue` Duo points it at the repository's `.duo/logs/<session>.md` and `.duo/logs/<session>-<agent>.md` transcripts, which hold the full conversation to recover from.
+
 ### Goal (`duo --mode goal`)
 
 ```text
@@ -175,7 +177,7 @@ The gotui frontend opens in a **split dashboard**: a workflow sidebar with the p
 
 The layout responds to the terminal: the workflow sidebar needs at least 104 columns, the split view needs a 72-column by 16-row main pane, and narrower terminals fall back to the timeline. The sidebar phase chain wraps when it does not fit, and the footer uses compact hints below 80 columns. A resumed session starts with its restored conversation; the startup banner is only added to a new session.
 
-The deterministic tcell captures in the [gotui guide](./docs/gotui.md#captures) show the dashboard, timeline, slash palette, help, details, model picker, confirmation dialog and a narrow terminal.
+The deterministic tcell captures in the [gotui guide](./docs/gotui.md#captures) show the dashboard, timeline, slash palette, help, details, model picker, paused state, driver picker, confirmation dialog and a narrow terminal.
 
 ### Slash Commands
 
@@ -187,6 +189,10 @@ Typing `/` in the composer opens an interactive command palette showing availabl
 | `/mode` | Print the current session mode |
 | `/mode fast\|goal\|step` | Switch the session mode, then choose whether to resume the agents. A running round resets to the new mode's first phase; switching in `DONE` applies the mode to the next task |
 | `/model` | Open the model and thinking level picker (`Ctrl+M`) |
+| `/pause` | Pause after both agents finish their current turn; new prompts, peer messages and watchdog nudges are held |
+| `/unpause` | Cancel a pause that has not completed yet |
+| `/continue` | Resume a fully paused session with one state-rich resume prompt |
+| `/driver` | While fully paused, open the driver picker for Austin or Tony (`Tab` switches agent, `Enter` applies) |
 | `/overview` | Toggle the session overview and git diffstat (`Ctrl+O`) |
 | `/preview` | Toggle the gotui workflow sidebar (`Ctrl+P`) |
 | `/timestamps` | Toggle timeline message timestamps (`Ctrl+G`) |

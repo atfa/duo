@@ -24,12 +24,12 @@
                  │   @ completes a tracked file  ·   Tab autocompletes slash commands or files  ·     │
                  │   Esc closes dialogs  ·   ↑ /↓  recalls history                                    │
                  │                                                                                    │
-                 │ SLASH COMMANDS                                                                     │
-                 │   /help ·  /overview ·  /model ·  /copy ·  /preview ·  /timestamps                 │
-                 │   /status ·  /language [zh|en] ·  /mode [fast|goal|step] ·  /escalate [reason] ·   │
-                 │   /quit                                                                            │
-                 │                                                                                    │
-                 │ NATIVE TERMINALS                                                                   │
+                 │ PAUSE & DRIVERS                                                                    │
+                 │   /pause waits for both agents to finish their current turn, then holds new work.  │
+                 │   While pausing, /unpause cancels the request; once paused, /continue resumes      │
+                 │   work.                                                                            │
+                 │   While fully paused, /driver switches an agent's driver. After /continue the new  │
+                 │   driver reads the repository's .duo transcript to recover the conversation.       │
                  │ ↑ /↓  scroll  ·   Esc close                                                        │
                  ╰────────────────────────────────────────────────────────────────────────────────────╯
 

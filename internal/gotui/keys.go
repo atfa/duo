@@ -52,6 +52,8 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 			a.handleConfirmKey(ev)
 		case overlayPicker:
 			a.handlePickerKey(ev)
+		case overlayDrivers:
+			a.handleDriverPickerKey(ev)
 		case overlayHelp:
 			a.handleScrollOverlayKey(ev, func(d int) { a.help.Scroll(d) }, max(0, len(a.help.lines)-max(1, a.help.Inner.Dy()-1)))
 		case overlayDetails:
@@ -324,6 +326,72 @@ func (a *App) handleConfirmKey(ev *tcell.EventKey) {
 		} else {
 			a.closeOverlay()
 		}
+	}
+}
+
+// handleDriverPickerKey mirrors the model picker: Tab moves the target agent,
+// typing filters, Enter applies, Space applies and keeps the modal open for the
+// other agent.
+func (a *App) handleDriverPickerKey(ev *tcell.EventKey) {
+	p := a.drivers
+	switch ev.Key() {
+	case tcell.KeyEsc, tcell.KeyCtrlM:
+		a.closeOverlay()
+		return
+	case tcell.KeyTab:
+		agent := p.switchAgent()
+		p.setCurrent(a.live.Agent(agent).Driver)
+		return
+	case tcell.KeyUp:
+		p.move(-1)
+		return
+	case tcell.KeyDown:
+		p.move(1)
+		return
+	case tcell.KeyPgUp:
+		p.move(-max(1, p.visibleRows()))
+		return
+	case tcell.KeyPgDn:
+		p.move(max(1, p.visibleRows()))
+		return
+	case tcell.KeyHome:
+		p.cursor = 0
+		p.clamp()
+		return
+	case tcell.KeyEnd:
+		if list := p.filtered(); len(list) > 0 {
+			p.cursor = len(list) - 1
+			p.clamp()
+		}
+		return
+	case tcell.KeyBackspace, tcell.KeyBackspace2:
+		p.backspaceFilter()
+		return
+	case tcell.KeyEnter:
+		a.applyDriver(false)
+		return
+	case tcell.KeyRune:
+		str := ev.Str()
+		if str == "" {
+			return
+		}
+		if ev.Modifiers()&tcell.ModAlt != 0 {
+			if strings.EqualFold(str, "m") {
+				a.closeOverlay()
+			}
+			return
+		}
+		if ev.Modifiers()&tcell.ModCtrl != 0 {
+			return
+		}
+		if str == " " {
+			a.applyDriver(true)
+			return
+		}
+		for _, r := range str {
+			p.addFilter(r)
+		}
+		return
 	}
 }
 

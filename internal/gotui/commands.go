@@ -17,6 +17,14 @@ func (a *App) submit() {
 	if text == "" {
 		return
 	}
+	// A paused session only restarts through an explicit verb. Keeping the typed
+	// text in the composer is deliberate: the human can resume and send it.
+	if !a.isSlashCommand(text) {
+		if status, blocked := a.pausedInputStatus(); blocked {
+			a.setStatus(status, true)
+			return
+		}
+	}
 	a.composer.Clear()
 	a.closeMention()
 	a.slashHidden = false
@@ -39,6 +47,18 @@ func (a *App) submit() {
 		status = "sent to Austin and Tony"
 	}
 	a.setStatus(status, false)
+}
+
+// isSlashCommand mirrors runSlash's dispatch rule. An absolute path such as
+// /usr/bin/python is a task, not a command, so a paused session must refuse it
+// just like any other typed work.
+func (a *App) isSlashCommand(text string) bool {
+	text = strings.TrimSpace(text)
+	if !strings.HasPrefix(text, "/") || strings.HasPrefix(text, "//") {
+		return false
+	}
+	fields := strings.Fields(text)
+	return len(fields) > 0 && !strings.Contains(fields[0][1:], "/")
 }
 
 func (a *App) runSlash(text string) bool {
@@ -158,12 +178,145 @@ func (a *App) runSlash(text string) bool {
 		}
 		a.switchModeFromComposer(project.ModeGoal, reason)
 		return true
+	case "/pause":
+		a.pauseSession()
+		return true
+	case "/unpause":
+		a.unpauseSession()
+		return true
+	case "/continue":
+		a.continueSession()
+		return true
+	case "/driver":
+		a.openDriverPicker()
+		return true
 	default:
 		if strings.Contains(cmd[1:], "/") {
 			return false
 		}
 		a.setStatus(fmt.Sprintf("unknown command %q (type / to see commands)", cmd), true)
 		return true
+	}
+}
+
+// pausedInputStatus explains why a plain task cannot be sent. Pause only blocks
+// new work; the verbs that change the pause state stay available above it.
+func (a *App) pausedInputStatus() (string, bool) {
+	switch a.live.Pause.State {
+	case session.PausePausing:
+		return a.theme.tr("pause in progress · /unpause cancels this request"), true
+	case session.PausePaused:
+		return a.theme.tr("session is paused · /continue to resume"), true
+	}
+	return "", false
+}
+
+// pauseSession asks Duo to hold new work. It never stops a turn: the coordinator
+// waits for both agents to settle and the footer shows who is still working.
+func (a *App) pauseSession() {
+	if a.svc == nil {
+		return
+	}
+	if err := a.svc.Do(context.Background(), session.Pause{}); err != nil {
+		a.setStatus(err.Error(), true)
+		return
+	}
+	a.refreshView()
+	a.setStatus(a.pauseStatusText(), false)
+}
+
+func (a *App) pauseStatusText() string {
+	switch a.live.Pause.State {
+	case session.PausePaused:
+		return a.theme.tr("paused · /continue resume · /driver switch driver")
+	case session.PausePausing:
+		return a.pauseProgress()
+	}
+	return a.theme.tr("not paused")
+}
+
+// unpauseSession cancels a request that has not completed. A fully paused
+// session is resumed only by /continue, which also sends the resume prompt.
+func (a *App) unpauseSession() {
+	if a.svc == nil {
+		return
+	}
+	if err := a.svc.Do(context.Background(), session.Unpause{}); err != nil {
+		a.setStatus(err.Error(), true)
+		return
+	}
+	a.refreshView()
+	a.setStatus(a.theme.tr("pause cancelled"), false)
+}
+
+// continueSession is the only path back to work after a full pause. The
+// coordinator sends one resume prompt that carries the workflow state.
+func (a *App) continueSession() {
+	if a.svc == nil {
+		return
+	}
+	if err := a.svc.Do(context.Background(), session.Continue{}); err != nil {
+		a.setStatus(err.Error(), true)
+		return
+	}
+	a.refreshView()
+	a.setStatus(a.theme.tr("work resumed"), false)
+}
+
+// openDriverPicker is paused-only. Replacing a driver restarts its process, so
+// doing it during a turn would discard the work it was doing.
+func (a *App) openDriverPicker() {
+	if a.svc == nil {
+		return
+	}
+	if a.live.Pause.State != session.PausePaused {
+		a.setStatus(a.theme.tr("changing a driver is only available while fully paused (use /pause first)"), true)
+		return
+	}
+	a.closeMention()
+	agent := a.drivers.agent
+	current := a.live.Agent(agent).Driver
+	a.drivers.begin(agent, current)
+	list, err := a.svc.Drivers(context.Background())
+	if err != nil {
+		a.drivers.fail(err)
+	} else {
+		names := make([]string, 0, len(list))
+		for _, choice := range list {
+			names = append(names, choice.Name)
+		}
+		a.drivers.setNames(names)
+	}
+	a.drivers.setCurrent(current)
+	a.overlay = overlayDrivers
+}
+
+// applyDriver changes the selected agent's driver without resuming it. The new
+// process starts idle; /continue is what sends the context prompt.
+func (a *App) applyDriver(keepOpen bool) {
+	name, ok := a.drivers.selected()
+	if !ok {
+		if !keepOpen {
+			a.closeOverlay()
+		}
+		return
+	}
+	if a.svc == nil {
+		return
+	}
+	agent := a.drivers.agent
+	if err := a.svc.Do(context.Background(), session.SetDriver{Agent: agent, Driver: name}); err != nil {
+		a.setStatus(err.Error(), true)
+		if !keepOpen {
+			a.closeOverlay()
+		}
+		return
+	}
+	a.refreshView()
+	a.drivers.setCurrent(name)
+	a.setStatus(fmt.Sprintf("%s driver → %s (paused; /continue resumes)", agent, name), false)
+	if !keepOpen {
+		a.closeOverlay()
 	}
 }
 
@@ -183,6 +336,16 @@ func (a *App) switchModeFromComposer(target project.Mode, reason string) {
 		return
 	}
 	a.refreshView()
+	if pause := a.live.Pause.State; pause == session.PausePausing || pause == session.PausePaused {
+		// The resume prompt would promise work that the pause gate holds. Offer
+		// the pause verbs instead and let /continue deliver the new mode notice.
+		if a.live.Language == "zh" {
+			a.setStatus("模式 → "+target.Display()+"；暂停仍生效，用 /continue 或 /unpause 处理", false)
+		} else {
+			a.setStatus("mode → "+target.Display()+"; pause is still active — use /continue or /unpause", false)
+		}
+		return
+	}
 	if a.live.Language == "zh" {
 		a.setStatus("模式 → "+target.Display()+"；尚未恢复 Agent 工作", false)
 	} else {

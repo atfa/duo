@@ -4,6 +4,20 @@ All notable project milestones are documented here.
 
 ## v0.12.2 — unreleased
 
+### Cooperative pause and paused driver switching
+
+- `/pause` holds new work (prompts, peer messages and watchdog nudges) until
+  Austin and Tony finish their current turn, then reports `PAUSED`; `/unpause`
+  cancels an incomplete request and `/continue` resumes a fully paused session
+  with one state-rich prompt.
+- While fully paused, `/driver` switches an agent's driver without resuming it.
+  The replacement process starts idle and, after `/continue`, reads the
+  repository `.duo` transcripts to recover context that the previous driver's
+  native session cannot carry across.
+- Pause intent is persisted, so a resumed session stays paused until the human
+  explicitly continues, and agent launches while paused never receive an
+  automatic resume wake.
+
 ### Self-upgrade reliability
 
 - `duo step-loop` resolves the repository like `duo sessions` and `duo apply`

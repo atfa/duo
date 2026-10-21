@@ -99,6 +99,7 @@ type App struct {
 
 	overlay overlayKind
 	picker  *modelPicker
+	drivers *driverPicker
 	help    *helpOverlay
 	details *detailOverlay
 	confirm *confirmOverlay
@@ -172,6 +173,7 @@ func New(svc Session) *App {
 	a.composer = newComposer(t)
 	a.footer = newFooter(t)
 	a.picker = newModelPicker(t)
+	a.drivers = newDriverPicker(t)
 	a.help = newHelp(t)
 	a.details = newDetails(t)
 	a.slash = newSlashMenu(t)
@@ -266,6 +268,42 @@ func (a *App) busy() bool {
 		}
 	}
 	return false
+}
+
+// footerHint is the idle status line. A pause replaces the key help because the
+// keys that matter while pausing or paused are the pause verbs, and progress
+// towards a full pause is the only thing the human can act on.
+func (a *App) footerHint() string {
+	switch a.live.Pause.State {
+	case session.PausePausing:
+		return a.pauseProgress()
+	case session.PausePaused:
+		return a.theme.tr("paused · /continue resume · /driver switch driver")
+	}
+	hint := a.theme.tr("Enter send · Ctrl+Enter newline · Alt+M models · Ctrl+A/T native · F1 help · F2 view · Ctrl+Q quit")
+	if a.layout.width < 100 {
+		hint = a.theme.tr("Enter send · Alt+M models · F1 help · F2 view · Ctrl+Q quit")
+	}
+	if a.layout.width < 80 {
+		hint = a.theme.tr("Enter send · F1 help · F2 view · Ctrl+Q quit")
+	}
+	return hint
+}
+
+// pauseProgress names the agent still working, so "pausing" is never a freeze
+// with no explanation. An agent that is not busy but not acknowledged yet is
+// waiting on its bridge, which is a different state from a finished turn.
+func (a *App) pauseProgress() string {
+	part := func(id protocol.AgentID) string {
+		state := a.theme.tr("working")
+		if a.live.Pause.Paused[id] {
+			state = a.theme.tr("paused")
+		} else if !a.live.Agent(id).Runtime.Busy {
+			state = a.theme.tr("waiting")
+		}
+		return string(id) + " " + state
+	}
+	return a.theme.tr("pausing") + ": " + part(protocol.Austin) + " · " + part(protocol.Tony) + " · " + a.theme.tr("/unpause cancels")
 }
 
 func (a *App) Run(ctx context.Context) error {
@@ -443,6 +481,8 @@ func (a *App) draw() {
 		switch a.overlay {
 		case overlayPicker:
 			items = append(items, a.picker)
+		case overlayDrivers:
+			items = append(items, a.drivers)
 		case overlayHelp:
 			items = append(items, a.help)
 		case overlayDetails:
@@ -467,6 +507,7 @@ func (a *App) updateWidgets() {
 	a.header.session = a.live.SessionID
 	a.header.mode = a.live.EffectiveMode().Display()
 	a.header.phase = string(a.live.Phase())
+	a.header.pause = a.live.Pause.State
 	a.header.online, a.header.total = onlineAgents(a.live)
 	a.header.view = a.viewMode
 
@@ -515,19 +556,14 @@ func (a *App) updateWidgets() {
 	a.footer.SetRect(l.footer.Min.X, l.footer.Min.Y, l.footer.Max.X, l.footer.Max.Y)
 	a.footer.status, a.footer.isError = a.status, a.statusErr
 	if a.overlay == overlayNone {
-		a.footer.hint = a.theme.tr("Enter send · Ctrl+Enter newline · Alt+M models · Ctrl+A/T native · F1 help · F2 view · Ctrl+Q quit")
-		if l.width < 100 {
-			a.footer.hint = a.theme.tr("Enter send · Alt+M models · F1 help · F2 view · Ctrl+Q quit")
-		}
-		if l.width < 80 {
-			a.footer.hint = a.theme.tr("Enter send · F1 help · F2 view · Ctrl+Q quit")
-		}
+		a.footer.hint = a.footerHint()
 		a.footer.right = ""
 	} else {
 		a.footer.hint = ""
 		a.footer.right = ""
 	}
 	a.picker.place(l)
+	a.drivers.place(l)
 	a.help.place(l)
 	a.details.place(l)
 	a.confirm.place(l)

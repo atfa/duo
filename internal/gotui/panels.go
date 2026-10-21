@@ -61,6 +61,7 @@ type headerBar struct {
 	theme                 theme
 	version, repo, branch string
 	session, mode, phase  string
+	pause                 session.PauseState
 	online, total         int
 	view                  viewMode
 }
@@ -98,6 +99,14 @@ func (h *headerBar) Draw(buf *ui.Buffer) {
 	}
 	badgeStyle := ui.Style{Fg: h.theme.Accent, Bg: h.theme.Panel, Modifier: ui.ModifierBold}
 	if h.phase == "DONE" {
+		badgeStyle = ui.Style{Fg: h.theme.OK, Bg: h.theme.Panel, Modifier: ui.ModifierBold}
+	}
+	switch h.pause {
+	case session.PausePausing:
+		badge += "  ·  PAUSING"
+		badgeStyle = ui.Style{Fg: h.theme.Warn, Bg: h.theme.Panel, Modifier: ui.ModifierBold}
+	case session.PausePaused:
+		badge += "  ·  PAUSED"
 		badgeStyle = ui.Style{Fg: h.theme.OK, Bg: h.theme.Panel, Modifier: ui.ModifierBold}
 	}
 	if width >= 40 {
