@@ -18,12 +18,14 @@ not built or installed from `main`.
 The gotui frontend is a live dashboard over the same `session.Service` as every
 other Duo frontend. It never owns workflow state or makes project transitions:
 
-- **Split dashboard (default).** A workflow sidebar with the phase chain,
+- **Timeline (default).** One chronological conversation. The selected view is
+  saved as `tuiMode` in the repository's `.duo/config.json` whenever you switch
+  views, and restored on the next launch.
+- **Split dashboard.** A workflow sidebar with the phase chain,
   verification/delivery state, worktrees and two agent cards; Austin and Tony in
   side-by-side transcripts; and a full-width Duo/Human pane below them.
-- **Timeline.** One chronological conversation, one toggle away. The
-  `Split` / `Timeline` switch sits at the right of the second header row instead
-  of taking a row of its own.
+- The `Split` / `Timeline` switch sits at the right of the second header row
+  instead of taking a row of its own; `F2` also switches views.
 - **Step workflow.** Step shows the queue lifecycle `PLAN → STEPS → DONE`, not
   Goal's `EXECUTE → REVIEW → INTEGRATE` chain. A `step status` line reports the
   current item's stage (planning, working, reviewing or integrating).

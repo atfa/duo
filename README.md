@@ -139,7 +139,7 @@ Duo's default and only bundled terminal frontend is the **gotui dashboard**: `du
 
 `duo` opens the gotui dashboard; there is no separate UI-selection flag.
 
-The gotui frontend opens in a **split dashboard**: a workflow sidebar with the phase chain, verification/delivery state, worktrees and two agent cards; Austin and Tony in side-by-side transcripts; and a Duo/Human conversation pane below. `F2`, the `Split` / `Timeline` tabs, or a click on either tab switches to the single chronological timeline.
+The gotui frontend opens in the **timeline**: one chronological conversation. `F2`, the `Split` / `Timeline` tabs, or a click on either tab switches to the split dashboard, which has a workflow sidebar, agent cards, Austin and Tony transcripts, and a Duo/Human pane. Duo saves the selected view as `tuiMode` in the repository's `.duo/config.json` and restores it on the next launch.
 
 **gotui keyboard shortcuts**
 
@@ -343,6 +343,7 @@ You can persist settings globally in `~/.duo/config.json` or per-repository in `
 {
   "mode": "fast",
   "language": "en",
+  "tuiMode": "timeline",
   "testCommand": "go test ./...",
   "driver": "pi",
   "piCommand": "pi",
@@ -374,6 +375,8 @@ to the driver unless the command already carries them; opencode receives the
 model through its config environment because its TUI has no `--model` flag.
 
 Precedence: explicit CLI flags (`--mode`, `--language`, `--test-cmd`, `--agent`/`--austin-driver`/`--tony-driver`) > environment variables (`DUO_*`) > repository `.duo/config.json` > global `~/.duo/config.json` > built-in defaults. Set `language` to `zh` or `en`; `duo --language zh` (or `duo -l zh`) overrides the file. This changes Duo-authored messages and the gotui interface chrome immediately and for later launches; canonical protocol words such as FAST/GOAL/STEP, agent names and phase names stay in their standard spelling.
+
+Set `tuiMode` to `timeline` or `split` in the repository `.duo/config.json` to choose the initial view. When you switch views in gotui, Duo updates this key and restores that view the next time it starts.
 
 Duo also **writes** the repository `.duo/config.json`: on every launch it records
 each agent's active driver and model there, so a model chosen in the picker is
