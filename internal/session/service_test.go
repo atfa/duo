@@ -135,6 +135,56 @@ func TestSessionRunsHeadless(t *testing.T) {
 	}
 }
 
+func TestResumeCompletedSessionKeepsDoneUntilFollowUpTask(t *testing.T) {
+	repo, baseDir := gitRepo(t), t.TempDir()
+	listen := "127.0.0.1:0"
+	started := New(headlessOptions(t, repo, baseDir, listen))
+	if _, err := started.Start(context.Background()); err != nil {
+		t.Fatalf("start initial session: %v", err)
+	}
+	sessionID := started.View().SessionID
+	if err := started.Do(context.Background(), SubmitTask{Text: "initial task"}); err != nil {
+		t.Fatalf("submit initial task: %v", err)
+	}
+	started.Close()
+
+	store, err := sessionstore.Open(baseDir, sessionstore.RepoID(repo), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap.Phase = string(project.PhaseDone)
+	snap.Integration = sessionstore.Integration{Head: "delivered-head", MergedTony: "tony-head"}
+	snap.Delivery = sessionstore.Delivery{
+		Status:      sessionstore.DeliveryApplied,
+		FinalHead:   "delivered-head",
+		AppliedHead: "delivered-head",
+	}
+	if err := store.Save(snap); err != nil {
+		t.Fatal(err)
+	}
+
+	resumed := New(resumeOptions(t, repo, baseDir, listen))
+	result, err := resumed.Start(context.Background())
+	if err != nil {
+		t.Fatalf("resume completed session: %v", err)
+	}
+	defer resumed.Close()
+	if result.Phase != project.PhaseDone || resumed.View().Project.Phase != project.PhaseDone {
+		t.Fatalf("resumed phase = result:%s view:%s, want DONE until follow-up task", result.Phase, resumed.View().Project.Phase)
+	}
+	got, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Phase != string(project.PhaseDone) || got.Delivery.Status != sessionstore.DeliveryApplied || got.Integration.Head != "delivered-head" {
+		t.Fatalf("completed round changed during resume: phase=%s delivery=%+v integration=%+v", got.Phase, got.Delivery, got.Integration)
+	}
+}
+
 func TestPauseCommandsPersistAndRefreshTheSessionView(t *testing.T) {
 	repo := gitRepo(t)
 	svc := New(headlessOptions(t, repo, t.TempDir(), "127.0.0.1:0"))

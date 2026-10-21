@@ -57,7 +57,8 @@ Recommended policy, unchanged: upgrade **per delivered release**, not per micro-
   `DUO_HARNESS_RESUME_GRACE_SECONDS` (default 45) of extra grace. **read**
 - **Duo already prints the relaunch command.** On exit it prints "Duo stopped.
   Session … was preserved; resume it with `duo resume …`" (`cmd/duo/main.go:144`).
-  `duo resume` with no id resumes this repository's unfinished session. **read**
+  `duo resume` with no id resumes the only stored session; a completed session waits
+  for a follow-up task before reopening. **read**
 - **Quitting is a supported, guarded operation** (`internal/gotui/keys.go`), and the
   session is preserved by it. **read**
 - **Agents can already change session state from inside.** The command surface is

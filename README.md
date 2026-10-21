@@ -422,11 +422,11 @@ Scope is a **default working directory, not a filesystem sandbox**. Agents can s
 ## Resuming after a crash
 
 ```bash
-duo resume               # resume this repository's unfinished session
+duo resume               # resume a session here (DONE sessions wait for follow-up work)
 duo resume <id>          # resume one specific session
 ```
 
-A plain `duo` always starts a **new** session and refuses to overwrite an unfinished one. `duo resume` picks the only stored session if there is exactly one. When several inactive sessions exist, an interactive terminal shows a numbered choice with each session's completion status, phase, scope and update time. Completed sessions can be resumed to start follow-up work in their existing worktrees. In a non-interactive shell, Duo prints the candidates and asks for `duo resume <id>`.
+A plain `duo` always starts a **new** session and refuses to overwrite an unfinished one. `duo resume` picks the only stored session if there is exactly one. When several inactive sessions exist, an interactive terminal shows a numbered choice with each session's completion status, phase, scope and update time. A completed session resumes in `DONE` and waits for a follow-up task before reopening its workflow in the existing worktrees. In a non-interactive shell, Duo prints the candidates and asks for `duo resume <id>`.
 
 Resume reloads the persisted snapshot, **proves it against Git**, and revokes any signature or verification that is no longer provable before starting a process. The mode is persisted with the session: `duo resume` keeps it, a legacy session with no recorded mode resumes as Goal, and `DUO_MODE` is ignored on resume (an explicit conflicting `--mode` is an error). Reconciled state is written back before agents start, so a crash during startup cannot resurrect a revoked approval or replay a merge. Each reconnected agent receives one mode- and phase-aware wake-up message; reconnects do not duplicate it. The most recent 200 entries of each pane are replayed into the TUI, so a resumed session starts with its previous conversation visible.
 

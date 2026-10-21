@@ -75,10 +75,10 @@ All notable project milestones are documented here.
 
 ### Session selection and xduo inspection
 
-- `duo resume` now offers a numbered choice when several inactive unfinished
-  sessions exist and a terminal is available. Duo reads its own session store
-  directly and shows phase, scope and update time; explicit IDs and batch usage
-  retain their previous behavior.
+- `duo resume` now offers a numbered choice when several inactive sessions exist
+  and a terminal is available. The list includes completed sessions and clearly
+  labels their status; resuming a completed session waits for a follow-up task
+  before reopening its workflow.
 - xduo can search its timeline and navigate matches from the keyboard.
 - An agent's tracked changes are available as a bounded, scrollable diff
   preview. The host caches the preview asynchronously and marks truncated text.

@@ -26,7 +26,6 @@ func (s *Service) startResume(ctx context.Context) (Result, error) {
 	}
 	snap := summary.Snapshot
 
-	wasDone := snap.Phase == string(project.PhaseDone)
 	if strings.TrimSpace(snap.Repository) != "" && !workspace.SamePath(snap.Repository, s.root) {
 		return Result{}, fmt.Errorf("session %s belongs to %s, not %s", snap.SessionID, snap.Repository, s.root)
 	}
@@ -74,27 +73,6 @@ func (s *Service) startResume(ctx context.Context) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("reconcile session %s: %w", snap.SessionID, err)
 	}
-	if wasDone {
-		// A completed session can be continued for follow-up work. Reopen the
-		// workflow and discard only round-scoped checkpoints; preserve its worktrees,
-		// driver conversations and session history.
-		if _, err := state.Reopen(); err != nil {
-			return Result{}, fmt.Errorf("reopen completed session %s: %w", snap.SessionID, err)
-		}
-		projectSnap := state.Snapshot()
-		result.Snapshot.Phase = string(projectSnap.Phase)
-		result.Snapshot.Plan = projectSnap.Plan
-		result.Snapshot.PlanVersion = projectSnap.PlanVersion
-		result.Snapshot.Ready = projectSnap.Ready
-		result.Snapshot.Notes = projectSnap.Notes
-		result.Snapshot.Evidence = projectSnap.Evidence
-		result.Snapshot.Step = projectSnap.Step
-		result.Snapshot.Steps = projectSnap.Steps
-		result.Snapshot.Verification = nil
-		result.Snapshot.Delivery = sessionstore.Delivery{}
-		result.Snapshot.Integration = sessionstore.Integration{}
-	}
-
 	// Persist the reconciled checkpoint before starting anything, so a crash
 	// during startup cannot resurrect revoked signatures or a duplicate merge.
 	reconciled := result.Snapshot
@@ -113,7 +91,7 @@ func (s *Service) startResume(ctx context.Context) (Result, error) {
 	}
 	s.journal.Record("session_resume", map[string]any{
 		"sessionId":            reconciled.SessionID,
-		"phase":                string(result.Report.Phase),
+		"phase":                reconciled.Phase,
 		"revoked":              revoked,
 		"integrationRecovered": result.Report.IntegrationRecovered,
 		"duoVersion":           versionString(),
