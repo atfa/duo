@@ -114,8 +114,15 @@ func TestCaptureFrames(t *testing.T) {
 	waitGone(t, sim, "MODELS & THINKING")
 
 	// A paused session shows the badge and progress, and the driver picker is its
-	// only process-changing control.
+	// only process-changing control. Both agents are idle by definition: a busy
+	// card in a PAUSED frame would contradict the state the badge reports.
 	fake.mu.Lock()
+	savedAustin, savedTony := fake.view.Agents[protocol.Austin], fake.view.Agents[protocol.Tony]
+	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		av := fake.view.Agents[id]
+		av.Runtime = harness.AgentRuntime{LastActivity: time.Now()}
+		fake.view.Agents[id] = av
+	}
 	fake.view.Pause = session.PauseView{State: session.PausePaused, Paused: map[protocol.AgentID]bool{protocol.Austin: true, protocol.Tony: true}}
 	fake.mu.Unlock()
 	fake.events <- events.Event{Time: time.Now(), Kind: events.KindActivity, Agent: protocol.Austin}
@@ -131,6 +138,7 @@ func TestCaptureFrames(t *testing.T) {
 
 	fake.mu.Lock()
 	fake.view.Pause = session.PauseView{State: session.PauseRunning, Paused: map[protocol.AgentID]bool{}}
+	fake.view.Agents[protocol.Austin], fake.view.Agents[protocol.Tony] = savedAustin, savedTony
 	fake.mu.Unlock()
 	fake.events <- events.Event{Time: time.Now(), Kind: events.KindActivity, Agent: protocol.Tony}
 	waitGone(t, sim, "PAUSED")
