@@ -64,17 +64,18 @@ type Coordinator struct {
 	resumeWakeEnabled   bool
 	resumeWakeAttempted map[protocol.AgentID]bool
 
-	holdMu        sync.Mutex
-	harnessOff    bool
-	pauseMu       sync.Mutex
-	pauseEmitMu   sync.Mutex
-	pauseState    string
-	paused        map[protocol.AgentID]bool
-	settled       map[protocol.AgentID]bool
-	held          []heldMessage
-	pauseChange   func(PauseSnapshot)
-	resumeRepo    string
-	resumeSession string
+	holdMu         sync.Mutex
+	harnessOff     bool
+	pauseMu        sync.Mutex
+	pauseEmitMu    sync.Mutex
+	driverSwitchMu sync.Mutex
+	pauseState     string
+	paused         map[protocol.AgentID]bool
+	settled        map[protocol.AgentID]bool
+	held           []heldMessage
+	pauseChange    func(PauseSnapshot)
+	resumeRepo     string
+	resumeSession  string
 
 	modelMu         sync.RWMutex
 	currentThinking map[protocol.AgentID]string
@@ -214,19 +215,24 @@ func (c *Coordinator) NotifyPauseUpdate(text string) {
 	c.emitPause(c.PauseSnapshot(), text)
 }
 
-// BeginDriverSwitch reserves a paused, idle agent until release is called. The
-// reservation closes the window between checking Busy and replacing its process.
+// BeginDriverSwitch serializes driver replacements and checks that the selected
+// agent is still idle. It deliberately does not hold pauseMu across replacement:
+// replacing a process synchronously reports lifecycle events back to the coordinator.
 func (c *Coordinator) BeginDriverSwitch(agent protocol.AgentID) (func(), error) {
+	c.driverSwitchMu.Lock()
 	c.pauseMu.Lock()
 	if c.pauseState != "paused" {
 		c.pauseMu.Unlock()
+		c.driverSwitchMu.Unlock()
 		return nil, fmt.Errorf("driver can only be changed while session is paused")
 	}
 	if c.tracker != nil && c.tracker.Snapshot(agent).Busy {
 		c.pauseMu.Unlock()
+		c.driverSwitchMu.Unlock()
 		return nil, fmt.Errorf("cannot change %s driver while it is busy", agent)
 	}
-	return c.pauseMu.Unlock, nil
+	c.pauseMu.Unlock()
+	return c.driverSwitchMu.Unlock, nil
 }
 
 func (c *Coordinator) pauseSnapshotLocked() PauseSnapshot {
@@ -318,6 +324,9 @@ func (c *Coordinator) ContinuePause(ctx context.Context) error {
 		}
 	}
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		// A mode change requested while pausing was held with its user-facing
+		// notice. Refresh adapter mode silently before the one combined wake.
+		c.sendModeChange(ctx, c.project.Mode(), "", id)
 		text := c.ResumePrompt(id)
 		index := 0
 		if id == protocol.Tony {
