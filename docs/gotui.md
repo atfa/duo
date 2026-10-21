@@ -64,11 +64,12 @@ The dashboard adds:
 | Click on a tab | Switch view |
 
 Modal choices are keyboard-driven (`←` / `→`, `Enter`, `Esc`). The model picker
-uses `Tab` or `Shift+Tab` to switch the target agent, `Ctrl+T` to switch between
-the Models and Thinking tabs, `Enter` to apply a model or advance the selected
-agent's thinking level, and `Space` to apply a model without closing. Closing the
-picker keeps the selected agent selected, so `Shift+Tab` outside the picker then
-cycles that agent's thinking level.
+uses `Tab` to switch the target agent, `Space` to select a model without closing,
+`Shift+Tab` to cycle the selected agent's thinking level in place, and `Ctrl+T` to
+switch between the explicit Models and Thinking tabs. Thinking-capable model rows
+show the current level after the model name (`thinking · high` / `思考·强`).
+Closing the picker keeps the selected agent. `Shift+Tab` is deliberately not bound
+in the main view, where the target agent would be ambiguous.
 
 ## Responsive layout
 

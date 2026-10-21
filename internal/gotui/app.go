@@ -462,9 +462,9 @@ func (a *App) updateWidgets() {
 	a.footer.SetRect(l.footer.Min.X, l.footer.Min.Y, l.footer.Max.X, l.footer.Max.Y)
 	a.footer.status, a.footer.isError = a.status, a.statusErr
 	if a.overlay == overlayNone {
-		a.footer.hint = a.theme.tr("Enter send · Ctrl+Enter newline · Ctrl+M models · Ctrl+A/T native · F1 help · F2 view · Ctrl+Q quit")
+		a.footer.hint = a.theme.tr("Enter send · Ctrl+Enter newline · Alt+M models · Ctrl+A/T native · F1 help · F2 view · Ctrl+Q quit")
 		if l.width < 100 {
-			a.footer.hint = a.theme.tr("Enter send · Ctrl+M models · F1 help · F2 view · Ctrl+Q quit")
+			a.footer.hint = a.theme.tr("Enter send · Alt+M models · F1 help · F2 view · Ctrl+Q quit")
 		}
 		if l.width < 80 {
 			a.footer.hint = a.theme.tr("Enter send · F1 help · F2 view · Ctrl+Q quit")

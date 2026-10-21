@@ -189,6 +189,46 @@ func (p *modelPicker) switchAgent() protocol.AgentID {
 	return p.agent
 }
 
+// thinkingLevelLabel is the compact level shown beside every thinking-capable
+// model. The picker keeps one level per selected agent, so all of that agent's
+// rows show the same label until Shift+Tab changes it.
+func (p *modelPicker) thinkingLevelLabel() string {
+	level := strings.ToLower(strings.TrimSpace(p.thinking))
+	zh := p.theme.Lang != nil && *p.theme.Lang == "zh"
+	switch level {
+	case "off", "none", "0":
+		if zh {
+			return "思考·关"
+		}
+		return "thinking · off"
+	case "low":
+		if zh {
+			return "思考·低"
+		}
+		return "thinking · low"
+	case "medium":
+		if zh {
+			return "思考·中"
+		}
+		return "thinking · medium"
+	case "high":
+		if zh {
+			return "思考·强"
+		}
+		return "thinking · high"
+	case "xhigh", "max":
+		if zh {
+			return "思考·极强"
+		}
+		return "thinking · max"
+	default:
+		if zh {
+			return "思考·默认"
+		}
+		return "thinking · default"
+	}
+}
+
 func (p *modelPicker) Draw(buf *ui.Buffer) {
 	fillBlock(buf, p.GetRect(), ui.Style{Fg: p.theme.Fg, Bg: p.theme.PanelHigh})
 	p.Title = " " + p.theme.tr("MODELS & THINKING") + " "
@@ -284,7 +324,7 @@ func (p *modelPicker) Draw(buf *ui.Buffer) {
 			}
 			suffix := ""
 			if m.Thinking {
-				suffix += "  · " + p.theme.tr("thinking")
+				suffix += "  · " + p.thinkingLevelLabel()
 			}
 			if m.Images {
 				suffix += "  · " + p.theme.tr("images")

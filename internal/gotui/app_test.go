@@ -441,7 +441,6 @@ func TestThinkingTargetFollowsPickerAgent(t *testing.T) {
 	injectKey(sim, tcell.KeyCtrlM, 0, tcell.ModNone)
 	waitForText(t, sim, "MODELS & THINKING")
 	injectKey(sim, tcell.KeyTab, 0, tcell.ModNone)
-	injectKey(sim, tcell.KeyEsc, 0, tcell.ModNone)
 	injectKey(sim, tcell.KeyBacktab, 0, tcell.ModNone)
 	waitForCommands(t, fake, func(commands []session.Command) bool {
 		for _, command := range commands {
@@ -451,6 +450,16 @@ func TestThinkingTargetFollowsPickerAgent(t *testing.T) {
 		}
 		return false
 	})
+	injectKey(sim, tcell.KeyEsc, 0, tcell.ModNone)
+}
+
+func TestMainViewBacktabDoesNotChangeThinking(t *testing.T) {
+	fake := newFakeSession()
+	app := New(fake)
+	app.handleKey(tcell.NewEventKey(tcell.KeyBacktab, "", tcell.ModNone))
+	if commands := fake.snapshotCommands(); len(commands) != 0 {
+		t.Fatalf("main-view Shift+Tab sent commands %#v; it must only work in the picker", commands)
+	}
 }
 
 func TestNewSessionNoticeDoesNotSuppressStartup(t *testing.T) {

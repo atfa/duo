@@ -159,7 +159,7 @@ gotui 默认打开 **分栏仪表盘**：侧边栏显示阶段链、验证/交�
 | `Ctrl+]` / `Ctrl+\` / `Ctrl+】` | 从 Agent 自己的会话返回 gotui |
 | `Ctrl+R` / `Ctrl+Y` | 若 Austin / Tony 进程已退出或失败，重启它 |
 | `Ctrl+X` | 复制 Austin 最新发给人类的消息到剪贴板 |
-| `Shift+Tab` | 循环切换当前选中 Agent 的思考强度（先按 `Ctrl+M`，再用 `Tab` 选择 Austin/Tony） |
+| `Shift+Tab` | 在模型选择器中直接循环调整当前选中 Agent 的思考强度；主界面不绑定它，因为无法确定目标 Agent |
 | `Ctrl+Q` / `Ctrl+D` | 退出 Duo 并保留 session |
 | `←` / `→`，`Alt+←` / `Alt+→` | 按字符或按词移动 composer 光标 |
 | `Home` / `End` | 移到 composer 当前行的开头/结尾 |
@@ -196,7 +196,7 @@ gotui 默认打开 **分栏仪表盘**：侧边栏显示阶段链、验证/交�
 
 提交过的任务会追加到 `~/.duo/history`（可用 `DUO_HISTORY_FILE` 覆盖），因此 `↑`/`↓` 的历史回溯在重启或 resume 之后依然有效。
 
-模型选择器（`Ctrl+M`）列出**目标 Agent 自己那个 driver** 所上报的模型目录——即 Duo 启动该 Agent 所用的同一套安装（`pi --list-models`、`agy models`、`opencode models`），因此同一会话里 Austin 与 Tony 可以各自使用不同目录。输入即可过滤，用 `↑`/`↓`（或 `PgUp`/`PgDn`、`Home`/`End`）移动。用 `Tab` 或 `Shift+Tab` 在 Austin 与 Tony 之间切换目标 Agent；用 `Ctrl+T` 在 Models 与 Thinking 两个标签间切换；用 `Enter` 应用模型或提升当前 Agent 的思考强度；用 `Space` 应用模型但不关闭；用 `Esc` 关闭。关闭选择器后会保留所选 Agent，因此之后按 `Shift+Tab` 循环的就是该 Agent。在 `pi` 上切换是实时的：Pi 保留对话，并把模型与思考强度记入 session 记录，因此重启或 resume（`Ctrl+R`/`Ctrl+Y`）后仍然有效。`agy` 与 `opencode` 会在 Agent 启动时应用模型和思考强度，因此 Duo 会重启该 Agent——对话仍会保留（session id 已持久化），但正在进行的工作会被打断。`▶` 标记选择器光标，`●` 标记目标 Agent 当前使用的模型。
+模型选择器（`Ctrl+M`；若终端把 Ctrl+M 识别成 Enter，可用 `Alt+M`）列出**目标 Agent 自己那个 driver** 所上报的模型目录——即 Duo 启动该 Agent 所用的同一套安装（`pi --list-models`、`agy models`、`opencode models`），因此同一会话里 Austin 与 Tony 可以各自使用不同目录。输入即可过滤，用 `↑`/`↓`（或 `PgUp`/`PgDn`、`Home`/`End`）移动。用 `Tab` 在 Austin 与 Tony 之间切换；用 `Space` 选择模型但不关闭；用 `Shift+Tab` 直接提升当前 Agent 的思考强度，无需切换窗口；`Ctrl+T` 仍可切换到显式的 Models / Thinking 标签；用 `Enter` 应用模型（在 Thinking 标签中则提升强度）；用 `Esc` 关闭。支持思考的模型行会在模型名后显示当前档次（`thinking · high` / `思考·强`）。关闭选择器后仍保留当前 Agent。在 `pi` 上切换是实时的：Pi 保留对话，并把模型与思考强度记入 session 记录，因此重启或 resume（`Ctrl+R`/`Ctrl+Y`）后仍然有效。`agy` 与 `opencode` 会在 Agent 启动时应用模型和思考强度，因此 Duo 会重启该 Agent——对话仍会保留（session id 已持久化），但正在进行的工作会被打断。`▶` 标记选择器光标，`●` 标记目标 Agent 当前使用的模型。
 
 Agent 输出按轻量 markdown 渲染：标题、引用、链接以及粗体/斜体/行内代码都有样式，markdown 表格会画出对齐的真实边框。表格宽度超过时间线时，Duo 会折行最宽的单元格，而不是截断内容；折行的列表项会保持悬挂缩进，续行对齐在条目正文下方。
 

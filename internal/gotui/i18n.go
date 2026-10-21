@@ -45,9 +45,9 @@ var zhUI = map[string]string{
 	"Quit and preserve this session (Ctrl+Q)":                      "退出并保留当前会话（Ctrl+Q）",
 	"↑/↓ choose  ·  Tab complete  ·  Enter select  ·  Esc dismiss": "↑/↓ 选择  ·  Tab 补全  ·  Enter 确认  ·  Esc 关闭",
 
-	"Enter send · Ctrl+Enter newline · Ctrl+M models · Ctrl+A/T native · F1 help · F2 view · Ctrl+Q quit": "Enter 发送 · Ctrl+Enter 换行 · Ctrl+M 模型 · Ctrl+A/T 原生会话 · F1 帮助 · F2 视图 · Ctrl+Q 退出",
-	"Enter send · Ctrl+M models · F1 help · F2 view · Ctrl+Q quit":                                        "Enter 发送 · Ctrl+M 模型 · F1 帮助 · F2 视图 · Ctrl+Q 退出",
-	"Enter send · F1 help · F2 view · Ctrl+Q quit":                                                        "Enter 发送 · F1 帮助 · F2 视图 · Ctrl+Q 退出",
+	"Enter send · Ctrl+Enter newline · Alt+M models · Ctrl+A/T native · F1 help · F2 view · Ctrl+Q quit": "Enter 发送 · Ctrl+Enter 换行 · Alt+M 模型 · Ctrl+A/T 原生会话 · F1 帮助 · F2 视图 · Ctrl+Q 退出",
+	"Enter send · Alt+M models · F1 help · F2 view · Ctrl+Q quit":                                        "Enter 发送 · Alt+M 模型 · F1 帮助 · F2 视图 · Ctrl+Q 退出",
+	"Enter send · F1 help · F2 view · Ctrl+Q quit":                                                       "Enter 发送 · F1 帮助 · F2 视图 · Ctrl+Q 退出",
 
 	"verify": "验证", "delivery": "交付", "ready": "就绪", "worktrees": "工作树",
 	"note": "备注", "delivery note": "交付备注", "plan": "计划", "steps": "步骤",
@@ -86,8 +86,8 @@ var zhUI = map[string]string{
 	"GOAL: PLAN → EXECUTE → REVIEW → INTEGRATE → DONE. Both agents agree on the plan first.":                                                   "GOAL：PLAN → EXECUTE → REVIEW → INTEGRATE → DONE。双方先就计划达成一致。",
 	"STEP: plan a dual-approved queue, then run each step as FAST (Austin implements, Tony verifies) or GOAL (both implement and cross-sign).": "STEP：先制定双方批准的队列，再按 FAST（Austin 实现、Tony 验证）或 GOAL（双方实现并交叉签字）执行每一步。",
 	"Enter send  ·  Ctrl+Enter / Shift+Enter newline":                                                                                          "Enter 发送  ·  Ctrl+Enter / Shift+Enter 换行",
-	"Ctrl+M model & thinking picker  ·  F2 split / timeline  ·  F1 help":                                                                       "Ctrl+M 模型与思考选择器  ·  F2 分栏 / 时间线  ·  F1 帮助",
-	"Shift+Tab cycles the selected agent's thinking  ·  Ctrl+M opens the picker; Tab chooses Austin or Tony":                                   "Shift+Tab 调整当前 Agent 的思考强度  ·  Ctrl+M 打开选择器，Tab 选择 Austin 或 Tony",
+	"Ctrl+M / Alt+M model & thinking picker  ·  F2 split / timeline  ·  F1 help":                                                               "Ctrl+M / Alt+M 模型与思考选择器  ·  F2 分栏 / 时间线  ·  F1 帮助",
+	"In picker: Tab switches Agent  ·  Shift+Tab cycles thinking  ·  Space selects model":                                                      "选择器中：Tab 切换 Agent  ·  Shift+Tab 调整思考强度  ·  Space 选择模型",
 	"Ctrl+A attach Austin  ·  Ctrl+T attach Tony  ·  Ctrl+] or Ctrl+\\ detach":                                                                 "Ctrl+A 进入 Austin  ·  Ctrl+T 进入 Tony  ·  Ctrl+] 或 Ctrl+\\ 返回",
 	"Ctrl+R restart Austin  ·  Ctrl+Y restart Tony  ·  Ctrl+/ help":                                                                            "Ctrl+R 重启 Austin  ·  Ctrl+Y 重启 Tony  ·  Ctrl+/ 帮助",
 	"Ctrl+O details & changes  ·  Ctrl+X copy Austin's latest  ·  Ctrl+P sidebar":                                                              "Ctrl+O 详情与变更  ·  Ctrl+X 复制 Austin 最新消息  ·  Ctrl+P 侧边栏",

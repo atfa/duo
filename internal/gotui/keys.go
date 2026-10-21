@@ -134,9 +134,6 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 	case tcell.KeyPgDn:
 		a.activeTranscript().Scroll(max(3, a.activeTranscript().Inner.Dy()-2))
 		return
-	case tcell.KeyBacktab:
-		a.cycleThinking()
-		return
 	case tcell.KeyEnter:
 		if a.pasting || mods&(tcell.ModCtrl|tcell.ModAlt|tcell.ModShift) != 0 {
 			a.composer.InsertNewline()
@@ -304,9 +301,12 @@ func (a *App) handlePickerKey(ev *tcell.EventKey) {
 	case tcell.KeyCtrlT:
 		p.tab = 1 - p.tab
 		return
-	case tcell.KeyTab, tcell.KeyBacktab:
+	case tcell.KeyTab:
 		a.modelTarget = p.switchAgent()
 		a.ensurePickerCatalog()
+		return
+	case tcell.KeyBacktab:
+		a.cycleThinking()
 		return
 	case tcell.KeyUp:
 		if p.tab == 0 {

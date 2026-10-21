@@ -146,8 +146,8 @@ func (h *helpOverlay) rebuild() {
 		}},
 		{"KEYS", []string{
 			"Enter send  ·  Ctrl+Enter / Shift+Enter newline",
-			"Ctrl+M model & thinking picker  ·  F2 split / timeline  ·  F1 help",
-			"Shift+Tab cycles the selected agent's thinking  ·  Ctrl+M opens the picker; Tab chooses Austin or Tony",
+			"Ctrl+M / Alt+M model & thinking picker  ·  F2 split / timeline  ·  F1 help",
+			"In picker: Tab switches Agent  ·  Shift+Tab cycles thinking  ·  Space selects model",
 			"Ctrl+A attach Austin  ·  Ctrl+T attach Tony  ·  Ctrl+] or Ctrl+\\ detach",
 			"Ctrl+R restart Austin  ·  Ctrl+Y restart Tony  ·  Ctrl+/ help",
 			"Ctrl+O details & changes  ·  Ctrl+X copy Austin's latest  ·  Ctrl+P sidebar",
