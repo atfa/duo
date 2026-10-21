@@ -115,8 +115,10 @@ func (a *App) computeLayout(w, h int) layout {
 				l.workflow = image.Rectangle{}
 				l.main = image.Rect(1, contentTop, max(1, w-1), contentBottom)
 			} else {
-				l.austinCard = image.Rect(l.sidebar.Min.X, l.workflow.Max.Y+1, l.sidebar.Max.X, l.workflow.Max.Y+1+cardH)
-				l.tonyCard = image.Rect(l.sidebar.Min.X, l.austinCard.Max.Y+1, l.sidebar.Max.X, l.austinCard.Max.Y+1+cardH)
+				austinH := cardH
+				tonyH := remaining - austinH - 1
+				l.austinCard = image.Rect(l.sidebar.Min.X, l.workflow.Max.Y+1, l.sidebar.Max.X, l.workflow.Max.Y+1+austinH)
+				l.tonyCard = image.Rect(l.sidebar.Min.X, l.austinCard.Max.Y+1, l.sidebar.Max.X, l.austinCard.Max.Y+1+tonyH)
 			}
 		}
 	}

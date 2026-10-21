@@ -2,6 +2,22 @@ package gotui
 
 import "testing"
 
+func TestSidebarCardsNeverOverlapComposer(t *testing.T) {
+	app := New(nil)
+	for h := 14; h <= 80; h++ {
+		l := app.computeLayout(120, h)
+		if !l.sidebarVisible {
+			continue
+		}
+		if l.tonyCard.Max.Y > l.sidebar.Max.Y {
+			t.Fatalf("h=%d: Tony card ends at %d, sidebar ends at %d", h, l.tonyCard.Max.Y, l.sidebar.Max.Y)
+		}
+		if l.tonyCard.Max.Y > l.composer.Min.Y {
+			t.Fatalf("h=%d: Tony card overlaps composer: tony max=%d composer min=%d", h, l.tonyCard.Max.Y, l.composer.Min.Y)
+		}
+	}
+}
+
 func TestSidebarPanelExpansion(t *testing.T) {
 	app := New(nil)
 	normal := app.computeLayout(120, 42)
