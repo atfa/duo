@@ -280,6 +280,64 @@ test("stream events carry an output rate while the provider is active", async ()
   expect(streams[streams.length - 1].tokensPerSecond).toBeGreaterThan(0);
 });
 
+// session.usage.updated is the session's running total, not the context carried
+// by the last model call. Using it produced figures like 3.8M / 200k (1924%).
+test("cumulative session usage does not replace per-step context usage", async () => {
+  const sent: any[] = [];
+  const handler = installLifecycle(
+    {
+      sendActivity: (a: string, extra: any = {}) =>
+        sent.push({ activity: a, ...extra }),
+      send: () => {},
+    } as any,
+    "Austin",
+    () => true,
+    async () => 200000,
+  );
+
+  await handler({
+    type: "session.step.started",
+    data: {
+      sessionID: "ses_1",
+      assistantMessageID: "msg_a",
+      model: { providerID: "p", id: "m" },
+    },
+  });
+  await handler({
+    type: "session.step.ended",
+    data: {
+      sessionID: "ses_1",
+      assistantMessageID: "msg_a",
+      tokens: {
+        input: 12000,
+        output: 900,
+        reasoning: 100,
+        cache: { read: 2000, write: 0 },
+      },
+    },
+  });
+  await handler({
+    type: "session.usage.updated",
+    data: {
+      sessionID: "ses_1",
+      tokens: {
+        input: 3800000,
+        output: 100000,
+        reasoning: 0,
+        cache: { read: 0, write: 0 },
+      },
+    },
+  });
+  await handler({
+    type: "session.execution.succeeded",
+    data: { sessionID: "ses_1" },
+  });
+
+  const end = sent.find((m) => m.activity === "provider_end");
+  expect(end.contextTokens).toBe(14100);
+  expect(end.contextWindow).toBe(200000);
+});
+
 // provider_end clears the speed in the tracker, so the context figure has to ride
 // along on it or the preview goes blank the moment a step completes.
 test("provider_end retains the latest context usage", async () => {

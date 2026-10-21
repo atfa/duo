@@ -3,9 +3,9 @@ import type { AgentName } from "./protocol";
 
 /**
  * opencode 2.0 reports real token usage per model call on `session.step.ended`
- * (`tokens {input, output, reasoning, cache{read, write}}`) and again on
- * `session.usage.updated`. Only the model catalog knows the context window, so
- * the caller supplies a resolver keyed by provider/model id.
+ * (`tokens {input, output, reasoning, cache{read, write}}`). Only the model
+ * catalog knows the context window, so the caller supplies a resolver keyed by
+ * provider/model id.
  */
 export type ContextWindowResolver = (
   providerID: string,
@@ -280,11 +280,9 @@ export function installLifecycle(
         break;
       }
 
-      case "session.usage.updated": {
-        const tokens = contextTokens(data?.tokens);
-        if (tokens !== undefined) usage.contextTokens = tokens;
-        break;
-      }
+      // `session.usage.updated` carries the session's cumulative token totals,
+      // not the context carried by one request. Treating it as context usage
+      // makes a long session show millions of tokens against a 200k window.
 
       case "session.text.started":
       case "session.text.delta":
