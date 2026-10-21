@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/atfa/duo/internal/workspace"
 )
 
 // TestUpgradeRequestRoundTrips is the handoff between the Duo that stops and the
@@ -52,6 +54,81 @@ func TestUpgradeRequestRoundTrips(t *testing.T) {
 	}
 	if _, err := readUpgradeRequest(repo); err == nil {
 		t.Fatal("a request without a session id must be an error")
+	}
+}
+
+// TestStepLoopLaunchFindsTheGitRootAndKeepsTheLaunchDir is the regression for
+// the broken self-upgrade chain: the session writes .duo/upgrade.json at the Git
+// root, while the loop used to read it from its own working directory. A launch
+// from a subdirectory or with an explicit repository argument therefore exited
+// with 77 and then failed to find the session it was told to resume. The launch
+// directory must survive a resume: it selects the config file (language and test
+// command) the session was started with.
+func TestStepLoopLaunchFindsTheGitRootAndKeepsTheLaunchDir(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	deliveryGit(t, root, "init", "-q")
+	sub := filepath.Join(root, "internal", "pkg")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	check := func(name, gotRepo, gotLaunch, wantLaunch string) {
+		t.Helper()
+		if !workspace.SamePath(gotRepo, root) {
+			t.Fatalf("%s: repository = %q, want %q", name, gotRepo, root)
+		}
+		if !workspace.SamePath(gotLaunch, wantLaunch) {
+			t.Fatalf("%s: launch directory = %q, want %q", name, gotLaunch, wantLaunch)
+		}
+	}
+
+	t.Setenv("DUO_REPO", "")
+	t.Chdir(sub)
+	gotRepo, gotLaunch, err := stepLoopLaunch(ctx, nil)
+	if err != nil {
+		t.Fatalf("resolve from a subdirectory: %v", err)
+	}
+	check("subdirectory", gotRepo, gotLaunch, sub)
+
+	// A launch from outside the repository uses the explicit path unchanged,
+	// including when it names a subdirectory rather than the root.
+	elsewhere := t.TempDir()
+	t.Chdir(elsewhere)
+	gotRepo, gotLaunch, err = stepLoopLaunch(ctx, []string{sub, "--mode", "step"})
+	if err != nil {
+		t.Fatalf("resolve an explicit repository: %v", err)
+	}
+	check("explicit subdirectory", gotRepo, gotLaunch, sub)
+
+	gotRepo, gotLaunch, err = stepLoopLaunch(ctx, []string{root})
+	if err != nil {
+		t.Fatalf("resolve an explicit root: %v", err)
+	}
+	check("explicit root", gotRepo, gotLaunch, root)
+
+	// `resume <session-id>` has no repository positional: the id must not be
+	// passed to Git, and DUO_REPO still decides which repository is resumed.
+	t.Setenv("DUO_REPO", root)
+	gotRepo, gotLaunch, err = stepLoopLaunch(ctx, []string{"resume", "20261021-153633-c361221a"})
+	if err != nil {
+		t.Fatalf("resolve a resume launch: %v", err)
+	}
+	check("resume from DUO_REPO", gotRepo, gotLaunch, root)
+
+	// The same resume launched from a subdirectory keeps that directory, so the
+	// config it selected at startup is the config it reads again.
+	t.Setenv("DUO_REPO", "")
+	t.Chdir(sub)
+	gotRepo, gotLaunch, err = stepLoopLaunch(ctx, []string{"resume", "20261021-153633-c361221a"})
+	if err != nil {
+		t.Fatalf("resolve a resume from a subdirectory: %v", err)
+	}
+	check("resume from a subdirectory", gotRepo, gotLaunch, sub)
+
+	t.Chdir(elsewhere)
+	if _, _, err := stepLoopLaunch(ctx, nil); err == nil {
+		t.Fatal("a launch outside a Git repository must fail once a request exists")
 	}
 }
 

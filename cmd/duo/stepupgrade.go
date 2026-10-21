@@ -15,6 +15,7 @@ import (
 
 	"github.com/atfa/duo/internal/sessionstore"
 	"github.com/atfa/duo/internal/version"
+	"github.com/atfa/duo/internal/workspace"
 )
 
 // upgradeExitCode is what `duo` exits with when the session asked to continue on
@@ -106,10 +107,23 @@ func runStepLoop(ctx context.Context, args []string) error {
 	if err != nil {
 		return fmt.Errorf("cannot find the Duo binary to re-run: %w", err)
 	}
+	// The launch arguments are first passed to Duo unchanged, so `duo step-loop
+	// --version` and `--help` behave exactly like `duo --version` and `duo --help`.
+	// Only a real upgrade request needs the repository resolved: that is when the
+	// loop must find the request file the session wrote.
+	var repo, resumeDir string
 	round, sessionArgs := 1, args
 	for {
 		fmt.Printf("duo step-loop: round %d — running `duo %s`\n", round, strings.Join(sessionArgs, " "))
 		cmd := exec.CommandContext(ctx, self, sessionArgs...)
+		if round > 1 {
+			// Resume from the directory the session was originally launched in:
+			// its config file and any relative setting must survive the restart.
+			// stepLoopLaunch falls back to the Git root when that directory is not
+			// inside the repository (for example an explicit repository argument
+			// launched from elsewhere).
+			cmd.Dir = resumeDir
+		}
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 		runErr := cmd.Run()
 		code := exitCodeOf(runErr)
@@ -127,9 +141,15 @@ func runStepLoop(ctx context.Context, args []string) error {
 			return fmt.Errorf("duo exited with code %d", code)
 		}
 
-		repo, err := os.Getwd()
-		if err != nil {
-			return err
+		if repo == "" {
+			// The session records its upgrade request at the repository root, but
+			// the loop may have been started from a subdirectory or with a
+			// repository argument. Resolve the same root the session used, and
+			// remember the launch directory so a resume reads the same config.
+			repo, resumeDir, err = stepLoopLaunch(ctx, args)
+			if err != nil {
+				return fmt.Errorf("resolve the repository for the upgrade loop: %w", err)
+			}
 		}
 		req, err := readUpgradeRequest(repo)
 		if err != nil {
@@ -146,6 +166,44 @@ func runStepLoop(ctx context.Context, args []string) error {
 		sessionArgs = []string{"resume", req.SessionID}
 		round++
 	}
+}
+
+// stepLoopLaunch resolves the repository the loop operates on and the directory
+// a resumed session should run in. It follows the CLI's usual precedence for a
+// new session — positional repository, then DUO_REPO, then the working directory
+// — and maps that path to the Git root the session will write its request to.
+// The launch directory stays as chosen, so a subdirectory's config file is read
+// again after the restart instead of silently falling back to the root's.
+// `resume` is the one argument shape where the positional token is a session id,
+// so it is parsed as such and never mistaken for a repository path.
+func stepLoopLaunch(ctx context.Context, args []string) (repository, launchDir string, err error) {
+	var parsed cliArgs
+	if len(args) > 0 && strings.TrimSpace(args[0]) == "resume" {
+		parsed, err = parseResumeArgs(args[1:])
+	} else {
+		parsed, err = parseArgs(args)
+	}
+	if err != nil {
+		return "", "", err
+	}
+	launchDir = strings.TrimSpace(parsed.repository)
+	if launchDir == "" {
+		launchDir = strings.TrimSpace(os.Getenv("DUO_REPO"))
+	}
+	if launchDir == "" {
+		launchDir, err = os.Getwd()
+		if err != nil {
+			return "", "", err
+		}
+	}
+	if abs, err := filepath.Abs(launchDir); err == nil {
+		launchDir = abs
+	}
+	repository, err = workspace.FindRoot(ctx, launchDir)
+	if err != nil {
+		return "", "", err
+	}
+	return repository, launchDir, nil
 }
 
 // performUpgrade carries out the install half of a restart request, in the only
