@@ -305,7 +305,7 @@ func (a *App) handlePickerKey(ev *tcell.EventKey) {
 		p.tab = 1 - p.tab
 		return
 	case tcell.KeyTab, tcell.KeyBacktab:
-		p.switchAgent()
+		a.modelTarget = p.switchAgent()
 		a.ensurePickerCatalog()
 		return
 	case tcell.KeyUp:

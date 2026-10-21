@@ -411,6 +411,48 @@ func TestLanguageCommandTranslatesDashboard(t *testing.T) {
 	waitForText(t, sim, "切换会话模式")
 }
 
+// Selecting Austin or Tony in the picker must also choose the target that
+// Shift+Tab cycles after the picker closes. Without that, the status can say
+// "Tony thinking" while Shift+Tab silently changes Austin.
+func TestThinkingTargetFollowsPickerAgent(t *testing.T) {
+	fake := newFakeSession()
+	app := New(fake)
+	backend, err := ui.NewBackend(&ui.InitConfig{SimulationMode: true, SimulationSize: image.Pt(120, 42)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sim, ok := backend.Screen.(tcell.SimulationScreen)
+	if !ok {
+		t.Fatalf("screen %T is not a simulation screen", backend.Screen)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- app.runWithBackend(ctx, backend) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Error("runWithBackend did not stop")
+		}
+	})
+
+	waitForText(t, sim, "DUO")
+	injectKey(sim, tcell.KeyCtrlM, 0, tcell.ModNone)
+	waitForText(t, sim, "MODELS & THINKING")
+	injectKey(sim, tcell.KeyTab, 0, tcell.ModNone)
+	injectKey(sim, tcell.KeyEsc, 0, tcell.ModNone)
+	injectKey(sim, tcell.KeyBacktab, 0, tcell.ModNone)
+	waitForCommands(t, fake, func(commands []session.Command) bool {
+		for _, command := range commands {
+			if cycle, ok := command.(session.CycleThinking); ok && cycle.Agent == protocol.Tony {
+				return true
+			}
+		}
+		return false
+	})
+}
+
 func TestNewSessionNoticeDoesNotSuppressStartup(t *testing.T) {
 	fake := newFakeSession()
 	fake.history = nil

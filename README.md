@@ -156,7 +156,7 @@ The gotui frontend opens in a **split dashboard**: a workflow sidebar with the p
 | `Ctrl+]` / `Ctrl+\` / `Ctrl+】` | Detach from the agent's own session back to gotui |
 | `Ctrl+R` / `Ctrl+Y` | Restart Austin / Tony if exited or failed |
 | `Ctrl+X` | Copy Austin's latest message to the human to the clipboard |
-| `Shift+Tab` | Cycle the target agent's thinking level |
+| `Shift+Tab` | Cycle the selected agent's thinking level (the target is chosen in `Ctrl+M`) |
 | `Ctrl+Q` / `Ctrl+D` | Quit Duo and preserve the session |
 | `←` / `→`, `Alt+←` / `Alt+→` | Move the composer cursor by character or word |
 | `Home` / `End` | Move to the start or end of the composer line |
@@ -195,7 +195,7 @@ An unknown command is reported as an error. `//text` and an absolute path (e.g. 
 
 Submitted tasks are appended to `~/.duo/history` (override with `DUO_HISTORY_FILE`), so `↑`/`↓` recall survives restarting or resuming Duo.
 
-The model picker (`Ctrl+M`) lists the catalog the *target's own driver* reports for the very installation Duo launched (`pi --list-models`, `agy models`, `opencode models`), so Austin and Tony can sit on different catalogs in the same session. Type to filter, and move with `↑`/`↓` (or `PgUp`/`PgDn`, `Home`/`End`). `Tab` or `Shift+Tab` switches the target, `Ctrl+T` switches between the Models and Thinking tabs, `Enter` applies a model or advances the thinking level, `Space` applies a model without closing, and `Esc` closes the picker. On `pi` the switch is live: Pi keeps the conversation and records both the model and the thinking level in the session transcript, so a restart or resume (`Ctrl+R`/`Ctrl+Y`) keeps the choice. `agy` and `opencode` apply model and effort when the agent starts, so Duo restarts that agent instead — the conversation survives, because the session id is persisted, but in-flight work is interrupted. `▶` marks the picker cursor and `●` the target's current model.
+The model picker (`Ctrl+M`) lists the catalog the *target's own driver* reports for the very installation Duo launched (`pi --list-models`, `agy models`, `opencode models`), so Austin and Tony can sit on different catalogs in the same session. Type to filter, and move with `↑`/`↓` (or `PgUp`/`PgDn`, `Home`/`End`). `Tab` or `Shift+Tab` switches the target between Austin and Tony; `Ctrl+T` switches between the Models and Thinking tabs; `Enter` applies a model or advances the chosen agent's thinking level; `Space` applies a model without closing; and `Esc` closes the picker. Closing the picker keeps the selected agent, so `Shift+Tab` afterwards cycles *that* agent. On `pi` the switch is live: Pi keeps the conversation and records both the model and the thinking level in the session transcript, so a restart or resume (`Ctrl+R`/`Ctrl+Y`) keeps the choice. `agy` and `opencode` apply model and effort when the agent starts, so Duo restarts that agent instead — the conversation survives, because the session id is persisted, but in-flight work is interrupted. `▶` marks the picker cursor and `●` the target's current model.
 
 Agent output is rendered as lightweight markdown: headings, blockquotes, links and bold/italic/code spans are styled, and markdown tables are drawn with real, aligned borders. A table wider than the timeline is narrowed by wrapping the widest cells instead of truncating them, and a wrapped list keeps a hanging indent so continuation lines stay under the item text.
 

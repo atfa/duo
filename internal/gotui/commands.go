@@ -290,7 +290,17 @@ func (a *App) cycleThinking() {
 	if a.overlay == overlayPicker {
 		a.picker.thinking = thinking
 	}
-	a.setStatus(fmt.Sprintf("%s thinking: %s", agent, thinking), false)
+	a.setStatus(a.thinkingStatus(agent, thinking), false)
+}
+
+// thinkingStatus names the agent whose effort changed and the two controls that
+// make separate Austin/Tony selection discoverable: the picker chooses a target,
+// while Shift+Tab cycles the current target.
+func (a *App) thinkingStatus(agent protocol.AgentID, thinking string) string {
+	if a.live.Language == "zh" {
+		return fmt.Sprintf("%s 思考强度：%s  ·  Ctrl+M 选择 Agent · Shift+Tab 调整", agent, thinking)
+	}
+	return fmt.Sprintf("%s thinking: %s  ·  Ctrl+M choose agent · Shift+Tab cycle", agent, thinking)
 }
 
 func (a *App) restartAgent(agent protocol.AgentID) {

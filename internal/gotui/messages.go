@@ -21,7 +21,7 @@ func (a *App) route(event events.Event) {
 	}
 	if event.Kind == events.KindThinking && event.Thinking != "" {
 		a.currentThink[event.Agent] = event.Thinking
-		a.setStatus(fmt.Sprintf("%s thinking: %s", event.Agent, event.Thinking), false)
+		a.setStatus(a.thinkingStatus(event.Agent, event.Thinking), false)
 		return
 	}
 	text := strings.TrimSpace(event.Text)

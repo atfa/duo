@@ -87,6 +87,7 @@ var zhUI = map[string]string{
 	"STEP: plan a dual-approved queue, then run each step as FAST (Austin implements, Tony verifies) or GOAL (both implement and cross-sign).": "STEP：先制定双方批准的队列，再按 FAST（Austin 实现、Tony 验证）或 GOAL（双方实现并交叉签字）执行每一步。",
 	"Enter send  ·  Ctrl+Enter / Shift+Enter newline":                                                                                          "Enter 发送  ·  Ctrl+Enter / Shift+Enter 换行",
 	"Ctrl+M model & thinking picker  ·  F2 split / timeline  ·  F1 help":                                                                       "Ctrl+M 模型与思考选择器  ·  F2 分栏 / 时间线  ·  F1 帮助",
+	"Shift+Tab cycles the selected agent's thinking  ·  Ctrl+M chooses Austin or Tony":                                                         "Shift+Tab 调整当前 Agent 的思考强度  ·  Ctrl+M 选择 Austin 或 Tony",
 	"Ctrl+A attach Austin  ·  Ctrl+T attach Tony  ·  Ctrl+] or Ctrl+\\ detach":                                                                 "Ctrl+A 进入 Austin  ·  Ctrl+T 进入 Tony  ·  Ctrl+] 或 Ctrl+\\ 返回",
 	"Ctrl+R restart Austin  ·  Ctrl+Y restart Tony  ·  Ctrl+/ help":                                                                            "Ctrl+R 重启 Austin  ·  Ctrl+Y 重启 Tony  ·  Ctrl+/ 帮助",
 	"Ctrl+O details & changes  ·  Ctrl+X copy Austin's latest  ·  Ctrl+P sidebar":                                                              "Ctrl+O 详情与变更  ·  Ctrl+X 复制 Austin 最新消息  ·  Ctrl+P 侧边栏",

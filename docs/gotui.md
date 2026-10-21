@@ -65,8 +65,10 @@ The dashboard adds:
 
 Modal choices are keyboard-driven (`←` / `→`, `Enter`, `Esc`). The model picker
 uses `Tab` or `Shift+Tab` to switch the target agent, `Ctrl+T` to switch between
-the Models and Thinking tabs, `Enter` to apply a model or advance the thinking
-level, and `Space` to apply a model without closing.
+the Models and Thinking tabs, `Enter` to apply a model or advance the selected
+agent's thinking level, and `Space` to apply a model without closing. Closing the
+picker keeps the selected agent selected, so `Shift+Tab` outside the picker then
+cycles that agent's thinking level.
 
 ## Responsive layout
 
