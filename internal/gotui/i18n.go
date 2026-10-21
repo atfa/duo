@@ -85,6 +85,10 @@ var zhUI = map[string]string{
 	"Tab agent · Enter advance thinking · Ctrl+T models · Esc close":          "Tab 换 Agent · Enter 提升思考强度 · Ctrl+T 模型 · Esc 关闭",
 	"models": "个模型",
 
+	"DRIVERS": "驱动", "all drivers": "全部驱动", "no drivers found": "未发现驱动",
+	"drivers":                             "个驱动",
+	"Tab agent · Enter apply · Esc close": "Tab 换 Agent · Enter 应用 · Esc 关闭",
+
 	"FAST: RUNNING → VERIFY → DONE. Austin implements, Tony verifies, Duo lands the diff.":                                                     "FAST：RUNNING → VERIFY → DONE。Austin 实现，Tony 验证，Duo 落地改动。",
 	"GOAL: PLAN → EXECUTE → REVIEW → INTEGRATE → DONE. Both agents agree on the plan first.":                                                   "GOAL：PLAN → EXECUTE → REVIEW → INTEGRATE → DONE。双方先就计划达成一致。",
 	"STEP: plan a dual-approved queue, then run each step as FAST (Austin implements, Tony verifies) or GOAL (both implement and cross-sign).": "STEP：先制定双方批准的队列，再按 FAST（Austin 实现、Tony 验证）或 GOAL（双方实现并交叉签字）执行每一步。",
