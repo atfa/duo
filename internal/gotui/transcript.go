@@ -45,6 +45,7 @@ type transcript struct {
 	offset         int
 	newLines       int
 	emptyText      string
+	pathRoots      map[string][]string
 	sel            selection
 	entrySeq       int
 }
@@ -86,6 +87,44 @@ func (v *transcript) SetEntries(entries []entry, showTimestamps bool) {
 }
 
 func (v *transcript) SetEmptyText(text string) { v.emptyText = text }
+
+func (v *transcript) SetPathRoots(roots map[string][]string) {
+	if samePathRoots(v.pathRoots, roots) {
+		return
+	}
+	v.pathRoots = clonePathRoots(roots)
+	v.width = -1
+	v.rebuild()
+}
+
+func samePathRoots(a, b map[string][]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for key, left := range a {
+		right, ok := b[key]
+		if !ok || len(left) != len(right) {
+			return false
+		}
+		for i := range left {
+			if left[i] != right[i] {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func clonePathRoots(roots map[string][]string) map[string][]string {
+	if roots == nil {
+		return nil
+	}
+	out := make(map[string][]string, len(roots))
+	for key, values := range roots {
+		out[key] = append([]string(nil), values...)
+	}
+	return out
+}
 
 func (v *transcript) rebuild() {
 	width := v.Inner.Dx()
@@ -145,11 +184,11 @@ func (v *transcript) rebuildLines(width int) {
 		}
 		var headerRuns []textRun
 		if v.showTimestamps {
-			headerRuns = append(headerRuns, textRun{e.at.Format("15:04"), v.theme.Timestamp}, textRun{"  ", v.theme.Timestamp})
+			headerRuns = append(headerRuns, textRun{e.at.Format("15:04"), v.theme.Timestamp, linkTarget{}}, textRun{"  ", v.theme.Timestamp, linkTarget{}})
 		}
-		headerRuns = append(headerRuns, textRun{header, headerStyle})
+		headerRuns = append(headerRuns, textRun{header, headerStyle, linkTarget{}})
 		if e.summary {
-			headerRuns = append(headerRuns, textRun{"  ✓", v.theme.Success})
+			headerRuns = append(headerRuns, textRun{"  ✓", v.theme.Success, linkTarget{}})
 		}
 		wrappedHeader := wrapRuns(headerRuns, width)
 		for _, line := range wrappedHeader {
@@ -165,10 +204,11 @@ func (v *transcript) rebuildLines(width int) {
 			base = v.theme.Warning
 		}
 		runs := markdownRuns(e.text, base, v.theme, bodyWidth)
+		runs = linkifyRuns(runs, v.pathRoots[e.pane], v.theme)
 		wrappedBody := wrapRuns(runs, bodyWidth)
 		for _, line := range wrappedBody {
 			line.entry = e.seq
-			line.runs = append([]textRun{{"  ", base}}, line.runs...)
+			line.runs = append([]textRun{{"  ", base, linkTarget{}}}, line.runs...)
 			v.lines = append(v.lines, line)
 		}
 		v.lines = append(v.lines, renderLine{entry: e.seq})

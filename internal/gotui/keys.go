@@ -428,6 +428,11 @@ func (a *App) handleMouse(ev *tcell.EventMouse) {
 		return
 	}
 	if btn&tcell.Button1 != 0 {
+		if a.mousePane != nil {
+			a.mousePane.DragSelection(x, y)
+			return
+		}
+		a.pendingLink = nil
 		point := image.Pt(x, y)
 		if point.In(a.layout.tabSplit) || point.In(a.layout.tabTimeline) {
 			if point.In(a.layout.tabSplit) {
@@ -446,12 +451,11 @@ func (a *App) handleMouse(ev *tcell.EventMouse) {
 			}
 			return
 		}
-		if a.mousePane != nil {
-			a.mousePane.DragSelection(x, y)
-			return
-		}
 		if t := a.transcriptAt(x, y); t != nil {
 			a.clearSelections()
+			if target, ok := t.linkAt(x, y); ok {
+				a.pendingLink = &target
+			}
 			if t.StartSelection(x, y) {
 				a.mousePane = t
 				a.focusPane = t
@@ -459,16 +463,24 @@ func (a *App) handleMouse(ev *tcell.EventMouse) {
 		}
 		return
 	}
-	if btn == tcell.ButtonNone && a.mousePane != nil {
-		text, ok := a.mousePane.FinishSelection()
-		a.mousePane = nil
-		if !ok {
-			return
+	if btn == tcell.ButtonNone {
+		pending := a.pendingLink
+		a.pendingLink = nil
+		if a.mousePane != nil {
+			pane := a.mousePane
+			a.mousePane = nil
+			text, ok := pane.FinishSelection()
+			if ok && strings.TrimSpace(text) != "" {
+				if err := a.copyToClipboard(text); err != nil {
+					a.setStatus("copy failed: "+err.Error(), true)
+				} else {
+					a.setStatus(fmt.Sprintf("copied selection (%d chars)", len([]rune(text))), false)
+				}
+				return
+			}
 		}
-		if err := a.copyToClipboard(text); err != nil {
-			a.setStatus("copy failed: "+err.Error(), true)
-		} else {
-			a.setStatus(fmt.Sprintf("copied selection (%d chars)", len([]rune(text))), false)
+		if pending != nil {
+			a.openLink(*pending)
 		}
 	}
 }

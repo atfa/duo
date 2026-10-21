@@ -106,11 +106,14 @@ type App struct {
 	openTTY         func() (*terminal.TTY, error)
 	ctx             context.Context
 
-	pasting   bool
-	mousePane *transcript
-	focusPane *transcript
+	pasting     bool
+	mousePane   *transcript
+	focusPane   *transcript
+	pendingLink *linkTarget
 
 	clipboard func(string) error
+	openURL   func(string) error
+	openFile  func(string) error
 }
 
 type asyncResult struct {
@@ -135,6 +138,8 @@ func New(svc Session) *App {
 		currentThink:  map[protocol.AgentID]string{},
 		asyncCh:       make(chan asyncResult, 16),
 		history:       loadComposerHistory(),
+		openURL:       openURLDefault,
+		openFile:      openFileDefault,
 	}
 	a.background = newBackground(t)
 	a.modalBg = newBackground(t)
@@ -447,15 +452,24 @@ func (a *App) updateWidgets() {
 	a.tonyCard.compact = l.tonyCard.Dy() < 10
 	a.tonyCard.expanded = a.sidebarFocus == panelTony
 
+	roots := map[string][]string{
+		string(protocol.Austin): linkRoots(a.live.Worktrees, string(protocol.Austin)),
+		string(protocol.Tony):   linkRoots(a.live.Worktrees, string(protocol.Tony)),
+		string(protocol.Duo):    linkRoots(a.live.Worktrees, string(protocol.Duo)),
+	}
 	a.timeline.SetRect(l.main.Min.X, l.main.Min.Y, l.main.Max.X, l.main.Max.Y)
 	a.timeline.Title = " " + a.theme.tr("CONVERSATION") + " "
+	a.timeline.SetPathRoots(roots)
 	a.timeline.SetEntries(a.entries, a.showTimestamp)
 	a.austin.SetRect(l.austin.Min.X, l.austin.Min.Y, l.austin.Max.X, l.austin.Max.Y)
+	a.austin.SetPathRoots(roots)
 	a.austin.SetEntries(a.filterEntries(string(protocol.Austin)), a.showTimestamp)
 	a.tony.SetRect(l.tony.Min.X, l.tony.Min.Y, l.tony.Max.X, l.tony.Max.Y)
+	a.tony.SetPathRoots(roots)
 	a.tony.SetEntries(a.filterEntries(string(protocol.Tony)), a.showTimestamp)
 	a.duo.SetRect(l.duo.Min.X, l.duo.Min.Y, l.duo.Max.X, l.duo.Max.Y)
 	a.duo.Title = " " + a.theme.tr("DUO / HUMAN") + " "
+	a.duo.SetPathRoots(roots)
 	a.duo.SetEntries(a.filterEntries(string(protocol.Duo)), a.showTimestamp)
 
 	a.composer.SetRect(l.composer.Min.X, l.composer.Min.Y, l.composer.Max.X, l.composer.Max.Y)

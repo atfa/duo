@@ -46,10 +46,13 @@ other Duo frontend. It never owns workflow state or makes project transitions:
   added to a new session, so a resumed Duo pane starts with the human's request.
 
 Long lines wrap at cell boundaries, including wide CJK runes; Markdown headings,
-lists, quotes, fenced code, tables, inline emphasis and links are rendered in
-the transcript. Table cells wrap individually so a wide table keeps its column
-alignment instead of breaking its borders. Colours are TrueColor with terminal
-fallback.
+lists, quotes, fenced code, tables, inline emphasis and links are rendered in the
+transcript. Table cells wrap individually so a wide table keeps its column
+alignment instead of breaking its borders. URLs and existing file paths are
+clickable; file paths resolve against the message's worktree first and the
+repository second. Link detection happens in the frontend over the text the
+agents already produced, so it needs no extra LLM output. Colours are TrueColor
+with terminal fallback.
 
 ## Keys
 
@@ -72,6 +75,8 @@ The dashboard adds:
 | `Ctrl+Q` / `Ctrl+D` | Quit and preserve the session |
 | Mouse wheel | Scroll the transcript or an open help/details modal |
 | Mouse drag | Select transcript text and copy it |
+| Click a URL | Open it in the default browser |
+| Click an existing file path | Open its containing folder in the default file manager |
 | Click `Split` / `Timeline` | Switch view; the labels sit on the header divider |
 | Click a sidebar panel | Expand workflow, Austin or Tony; click again to restore |
 
@@ -117,6 +122,7 @@ The frontend lives entirely under `internal/gotui/`:
 | `layout.go` | responsive rectangles for header, sidebar, panes, composer, footer |
 | `panels.go` | header, workflow, workflow status, agent cards, footer |
 | `transcript.go`, `text.go` | transcript projection, wrapping, selection |
+| `links.go` | URL/path detection, click hit-testing and OS openers |
 | `markdown.go`, `format.go` | styled Markdown and display formatting |
 | `messages.go` | event-to-entry projection and recording |
 | `session.go` | local Session seam over `session.Service` |
@@ -193,6 +199,8 @@ make check
   render with box-drawing borders and wrap wide cells to the transcript width;
   malformed tables fall back to plain text.
 - Modal buttons are keyboard-driven; mouse support covers tabs, sidebar panel
-  expansion, transcripts, selection and modal wheel scrolling.
+  expansion, transcripts, selection, link opening and modal wheel scrolling.
+- Paths with embedded spaces are not linkified unless they appear as a complete
+  token; only paths that exist are clickable.
 - The available models and whether a switch is live or restarts the agent are
   driver capabilities, not frontend choices.

@@ -71,7 +71,7 @@ func parseTable(lines []string, start, width int, base ui.Style, t theme) ([]tex
 	line := func(runs []textRun) {
 		out = append(out, runs...)
 		if len(runs) == 0 || runs[len(runs)-1].text != "\n" {
-			out = append(out, textRun{"\n", base})
+			out = append(out, textRun{"\n", base, linkTarget{}})
 		}
 	}
 	line(tableBorder(widths, "+", "+", "+", borderStyle))
@@ -220,7 +220,7 @@ func tableBorder(widths []int, left, middle, right string, style ui.Style) []tex
 		}
 	}
 	b.WriteString(right)
-	return []textRun{{b.String(), style}}
+	return []textRun{{b.String(), style, linkTarget{}}}
 }
 
 func tableRow(cells []string, aligns []tableAlign, widths []int, base ui.Style, t theme, borderStyle ui.Style, header bool) []textRun {
@@ -238,7 +238,7 @@ func tableRow(cells []string, aligns []tableAlign, widths []int, base ui.Style, 
 
 	var out []textRun
 	for line := 0; line < height; line++ {
-		out = append(out, textRun{"|", borderStyle})
+		out = append(out, textRun{"|", borderStyle, linkTarget{}})
 		for i, width := range widths {
 			var runs []textRun
 			if line < len(cellLines[i]) {
@@ -254,17 +254,17 @@ func tableRow(cells []string, aligns []tableAlign, widths []int, base ui.Style, 
 				left = pad
 				right = 0
 			}
-			out = append(out, textRun{" ", base})
+			out = append(out, textRun{" ", base, linkTarget{}})
 			if left > 0 {
-				out = append(out, textRun{strings.Repeat(" ", left), base})
+				out = append(out, textRun{strings.Repeat(" ", left), base, linkTarget{}})
 			}
 			out = append(out, runs...)
 			if right > 0 {
-				out = append(out, textRun{strings.Repeat(" ", right), base})
+				out = append(out, textRun{strings.Repeat(" ", right), base, linkTarget{}})
 			}
-			out = append(out, textRun{" ", base}, textRun{"|", borderStyle})
+			out = append(out, textRun{" ", base, linkTarget{}}, textRun{"|", borderStyle, linkTarget{}})
 		}
-		out = append(out, textRun{"\n", base})
+		out = append(out, textRun{"\n", base, linkTarget{}})
 	}
 	return out
 }

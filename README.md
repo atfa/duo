@@ -166,6 +166,7 @@ The gotui frontend opens in a **split dashboard**: a workflow sidebar with the p
 | `Tab` | Insert four spaces, or autocomplete the highlighted slash command |
 | `PgUp` / `PgDn` | Scroll the active conversation pane (or an open modal) |
 | Mouse wheel / drag | Scroll the pane under the pointer, or select and copy transcript text |
+| Click a URL / existing file path | Open the URL in the browser, or show the file in the system file manager |
 | `Esc` | Close an overlay, dismiss the slash menu, or clear a selection/status |
 
 The layout responds to the terminal: the workflow sidebar needs at least 104 columns, the split view needs a 72-column by 16-row main pane, and narrower terminals fall back to the timeline. The sidebar phase chain wraps when it does not fit, and the footer uses compact hints below 80 columns. A resumed session starts with its restored conversation; the startup banner is only added to a new session.

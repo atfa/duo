@@ -10,6 +10,9 @@ import (
 type textRun struct {
 	text  string
 	style ui.Style
+	// link is empty for ordinary text. A target survives wrapping because it
+	// travels with the run, so a URL split over two rows remains clickable.
+	link linkTarget
 }
 
 type renderLine struct {
@@ -101,10 +104,10 @@ func wrapRuns(runs []textRun, width int) []renderLine {
 						cur.runs[len(cur.runs)-1].text += string(r)
 						continue
 					}
-					if len(cur.runs) > 0 && cur.runs[len(cur.runs)-1].style == run.style {
+					if len(cur.runs) > 0 && cur.runs[len(cur.runs)-1].style == run.style && cur.runs[len(cur.runs)-1].link == run.link {
 						cur.runs[len(cur.runs)-1].text += string(r)
 					} else {
-						cur.runs = append(cur.runs, textRun{string(r), run.style})
+						cur.runs = append(cur.runs, textRun{string(r), run.style, run.link})
 					}
 					curWidth += w
 				}
@@ -115,7 +118,7 @@ func wrapRuns(runs []textRun, width int) []renderLine {
 			if run.text == "" {
 				continue
 			}
-			if len(cur.runs) > 0 && cur.runs[len(cur.runs)-1].style == run.style {
+			if len(cur.runs) > 0 && cur.runs[len(cur.runs)-1].style == run.style && cur.runs[len(cur.runs)-1].link == run.link {
 				cur.runs[len(cur.runs)-1].text += run.text
 			} else {
 				cur.runs = append(cur.runs, run)
@@ -139,13 +142,13 @@ func wrapRuns(runs []textRun, width int) []renderLine {
 				}
 				w := rw.StringWidth(part)
 				if w > width {
-					addWord([]textRun{{strings.TrimRight(part, " "), run.style}}, rw.StringWidth(strings.TrimRight(part, " ")))
+					addWord([]textRun{{strings.TrimRight(part, " "), run.style, run.link}}, rw.StringWidth(strings.TrimRight(part, " ")))
 					if strings.HasSuffix(part, " ") {
-						addWord([]textRun{{" ", run.style}}, 1)
+						addWord([]textRun{{" ", run.style, run.link}}, 1)
 					}
 					continue
 				}
-				addWord([]textRun{{part, run.style}}, w)
+				addWord([]textRun{{part, run.style, run.link}}, w)
 			}
 		}
 	}
@@ -157,7 +160,7 @@ func wrapRuns(runs []textRun, width int) []renderLine {
 }
 
 func wrapText(text string, style ui.Style, width int) []renderLine {
-	return wrapRuns([]textRun{{text, style}}, width)
+	return wrapRuns([]textRun{{text, style, linkTarget{}}}, width)
 }
 
 // splitCellsAt derives the text starting at column start and ending before

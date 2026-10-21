@@ -26,8 +26,8 @@ func markdownRuns(text string, base ui.Style, t theme, width int) []textRun {
 			continue
 		}
 		if inCode {
-			out = append(out, textRun{"  " + line, t.Code})
-			out = append(out, textRun{"\n", base})
+			out = append(out, textRun{"  " + line, t.Code, linkTarget{}})
+			out = append(out, textRun{"\n", base, linkTarget{}})
 			continue
 		}
 		if table, next, ok := parseTable(lines, i, width, base, t); ok {
@@ -37,11 +37,11 @@ func markdownRuns(text string, base ui.Style, t theme, width int) []textRun {
 		}
 		switch {
 		case trimmed == "":
-			out = append(out, textRun{"\n", base})
+			out = append(out, textRun{"\n", base, linkTarget{}})
 			continue
 		case isRule(trimmed):
-			out = append(out, textRun{"────────────────", t.Subtle})
-			out = append(out, textRun{"\n", base})
+			out = append(out, textRun{"────────────────", t.Subtle, linkTarget{}})
+			out = append(out, textRun{"\n", base, linkTarget{}})
 			continue
 		case strings.HasPrefix(trimmed, "#"):
 			level := 0
@@ -53,30 +53,30 @@ func markdownRuns(text string, base ui.Style, t theme, width int) []textRun {
 			if level >= 3 {
 				style = t.Subtle
 			}
-			out = append(out, textRun{title, style}, textRun{"\n", base})
+			out = append(out, textRun{title, style, linkTarget{}}, textRun{"\n", base, linkTarget{}})
 			continue
 		case strings.HasPrefix(trimmed, ">"):
 			quote := strings.TrimSpace(strings.TrimPrefix(trimmed, ">"))
-			out = append(out, textRun{"│ ", t.Subtle})
+			out = append(out, textRun{"│ ", t.Subtle, linkTarget{}})
 			out = append(out, inlineRuns(quote, t.BodyMuted, t)...)
-			out = append(out, textRun{"\n", base})
+			out = append(out, textRun{"\n", base, linkTarget{}})
 			continue
 		case isBullet(trimmed):
 			body := strings.TrimLeftFunc(trimmed, func(r rune) bool { return r == '-' || r == '*' || r == '+' || unicode.IsSpace(r) })
-			out = append(out, textRun{"  • ", t.Subtle})
+			out = append(out, textRun{"  • ", t.Subtle, linkTarget{}})
 			out = append(out, inlineRuns(body, base, t)...)
-			out = append(out, textRun{"\n", base})
+			out = append(out, textRun{"\n", base, linkTarget{}})
 			continue
 		}
 		if n := leadingNumber(trimmed); n != "" {
 			rest := strings.TrimSpace(trimmed[len(n):])
-			out = append(out, textRun{"  " + n + " ", t.Subtle})
+			out = append(out, textRun{"  " + n + " ", t.Subtle, linkTarget{}})
 			out = append(out, inlineRuns(rest, base, t)...)
-			out = append(out, textRun{"\n", base})
+			out = append(out, textRun{"\n", base, linkTarget{}})
 			continue
 		}
 		out = append(out, inlineRuns(line, base, t)...)
-		out = append(out, textRun{"\n", base})
+		out = append(out, textRun{"\n", base, linkTarget{}})
 	}
 	return trimRuns(out)
 }
@@ -133,7 +133,7 @@ func inlineRuns(s string, base ui.Style, t theme) []textRun {
 	var plain strings.Builder
 	flush := func() {
 		if plain.Len() > 0 {
-			out = append(out, textRun{plain.String(), base})
+			out = append(out, textRun{plain.String(), base, linkTarget{}})
 			plain.Reset()
 		}
 	}
@@ -144,14 +144,14 @@ func inlineRuns(s string, base ui.Style, t theme) []textRun {
 				flush()
 				style := base
 				style.Modifier |= tcell.AttrBold
-				out = append(out, textRun{s[i+2 : i+2+end], style})
+				out = append(out, textRun{s[i+2 : i+2+end], style, linkTarget{}})
 				i += end + 4
 				continue
 			}
 		case s[i] == '`':
 			if end := strings.IndexByte(s[i+1:], '`'); end >= 0 {
 				flush()
-				out = append(out, textRun{s[i+1 : i+1+end], t.Code})
+				out = append(out, textRun{s[i+1 : i+1+end], t.Code, linkTarget{}})
 				i += end + 2
 				continue
 			}
@@ -162,12 +162,19 @@ func inlineRuns(s string, base ui.Style, t theme) []textRun {
 				if labelEnd+1 < len(s) && s[labelEnd+1] == '(' {
 					if urlEnd := strings.IndexByte(s[labelEnd+2:], ')'); urlEnd >= 0 {
 						flush()
-						linkStyle := base
-						linkStyle.Fg = t.Accent
-						out = append(out, textRun{s[labelStart:labelEnd], linkStyle})
 						url := s[labelEnd+2 : labelEnd+2+urlEnd]
+						target, linked := urlTarget(url)
+						linkStyle := base
+						if linked {
+							linkStyle.Fg = t.Accent
+						}
+						out = append(out, textRun{s[labelStart:labelEnd], linkStyle, target})
 						if url != "" && url != s[labelStart:labelEnd] {
-							out = append(out, textRun{" (" + url + ")", t.Subtle})
+							urlStyle := t.Subtle
+							if linked {
+								urlStyle.Fg = t.Accent
+							}
+							out = append(out, textRun{" (" + url + ")", urlStyle, target})
 						}
 						i = labelEnd + 2 + urlEnd + 1
 						continue
@@ -179,7 +186,7 @@ func inlineRuns(s string, base ui.Style, t theme) []textRun {
 				flush()
 				style := base
 				style.Modifier |= tcell.AttrItalic
-				out = append(out, textRun{s[i+1 : i+1+end], style})
+				out = append(out, textRun{s[i+1 : i+1+end], style, linkTarget{}})
 				i += end + 2
 				continue
 			}

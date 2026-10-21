@@ -178,7 +178,7 @@ func (h *helpOverlay) rebuild() {
 		for _, text := range s.lines {
 			wrapped := wrapText(h.theme.tr(text), h.theme.BodyMuted, max(1, h.Inner.Dx()-2))
 			for _, line := range wrapped {
-				line.runs = append([]textRun{{"  ", h.theme.BodyMuted}}, line.runs...)
+				line.runs = append([]textRun{{"  ", h.theme.BodyMuted, linkTarget{}}}, line.runs...)
 				lines = append(lines, line)
 			}
 		}
