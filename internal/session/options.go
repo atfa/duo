@@ -6,6 +6,7 @@ import (
 	"github.com/atfa/duo/internal/driver"
 	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/models"
+	"github.com/atfa/duo/internal/observer"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 )
@@ -47,6 +48,7 @@ type Options struct {
 	// Harness.
 	HarnessEnabled bool
 	Harness        harness.Config
+	Observer       observer.Config
 
 	// Drivers. Every map is keyed by agent. Missing agent entries use the
 	// frontend-selected default; Core does not choose a driver name.

@@ -698,6 +698,82 @@ func TestOpencodeIgnoresBareModelFromAnotherDriver(t *testing.T) {
 	}
 }
 
+func TestObserverConfigProjectOverrideAndEnvironmentPrecedence(t *testing.T) {
+	home := t.TempDir()
+	projectDir := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("DUO_OBSERVER", "")
+	t.Setenv("DUO_OBSERVER_ENDPOINT", "")
+	t.Setenv("DUO_OBSERVER_MODEL", "")
+	t.Setenv("DUO_OBSERVER_API_KEY", "")
+	if err := os.MkdirAll(filepath.Join(home, ".duo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(projectDir, ".duo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	global := `{"observer":{"enabled":true,"endpoint":"http://global/v1","model":"global-model","apiKeyEnv":"GLOBAL_OBSERVER_KEY"}}`
+	if err := os.WriteFile(filepath.Join(home, ".duo", "config.json"), []byte(global), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	project := `{"observer":{"enabled":false}}`
+	projectPath := filepath.Join(projectDir, ".duo", "config.json")
+	if err := os.WriteFile(projectPath, []byte(project), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := loadConfig([]string{projectDir})
+	if err != nil {
+		t.Fatalf("load project opt-out: %v", err)
+	}
+	if cfg.observer.Enabled || cfg.observer.Endpoint != "" || cfg.observer.Model != "" {
+		t.Fatalf("project observer section should atomically override global settings: %+v", cfg.observer)
+	}
+
+	project = `{"observer":{"enabled":true,"endpoint":"http://project/v1","model":"project-model","apiKeyEnv":"PROJECT_OBSERVER_KEY"}}`
+	if err := os.WriteFile(projectPath, []byte(project), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("DUO_OBSERVER", "false")
+	cfg, err = loadConfig([]string{projectDir})
+	if err != nil {
+		t.Fatalf("load observer env override: %v", err)
+	}
+	if cfg.observer.Enabled {
+		t.Fatal("DUO_OBSERVER=false did not override the file setting")
+	}
+	t.Setenv("DUO_OBSERVER", "true")
+	t.Setenv("DUO_OBSERVER_ENDPOINT", "http://env/v1")
+	t.Setenv("DUO_OBSERVER_MODEL", "env-model")
+	cfg, err = loadConfig([]string{projectDir})
+	if err != nil {
+		t.Fatalf("load observer endpoint/model overrides: %v", err)
+	}
+	if !cfg.observer.Enabled || cfg.observer.Endpoint != "http://env/v1" || cfg.observer.Model != "env-model" {
+		t.Fatalf("observer environment did not win: %+v", cfg.observer)
+	}
+	if cfg.observer.APIKeyEnv != "PROJECT_OBSERVER_KEY" {
+		t.Fatalf("API key variable reference = %q", cfg.observer.APIKeyEnv)
+	}
+	if err := cfg.validate(); err != nil {
+		t.Fatalf("valid observer configuration rejected: %v", err)
+	}
+}
+
+func TestEnabledObserverConfigIsValidatedBeforeSessionStart(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("DUO_OBSERVER", "true")
+	t.Setenv("DUO_OBSERVER_ENDPOINT", "")
+	t.Setenv("DUO_OBSERVER_MODEL", "")
+	cfg, err := loadConfig([]string{t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.validate(); err == nil || !strings.Contains(err.Error(), "observer endpoint") {
+		t.Fatalf("validate = %v, want observer endpoint error", err)
+	}
+}
+
 // TestNamingTheDefaultDriverStillHonoursPiCommand pins the upgrade case: a config
 // that names the default driver, or an environment that exports it, must not
 // silently lose the operator's custom binary. DUO_DRIVER is exported into every

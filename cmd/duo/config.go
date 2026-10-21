@@ -14,6 +14,7 @@ import (
 
 	"github.com/atfa/duo/internal/driver"
 	"github.com/atfa/duo/internal/harness"
+	"github.com/atfa/duo/internal/observer"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/session"
@@ -24,6 +25,7 @@ type config struct {
 	listen         string
 	harnessEnabled bool
 	harness        harness.Config
+	observer       observer.Config
 
 	repository          string
 	launchDir           string
@@ -132,6 +134,7 @@ func (c config) sessionOptions() session.Options {
 		Listen:              c.listen,
 		HarnessEnabled:      c.harnessEnabled,
 		Harness:             c.harness,
+		Observer:            c.observer,
 		AgentCommands:       c.agentCommands,
 		AgentCommandDefault: c.agentCommandDefault,
 		DefaultAgentDriver:  defaultDriver,
@@ -153,6 +156,7 @@ type configFile struct {
 	TestCommand string               `json:"testCommand,omitempty"`
 	Agents      map[string]agentFile `json:"agents,omitempty"`
 	Harness     harnessFile          `json:"harness,omitempty"`
+	Observer    *observer.Settings   `json:"observer,omitempty"`
 }
 
 type agentFile struct {
@@ -345,6 +349,7 @@ func loadConfigCommand(args []string, resume bool) (config, error) {
 	if err != nil {
 		return config{}, err
 	}
+	observerConfig := resolveObserverConfig(fileCfg.Observer)
 
 	session := strings.TrimSpace(os.Getenv("DUO_SESSION"))
 	if session == "" {
@@ -506,6 +511,7 @@ func loadConfigCommand(args []string, resume bool) (config, error) {
 		listen:              envString("DUO_LISTEN", "127.0.0.1:0"),
 		harnessEnabled:      harnessEnabled,
 		harness:             harnessConfig,
+		observer:            observerConfig,
 		repository:          launch,
 		launchDir:           launch,
 		worktreeRoot:        strings.TrimSpace(os.Getenv("DUO_WORKTREE_ROOT")),
@@ -542,6 +548,18 @@ func resolveLanguage(cli, file string) (string, error) {
 		return "", fmt.Errorf("invalid language %q: must be zh or en", language)
 	}
 	return language, nil
+}
+
+func resolveObserverConfig(settings *observer.Settings) observer.Config {
+	var fileSettings observer.Settings
+	if settings != nil {
+		fileSettings = *settings
+	}
+	cfg := fileSettings.Config()
+	cfg.Enabled = envBool("DUO_OBSERVER", cfg.Enabled)
+	cfg.Endpoint = envString("DUO_OBSERVER_ENDPOINT", cfg.Endpoint)
+	cfg.Model = envString("DUO_OBSERVER_MODEL", cfg.Model)
+	return cfg
 }
 
 func loadConfigFile(path string) (configFile, error) {
@@ -585,7 +603,7 @@ func loadMergedConfigFile(launchDir string) (configFile, error) {
 	}
 	for _, p := range candidates {
 		projectCfg, err := loadConfigFile(p)
-		if err == nil && (projectCfg.Mode != "" || projectCfg.Language != "" || projectCfg.PiCommand != "" || projectCfg.Driver != "" || projectCfg.TestCommand != "" || len(projectCfg.Agents) > 0 || projectCfg.Harness != (harnessFile{})) {
+		if err == nil && (projectCfg.Mode != "" || projectCfg.Language != "" || projectCfg.PiCommand != "" || projectCfg.Driver != "" || projectCfg.TestCommand != "" || len(projectCfg.Agents) > 0 || projectCfg.Harness != (harnessFile{}) || projectCfg.Observer != nil) {
 			mergeConfig(&merged, projectCfg)
 			break
 		} else if err != nil && !os.IsNotExist(err) {
@@ -645,6 +663,12 @@ func mergeConfig(dst *configFile, src configFile) {
 	if src.Harness.CooldownSeconds > 0 {
 		dst.Harness.CooldownSeconds = src.Harness.CooldownSeconds
 	}
+	// An observer section is an atomic override. This preserves an explicit
+	// enabled:false in a project config without storing API keys in either file.
+	if src.Observer != nil {
+		settings := *src.Observer
+		dst.Observer = &settings
+	}
 }
 
 func hasFlag(command, flag string) bool {
@@ -670,6 +694,9 @@ func (c config) validate() error {
 	}
 	if strings.TrimSpace(c.piCommand) == "" {
 		return fmt.Errorf("DUO_PI_COMMAND is empty")
+	}
+	if err := c.observer.Validate(); err != nil {
+		return fmt.Errorf("invalid observer config: %w", err)
 	}
 	return nil
 }

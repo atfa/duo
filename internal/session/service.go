@@ -16,6 +16,7 @@ import (
 	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/models"
+	"github.com/atfa/duo/internal/observer"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/sessionstore"
@@ -104,6 +105,7 @@ type Service struct {
 	bus         *events.Bus
 	agents      *agent.Manager
 	monitor     *harness.Monitor
+	observer    *observer.Observer
 	transcripts *sessionstore.LogWriter
 
 	driverState  map[protocol.AgentID]sessionstore.DriverState
@@ -309,6 +311,7 @@ func (s *Service) launch(ctx context.Context) (Result, error) {
 		coord.EnableResumeWake()
 	}
 	server.SetHandler(coord)
+	s.startObserver()
 
 	serverErr := make(chan error, 1)
 	go func() { serverErr <- server.ListenAndServe(s.ctx) }()
@@ -513,6 +516,10 @@ func (s *Service) closeLocked(ctx context.Context) Result {
 		}
 		s.agents.CloseAll()
 	}
+	if s.observer != nil {
+		s.observer.Close()
+		s.observer = nil
+	}
 	if s.state != nil && s.journal != nil {
 		s.journal.Record("session_stop", map[string]any{"phase": string(res.Phase)})
 	}
@@ -536,6 +543,25 @@ func (s *Service) closeLocked(ctx context.Context) Result {
 		s.cancel()
 	}
 	return res
+}
+
+// startObserver starts the optional advisory observer before any agent process
+// starts, so it cannot miss the first session events. An invalid direct-session
+// configuration is isolated to a log message; the CLI validates it earlier for
+// a user-facing error.
+func (s *Service) startObserver() {
+	if !s.opts.Observer.Enabled {
+		return
+	}
+	obs, err := observer.New(s.bus, s.opts.Observer, func(text string) {
+		s.bus.Emit(events.Event{Time: time.Now(), Kind: events.KindObserver, Agent: protocol.Duo, Text: text})
+	}, s.logger.Printf)
+	if err != nil {
+		s.logger.Printf("observer disabled: %v", err)
+		return
+	}
+	s.observer = obs
+	s.observer.Start(s.ctx)
 }
 
 // View reports the session's current state as a value.
