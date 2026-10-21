@@ -456,9 +456,14 @@ func TestThinkingTargetFollowsPickerAgent(t *testing.T) {
 func TestThinkingEventUpdatesCardsWithoutSingleAgentStatus(t *testing.T) {
 	fake := newFakeSession()
 	app := New(fake)
+	app.overlay = overlayPicker
+	app.picker.thinking = "medium"
 	app.route(events.Event{Time: time.Now(), Kind: events.KindThinking, Agent: protocol.Tony, Thinking: "high"})
 	if got := app.currentThink[protocol.Tony]; got != "high" {
 		t.Fatalf("Tony thinking state = %q, want high", got)
+	}
+	if got := app.picker.thinking; got != "high" {
+		t.Fatalf("picker thinking state = %q, want the confirmed high", got)
 	}
 	if app.status != "" {
 		t.Fatalf("thinking event set a single-agent status %q; the agent cards show both levels", app.status)
