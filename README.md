@@ -364,9 +364,58 @@ You can persist settings globally in `~/.duo/config.json` or per-repository in `
     "idleSeconds": 15,
     "stallSeconds": 300,
     "cooldownSeconds": 30
+  },
+  "observer": {
+    "enabled": true,
+    "endpoint": "http://127.0.0.1:4000/v1",
+    "model": "exec",
+    "apiKeyEnv": "MY_LLM_API_KEY",
+    "maxEvents": 20,
+    "debounceSeconds": 3,
+    "timeoutSeconds": 60,
+    "maxTokens": 300
   }
 }
 ```
+
+#### Advisory observer
+
+The optional LLM observer watches recent session events and can point out a
+concrete risk for the human. It is **disabled by default**: without an `observer`
+section (or with `"enabled": false`) Duo does not construct or subscribe an
+observer and makes no model requests. It is advisory only: it cannot sign gates,
+message agents, or change workflow state. Its replies appear in Duo's timeline
+with the `Observer: ` prefix. Events received during the debounce window are
+batched into one request after the session has been quiet; a `NOTHING` reply is
+not shown. Missing API keys, timeouts, and non-2xx model responses are logged in
+the session log only and do not interrupt coordination.
+
+The observer settings use these JSON keys: `enabled`, `endpoint`, `model`,
+`apiKeyEnv`, `systemPrompt`, `maxEvents`, `debounceSeconds`, `timeoutSeconds`,
+and `maxTokens`. Defaults are 20 events, 3 seconds debounce, 60 seconds timeout,
+and 300 max tokens; an empty `systemPrompt` uses Duo's built-in prompt. `endpoint`
+is the API base URL (for example, ending in `/v1`); Duo appends
+`/chat/completions`.
+
+The observer is off unless enabled in configuration or with `DUO_OBSERVER=true`.
+`DUO_OBSERVER` overrides `enabled`; `DUO_OBSERVER_ENDPOINT` and
+`DUO_OBSERVER_MODEL` override the corresponding settings. `DUO_OBSERVER_API_KEY`
+provides the raw API key and takes precedence over the variable named by
+`apiKeyEnv`. **Only put the environment-variable name in `apiKeyEnv`; never put
+the API key itself in either config file.** For example:
+
+```sh
+export DUO_OBSERVER=true
+export DUO_OBSERVER_ENDPOINT=http://127.0.0.1:4000/v1
+export DUO_OBSERVER_MODEL=exec
+export DUO_OBSERVER_API_KEY=sk-local-litellm
+```
+
+For a local LiteLLM server, use endpoint `http://127.0.0.1:4000/v1` and model id
+`exec`. The `litellm/` prefix is Pi's provider prefix; Duo sends the configured
+model name as-is. The project-level `observer` section, when present, **replaces
+the entire global observer section** from `~/.duo/config.json`; it is not merged
+field by field. Environment overrides are applied after that replacement.
 
 `agents.<name>.command` overrides the launch command and `agents.<name>.driver`
 the driver for one agent only; the top-level `driver` and `piCommand` set the

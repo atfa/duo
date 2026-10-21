@@ -339,9 +339,36 @@ duo mcp-server config --agent tony            # 打印 MCP 客户端配置 JSON
     "idleSeconds": 15,
     "stallSeconds": 300,
     "cooldownSeconds": 30
+  },
+  "observer": {
+    "enabled": true,
+    "endpoint": "http://127.0.0.1:4000/v1",
+    "model": "exec",
+    "apiKeyEnv": "MY_LLM_API_KEY",
+    "maxEvents": 20,
+    "debounceSeconds": 3,
+    "timeoutSeconds": 60,
+    "maxTokens": 300
   }
 }
 ```
+
+#### 建议型观察者
+
+可选的 LLM 观察者会查看最近的会话事件，并提醒用户注意具体风险。它**默认关闭**：未配置 `observer` 段（或设置 `"enabled": false`）时，Duo 不会创建或订阅观察者，也不会发送模型请求。观察者只提供建议，不能签署门禁、给 Agent 发消息或更改工作流状态。它的回复会显示在 Duo 时间线中，并带有 `Observer: ` 前缀。静默 debounce 窗口内收到的事件会合并，在会话安静后发送一次请求；模型回复 `NOTHING` 时不会显示。缺少 API key、请求超时或模型返回非 2xx 时，只写入 session 日志，不会中断协调。
+
+JSON 配置键为：`enabled`、`endpoint`、`model`、`apiKeyEnv`、`systemPrompt`、`maxEvents`、`debounceSeconds`、`timeoutSeconds` 和 `maxTokens`。默认值分别为：最多 20 条事件、debounce 3 秒、超时 60 秒、最多生成 300 tokens；`systemPrompt` 留空时使用 Duo 内置提示词。`endpoint` 是 API base URL（例如以 `/v1` 结尾），Duo 会自动追加 `/chat/completions`。
+
+只有在配置中启用，或设置 `DUO_OBSERVER=true` 时，观察者才会运行。`DUO_OBSERVER` 覆盖 `enabled`；`DUO_OBSERVER_ENDPOINT` 和 `DUO_OBSERVER_MODEL` 覆盖对应配置。`DUO_OBSERVER_API_KEY` 提供原始 API key，其优先级高于 `apiKeyEnv` 指定的变量。**`apiKeyEnv` 只能填写环境变量名；绝不要把 API key 本身写进任何配置文件。**例如本地运行：
+
+```sh
+export DUO_OBSERVER=true
+export DUO_OBSERVER_ENDPOINT=http://127.0.0.1:4000/v1
+export DUO_OBSERVER_MODEL=exec
+export DUO_OBSERVER_API_KEY=sk-local-litellm
+```
+
+本地 LiteLLM 的 endpoint 使用 `http://127.0.0.1:4000/v1`，模型 id 使用 `exec`。`litellm/` 是 Pi 的 provider 前缀；Duo 会按配置原样发送模型名。若项目级 `.duo/config.json`（或 `.duo.json`）中存在 `observer` 段，它会**整体替换** `~/.duo/config.json` 中的 observer 段，而不是逐字段合并；之后再应用环境变量覆盖。
 
 可用 `language` 设置 Duo 内置消息语言（`zh` 或 `en`），默认是 `en`。命令行 `duo --language zh`（或 `duo -l zh`） 会覆盖配置文件；此设置会立即改变 Duo 发给 Austin、Tony 和用户的内置消息以及 gotui 界面文案，并在之后的启动中保持；FAST/GOAL/STEP、Agent 名和阶段名等协议词保留标准拼写。
 
