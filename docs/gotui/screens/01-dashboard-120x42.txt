@@ -2,7 +2,7 @@
  session session-1   ·    2/2 agents online
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
     Split    Timeline
- ╭─ WORKFLOW ───────────────────────╮ ╭─ AUSTIN ─────────────────────────────╮ ╭─ TONY ───────────────────────────────╮
+ ╭─ WORKFLOW ▸ ─────────────────────╮ ╭─ AUSTIN ─────────────────────────────╮ ╭─ TONY ───────────────────────────────╮
  │ ●  RUNNING  ○  VERIFY  ○  DONE   │ │ 16:02  Austin →  Human               │ │ 16:03  Tony →  Austin                │
  │ verify  passed                   │ │   Result                             │ │   Verified the boundary cases. One   │
  │ delivery  pending                │ │                                      │ │   request with an expired cursor     │
@@ -15,7 +15,7 @@
  │                                  │ │     page, err :=                     │ │                                      │
  ╰──────────────────────────────────╯ │   store.Sessions(ctx, limit, cursor) │ │                                      │
                                       │                                      │ │                                      │
- ╭─ AUSTIN ─────────────────────────╮ │   Tests: go test                     │ │                                      │
+ ╭─ AUSTIN ▸ ───────────────────────╮ │   Tests: go test                     │ │                                      │
  │ ⠋ working ·  tool                │ │   ./internal/sessionstore —          │ │                                      │
  │ model    openai/gpt-5            │ │   你好世界                           │ │                                      │
  │ driver   test                    │ │                                      │ │                                      │
@@ -25,7 +25,7 @@
  │ turn     1m35s  ·   7 tools      │ │                                      │ │                                      │
  ╰──────────────────────────────────╯ ╰──────────────────────────────────────╯ ╰──────────────────────────────────────╯
 
- ╭─ TONY ───────────────────────────╮ ╭─ DUO / HUMAN ─────────────────────────────────────────────────────────────────╮
+ ╭─ TONY ▸ ─────────────────────────╮ ╭─ DUO / HUMAN ─────────────────────────────────────────────────────────────────╮
  │ ready                            │ │ 16:02  Human →  Austin                                                        │
  │ model    anthropic/claude-sonnet │ │   Add cursor pagination to GET /sessions and document the new parameters.     │
  │ driver   test                    │ │                                                                               │

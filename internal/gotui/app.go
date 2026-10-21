@@ -26,6 +26,17 @@ const (
 	viewTimeline
 )
 
+// sidebarPanel identifies one expandable dashboard panel. Only one panel is
+// expanded at a time; the other two shrink to their title bar.
+type sidebarPanel int
+
+const (
+	panelNone sidebarPanel = iota
+	panelWorkflow
+	panelAustin
+	panelTony
+)
+
 // App is one live projection of a Duo session. It owns UI state only; every
 // workflow fact is read from session.View.
 type App struct {
@@ -41,6 +52,8 @@ type App struct {
 	now      time.Time
 	frame    int
 	viewMode viewMode
+
+	sidebarFocus sidebarPanel
 
 	background *background
 	modalBg    *background
@@ -432,6 +445,7 @@ func (a *App) updateWidgets() {
 	a.workflow.SetRect(l.workflow.Min.X, l.workflow.Min.Y, l.workflow.Max.X, l.workflow.Max.Y)
 	a.workflow.view = a.live
 	a.workflow.compact = l.height < 32
+	a.workflow.expanded = a.sidebarFocus == panelWorkflow
 	a.austinCard.SetRect(l.austinCard.Min.X, l.austinCard.Min.Y, l.austinCard.Max.X, l.austinCard.Max.Y)
 	a.austinCard.av = a.live.Agent(protocol.Austin)
 	a.austinCard.model = a.currentModel[protocol.Austin]
@@ -439,6 +453,7 @@ func (a *App) updateWidgets() {
 	a.austinCard.frame = a.frame
 	a.austinCard.now = a.now
 	a.austinCard.compact = l.austinCard.Dy() < 10
+	a.austinCard.expanded = a.sidebarFocus == panelAustin
 	a.tonyCard.SetRect(l.tonyCard.Min.X, l.tonyCard.Min.Y, l.tonyCard.Max.X, l.tonyCard.Max.Y)
 	a.tonyCard.av = a.live.Agent(protocol.Tony)
 	a.tonyCard.model = a.currentModel[protocol.Tony]
@@ -446,6 +461,7 @@ func (a *App) updateWidgets() {
 	a.tonyCard.frame = a.frame
 	a.tonyCard.now = a.now
 	a.tonyCard.compact = l.tonyCard.Dy() < 10
+	a.tonyCard.expanded = a.sidebarFocus == panelTony
 
 	a.timeline.SetRect(l.main.Min.X, l.main.Min.Y, l.main.Max.X, l.main.Max.Y)
 	a.timeline.Title = " " + a.theme.tr("CONVERSATION") + " "

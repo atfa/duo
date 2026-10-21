@@ -24,6 +24,15 @@ func fillBlock(buf *ui.Buffer, r image.Rectangle, style ui.Style) {
 	}
 }
 
+// expandableTitle shows the click affordance shared by the three sidebar
+// panels: a right-pointing triangle while collapsed, down while expanded.
+func expandableTitle(label string, expanded bool) string {
+	if expanded {
+		return " " + label + " ▾ "
+	}
+	return " " + label + " ▸ "
+}
+
 type background struct {
 	ui.Block
 	theme theme
@@ -124,9 +133,10 @@ func (h *headerBar) Draw(buf *ui.Buffer) {
 
 type workflowPanel struct {
 	ui.Block
-	theme   theme
-	view    session.View
-	compact bool
+	theme    theme
+	view     session.View
+	compact  bool
+	expanded bool
 }
 
 func newWorkflow(t theme) *workflowPanel {
@@ -134,25 +144,27 @@ func newWorkflow(t theme) *workflowPanel {
 	w.BorderRounded = true
 	w.BorderStyle = ui.Style{Fg: t.Border, Bg: t.Panel}
 	w.BackgroundColor = t.Panel
-	w.Title = " " + w.theme.tr("WORKFLOW") + " "
+	w.Title = expandableTitle(w.theme.tr("WORKFLOW"), false)
 	w.TitleStyle = ui.Style{Fg: t.Accent, Bg: t.Panel, Modifier: ui.ModifierBold}
 	w.PaddingLeft, w.PaddingRight = 1, 1
 	return w
 }
 
 func (w *workflowPanel) Draw(buf *ui.Buffer) {
-	w.Title = " " + w.theme.tr("WORKFLOW") + " "
+	w.Title = expandableTitle(w.theme.tr("WORKFLOW"), w.expanded)
 	w.Block.Draw(buf)
 	if w.Inner.Dx() <= 2 || w.Inner.Dy() <= 0 {
 		return
 	}
 	x, y := w.Inner.Min.X, w.Inner.Min.Y
 	line := func(text string, style ui.Style) bool {
-		if y >= w.Inner.Max.Y {
-			return false
+		for _, wrapped := range wrapText(text, style, w.Inner.Dx()) {
+			if y >= w.Inner.Max.Y {
+				return false
+			}
+			buf.SetString(wrapped.text(), style, image.Pt(x, y))
+			y++
 		}
-		buf.SetString(fitText(text, w.Inner.Dx()), style, image.Pt(x, y))
-		y++
 		return true
 	}
 	mode := w.view.EffectiveMode()
@@ -299,6 +311,7 @@ type agentCard struct {
 	av       session.AgentView
 	frame    int
 	compact  bool
+	expanded bool
 	now      time.Time
 	model    string
 	thinking string
@@ -310,24 +323,27 @@ func newAgentCard(t theme, id protocol.AgentID) *agentCard {
 	color := t.agentColor(string(id))
 	a.BorderStyle = ui.Style{Fg: color, Bg: t.Panel}
 	a.BackgroundColor = t.Panel
-	a.Title = " " + strings.ToUpper(string(id)) + " "
+	a.Title = expandableTitle(strings.ToUpper(string(id)), false)
 	a.TitleStyle = ui.Style{Fg: color, Bg: t.Panel, Modifier: ui.ModifierBold}
 	a.PaddingLeft, a.PaddingRight = 1, 1
 	return a
 }
 
 func (a *agentCard) Draw(buf *ui.Buffer) {
+	a.Title = expandableTitle(strings.ToUpper(string(a.id)), a.expanded)
 	a.Block.Draw(buf)
 	if a.Inner.Dx() <= 2 || a.Inner.Dy() <= 0 {
 		return
 	}
 	x, y := a.Inner.Min.X, a.Inner.Min.Y
 	line := func(text string, style ui.Style) bool {
-		if y >= a.Inner.Max.Y {
-			return false
+		for _, wrapped := range wrapText(text, style, a.Inner.Dx()) {
+			if y >= a.Inner.Max.Y {
+				return false
+			}
+			buf.SetString(wrapped.text(), style, image.Pt(x, y))
+			y++
 		}
-		buf.SetString(fitText(text, a.Inner.Dx()), style, image.Pt(x, y))
-		y++
 		return true
 	}
 	state, stateStyle := agentState(a.av, a.id, a.theme)

@@ -437,6 +437,14 @@ func (a *App) handleMouse(ev *tcell.EventMouse) {
 			a.setStatus(strings.ToUpper(map[bool]string{true: "split", false: "timeline"}[a.viewMode == viewSplit])+" view", false)
 			return
 		}
+		if panel := a.sidebarPanelAt(x, y); panel != panelNone {
+			if a.sidebarFocus == panel {
+				a.sidebarFocus = panelNone
+			} else {
+				a.sidebarFocus = panel
+			}
+			return
+		}
 		if a.mousePane != nil {
 			a.mousePane.DragSelection(x, y)
 			return
@@ -461,6 +469,23 @@ func (a *App) handleMouse(ev *tcell.EventMouse) {
 		} else {
 			a.setStatus(fmt.Sprintf("copied selection (%d chars)", len([]rune(text))), false)
 		}
+	}
+}
+
+func (a *App) sidebarPanelAt(x, y int) sidebarPanel {
+	if !a.layout.sidebarVisible {
+		return panelNone
+	}
+	pt := image.Pt(x, y)
+	switch {
+	case pt.In(a.layout.workflow):
+		return panelWorkflow
+	case pt.In(a.layout.austinCard):
+		return panelAustin
+	case pt.In(a.layout.tonyCard):
+		return panelTony
+	default:
+		return panelNone
 	}
 }
 

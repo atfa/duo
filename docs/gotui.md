@@ -62,6 +62,7 @@ The dashboard adds:
 | Mouse wheel | Scroll the transcript or an open help/details modal |
 | Mouse drag | Select transcript text and copy it |
 | Click on a tab | Switch view |
+| Click a sidebar panel | Expand workflow, Austin or Tony; click again to restore |
 
 Modal choices are keyboard-driven (`←` / `→`, `Enter`, `Esc`). The model picker
 uses `Tab` to switch the target agent, `Space` to select a model without closing,
@@ -86,8 +87,12 @@ The layout is computed from the terminal size on every resize:
 | under 80 columns | compact footer hints |
 
 The Duo composer grows to three visible text rows as height allows.
-The workflow phase chain wraps to a second line when the sidebar is too narrow
-for all phases.
+Long sidebar values wrap instead of being truncated, and the workflow phase
+chain wraps to a second line when the sidebar is too narrow for all phases.
+Clicking one of the three sidebar panels expands it to the available height and
+shrinks the other two to their title bars; clicking it again restores the even
+layout. The disclosure triangle in each title (`▸` collapsed, `▾` expanded)
+shows the state.
 
 ## Architecture
 
@@ -173,7 +178,7 @@ make check
 - Captures are deterministic text frames; they do not preserve colour or style.
 - Markdown is lightweight: no images, embedded HTML, aligned tables or full
   CommonMark; table rows are shown as plain text.
-- Modal buttons are keyboard-driven; mouse support covers tabs, transcripts,
-  selection and modal wheel scrolling.
+- Modal buttons are keyboard-driven; mouse support covers tabs, sidebar panel
+  expansion, transcripts, selection and modal wheel scrolling.
 - The available models and whether a switch is live or restarts the agent are
   driver capabilities, not frontend choices.

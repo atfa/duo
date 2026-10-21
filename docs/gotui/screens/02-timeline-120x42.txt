@@ -2,7 +2,7 @@
  session session-1   ·    2/2 agents online
 ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
     Split    Timeline
- ╭─ WORKFLOW ───────────────────────╮ ╭─ CONVERSATION ────────────────────────────────────────────────────────────────╮
+ ╭─ WORKFLOW ▸ ─────────────────────╮ ╭─ CONVERSATION ────────────────────────────────────────────────────────────────╮
  │ ●  RUNNING  ○  VERIFY  ○  DONE   │ │ 16:02  Human →  Austin                                                        │
  │ verify  passed                   │ │   Add cursor pagination to GET /sessions and document the new parameters.     │
  │ delivery  pending                │ │                                                                               │
@@ -15,7 +15,7 @@
  │                                  │ │     •  opaque cursor values                                                   │
  ╰──────────────────────────────────╯ │     •  OpenAPI updated                                                        │
                                       │                                                                               │
- ╭─ AUSTIN ─────────────────────────╮ │     page, err := store.Sessions(ctx, limit, cursor)                           │
+ ╭─ AUSTIN ▸ ───────────────────────╮ │     page, err := store.Sessions(ctx, limit, cursor)                           │
  │ ⠋ working ·  tool                │ │                                                                               │
  │ model    openai/gpt-5            │ │   Tests: go test ./internal/sessionstore —  你好世界                          │
  │ driver   test                    │ │                                                                               │
@@ -25,7 +25,7 @@
  │ turn     1m35s  ·   7 tools      │ │                                                                               │
  ╰──────────────────────────────────╯ │ 16:03  Duo →  Human                                                           │
                                       │   Verification passed. The change is ready to deliver.                        │
- ╭─ TONY ───────────────────────────╮ │                                                                               │
+ ╭─ TONY ▸ ─────────────────────────╮ │                                                                               │
  │ ready                            │ │                                                                               │
  │ model    anthropic/claude-sonnet │ │                                                                               │
  │ driver   test                    │ │                                                                               │

@@ -79,24 +79,42 @@ func (a *App) computeLayout(w, h int) layout {
 		}
 		l.sidebar = image.Rect(1, contentTop, 1+sidebarW, contentBottom)
 		l.main = image.Rect(l.sidebar.Max.X+1, contentTop, max(l.sidebar.Max.X+2, w-1), contentBottom)
-		workH := 10
-		if contentBottom-contentTop >= 28 {
-			workH = 12
-		}
-		if contentBottom-contentTop >= 36 {
-			workH = 14
-		}
-		l.workflow = image.Rect(l.sidebar.Min.X, l.sidebar.Min.Y, l.sidebar.Max.X, min(l.sidebar.Max.Y, l.sidebar.Min.Y+workH))
-		remaining := l.sidebar.Max.Y - l.workflow.Max.Y - 1
-		cardH := remaining / 2
-		if cardH < 5 {
-			l.sidebarVisible = false
-			l.sidebar = image.Rectangle{}
-			l.workflow = image.Rectangle{}
-			l.main = image.Rect(1, contentTop, max(1, w-1), contentBottom)
+		if a.sidebarFocus != panelNone && l.sidebar.Dy() >= 18 {
+			// The expanded panel takes everything left by two title-height
+			// panels and two one-cell gaps. Long values wrap inside it.
+			const collapsedH = 3
+			workH, austinH, tonyH := collapsedH, collapsedH, collapsedH
+			switch a.sidebarFocus {
+			case panelWorkflow:
+				workH = l.sidebar.Dy() - 2*collapsedH - 2
+			case panelAustin:
+				austinH = l.sidebar.Dy() - 2*collapsedH - 2
+			case panelTony:
+				tonyH = l.sidebar.Dy() - 2*collapsedH - 2
+			}
+			l.workflow = image.Rect(l.sidebar.Min.X, l.sidebar.Min.Y, l.sidebar.Max.X, l.sidebar.Min.Y+workH)
+			l.austinCard = image.Rect(l.sidebar.Min.X, l.workflow.Max.Y+1, l.sidebar.Max.X, l.workflow.Max.Y+1+austinH)
+			l.tonyCard = image.Rect(l.sidebar.Min.X, l.austinCard.Max.Y+1, l.sidebar.Max.X, l.austinCard.Max.Y+1+tonyH)
 		} else {
-			l.austinCard = image.Rect(l.sidebar.Min.X, l.workflow.Max.Y+1, l.sidebar.Max.X, l.workflow.Max.Y+1+cardH)
-			l.tonyCard = image.Rect(l.sidebar.Min.X, l.austinCard.Max.Y+1, l.sidebar.Max.X, l.austinCard.Max.Y+1+cardH)
+			workH := 10
+			if contentBottom-contentTop >= 28 {
+				workH = 12
+			}
+			if contentBottom-contentTop >= 36 {
+				workH = 14
+			}
+			l.workflow = image.Rect(l.sidebar.Min.X, l.sidebar.Min.Y, l.sidebar.Max.X, min(l.sidebar.Max.Y, l.sidebar.Min.Y+workH))
+			remaining := l.sidebar.Max.Y - l.workflow.Max.Y - 1
+			cardH := remaining / 2
+			if cardH < 5 {
+				l.sidebarVisible = false
+				l.sidebar = image.Rectangle{}
+				l.workflow = image.Rectangle{}
+				l.main = image.Rect(1, contentTop, max(1, w-1), contentBottom)
+			} else {
+				l.austinCard = image.Rect(l.sidebar.Min.X, l.workflow.Max.Y+1, l.sidebar.Max.X, l.workflow.Max.Y+1+cardH)
+				l.tonyCard = image.Rect(l.sidebar.Min.X, l.austinCard.Max.Y+1, l.sidebar.Max.X, l.austinCard.Max.Y+1+cardH)
+			}
 		}
 	}
 	l.split = a.viewMode == viewSplit && l.main.Dx() >= 72 && l.main.Dy() >= 16

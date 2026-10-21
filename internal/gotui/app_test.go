@@ -377,6 +377,49 @@ func waitForCommands(t *testing.T, fake *fakeSession, predicate func([]session.C
 // The language command must change the dashboard chrome live, not only the
 // Duo-authored notices. This pins the shared theme language used by every
 // already-constructed panel and the translated slash descriptions.
+// Clicking a sidebar panel expands it and shrinks the other two. Clicking a
+// different panel moves the expansion; clicking the expanded panel restores
+// the even layout.
+func TestSidebarPanelClickExpands(t *testing.T) {
+	fake := newFakeSession()
+	app := New(fake)
+	backend, err := ui.NewBackend(&ui.InitConfig{SimulationMode: true, SimulationSize: image.Pt(120, 42)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sim, ok := backend.Screen.(tcell.SimulationScreen)
+	if !ok {
+		t.Fatalf("screen %T is not a simulation screen", backend.Screen)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- app.runWithBackend(ctx, backend) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Error("runWithBackend did not stop")
+		}
+	})
+
+	waitForText(t, sim, "AUSTIN ▸")
+	sim.InjectMouse(10, 20, tcell.Button1, tcell.ModNone)
+	waitForText(t, sim, "AUSTIN ▾")
+
+	// The expanded Austin card now occupies the middle of the sidebar.
+	sim.InjectMouse(10, 20, tcell.Button1, tcell.ModNone)
+	waitGone(t, sim, "AUSTIN ▾")
+
+	sim.InjectMouse(10, 5, tcell.Button1, tcell.ModNone)
+	waitForText(t, sim, "WORKFLOW ▾")
+
+	// Clicking Tony moves the expansion instead of stacking two open panels.
+	sim.InjectMouse(10, 34, tcell.Button1, tcell.ModNone)
+	waitForText(t, sim, "TONY ▾")
+	waitForText(t, sim, "WORKFLOW ▸")
+}
+
 func TestLanguageCommandTranslatesDashboard(t *testing.T) {
 	fake := newFakeSession()
 	app := New(fake)
