@@ -73,7 +73,7 @@ func (s *Service) composeSnapshot(coord *coordinator.Coordinator) sessionstore.S
 			}
 		}
 	}
-	return recovery.Compose(recovery.ComposeInput{
+	snapshot := recovery.Compose(recovery.ComposeInput{
 		DuoVersion:   versionString(),
 		SessionID:    s.sessionID,
 		RepoID:       s.repoID,
@@ -89,6 +89,15 @@ func (s *Service) composeSnapshot(coord *coordinator.Coordinator) sessionstore.S
 		Integration:  integration,
 		Delivery:     deliveryState,
 	})
+	if coord != nil {
+		pause := coord.PauseSnapshot()
+		snapshot.PauseState = pause.State
+		snapshot.PausedAgents = pause.Paused
+	} else if s.pauseState != "" {
+		snapshot.PauseState = string(s.pauseState)
+		snapshot.PausedAgents = map[protocol.AgentID]bool{protocol.Austin: s.pausedAgents[protocol.Austin], protocol.Tony: s.pausedAgents[protocol.Tony]}
+	}
+	return snapshot
 }
 
 // sessionToken mints the shared secret every agent must present to reach the bridge.

@@ -75,6 +75,10 @@ func (s *Service) startResume(ctx context.Context) (Result, error) {
 	// Persist the reconciled checkpoint before starting anything, so a crash
 	// during startup cannot resurrect revoked signatures or a duplicate merge.
 	reconciled := result.Snapshot
+	reconciled.PauseState = snap.PauseState
+	if snap.PausedAgents != nil {
+		reconciled.PausedAgents = map[protocol.AgentID]bool{protocol.Austin: snap.PausedAgents[protocol.Austin], protocol.Tony: snap.PausedAgents[protocol.Tony]}
+	}
 	reconciled.DuoVersion = versionString()
 	if err := store.Save(reconciled); err != nil {
 		return Result{}, fmt.Errorf("persist reconciled session state: %w", err)
@@ -164,6 +168,8 @@ func (s *Service) startResume(ctx context.Context) (Result, error) {
 		Conflicted:   reconciled.Integration.Conflicted,
 	}
 	s.delivery = reconciled.Delivery
+	s.pauseState = PauseState(reconciled.PauseState)
+	s.pausedAgents = map[protocol.AgentID]bool{protocol.Austin: reconciled.PausedAgents[protocol.Austin], protocol.Tony: reconciled.PausedAgents[protocol.Tony]}
 	s.resume = true
 
 	// Record the driver identities actually in use, including any newly generated

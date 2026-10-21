@@ -117,6 +117,8 @@ type Snapshot struct {
 
 	AgentDrivers map[protocol.AgentID]string `json:"agentDrivers,omitempty"`
 	AgentModels  map[protocol.AgentID]string `json:"agentModels,omitempty"`
+	PauseState   string                      `json:"pauseState,omitempty"`
+	PausedAgents map[protocol.AgentID]bool   `json:"pausedAgents,omitempty"`
 
 	Ready    map[protocol.AgentID]bool   `json:"ready"`
 	Notes    map[protocol.AgentID]string `json:"notes"`
