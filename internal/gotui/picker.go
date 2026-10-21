@@ -322,10 +322,7 @@ func (p *modelPicker) Draw(buf *ui.Buffer) {
 			if m.Reference() == p.current {
 				mark = "● "
 			}
-			suffix := ""
-			if m.Thinking {
-				suffix += "  · " + p.thinkingLevelLabel()
-			}
+			suffix := "  · " + p.thinkingLevelLabel()
 			if m.Images {
 				suffix += "  · " + p.theme.tr("images")
 			}
