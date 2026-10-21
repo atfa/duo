@@ -27,6 +27,11 @@ const (
 	KindModel Kind = "model"
 	// KindThinking reports an agent's active Pi thinking level.
 	KindThinking Kind = "thinking"
+	// KindObserver is the advisory observer's own output. It is a distinct kind
+	// rather than another system line so the observer can recognise, and ignore,
+	// its own text when it reads this bus: an observer that consumed its output
+	// would ask the model about itself forever.
+	KindObserver Kind = "observer"
 )
 
 type Event struct {
