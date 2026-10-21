@@ -46,6 +46,7 @@ var zhUI = map[string]string{
 	"Quit and preserve this session (Ctrl+Q)":                      "退出并保留当前会话（Ctrl+Q）",
 	"↑/↓ choose  ·  Tab complete  ·  Enter select  ·  Esc dismiss": "↑/↓ 选择  ·  Tab 补全  ·  Enter 确认  ·  Esc 关闭",
 	"↑/↓ choose  ·  Tab/Enter insert  ·  Esc dismiss":              "↑/↓ 选择  ·  Tab/Enter 插入  ·  Esc 关闭",
+	"no files found":                                               "未找到文件",
 
 	"Enter send · Ctrl+Enter newline · Alt+M models · Ctrl+A/T native · F1 help · F2 view · Ctrl+Q quit": "Enter 发送 · Ctrl+Enter 换行 · Alt+M 模型 · Ctrl+A/T 原生会话 · F1 帮助 · F2 视图 · Ctrl+Q 退出",
 	"Enter send · Alt+M models · F1 help · F2 view · Ctrl+Q quit":                                        "Enter 发送 · Alt+M 模型 · F1 帮助 · F2 视图 · Ctrl+Q 退出",

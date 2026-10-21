@@ -83,22 +83,26 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 			return
 		}
 	}
-	if a.mentionOpen() {
+	if a.mentionActive() {
 		switch ev.Key() {
 		case tcell.KeyUp:
-			a.fileMenu.move(-1)
-			return
+			if a.mentionOpen() {
+				a.fileMenu.move(-1)
+				return
+			}
 		case tcell.KeyDown:
-			a.fileMenu.move(1)
-			return
+			if a.mentionOpen() {
+				a.fileMenu.move(1)
+				return
+			}
 		case tcell.KeyTab:
-			a.acceptMention()
-			return
+			if a.acceptMention() {
+				return
+			}
 		case tcell.KeyEnter:
 			// Ctrl/Alt/Shift+Enter still means a newline; only plain Enter
 			// accepts the highlighted file.
-			if ev.Modifiers() == 0 {
-				a.acceptMention()
+			if ev.Modifiers() == 0 && a.acceptMention() {
 				return
 			}
 		case tcell.KeyEsc:
