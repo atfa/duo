@@ -165,7 +165,7 @@ The gotui frontend opens in a **split dashboard**: a workflow sidebar with the p
 | `↑` / `↓` | Move between composer lines; recall task history at the first/last line |
 | `Tab` | Insert four spaces, or autocomplete the highlighted slash command |
 | `PgUp` / `PgDn` | Scroll the active conversation pane (or an open modal) |
-| Mouse wheel / drag | Scroll the pane under the pointer, or select and copy transcript text |
+| Mouse wheel / drag | Scroll the pane under the pointer, or select and copy transcript text; a `COPIED` toast appears briefly in the top-right |
 | Click a URL / existing file path | Open the URL in the browser, or show the file in the system file manager |
 | `Esc` | Close an overlay, dismiss the slash menu, or clear a selection/status |
 

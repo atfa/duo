@@ -111,9 +111,11 @@ type App struct {
 	focusPane   *transcript
 	pendingLink *linkTarget
 
-	clipboard func(string) error
-	openURL   func(string) error
-	openFile  func(string) error
+	clipboard     func(string) error
+	openURL       func(string) error
+	openFile      func(string) error
+	toast         *toastPanel
+	toastDuration time.Duration
 }
 
 type asyncResult struct {
@@ -140,6 +142,7 @@ func New(svc Session) *App {
 		history:       loadComposerHistory(),
 		openURL:       openURLDefault,
 		openFile:      openFileDefault,
+		toastDuration: 2 * time.Second,
 	}
 	a.background = newBackground(t)
 	a.modalBg = newBackground(t)
@@ -194,6 +197,21 @@ func (a *App) addNotices(notices []string) {
 
 func (a *App) setStatus(text string, isError bool) {
 	a.status, a.statusErr = text, isError
+}
+
+func (a *App) showCopiedToast(chars int) {
+	if a.toast == nil {
+		a.toast = newToast(a.theme)
+	}
+	text := fmt.Sprintf("%d characters", chars)
+	if a.live.Language == "zh" {
+		text = fmt.Sprintf("%d 个字符", chars)
+	}
+	duration := a.toastDuration
+	if duration <= 0 {
+		duration = 2 * time.Second
+	}
+	a.toast.show(text, time.Now().Add(duration))
 }
 
 func (a *App) refreshView() {
@@ -317,7 +335,7 @@ func (a *App) runWithBackend(ctx context.Context, backend *ui.Backend) error {
 			a.handleAsync(res)
 			a.draw()
 		case <-tick.C:
-			if a.busy() {
+			if a.busy() || a.toast != nil {
 				a.frame++
 				a.refreshView()
 				a.draw()
@@ -370,6 +388,9 @@ func (a *App) draw() {
 		return
 	}
 	a.now = time.Now()
+	if a.toast != nil && (a.toast.until.IsZero() || !a.now.Before(a.toast.until)) {
+		a.toast = nil
+	}
 	a.layout = a.computeLayout(w, h)
 	a.updateWidgets()
 	// Scroll the composer before drawing so the frame and the terminal cursor
@@ -393,6 +414,10 @@ func (a *App) draw() {
 		items = append(items, a.timeline)
 	}
 	items = append(items, a.composer, a.footer)
+	if a.overlay == overlayNone && a.toast != nil {
+		a.toast.place(a.layout)
+		items = append(items, a.toast)
+	}
 	if a.overlay == overlayNone && a.slashOpen() {
 		items = append(items, a.slash)
 	}

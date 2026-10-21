@@ -39,6 +39,9 @@ other Duo frontend. It never owns workflow state or makes project transitions:
 - **Overlays.** Help, session details, model picker and destructive confirmations
   are centered modals with a cleared content backdrop. The slash palette occupies
   the conversation pane so no text or border fragments show through it.
+- **Copy feedback.** Copying a transcript selection or Austin's latest message
+  briefly overlays a `COPIED` panel in the top-right; it dismisses itself after
+  two seconds and does not consume layout space.
 - **Native attach.** `Ctrl+A` / `Ctrl+T` suspend the dashboard, hand the real PTY
   to the agent, and `Ctrl+]`, `Ctrl+\` or `Ctrl+】` return to a fully redrawn
   dashboard.
@@ -74,7 +77,7 @@ The dashboard adds:
 | `Ctrl+]` / `Ctrl+\` / `Ctrl+】` | Detach from an attached agent |
 | `Ctrl+Q` / `Ctrl+D` | Quit and preserve the session |
 | Mouse wheel | Scroll the transcript or an open help/details modal |
-| Mouse drag | Select transcript text and copy it |
+| Mouse drag | Select transcript text and copy it; a short-lived `COPIED` toast appears in the top-right |
 | Click a URL | Open it in the default browser |
 | Click an existing file path | Open its containing folder in the default file manager |
 | Click `Split` / `Timeline` | Switch view; the labels sit at the right of the second header row |

@@ -221,7 +221,7 @@ func (a *App) copyLatest() {
 		a.setStatus("copy failed: "+err.Error(), true)
 		return
 	}
-	a.setStatus("copied Austin's latest message", false)
+	a.showCopiedToast(len([]rune(text)))
 }
 
 func (a *App) openPicker() {

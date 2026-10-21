@@ -473,7 +473,7 @@ func (a *App) handleMouse(ev *tcell.EventMouse) {
 				if err := a.copyToClipboard(text); err != nil {
 					a.setStatus("copy failed: "+err.Error(), true)
 				} else {
-					a.setStatus(fmt.Sprintf("copied selection (%d chars)", len([]rune(text))), false)
+					a.showCopiedToast(len([]rune(text)))
 				}
 				return
 			}
