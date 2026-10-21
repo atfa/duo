@@ -35,7 +35,7 @@ other Duo frontend. It never owns workflow state or makes project transitions:
 - **Mode switching.** `/mode fast|goal|step` and `/escalate` apply the new mode
   immediately, then ask whether to resume Austin and Tony. The safe default is
   **Not now**, which leaves both agents idle until the human submits the next
-  task.
+  task; it also holds harness nudges so the watchdog cannot start work by itself.
 - **Overlays.** Help, session details, model picker and destructive confirmations
   are centered modals with a cleared content backdrop. The slash palette occupies
   the conversation pane so no text or border fragments show through it.

@@ -69,7 +69,7 @@ RUNNING → VERIFY → DONE
 
 Fast has no shared Plan and no dual sign-off. A passed verification is bound to the exact commit that was requested; any new commit invalidates it and returns the session to `RUNNING`. Only Austin writes to the delivered artifact — Tony's worktree is never delivered.
 
-**Switching modes**: Either the human (`/mode goal`, `/escalate [reason]`, or `/mode step`) or an agent (`duo_escalate`) can switch at any time without restarting either agent. In gotui, `/mode` and `/escalate` change the mode first and then ask **Resume work?** — choosing **Not now** leaves both agents idle until the human submits the next task. A Fast → Goal switch while work is active keeps its historical escalation behavior: the session transitions to `PLAN` with a shared plan seeded from the escalation reason, Tony becomes an active co-developer, and all prior commits are preserved. Other switches start a fresh round under the new mode's gates.
+**Switching modes**: Either the human (`/mode goal`, `/escalate [reason]`, or `/mode step`) or an agent (`duo_escalate`) can switch at any time without restarting either agent. In gotui, `/mode` and `/escalate` change the mode first and then ask **Resume work?** — choosing **Not now** leaves both agents idle until the human submits the next task. The harness watchdog is held as part of **Not now**, so it cannot nudge an agent into starting on its own. A Fast → Goal switch while work is active keeps its historical escalation behavior: the session transitions to `PLAN` with a shared plan seeded from the escalation reason, Tony becomes an active co-developer, and all prior commits are preserved. Other switches start a fresh round under the new mode's gates.
 
 ### Goal (`duo --mode goal`)
 

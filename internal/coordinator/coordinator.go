@@ -63,6 +63,9 @@ type Coordinator struct {
 	resumeWakeEnabled   bool
 	resumeWakeAttempted map[protocol.AgentID]bool
 
+	holdMu     sync.Mutex
+	harnessOff bool
+
 	modelMu         sync.RWMutex
 	currentThinking map[protocol.AgentID]string
 	currentModel    map[protocol.AgentID]string
@@ -139,6 +142,26 @@ func (c *Coordinator) RequestRestart(reason string, install bool) {
 
 // IsAgentConnected reports whether an agent is connected via the bridge server
 // or running under the agent manager.
+// HarnessHeld reports whether the harness must stay quiet. A quiet mode switch
+// holds automatic nudges until the human submits a task or explicitly resumes.
+func (c *Coordinator) HarnessHeld() bool {
+	c.holdMu.Lock()
+	defer c.holdMu.Unlock()
+	return c.harnessOff
+}
+
+func (c *Coordinator) holdHarness() {
+	c.holdMu.Lock()
+	c.harnessOff = true
+	c.holdMu.Unlock()
+}
+
+func (c *Coordinator) releaseHarness() {
+	c.holdMu.Lock()
+	c.harnessOff = false
+	c.holdMu.Unlock()
+}
+
 func (c *Coordinator) IsAgentConnected(agent protocol.AgentID) bool {
 	if c.server != nil && c.server.IsConnected(agent) {
 		return true
@@ -432,6 +455,7 @@ func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 		return c.SwitchMode(ctx, project.ModeGoal, reason)
 	}
 
+	c.releaseHarness()
 	if !c.IsAgentConnected(protocol.Austin) {
 		return fmt.Errorf("Austin is not connected yet")
 	}
@@ -565,10 +589,12 @@ func (c *Coordinator) escalateToGoal(ctx context.Context, reason string, notify 
 		c.tracker.Touch(protocol.Tony)
 	}
 	if !notify {
+		c.holdHarness()
 		// Update the adapters' prompt mode without injecting a user turn.
 		c.sendModeChange(ctx, project.ModeGoal, "")
 		return nil
 	}
+	c.releaseHarness()
 
 	reasonDesc := "(none provided)"
 	if reason != "" {
@@ -674,6 +700,11 @@ func (c *Coordinator) switchMode(ctx context.Context, target project.Mode, reaso
 	if c.agents != nil {
 		c.agents.SetMode(target.String())
 	}
+	if notify {
+		c.releaseHarness()
+	} else {
+		c.holdHarness()
+	}
 
 	if notify {
 		for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
@@ -696,6 +727,7 @@ func (c *Coordinator) switchMode(ctx context.Context, target project.Mode, reaso
 // state transition: the frontend uses it after a quiet SwitchMode, once the
 // human confirms that the agents should resume now.
 func (c *Coordinator) ResumeMode(ctx context.Context) error {
+	c.releaseHarness()
 	snap := c.project.Snapshot()
 	mode := snap.EffectiveMode()
 	for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {

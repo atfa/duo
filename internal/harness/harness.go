@@ -83,6 +83,9 @@ func (m *Monitor) Run(ctx context.Context) {
 }
 
 func (m *Monitor) maybeWake(ctx context.Context) {
+	if held, ok := m.sender.(interface{ HarnessHeld() bool }); ok && held.HarnessHeld() {
+		return
+	}
 	// A resumed session gets a grace period: neither agent has reported activity
 	// yet, so an unguarded idle check would nudge immediately on startup.
 	if m.cfg.RecoveryGrace > 0 && time.Since(m.startedAt) < m.cfg.RecoveryGrace {

@@ -14,10 +14,17 @@ import (
 type recordingSender struct {
 	mu        sync.Mutex
 	connected bool
+	held      bool
 	// offline lists agents that must look disconnected even when connected is
 	// true, so target-specific connection gating can be tested.
 	offline map[protocol.AgentID]bool
 	sent    []protocol.Message
+}
+
+func (r *recordingSender) HarnessHeld() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.held
 }
 
 func (r *recordingSender) SendToAgent(_ context.Context, _ protocol.AgentID, message protocol.Message) error {
@@ -77,6 +84,18 @@ func TestMonitorNudgesWhenWorkIsUnfinished(t *testing.T) {
 
 	if sender.count() == 0 {
 		t.Fatal("expected the harness to nudge Austin while the project is unfinished")
+	}
+}
+
+// A quiet mode switch must leave the agents alone even though the project is
+// unfinished. The next human task or explicit Resume clears the hold.
+func TestHeldHarnessDoesNotNudge(t *testing.T) {
+	state := project.NewState()
+	state.MarkStarted()
+	sender := &recordingSender{connected: true, held: true}
+	newTestMonitor(state, sender).maybeWake(context.Background())
+	if sender.count() != 0 {
+		t.Fatalf("held harness still nudged: %+v", sender.sent)
 	}
 }
 
