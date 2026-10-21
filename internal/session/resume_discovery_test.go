@@ -60,6 +60,23 @@ func TestSelectSessionReportsUnreadableSessions(t *testing.T) {
 	}
 }
 
+func TestSelectSessionCanSelectCompletedSession(t *testing.T) {
+	base, root := t.TempDir(), t.TempDir()
+	repoID := sessionstore.RepoID(root)
+	store, err := sessionstore.New(base, repoID, "completed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(sessionstore.Snapshot{SessionID: "completed", Phase: "DONE"}); err != nil {
+		t.Fatal(err)
+	}
+
+	selected, _, err := SelectSession(base, repoID, "", root)
+	if err != nil || selected.SessionID != "completed" {
+		t.Fatalf("SelectSession = (%q, %v), want completed session", selected.SessionID, err)
+	}
+}
+
 func TestOtherCheckoutHintFindsLinkedWorktreeSession(t *testing.T) {
 	repo := t.TempDir()
 	resumeGit(t, repo, "init", "-b", "main")

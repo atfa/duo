@@ -37,17 +37,21 @@ func formatCandidates(items []sessionstore.Summary) string {
 	return session.FormatCandidates(items)
 }
 
-// chooseResumeSession prompts for one of several available unfinished sessions.
+// chooseResumeSession prompts for one of several available sessions.
 // It is only called by the CLI when a controlling terminal is available; batch
 // callers retain the session service's existing diagnostic.
 func chooseResumeSession(items []sessionstore.Summary, in io.Reader, out io.Writer) (string, error) {
 	if len(items) < 2 {
 		return "", nil
 	}
-	fmt.Fprintln(out, "Multiple unfinished Duo sessions:")
+	fmt.Fprintln(out, "Multiple Duo sessions:")
 	for i, item := range items {
-		fmt.Fprintf(out, "  %d) %s  phase=%s  scope=%s  updated=%s\n",
-			i+1, item.SessionID, item.Snapshot.Phase, session.EffectiveScope(item.Snapshot.ScopePath), item.Snapshot.UpdatedAt.Local().Format(time.RFC3339))
+		status := "unfinished"
+		if item.Snapshot.Phase == "DONE" {
+			status = "completed"
+		}
+		fmt.Fprintf(out, "  %d) %s  status=%s  phase=%s  scope=%s  updated=%s\n",
+			i+1, item.SessionID, status, item.Snapshot.Phase, session.EffectiveScope(item.Snapshot.ScopePath), item.Snapshot.UpdatedAt.Local().Format(time.RFC3339))
 	}
 	fmt.Fprint(out, "Choose a session number (or session ID): ")
 	line, err := bufio.NewReader(in).ReadString('\n')
@@ -112,7 +116,7 @@ func resumeChoices(items []sessionstore.Summary) (available, broken []sessionsto
 	for _, item := range items {
 		if item.Err != nil {
 			broken = append(broken, item)
-		} else if item.Unfinished() && !sessionIsActive(item.Dir) {
+		} else if !sessionIsActive(item.Dir) {
 			available = append(available, item)
 		}
 	}

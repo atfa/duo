@@ -46,7 +46,7 @@ var commands = []Command{
 	{
 		Name:      "resume",
 		Signature: "duo resume [session-id]",
-		Summary:   "resume the unfinished session for this repository",
+		Summary:   "resume a session for this repository (completed sessions start a follow-up round)",
 	},
 	{
 		Name:      "apply",

@@ -26,9 +26,7 @@ func (s *Service) startResume(ctx context.Context) (Result, error) {
 	}
 	snap := summary.Snapshot
 
-	if snap.Phase == string(project.PhaseDone) {
-		return Result{}, fmt.Errorf("Duo session %s is already DONE; start a new session with `duo`", snap.SessionID)
-	}
+	wasDone := snap.Phase == string(project.PhaseDone)
 	if strings.TrimSpace(snap.Repository) != "" && !workspace.SamePath(snap.Repository, s.root) {
 		return Result{}, fmt.Errorf("session %s belongs to %s, not %s", snap.SessionID, snap.Repository, s.root)
 	}
@@ -75,6 +73,26 @@ func (s *Service) startResume(ctx context.Context) (Result, error) {
 	result, err := recovery.ReconcileAndApply(ctx, ws, state, snap)
 	if err != nil {
 		return Result{}, fmt.Errorf("reconcile session %s: %w", snap.SessionID, err)
+	}
+	if wasDone {
+		// A completed session can be continued for follow-up work. Reopen the
+		// workflow and discard only round-scoped checkpoints; preserve its worktrees,
+		// driver conversations and session history.
+		if _, err := state.Reopen(); err != nil {
+			return Result{}, fmt.Errorf("reopen completed session %s: %w", snap.SessionID, err)
+		}
+		projectSnap := state.Snapshot()
+		result.Snapshot.Phase = string(projectSnap.Phase)
+		result.Snapshot.Plan = projectSnap.Plan
+		result.Snapshot.PlanVersion = projectSnap.PlanVersion
+		result.Snapshot.Ready = projectSnap.Ready
+		result.Snapshot.Notes = projectSnap.Notes
+		result.Snapshot.Evidence = projectSnap.Evidence
+		result.Snapshot.Step = projectSnap.Step
+		result.Snapshot.Steps = projectSnap.Steps
+		result.Snapshot.Verification = nil
+		result.Snapshot.Delivery = sessionstore.Delivery{}
+		result.Snapshot.Integration = sessionstore.Integration{}
 	}
 
 	// Persist the reconciled checkpoint before starting anything, so a crash
@@ -197,8 +215,9 @@ func DriverSeeds(snap sessionstore.Snapshot) map[protocol.AgentID]sessionstore.D
 }
 
 // SelectSession resolves which persisted session to resume: an explicit id, the
-// single unfinished one, or an error listing the choices. Unreadable sessions are
-// reported rather than silently skipped.
+// single stored session, or an error listing the choices. Completed sessions may
+// be reopened for follow-up work. Unreadable sessions are reported rather than
+// silently skipped.
 func SelectSession(baseDir, repoID, requested, root string) (sessionstore.Summary, []sessionstore.Summary, error) {
 	if requested != "" {
 		store, err := sessionstore.Open(baseDir, repoID, requested)
@@ -222,7 +241,7 @@ func SelectSession(baseDir, repoID, requested, root string) (sessionstore.Summar
 		switch {
 		case item.Err != nil:
 			broken = append(broken, item)
-		case item.Unfinished():
+		case item.Snapshot.Phase != "":
 			candidates = append(candidates, item)
 		}
 	}
@@ -241,13 +260,13 @@ func SelectSession(baseDir, repoID, requested, root string) (sessionstore.Summar
 			}
 			return sessionstore.Summary{}, nil, errors.New(message)
 		}
-		message := fmt.Sprintf("no unfinished Duo session for %s; run `duo` to start a new one", root)
+		message := fmt.Sprintf("no Duo session for %s; run `duo` to start a new one", root)
 		if hint := otherCheckoutHint(baseDir, repoID, root); hint != "" {
 			message += "\n" + hint
 		}
 		return sessionstore.Summary{}, nil, errors.New(message)
 	default:
-		message := fmt.Sprintf("multiple unfinished Duo sessions for %s:\n%s", root, FormatCandidates(candidates))
+		message := fmt.Sprintf("multiple Duo sessions for %s:\n%s", root, FormatCandidates(candidates))
 		if len(broken) > 0 {
 			message += fmt.Sprintf("\n%d stored session(s) could not be read:\n%s", len(broken), FormatBroken(broken))
 		}
@@ -322,8 +341,12 @@ func FormatCandidates(items []sessionstore.Summary) string {
 			fmt.Fprintf(&b, "  … and %d more\n", len(items)-i)
 			break
 		}
-		fmt.Fprintf(&b, "  %s  phase=%s  scope=%s  updated=%s\n",
-			item.SessionID, item.Snapshot.Phase, EffectiveScope(item.Snapshot.ScopePath), item.Snapshot.UpdatedAt.Local().Format(time.RFC3339))
+		status := "unfinished"
+		if item.Snapshot.Phase == string(project.PhaseDone) {
+			status = "completed"
+		}
+		fmt.Fprintf(&b, "  %s  status=%s  phase=%s  scope=%s  updated=%s\n",
+			item.SessionID, status, item.Snapshot.Phase, EffectiveScope(item.Snapshot.ScopePath), item.Snapshot.UpdatedAt.Local().Format(time.RFC3339))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

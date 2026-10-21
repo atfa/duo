@@ -9,7 +9,10 @@ import (
 )
 
 func TestChooseResumeSession(t *testing.T) {
-	items := []sessionstore.Summary{{SessionID: "first"}, {SessionID: "second"}}
+	items := []sessionstore.Summary{
+		{SessionID: "first", Snapshot: sessionstore.Snapshot{Phase: "EXECUTE"}},
+		{SessionID: "second", Snapshot: sessionstore.Snapshot{Phase: "DONE"}},
+	}
 	for _, tc := range []struct {
 		input string
 		want  string
@@ -27,6 +30,25 @@ func TestChooseResumeSession(t *testing.T) {
 		if got != tc.want {
 			t.Fatalf("chooseResumeSession(%q) = %q, want %q", tc.input, got, tc.want)
 		}
+	}
+	var listing strings.Builder
+	if _, err := chooseResumeSession(items, strings.NewReader("2\n"), &listing); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"status=unfinished", "status=completed", "DONE"} {
+		if !strings.Contains(listing.String(), want) {
+			t.Errorf("session listing %q does not contain %q", listing.String(), want)
+		}
+	}
+}
+
+func TestResumeChoicesIncludeCompletedSessions(t *testing.T) {
+	available, broken := resumeChoices([]sessionstore.Summary{
+		{SessionID: "in-progress", Snapshot: sessionstore.Snapshot{Phase: "EXECUTE"}},
+		{SessionID: "completed", Snapshot: sessionstore.Snapshot{Phase: "DONE"}},
+	})
+	if len(broken) != 0 || len(available) != 2 || available[1].SessionID != "completed" {
+		t.Fatalf("resume choices = %#v, broken=%#v; want both sessions available", available, broken)
 	}
 }
 

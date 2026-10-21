@@ -231,7 +231,7 @@ func printUsage() {
 	fmt.Println("                       check Driver Plugins against the protocol; --all")
 	fmt.Println("                       checks every driver Duo can see, -v lists each check")
 	fmt.Println("  duo resume [id]")
-	fmt.Println("                       resume this repository's unfinished session or a specific session")
+	fmt.Println("                       resume a session here (completed sessions start a follow-up round)")
 	fmt.Println()
 	fmt.Println("Environment:")
 	fmt.Println("  DUO_MODE               default mode for new sessions: fast, goal or step (an explicit --mode wins)")
