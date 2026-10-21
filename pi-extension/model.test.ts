@@ -75,11 +75,14 @@ test("cycle_thinking advances to the next level the model supports", () => {
   expect(sent[0]).toMatchObject({ type: "thinking_state", agent: "Austin", thinking: "medium", ok: true });
 });
 
-test("cycle_thinking steps past levels the model clamps away", () => {
-  // xhigh and max clamp back to high, so a single step would look like a no-op.
-  const { state, inbound } = bridgeFixture({ thinking: "high", available: ["off", "low", "medium", "high"] });
+test("cycle_thinking reports the level Pi actually settled on", () => {
+  // xhigh is unsupported and clamps back to high; the bridge must report high,
+  // not claim xhigh and disagree with the agent.
+  const { state, inbound, sent } = bridgeFixture({ thinking: "high", available: ["off", "low", "medium", "high"] });
   inbound({ version: 1, type: "cycle_thinking", to: "Austin" });
-  expect(state.thinking).toBe("off");
+  expect(state.thinking).toBe("high");
+  expect(sent).toHaveLength(1);
+  expect(sent[0]).toMatchObject({ type: "thinking_state", thinking: "high", ok: true });
 });
 
 test("cycle_thinking still reports when a model has only one level", () => {

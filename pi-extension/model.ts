@@ -20,6 +20,7 @@ export function nextThinkingLevel(current: unknown): string {
  */
 export function installModelBridge(pi: any, transport: DuoTransport, agent: AgentName) {
   let registry: any;
+  let lastThinking: string | undefined;
 
   const reportModel = (model: any) => {
     if (!model?.provider || !model?.id) return;
@@ -35,7 +36,8 @@ export function installModelBridge(pi: any, transport: DuoTransport, agent: Agen
   };
 
   const reportThinking = (level: unknown) => {
-    if (typeof level !== "string" || !level) return;
+    if (typeof level !== "string" || !level || level === lastThinking) return;
+    lastThinking = level;
     transport.send({
       version: 1,
       type: "thinking_state",
@@ -73,24 +75,12 @@ export function installModelBridge(pi: any, transport: DuoTransport, agent: Agen
   const cycleThinking = () => {
     try {
       const before = pi.getThinkingLevel?.();
-      // Pi clamps a level to what the current model supports, and only reports a
-      // change when the clamped level differs. Stepping through the escalation
-      // order can therefore land back on the current level (for example xhigh on
-      // a model that stops at high), so keep stepping until Pi actually moves or
-      // every level has been tried.
-      let changed = false;
-      let level = before;
-      for (let i = 0; i < THINKING_LEVELS.length; i++) {
-        level = nextThinkingLevel(level);
-        pi.setThinkingLevel(level);
-        if (pi.getThinkingLevel?.() !== before) {
-          changed = true;
-          break;
-        }
-      }
-      // A model with a single available level never changes: report the level
-      // anyway so the picker still shows what Pi settled on.
-      if (!changed) reportThinking(pi.getThinkingLevel?.());
+      const next = nextThinkingLevel(before);
+      pi.setThinkingLevel(next);
+      // Report what Pi actually settled on. Some models clamp an unsupported
+      // level (for example xhigh -> medium); claiming the requested level would
+      // make the dashboard and the agent disagree.
+      reportThinking(pi.getThinkingLevel?.() ?? before);
     } catch (error: any) {
       fail("thinking_state", error?.message ?? String(error));
     }

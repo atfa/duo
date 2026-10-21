@@ -17,8 +17,8 @@
                      │ agent   Austin    Tony     Tab switch agent                   2 models     │
                      │ search  all models                                                         │
                      │ ────────────────────────────────────────────────────────────────────────── │
-                     │ ●  openai/gpt-5  ·  thinking ·  high  ·  images                            │
-                     │   anthropic/claude  ·  thinking ·  high                                    │
+                     │ ●  openai/gpt-5  ·  high  ·  images                                        │
+                     │   anthropic/claude  ·  high                                                │
                      │                                                                            │
                      │ Tab agent ·  Enter apply ·  Space keep open ·  Ctrl+T thinking ·  Esc cl…  │
                      ╰────────────────────────────────────────────────────────────────────────────╯

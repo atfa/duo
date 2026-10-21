@@ -9,20 +9,14 @@ import (
 
 func TestPickerThinkingLevelLabel(t *testing.T) {
 	p := newModelPicker(newTheme())
-	*p.theme.Lang = "zh"
 	for level, want := range map[string]string{
-		"off": "思考·关", "low": "思考·低", "medium": "思考·中",
-		"high": "思考·强", "xhigh": "思考·极强", "": "思考·默认",
+		"off": "off", "minimal": "minimal", "low": "low", "medium": "medium",
+		"high": "high", "xhigh": "xhigh", "max": "max", "": "default",
 	} {
 		p.thinking = level
 		if got := p.thinkingLevelLabel(); got != want {
 			t.Errorf("thinking %q label = %q, want %q", level, got, want)
 		}
-	}
-	*p.theme.Lang = "en"
-	p.thinking = "high"
-	if got := p.thinkingLevelLabel(); got != "thinking · high" {
-		t.Errorf("English high label = %q", got)
 	}
 }
 
