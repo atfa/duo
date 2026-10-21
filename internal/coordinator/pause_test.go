@@ -4,8 +4,10 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atfa/duo/internal/agent"
+	"github.com/atfa/duo/internal/agent/agenttest"
 	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/project"
@@ -131,4 +133,55 @@ func TestPausedRejectsHumanTaskButDoesNotHoldHarnessRelease(t *testing.T) {
 	if !c.HarnessHeld() {
 		t.Fatal("quiet mode release must not clear pause hold")
 	}
+}
+
+func TestDriverSwitchAllowsSynchronousLifecycleCallbacks(t *testing.T) {
+	ctx := context.Background()
+	stub := agenttest.New("stub").With(func(spec *agenttest.Spec) { spec.Command = "sh -c 'exec sleep 60'" })
+	previous, err := agent.NewSession(ctx, agent.Config{Agent: protocol.Austin, Dir: t.TempDir(), Plugin: stub.Caller()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer previous.Close()
+	if err := previous.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer previous.Stop()
+
+	manager := agent.NewManager()
+	manager.Add(previous)
+	c := New(nil, project.NewState(), harness.NewTracker(), nil, events.NewBus())
+	c.SetAgents(manager)
+	manager.SetObserver(func(event agent.LifecycleEvent) { c.RefreshPause(event.Agent) })
+	if err := c.SetPause(); err != nil {
+		t.Fatal(err)
+	}
+	if got := c.PauseSnapshot().State; got != "paused" {
+		t.Fatalf("pause state = %s", got)
+	}
+
+	replacement, err := previous.WithDriver(ctx, stub.Caller(), "stub", "", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := replacement.Preflight(ctx); err != nil {
+		t.Fatal(err)
+	}
+	release, err := c.BeginDriverSwitch(protocol.Austin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- manager.Replace(ctx, replacement) }()
+	select {
+	case err := <-done:
+		release()
+		if err != nil {
+			t.Fatalf("replace: %v", err)
+		}
+	case <-time.After(3 * time.Second):
+		release()
+		t.Fatal("Manager.Replace deadlocked in a pause lifecycle callback")
+	}
+	manager.StopAll()
 }
