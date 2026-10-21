@@ -217,10 +217,10 @@ func TestSimulationDashboardCommandsAndOverlays(t *testing.T) {
 		t.Fatalf("resumed session showed a startup banner:\n%s", text)
 	}
 
-	// The view switch lives on the header divider row and remains clickable.
-	sim.InjectMouse(12, 2, tcell.Button1, tcell.ModNone)
+	// The view switch shares the second header row and remains clickable.
+	sim.InjectMouse(112, 1, tcell.Button1, tcell.ModNone)
 	waitForText(t, sim, "CONVERSATION")
-	sim.InjectMouse(3, 2, tcell.Button1, tcell.ModNone)
+	sim.InjectMouse(105, 1, tcell.Button1, tcell.ModNone)
 	waitGone(t, sim, "CONVERSATION")
 
 	// Unicode survives both the composer and the transcript.

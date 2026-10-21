@@ -1,5 +1,5 @@
  ◆ DUO test /tmp/example  ·   main                           FAST  ·   RUNNING
-  Split  Timeline ──────────────────────────────────────────────────────────────
+ session session-1   ·    2/2 agents online                    Split  Timeline
 
 
 

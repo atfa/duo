@@ -120,7 +120,7 @@ func TestCaptureFrames(t *testing.T) {
 	waitGone(t, sim, "Quit Duo?")
 
 	sim.SetSize(64, 22)
-	waitForText(t, sim, "·  TIMELINE")
+	waitForText(t, sim, "Timeline")
 	waitForText(t, sim, "CONVERSATION")
 	capture("08-narrow-64x22")
 }

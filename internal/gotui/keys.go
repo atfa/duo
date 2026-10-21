@@ -440,7 +440,6 @@ func (a *App) handleMouse(ev *tcell.EventMouse) {
 			} else {
 				a.viewMode = viewTimeline
 			}
-			a.setStatus(strings.ToUpper(map[bool]string{true: "split", false: "timeline"}[a.viewMode == viewSplit])+" view", false)
 			return
 		}
 		if panel := a.sidebarPanelAt(x, y); panel != panelNone {

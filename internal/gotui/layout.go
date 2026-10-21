@@ -32,10 +32,7 @@ func (a *App) computeLayout(w, h int) layout {
 	if w < 1 || h < 1 {
 		return l
 	}
-	headerH := 3
-	if h < 28 {
-		headerH = 2
-	}
+	headerH := 2
 	if h < 14 {
 		headerH = 1
 	}
@@ -58,7 +55,8 @@ func (a *App) computeLayout(w, h int) layout {
 	l.header = image.Rect(0, 0, w, headerH)
 	if headerH >= 2 {
 		split, timeline := viewTabLabels(a.theme)
-		x := 1
+		total := rw.StringWidth(split) + rw.StringWidth(timeline)
+		x := max(1, w-total-1)
 		y := headerH - 1
 		l.tabSplit = image.Rect(x, y, x+rw.StringWidth(split), y+1)
 		l.tabTimeline = image.Rect(l.tabSplit.Max.X, y, l.tabSplit.Max.X+rw.StringWidth(timeline), y+1)

@@ -1,6 +1,5 @@
  ◆ DUO test /tmp/example  ·   main                                                                   FAST  ·   RUNNING
- session session-1   ·    2/2 agents online
-  Split  Timeline ──────────────────────────────────────────────────────────────────────────────────────────────────────
+ session session-1   ·    2/2 agents online                                                            Split  Timeline
 
 
 
@@ -22,6 +21,7 @@
               │ A internal/gotui/picker.go                                                               │
               │ ↑ /↓  scroll  ·   Esc close                                                              │
               ╰──────────────────────────────────────────────────────────────────────────────────────────╯
+
 
 
 

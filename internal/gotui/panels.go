@@ -62,9 +62,6 @@ type headerBar struct {
 	version, repo, branch string
 	session, mode, phase  string
 	online, total         int
-	status                string
-	statusErr             bool
-	compact               bool
 	view                  viewMode
 }
 
@@ -107,34 +104,18 @@ func (h *headerBar) Draw(buf *ui.Buffer) {
 		buf.SetString(badge, badgeStyle, image.Pt(max(h.Min.X+1, h.Max.X-rw.StringWidth(badge)-2), y))
 	}
 	y++
-	if !h.compact {
+	if y < h.Max.Y {
+		split, timeline := viewTabLabels(h.theme)
+		tabWidth := rw.StringWidth(split) + rw.StringWidth(timeline)
+		tabX := max(h.Min.X+1, h.Max.X-tabWidth-1)
 		line := h.theme.tr("session") + " " + h.session
 		if h.online > 0 {
 			line += fmt.Sprintf("   ·   %d/%d %s", h.online, h.total, h.theme.tr("agents online"))
 		}
-		status := h.status
-		statusText := ""
-		statusWidth := 0
-		if status != "" {
-			statusText = fitText(status, max(10, width/2))
-			statusWidth = rw.StringWidth(statusText) + 2
+		if available := tabX - (h.Min.X + 1) - 1; available > 8 {
+			buf.SetString(fitText(line, available), h.theme.Subtle, image.Pt(h.Min.X+1, y))
 		}
-		if statusWidth > 0 {
-			line = fitText(line, max(8, width-2-statusWidth))
-		}
-		buf.SetString(fitText(line, width-2), h.theme.Subtle, image.Pt(h.Min.X+1, y))
-		if statusText != "" {
-			st := h.theme.BodyMuted
-			if h.statusErr {
-				st = h.theme.Error
-			}
-			buf.SetString(statusText, st, image.Pt(max(h.Min.X+1, h.Max.X-statusWidth+1), y))
-		}
-		y++
-	}
-	if y < h.Max.Y {
-		x = h.Min.X + 1
-		split, timeline := viewTabLabels(h.theme)
+		x = tabX
 		drawTab := func(label string, active bool) {
 			st := ui.Style{Fg: h.theme.Muted, Bg: h.theme.Panel}
 			if active {
@@ -145,9 +126,6 @@ func (h *headerBar) Draw(buf *ui.Buffer) {
 		}
 		drawTab(split, h.view == viewSplit)
 		drawTab(timeline, h.view == viewTimeline)
-		for xx := x; xx < h.Max.X; xx++ {
-			buf.SetCell(ui.NewCell('─', ui.Style{Fg: h.theme.Border, Bg: h.theme.Panel}), image.Pt(xx, y))
-		}
 	}
 }
 

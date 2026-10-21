@@ -22,8 +22,8 @@ other Duo frontend. It never owns workflow state or makes project transitions:
   verification/delivery state, worktrees and two agent cards; Austin and Tony in
   side-by-side transcripts; and a full-width Duo/Human pane below them.
 - **Timeline.** One chronological conversation, one toggle away. The
-  `Split` / `Timeline` switch shares the header divider row instead of taking a
-  row of its own.
+  `Split` / `Timeline` switch sits at the right of the second header row instead
+  of taking a row of its own.
 - **Step workflow.** Step shows the queue lifecycle `PLAN → STEPS → DONE`, not
   Goal's `EXECUTE → REVIEW → INTEGRATE` chain. A `step status` line reports the
   current item's stage (planning, working, reviewing or integrating).
@@ -77,7 +77,7 @@ The dashboard adds:
 | Mouse drag | Select transcript text and copy it |
 | Click a URL | Open it in the default browser |
 | Click an existing file path | Open its containing folder in the default file manager |
-| Click `Split` / `Timeline` | Switch view; the labels sit on the header divider |
+| Click `Split` / `Timeline` | Switch view; the labels sit at the right of the second header row |
 | Click a sidebar panel | Expand workflow, Austin or Tony; click again to restore |
 
 Modal choices are keyboard-driven (`←` / `→`, `Enter`, `Esc`). The model picker
@@ -102,9 +102,10 @@ The layout is computed from the terminal size on every resize:
 | narrower or shorter | conversation timeline without the sidebar |
 | under 80 columns | compact footer hints |
 
-The Duo composer grows to three visible text rows as height allows. The view
-switch is part of the header divider, so the conversation starts one row higher
-than before. Long sidebar values wrap instead of being truncated, and the
+The Duo composer grows to three visible text rows as height allows. The header
+uses two rows: title and mode/phase, then session information and the view
+switch on the right. The conversation starts one row higher than the previous
+three-row header. Long sidebar values wrap instead of being truncated, and the
 workflow phase chain wraps to a second line when the sidebar is too narrow for
 all phases.
 Clicking one of the three sidebar panels expands it to the available height and

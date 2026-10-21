@@ -427,8 +427,6 @@ func (a *App) updateWidgets() {
 	a.header.mode = a.live.EffectiveMode().Display()
 	a.header.phase = string(a.live.Phase())
 	a.header.online, a.header.total = onlineAgents(a.live)
-	a.header.status, a.header.statusErr = a.status, a.statusErr
-	a.header.compact = l.compact
 	a.header.view = a.viewMode
 
 	a.workflow.SetRect(l.workflow.Min.X, l.workflow.Min.Y, l.workflow.Max.X, l.workflow.Max.Y)
@@ -483,7 +481,7 @@ func (a *App) updateWidgets() {
 		if l.width < 80 {
 			a.footer.hint = a.theme.tr("Enter send · F1 help · F2 view · Ctrl+Q quit")
 		}
-		a.footer.right = a.theme.tr(strings.ToUpper(map[bool]string{true: "SPLIT", false: "TIMELINE"}[l.split]))
+		a.footer.right = ""
 	} else {
 		a.footer.hint = ""
 		a.footer.right = ""

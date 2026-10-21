@@ -1,5 +1,5 @@
  ◆ DUO test /tmp/example  ·   main           FAST  ·   RUNNING
-  Split  Timeline ──────────────────────────────────────────────
+ session session-1   ·    2/2 agents online    Split  Timeline
  ╭─ CONVERSATION ─────────────────────────────────────────────╮
  │     •  opaque cursor values                              │ │
  │     •  OpenAPI updated                                   │ │
@@ -19,4 +19,4 @@
  ╭─ Message ──────────────────────────────────────────────────╮
  │ › Message Duo…   Enter sends ·  Ctrl+Enter newline         │
  ╰────────────────────────────────────────────────────────────╯
- Enter send ·  F1 help ·  F2 view ·  Ctrl+Q quit    ·  TIMELINE
+ Enter send ·  F1 help ·  F2 view ·  Ctrl+Q quit

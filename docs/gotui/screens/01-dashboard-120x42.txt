@@ -1,6 +1,5 @@
  ◆ DUO test /tmp/example  ·   main                                                                   FAST  ·   RUNNING
- session session-1   ·    2/2 agents online
-  Split  Timeline ──────────────────────────────────────────────────────────────────────────────────────────────────────
+ session session-1   ·    2/2 agents online                                                            Split  Timeline
  ╭─ WORKFLOW ▸ ─────────────────────╮ ╭─ AUSTIN ─────────────────────────────╮ ╭─ TONY ───────────────────────────────╮
  │ ●  RUNNING  ○  VERIFY  ○  DONE   │ │ 16:02  Austin →  Human               │ │ 16:03  Tony →  Austin                │
  │ verify  passed                   │ │   Result                             │ │   Verified the boundary cases. One   │
@@ -23,20 +22,21 @@
  │ tool     exec  go test ./...     │ │                                      │ │                                      │
  │ turn     1m35s  ·   7 tools      │ │                                      │ │                                      │
  │                                  │ │                                      │ │                                      │
- ╰──────────────────────────────────╯ ╰──────────────────────────────────────╯ ╰──────────────────────────────────────╯
-
- ╭─ TONY ▸ ─────────────────────────╮ ╭─ DUO / HUMAN ─────────────────────────────────────────────────────────────────╮
- │ ready                            │ │ 16:02  Human →  Austin                                                        │
- │ model    anthropic/claude-sonnet │ │   Add cursor pagination to GET /sessions and document the new parameters.     │
- │ driver   test                    │ │                                                                               │
- │ thinking medium                  │ │ 16:03  Duo →  Human                                                           │
- │ context  22.0k / 200.0k  11%     │ │   Verification passed. The change is ready to deliver.                        │
- │ idle     32s ago                 │ │                                                                               │
+ ╰──────────────────────────────────╯ │                                      │ │                                      │
+                                      ╰──────────────────────────────────────╯ ╰──────────────────────────────────────╯
+ ╭─ TONY ▸ ─────────────────────────╮
+ │ ready                            │ ╭─ DUO / HUMAN ─────────────────────────────────────────────────────────────────╮
+ │ model    anthropic/claude-sonnet │ │ 16:02  Human →  Austin                                                        │
+ │ driver   test                    │ │   Add cursor pagination to GET /sessions and document the new parameters.     │
+ │ thinking medium                  │ │                                                                               │
+ │ context  22.0k / 200.0k  11%     │ │ 16:03  Duo →  Human                                                           │
+ │ idle     32s ago                 │ │   Verification passed. The change is ready to deliver.                        │
  │                                  │ │                                                                               │
- │                                  │ ╰───────────────────────────────────────────────────────────────────────────────╯
+ │                                  │ │                                                                               │
+ ╰──────────────────────────────────╯ ╰───────────────────────────────────────────────────────────────────────────────╯
  ╭─ Message ──────────────────────────────────────────────────────────────────────────────────────────────────────────╮
  │ › Message Duo…   Enter sends ·  Ctrl+Enter newline                                                                 │
  │                                                                                                                    │
  │                                                                                                                    │
  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯
- Enter send ·  Ctrl+Enter newline ·  Alt+M models ·  Ctrl+A/T native ·  F1 help ·  F2 view ·  Ctrl+Q quit      ·  SPLIT
+ Enter send ·  Ctrl+Enter newline ·  Alt+M models ·  Ctrl+A/T native ·  F1 help ·  F2 view ·  Ctrl+Q quit

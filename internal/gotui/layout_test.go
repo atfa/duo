@@ -26,9 +26,9 @@ func TestSidebarPanelExpansion(t *testing.T) {
 		austin   int
 		tony     int
 	}{
-		{panelWorkflow, 25, 3, 3},
-		{panelAustin, 3, 25, 3},
-		{panelTony, 3, 3, 25},
+		{panelWorkflow, 26, 3, 3},
+		{panelAustin, 3, 26, 3},
+		{panelTony, 3, 3, 26},
 	}
 	for _, tc := range cases {
 		app.sidebarFocus = tc.focus
