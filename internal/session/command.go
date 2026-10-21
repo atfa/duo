@@ -40,6 +40,15 @@ type SwitchMode struct {
 // resume.
 type ResumeModeWork struct{}
 
+// Pause asks Duo to hold new work after agents reach idle boundaries.
+type Pause struct{}
+
+// Unpause cancels a pause request that has not completed yet.
+type Unpause struct{}
+
+// Continue resumes a fully paused session.
+type Continue struct{}
+
 // EscalateToGoal is the historical Fast → Goal command. New frontends use
 // SwitchMode; this stays so existing clients keep working.
 type EscalateToGoal struct {
@@ -89,6 +98,9 @@ type RestartDuo struct {
 func (SubmitTask) Kind() string     { return "submit_task" }
 func (SwitchMode) Kind() string     { return "switch_mode" }
 func (ResumeModeWork) Kind() string { return "resume_mode_work" }
+func (Pause) Kind() string          { return "pause" }
+func (Unpause) Kind() string        { return "unpause" }
+func (Continue) Kind() string       { return "continue" }
 func (EscalateToGoal) Kind() string { return "escalate_to_goal" }
 func (SetModel) Kind() string       { return "set_model" }
 func (CycleThinking) Kind() string  { return "cycle_thinking" }
@@ -100,6 +112,9 @@ func (RestartDuo) Kind() string     { return "restart_duo" }
 func (SubmitTask) command()     {}
 func (SwitchMode) command()     {}
 func (ResumeModeWork) command() {}
+func (Pause) command()          {}
+func (Unpause) command()        {}
+func (Continue) command()       {}
 func (EscalateToGoal) command() {}
 func (SetModel) command()       {}
 func (CycleThinking) command()  {}

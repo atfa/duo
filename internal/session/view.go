@@ -56,6 +56,25 @@ type View struct {
 	Restart RestartRequest
 
 	Agents map[protocol.AgentID]AgentView
+	Pause  PauseView
+}
+
+type PauseState string
+
+const (
+	PauseRunning PauseState = "running"
+	PausePausing PauseState = "pausing"
+	PausePaused  PauseState = "paused"
+)
+
+type PauseView struct {
+	State  PauseState
+	Paused map[protocol.AgentID]bool
+}
+
+type DriverChoice struct {
+	Name    string
+	Shipped bool
 }
 
 // RestartRequest is one request to stop this Duo process so the session can
