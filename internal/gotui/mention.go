@@ -153,8 +153,9 @@ func (m *mentionMenu) place(l layout, c *composer) {
 		r = image.Rect(1, max(0, c.Min.Y-3), max(11, l.width-1), c.Min.Y)
 	}
 	height := min(10, len(m.matches)+3)
-	if height < 3 {
-		height = 3
+	if len(m.matches) == 0 {
+		// One inner row states that nothing matched, one keeps the hint.
+		height = 4
 	}
 	if available := c.Min.Y - r.Min.Y; height > available {
 		height = available
@@ -192,10 +193,17 @@ func (m *mentionMenu) selected() (string, bool) {
 	return m.matches[m.cursor], true
 }
 
-// mentionOpen reports whether the file palette is showing. The palette owns
-// Enter and Tab only while it has a selectable result.
+// mentionActive reports whether an @ token is being completed. The palette is
+// drawn in this state even with no result, so a mistyped query can be repaired
+// with Backspace instead of retyping the whole mention.
+func (a *App) mentionActive() bool {
+	return a.mentionStart >= 0 && a.fileMenu != nil
+}
+
+// mentionOpen reports whether the file palette owns Enter and Tab. That needs a
+// selectable result: with no match, Enter submits the message as usual.
 func (a *App) mentionOpen() bool {
-	return a.mentionStart >= 0 && a.fileMenu != nil && len(a.fileMenu.matches) > 0
+	return a.mentionActive() && len(a.fileMenu.matches) > 0
 }
 
 // openMention snapshots the tracked file list for one palette session. The list
@@ -257,10 +265,6 @@ func (a *App) syncMention() {
 		return
 	}
 	matches := filterMentionFiles(a.mentionFiles, query)
-	if len(matches) == 0 {
-		a.closeMention()
-		return
-	}
 	if query != a.mentionQuery {
 		a.mentionQuery = query
 		a.fileMenu.cursor = 0
@@ -282,25 +286,27 @@ func (a *App) closeMention() {
 	}
 }
 
-func (a *App) acceptMention() {
+// acceptMention inserts the highlighted file and reports whether it did.
+func (a *App) acceptMention() bool {
 	file, ok := a.fileMenu.selected()
 	if !ok {
 		a.closeMention()
-		return
+		return false
 	}
 	row, col := a.composer.Cursor()
 	line := a.composer.CurrentLine()
 	if row != a.mentionRow || col <= a.mentionStart || a.mentionStart >= len(line) || line[a.mentionStart] != '@' {
 		a.closeMention()
-		return
+		return false
 	}
 	end := mentionTokenEnd(line, a.mentionStart)
 	if !a.composer.ReplaceRange(row, a.mentionStart, end, formatMention(file)) {
 		a.closeMention()
-		return
+		return false
 	}
 	a.closeMention()
 	a.resetHistory()
+	return true
 }
 
 func (m *mentionMenu) Draw(buf *ui.Buffer) {
@@ -319,6 +325,9 @@ func (m *mentionMenu) Draw(buf *ui.Buffer) {
 	if m.offset > maxOffset {
 		m.offset = maxOffset
 	}
+	if len(m.matches) == 0 {
+		buf.SetString(fitText(m.theme.tr("no files found"), m.Inner.Dx()), m.theme.Subtle, image.Pt(m.Inner.Min.X, m.Inner.Min.Y))
+	}
 	for i := 0; i < rows; i++ {
 		idx := m.offset + i
 		if idx >= len(m.matches) {
@@ -332,7 +341,9 @@ func (m *mentionMenu) Draw(buf *ui.Buffer) {
 		}
 		buf.SetString(fitText(m.matches[idx], m.Inner.Dx()), style, image.Pt(m.Inner.Min.X, y))
 	}
-	if m.Inner.Dy() > 0 {
+	// The hint shares its bottom row with the list: in a box clamped to three
+	// rows the inner area is one row, which belongs to the result or notice.
+	if m.Inner.Dy() > 1 {
 		buf.SetString(fitText(m.theme.tr("↑/↓ choose  ·  Tab/Enter insert  ·  Esc dismiss"), m.Inner.Dx()), m.theme.Timestamp, image.Pt(m.Inner.Min.X, m.Inner.Max.Y-1))
 	}
 }

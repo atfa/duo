@@ -471,7 +471,7 @@ func (a *App) draw() {
 	if a.overlay == overlayNone && a.slashOpen() {
 		items = append(items, a.slash)
 	}
-	if a.overlay == overlayNone && a.mentionOpen() {
+	if a.overlay == overlayNone && a.mentionActive() {
 		a.fileMenu.place(a.layout, a.composer)
 		items = append(items, a.fileMenu)
 	}

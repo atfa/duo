@@ -1,10 +1,13 @@
 package gotui
 
 import (
+	"image"
+	"strings"
 	"testing"
 
 	"github.com/atfa/duo/internal/session"
 	"github.com/gdamore/tcell/v3"
+	ui "github.com/metaspartan/gotui/v5"
 )
 
 func pressText(t *testing.T, app *App, text string) {
@@ -261,5 +264,74 @@ func TestMentionPaletteEscAndSpaceDismiss(t *testing.T) {
 	pressText(t, app, " ")
 	if app.mentionOpen() {
 		t.Fatal("a space after the query did not dismiss the file palette")
+	}
+}
+
+func TestMentionPaletteSurvivesAnEmptyQuery(t *testing.T) {
+	app, _ := mentionApp(t, "abc.py")
+	pressText(t, app, "@acc")
+	if !app.mentionActive() {
+		t.Fatal("a query with no match closed the palette")
+	}
+	if app.mentionOpen() {
+		t.Fatal("an empty palette accepted Enter/Tab")
+	}
+	if got := app.fileMenu.matches; len(got) != 0 {
+		t.Fatalf("matches = %q, want none", got)
+	}
+
+	// Repairing the typo brings the file back without retyping the @.
+	app.handleKey(tcell.NewEventKey(tcell.KeyBackspace2, "", tcell.ModNone))
+	app.handleKey(tcell.NewEventKey(tcell.KeyBackspace2, "", tcell.ModNone))
+	if !app.mentionOpen() {
+		t.Fatal("backspacing to a matching query did not restore the results")
+	}
+	app.handleKey(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))
+	if got, want := app.composer.Text(), "@abc.py "; got != want {
+		t.Fatalf("composer after accepting = %q, want %q", got, want)
+	}
+}
+
+func TestMentionPaletteEscDismissesAnEmptyQuery(t *testing.T) {
+	app, calls := mentionApp(t, "abc.py")
+	pressText(t, app, "@acc")
+	app.handleKey(tcell.NewEventKey(tcell.KeyEsc, "", tcell.ModNone))
+	if app.mentionActive() {
+		t.Fatal("Esc did not dismiss the empty palette")
+	}
+	// The dismissal sticks: editing the token does not reopen the palette, and
+	// the file list is not listed again.
+	pressText(t, app, "a")
+	if app.mentionActive() {
+		t.Fatal("the dismissed palette reopened while editing its token")
+	}
+	if *calls != 1 {
+		t.Fatalf("listFiles calls = %d, want one snapshot per open", *calls)
+	}
+}
+
+func TestMentionMenuKeepsContentInATightBox(t *testing.T) {
+	menu := func(matches []string) *mentionMenu {
+		m := newMentionMenu(newTheme())
+		m.SetRect(0, 0, 20, 3)
+		m.matches = matches
+		return m
+	}
+	// A box clamped to three rows has a single inner row. The hint used to be
+	// drawn over it, hiding the file name or the no-match notice.
+	innerRow := func(m *mentionMenu) string {
+		buf := ui.NewBuffer(m.GetRect())
+		m.Draw(buf)
+		var b strings.Builder
+		for x := m.Inner.Min.X; x < m.Inner.Max.X; x++ {
+			b.WriteRune(buf.GetCell(image.Pt(x, m.Inner.Min.Y)).Rune)
+		}
+		return b.String()
+	}
+	if got := innerRow(menu([]string{"abc.py"})); !strings.Contains(got, "abc.py") {
+		t.Fatalf("tight box row = %q, want the file name", got)
+	}
+	if got := innerRow(menu(nil)); !strings.Contains(got, "no files found") {
+		t.Fatalf("empty tight box row = %q, want the notice", got)
 	}
 }
