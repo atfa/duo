@@ -191,3 +191,24 @@ func TestRestartRunningCarriesForwardLiveDriverState(t *testing.T) {
 		t.Fatalf("resume wake flags = [%t, %t], want true only on initial launch", prepares[0].ResumeWake, prepares[1].ResumeWake)
 	}
 }
+
+func TestWithDriverUsesRequestedResumeWake(t *testing.T) {
+	stub := agenttest.New("stub")
+	previous, err := NewSession(context.Background(), Config{Agent: protocol.Austin, Dir: t.TempDir(), Plugin: stub.Caller(), ResumeWake: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer previous.Close()
+	replacement, err := previous.WithDriver(context.Background(), stub.Caller(), "stub", "", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer replacement.Close()
+	if err := replacement.Preflight(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	prepares := stub.Prepares()
+	if len(prepares) != 1 || prepares[0].ResumeWake {
+		t.Fatalf("replacement prepare = %#v, want ResumeWake=false", prepares)
+	}
+}

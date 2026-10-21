@@ -2,6 +2,7 @@ package coordinator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -63,8 +64,17 @@ type Coordinator struct {
 	resumeWakeEnabled   bool
 	resumeWakeAttempted map[protocol.AgentID]bool
 
-	holdMu     sync.Mutex
-	harnessOff bool
+	holdMu        sync.Mutex
+	harnessOff    bool
+	pauseMu       sync.Mutex
+	pauseEmitMu   sync.Mutex
+	pauseState    string
+	paused        map[protocol.AgentID]bool
+	settled       map[protocol.AgentID]bool
+	held          []heldMessage
+	pauseChange   func(PauseSnapshot)
+	resumeRepo    string
+	resumeSession string
 
 	modelMu         sync.RWMutex
 	currentThinking map[protocol.AgentID]string
@@ -83,6 +93,16 @@ type Coordinator struct {
 	// thinkingObserver records the level an agent actually reports, after any
 	// live clamping. It is installed once before the event loop starts.
 	thinkingObserver func(protocol.AgentID, string)
+}
+
+type heldMessage struct {
+	agent   protocol.AgentID
+	message protocol.Message
+}
+
+type PauseSnapshot struct {
+	State  string
+	Paused map[protocol.AgentID]bool
 }
 
 // Durability wires a session store into the coordinator.
@@ -104,7 +124,11 @@ func New(
 	ws workspace.Manager,
 	bus *events.Bus,
 ) *Coordinator {
-	return &Coordinator{server: server, project: state, tracker: tracker, workspace: ws, bus: bus}
+	return &Coordinator{
+		server: server, project: state, tracker: tracker, workspace: ws, bus: bus,
+		pauseState: "running", paused: map[protocol.AgentID]bool{protocol.Austin: false, protocol.Tony: false},
+		settled: map[protocol.AgentID]bool{protocol.Austin: true, protocol.Tony: true},
+	}
 }
 
 // SetAgents connects the agent manager to the coordinator, allowing it to route
@@ -144,8 +168,223 @@ func (c *Coordinator) RequestRestart(reason string, install bool) {
 // holds automatic nudges until the human submits a task or explicitly resumes.
 func (c *Coordinator) HarnessHeld() bool {
 	c.holdMu.Lock()
-	defer c.holdMu.Unlock()
-	return c.harnessOff
+	off := c.harnessOff
+	c.holdMu.Unlock()
+	c.pauseMu.Lock()
+	paused := c.pauseState != "running"
+	c.pauseMu.Unlock()
+	return off || paused
+}
+
+func (c *Coordinator) SetPauseObserver(observer func(PauseSnapshot)) { c.pauseChange = observer }
+
+func (c *Coordinator) SetResumeContext(repo, session string) {
+	c.resumeRepo, c.resumeSession = repo, session
+}
+
+func (c *Coordinator) RestorePause(snapshot PauseSnapshot) {
+	c.pauseMu.Lock()
+	if snapshot.State == "pausing" || snapshot.State == "paused" {
+		c.pauseState = snapshot.State
+		for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+			if snapshot.State == "paused" {
+				c.paused[id] = snapshot.Paused[id]
+			} else {
+				c.paused[id] = c.isIdleLocked(id)
+			}
+		}
+		if c.pauseState == "pausing" && c.allPausedLocked() {
+			c.pauseState = "paused"
+		}
+	}
+	state := c.pauseSnapshotLocked()
+	c.pauseMu.Unlock()
+	if state.State != "running" {
+		c.emitPause(state, "pause restored")
+	}
+}
+
+func (c *Coordinator) PauseSnapshot() PauseSnapshot {
+	c.pauseMu.Lock()
+	defer c.pauseMu.Unlock()
+	return c.pauseSnapshotLocked()
+}
+
+func (c *Coordinator) NotifyPauseUpdate(text string) {
+	c.emitPause(c.PauseSnapshot(), text)
+}
+
+// BeginDriverSwitch reserves a paused, idle agent until release is called. The
+// reservation closes the window between checking Busy and replacing its process.
+func (c *Coordinator) BeginDriverSwitch(agent protocol.AgentID) (func(), error) {
+	c.pauseMu.Lock()
+	if c.pauseState != "paused" {
+		c.pauseMu.Unlock()
+		return nil, fmt.Errorf("driver can only be changed while session is paused")
+	}
+	if c.tracker != nil && c.tracker.Snapshot(agent).Busy {
+		c.pauseMu.Unlock()
+		return nil, fmt.Errorf("cannot change %s driver while it is busy", agent)
+	}
+	return c.pauseMu.Unlock, nil
+}
+
+func (c *Coordinator) pauseSnapshotLocked() PauseSnapshot {
+	paused := map[protocol.AgentID]bool{protocol.Austin: c.paused[protocol.Austin], protocol.Tony: c.paused[protocol.Tony]}
+	return PauseSnapshot{State: c.pauseState, Paused: paused}
+}
+
+func (c *Coordinator) allPausedLocked() bool {
+	return c.paused[protocol.Austin] && c.paused[protocol.Tony]
+}
+
+func (c *Coordinator) emitPause(snapshot PauseSnapshot, text string) {
+	c.pauseEmitMu.Lock()
+	defer c.pauseEmitMu.Unlock()
+	// Activity events may race after each caller releases pauseMu. Re-read under
+	// the emission lock so persistence cannot let an older projection win last.
+	snapshot = c.PauseSnapshot()
+	if c.pauseChange != nil {
+		c.pauseChange(snapshot)
+	}
+	if c.bus != nil {
+		c.bus.Emit(events.Event{Kind: events.KindSystem, Agent: protocol.Duo, Text: "pause: " + text})
+	}
+}
+
+func (c *Coordinator) SetPause() error {
+	c.pauseMu.Lock()
+	if c.pauseState != "running" {
+		c.pauseMu.Unlock()
+		return fmt.Errorf("pause is already %s", c.pauseState)
+	}
+	c.pauseState = "pausing"
+	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		c.paused[id] = c.isIdleLocked(id)
+	}
+	if c.allPausedLocked() {
+		c.pauseState = "paused"
+	}
+	state := c.pauseSnapshotLocked()
+	c.pauseMu.Unlock()
+	text := "pause requested"
+	if state.State == "paused" {
+		text = "both agents paused"
+	}
+	c.emitPause(state, text)
+	return nil
+}
+
+func (c *Coordinator) CancelPause() error {
+	c.pauseMu.Lock()
+	if c.pauseState != "pausing" {
+		c.pauseMu.Unlock()
+		return fmt.Errorf("session is %s; use /continue after pause completes", c.pauseState)
+	}
+	c.pauseState = "running"
+	c.paused[protocol.Austin], c.paused[protocol.Tony] = false, false
+	held := c.held
+	c.held = nil
+	state := c.pauseSnapshotLocked()
+	c.pauseMu.Unlock()
+	c.emitPause(state, "pause cancelled")
+	for _, item := range held {
+		_ = c.sendToAgent(context.Background(), item.agent, item.message)
+	}
+	return nil
+}
+
+func (c *Coordinator) ContinuePause(ctx context.Context) error {
+	c.pauseMu.Lock()
+	if c.pauseState != "paused" {
+		c.pauseMu.Unlock()
+		return fmt.Errorf("session is %s; continue requires both agents paused", c.pauseState)
+	}
+	held := c.held
+	c.held = nil
+	c.pauseState = "running"
+	c.paused[protocol.Austin], c.paused[protocol.Tony] = false, false
+	state := c.pauseSnapshotLocked()
+	c.pauseMu.Unlock()
+	c.emitPause(state, "continued")
+	var summaries [2][]string
+	for _, item := range held {
+		index := 0
+		if item.agent == protocol.Tony {
+			index = 1
+		}
+		if item.message.Text != "" {
+			summaries[index] = append(summaries[index], string(item.message.Type)+": "+strings.TrimSpace(item.message.Text))
+		}
+	}
+	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		text := c.ResumePrompt(id)
+		index := 0
+		if id == protocol.Tony {
+			index = 1
+		}
+		if c.resumeRepo != "" && c.resumeSession != "" {
+			text += fmt.Sprintf("\n\nSession transcripts (read before continuing): .duo/logs/%s.md and .duo/logs/%s-%s.md. If your driver changed while paused, the previous conversation did not carry over; read the transcript first.", c.resumeSession, c.resumeSession, strings.ToLower(string(id)))
+		}
+		if len(summaries[index]) > 0 {
+			text += "\n\nDuo held these while paused:\n- " + strings.Join(summaries[index], "\n- ")
+		}
+		if err := c.sendToAgent(ctx, id, protocol.Message{Version: protocol.Version, Type: protocol.MsgResumePrompt, From: protocol.Duo, To: id, Text: text, Timestamp: time.Now().UnixMilli()}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (c *Coordinator) isIdleLocked(id protocol.AgentID) bool {
+	if !c.IsAgentConnected(id) {
+		return true
+	}
+	if c.tracker == nil {
+		return true
+	}
+	return !c.tracker.Snapshot(id).Busy && c.settled[id]
+}
+
+func (c *Coordinator) RefreshPause(agent protocol.AgentID) { c.refreshPause(agent, "") }
+
+func (c *Coordinator) refreshPause(agent protocol.AgentID, activity protocol.ActivityType) {
+	c.pauseMu.Lock()
+	if activity == protocol.ActivityAgentStart {
+		c.settled[agent] = false
+	}
+	if activity == protocol.ActivityAgentSettled {
+		c.settled[agent] = true
+	}
+	if activity != protocol.ActivityAgentStart && activity != protocol.ActivityAgentSettled && c.tracker != nil && c.tracker.Snapshot(agent).Busy {
+		c.settled[agent] = false
+	}
+	changed := false
+	if c.pauseState != "running" {
+		wasPaused := c.paused[agent]
+		c.paused[agent] = c.isIdleLocked(agent)
+		changed = wasPaused != c.paused[agent]
+		if c.paused[agent] && c.pauseState == "pausing" && c.allPausedLocked() {
+			c.pauseState = "paused"
+			changed = true
+		}
+		if !c.paused[agent] && c.pauseState == "paused" {
+			c.pauseState = "pausing"
+			changed = true
+		}
+	}
+	state := c.pauseSnapshotLocked()
+	c.pauseMu.Unlock()
+	if changed {
+		text := "agent activity changed"
+		if state.State == "paused" {
+			text = "both agents paused"
+		}
+		if state.State == "pausing" {
+			text = string(agent) + " active; waiting to settle"
+		}
+		c.emitPause(state, text)
+	}
 }
 
 func (c *Coordinator) holdHarness() {
@@ -175,6 +414,25 @@ func (c *Coordinator) IsAgentConnected(agent protocol.AgentID) bool {
 }
 
 func (c *Coordinator) sendToAgent(ctx context.Context, agent protocol.AgentID, message protocol.Message) error {
+	c.pauseMu.Lock()
+	if c.pauseState != "running" {
+		switch message.Type {
+		case protocol.MsgHumanPrompt, protocol.MsgSteer, protocol.MsgDuoNotice, protocol.MsgHarnessPrompt:
+			c.held = append(c.held, heldMessage{agent: agent, message: message})
+			c.pauseMu.Unlock()
+			return nil
+		case protocol.MsgModeChange:
+			if message.Text != "" {
+				c.held = append(c.held, heldMessage{agent: agent, message: message})
+				c.pauseMu.Unlock()
+				return nil
+			}
+		case protocol.MsgResumePrompt:
+			c.pauseMu.Unlock()
+			return nil
+		}
+	}
+	c.pauseMu.Unlock()
 	// Anything that arrives in the agent's session as a user turn is recorded, so
 	// handleAssistant can tell an injected prompt apart from something the agent
 	// actually said. Recording here rather than at each call site means a new
@@ -431,6 +689,12 @@ func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return nil
+	}
+	c.pauseMu.Lock()
+	paused := c.pauseState != "running"
+	c.pauseMu.Unlock()
+	if paused {
+		return errors.New("session is pausing or paused; use /continue after pause completes")
 	}
 
 	if strings.HasPrefix(text, "/mode") {
@@ -960,6 +1224,7 @@ func (c *Coordinator) OnMessage(ctx context.Context, client *transport.Client, m
 func (c *Coordinator) handleActivity(agent protocol.AgentID, message protocol.Message) {
 	c.tracker.Handle(agent, message.Activity)
 	c.tracker.Note(agent, message.Activity, message.Tool, message.Detail)
+	c.refreshPause(agent, message.Activity)
 	// Each figure is gated on the capability that promises it. A driver that
 	// reports context usage it cannot maintain, or a rate it computed from
 	// something other than its own output, would otherwise put a number on

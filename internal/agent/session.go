@@ -380,13 +380,13 @@ func (s *Session) SetOnExit(fn func(ExitEvent)) {
 
 // WithDriver creates an unstarted replacement with this agent's existing Duo
 // launch context. Driver-specific state and model/effort are intentionally reset.
-func (s *Session) WithDriver(ctx context.Context, plugin driver.Caller, baseCommand, model, effort string) (*Session, error) {
+func (s *Session) WithDriver(ctx context.Context, plugin driver.Caller, baseCommand, model, effort string, resumeWake bool) (*Session, error) {
 	s.mu.RLock()
 	cfg := s.cfg
 	s.mu.RUnlock()
 	cfg.Plugin = plugin
 	cfg.PluginState = nil
-	cfg.ResumeWake = true
+	cfg.ResumeWake = resumeWake
 	cfg.BaseCommand = baseCommand
 	cfg.Model = model
 	cfg.Thinking = effort

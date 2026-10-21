@@ -135,6 +135,78 @@ func TestSessionRunsHeadless(t *testing.T) {
 	}
 }
 
+func TestPauseCommandsPersistAndRefreshTheSessionView(t *testing.T) {
+	repo := gitRepo(t)
+	svc := New(headlessOptions(t, repo, t.TempDir(), "127.0.0.1:0"))
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer svc.Close()
+	sub, cancel := svc.Subscribe(32)
+	defer cancel()
+	if sub.View.Pause.State != PauseRunning || len(sub.View.Pause.Paused) != 2 {
+		t.Fatalf("initial pause view = %+v", sub.View.Pause)
+	}
+	if err := svc.Do(context.Background(), Pause{}); err != nil {
+		t.Fatalf("pause: %v", err)
+	}
+	view := svc.View()
+	if view.Pause.State != PausePaused || !view.Pause.Paused[protocol.Austin] || !view.Pause.Paused[protocol.Tony] {
+		t.Fatalf("paused view = %+v", view.Pause)
+	}
+	found := false
+	for len(sub.Events) > 0 {
+		if event := <-sub.Events; event.Kind == events.KindSystem && strings.Contains(event.Text, "pause") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("pause transition did not emit a system event")
+	}
+	snap, err := svc.store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.PauseState != string(PausePaused) {
+		t.Fatalf("persisted pause = %q", snap.PauseState)
+	}
+	if err := svc.Do(context.Background(), SubmitTask{Text: "not while paused"}); err == nil {
+		t.Fatal("task accepted while paused")
+	}
+	if err := svc.Do(context.Background(), Unpause{}); err == nil {
+		t.Fatal("unpause after completed pause should fail")
+	}
+	if err := svc.Do(context.Background(), Continue{}); err != nil {
+		t.Fatalf("continue: %v", err)
+	}
+	if got := svc.View().Pause.State; got != PauseRunning {
+		t.Fatalf("state after Continue = %s", got)
+	}
+}
+
+func TestPausedSessionResumesWithoutDroppingPauseState(t *testing.T) {
+	repo, baseDir := gitRepo(t), t.TempDir()
+	first := New(headlessOptions(t, repo, baseDir, "127.0.0.1:0"))
+	if _, err := first.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	first.state.MarkStarted()
+	if err := first.Do(context.Background(), Pause{}); err != nil {
+		t.Fatalf("pause: %v", err)
+	}
+	first.Close()
+
+	resumed := New(resumeOptions(t, repo, baseDir, "127.0.0.1:0"))
+	if _, err := resumed.Start(context.Background()); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	defer resumed.Close()
+	view := resumed.View()
+	if view.Pause.State != PausePaused || !view.Pause.Paused[protocol.Austin] || !view.Pause.Paused[protocol.Tony] {
+		t.Fatalf("resumed pause view = %+v", view.Pause)
+	}
+}
+
 // The session lock and the bridge listener are both exclusive and both last as
 // long as the process, and Start acquires them while Close releases them. A
 // frontend that closes a session and opens another in the same process must

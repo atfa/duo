@@ -41,6 +41,19 @@ func TestComposeSnapshotCarriesDriverStateVerbatim(t *testing.T) {
 	}
 }
 
+func TestComposeSnapshotPersistsPauseProjection(t *testing.T) {
+	s := &Service{
+		repoID: "repo-1", sessionID: "session-1", createdAt: time.Unix(0, 0).UTC(),
+		state: project.NewStateFor(project.ModeGoal), set: workspace.Set{},
+		pauseState:   PausePaused,
+		pausedAgents: map[protocol.AgentID]bool{protocol.Austin: true, protocol.Tony: true},
+	}
+	snap := s.composeSnapshot(nil)
+	if snap.PauseState != string(PausePaused) || !snap.PausedAgents[protocol.Austin] || !snap.PausedAgents[protocol.Tony] {
+		t.Fatalf("pause snapshot = %q %v", snap.PauseState, snap.PausedAgents)
+	}
+}
+
 // TestComposeSnapshotPrefersTheLiveDriverState checks that newly learned opaque state replaces the loaded state.
 func TestComposeSnapshotPrefersTheLiveDriverState(t *testing.T) {
 	mgr := agent.NewManager()

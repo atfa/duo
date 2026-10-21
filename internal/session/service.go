@@ -106,7 +106,9 @@ type Service struct {
 	monitor     *harness.Monitor
 	transcripts *sessionstore.LogWriter
 
-	driverState map[protocol.AgentID]sessionstore.DriverState
+	driverState  map[protocol.AgentID]sessionstore.DriverState
+	pauseState   PauseState
+	pausedAgents map[protocol.AgentID]bool
 
 	integration workspace.IntegrationResult
 	delivery    sessionstore.Delivery
@@ -298,7 +300,12 @@ func (s *Service) launch(ctx context.Context) (Result, error) {
 			return s.composeSnapshot(coord)
 		},
 	})
-	if s.resume {
+	coord.SetResumeContext(s.set.Repository, s.sessionID)
+	coord.SetPauseObserver(s.pauseChanged)
+	if s.pauseState == PausePausing || s.pauseState == PausePaused {
+		coord.RestorePause(coordinator.PauseSnapshot{State: string(s.pauseState), Paused: s.pausedAgents})
+	}
+	if s.resume && s.pauseState != PausePausing && s.pauseState != PausePaused {
 		coord.EnableResumeWake()
 	}
 	server.SetHandler(coord)
@@ -365,7 +372,7 @@ func (s *Service) launch(ctx context.Context) (Result, error) {
 			Host:           host,
 			Port:           port,
 			Session:        s.sessionID,
-			ResumeWake:     s.resume,
+			ResumeWake:     s.resume && s.pauseState != PausePausing && s.pauseState != PausePaused,
 			Token:          token,
 			Plugin:         plugin,
 			PluginState:    s.driverState[agentID].State,
@@ -435,6 +442,9 @@ func (s *Service) observeLifecycle(event agent.LifecycleEvent) {
 		fields["error"] = event.Err.Error()
 	}
 	s.journal.Record(event.Kind, fields)
+	if s.coord != nil {
+		s.coord.RefreshPause(event.Agent)
+	}
 	switch event.Kind {
 	case "agent_start":
 		// A driver whose bridge cannot announce itself is announced here instead,
@@ -554,8 +564,14 @@ func (s *Service) view() View {
 	}
 	if s.coord != nil {
 		v.Delivery = s.coord.CurrentDelivery()
+		pause := s.coord.PauseSnapshot()
+		v.Pause = PauseView{State: PauseState(pause.State), Paused: pause.Paused}
 	} else {
 		v.Delivery = s.delivery
+		v.Pause = PauseView{State: s.pauseState, Paused: map[protocol.AgentID]bool{protocol.Austin: s.pausedAgents[protocol.Austin], protocol.Tony: s.pausedAgents[protocol.Tony]}}
+	}
+	if v.Pause.State == "" {
+		v.Pause.State = PauseRunning
 	}
 	v.Agents = make(map[protocol.AgentID]AgentView, 2)
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
@@ -662,6 +678,12 @@ func (s *Service) Do(ctx context.Context, cmd Command) error {
 		return nil
 	case ResumeModeWork:
 		return s.coord.ResumeMode(ctx)
+	case Pause:
+		return s.coord.SetPause()
+	case Unpause:
+		return s.coord.CancelPause()
+	case Continue:
+		return s.coord.ContinuePause(ctx)
 	case EscalateToGoal:
 		err := s.coord.SwitchMode(ctx, project.ModeGoal, c.Reason)
 		s.syncMode()
@@ -699,9 +721,24 @@ func (s *Service) syncMode() {
 	}
 }
 
+func (s *Service) pauseChanged(pause coordinator.PauseSnapshot) {
+	if s.journal != nil {
+		s.journal.Record("pause_state", map[string]any{"state": pause.State, "paused": pause.Paused})
+	}
+	if s.store != nil && s.coord != nil {
+		if err := s.store.Save(s.composeSnapshot(s.coord)); err != nil && s.logger != nil {
+			s.logger.Printf("checkpoint pause state: %v", err)
+		}
+	}
+}
+
 func (s *Service) setDriver(ctx context.Context, c SetDriver) error {
 	if c.Agent != protocol.Austin && c.Agent != protocol.Tony {
 		return fmt.Errorf("unknown agent %q", c.Agent)
+	}
+	pause := s.coord.PauseSnapshot()
+	if pause.State != string(PausePaused) {
+		return fmt.Errorf("driver can only be changed while session is paused")
 	}
 	name := strings.TrimSpace(c.Driver)
 	if name == "" {
@@ -747,7 +784,7 @@ func (s *Service) setDriver(ctx context.Context, c SetDriver) error {
 		plugin.Close()
 		return fmt.Errorf("%s session does not support driver replacement", c.Agent)
 	}
-	candidate, err := previous.WithDriver(probeCtx, plugin, baseCommand, model, effort)
+	candidate, err := previous.WithDriver(probeCtx, plugin, baseCommand, model, effort, false)
 	if err != nil {
 		plugin.Close()
 		return err
@@ -759,10 +796,16 @@ func (s *Service) setDriver(ctx context.Context, c SetDriver) error {
 		return fmt.Errorf("prepare %s: %w", name, err)
 	}
 	prepareCancel()
-	s.coord.EnableResumeWakeForAgent(c.Agent)
-	if err := s.agents.Replace(ctx, candidate); err != nil {
+	release, err := s.coord.BeginDriverSwitch(c.Agent)
+	if err != nil {
+		candidate.Close()
 		return err
 	}
+	if err := s.agents.Replace(ctx, candidate); err != nil {
+		release()
+		return err
+	}
+	release()
 	if s.opts.AgentDrivers == nil {
 		s.opts.AgentDrivers = make(map[protocol.AgentID]string)
 	}
@@ -781,8 +824,10 @@ func (s *Service) setDriver(ctx context.Context, c SetDriver) error {
 	s.opts.AgentModels[c.Agent] = ""
 	s.opts.AgentThinkings[c.Agent] = ""
 	s.thinkingMu.Unlock()
+	delete(s.driverState, c.Agent)
 	s.coord.SetCurrentModel(c.Agent, model)
 	s.tracker.Reset(c.Agent)
+	s.coord.NotifyPauseUpdate(string(c.Agent) + " driver changed")
 	s.persistProjectConfig()
 	if err := s.store.Save(s.composeSnapshot(s.coord)); err != nil {
 		s.logger.Printf("checkpoint after driver switch: %v", err)
