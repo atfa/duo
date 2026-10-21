@@ -159,7 +159,7 @@ gotui 默认打开 **分栏仪表盘**：侧边栏显示阶段链、验证/交�
 | `Ctrl+]` / `Ctrl+\` / `Ctrl+】` | 从 Agent 自己的会话返回 gotui |
 | `Ctrl+R` / `Ctrl+Y` | 若 Austin / Tony 进程已退出或失败，重启它 |
 | `Ctrl+X` | 复制 Austin 最新发给人类的消息到剪贴板 |
-| `Shift+Tab` | 循环切换当前选中 Agent 的思考强度（目标 Agent 在 `Ctrl+M` 中选择） |
+| `Shift+Tab` | 循环切换当前选中 Agent 的思考强度（先按 `Ctrl+M`，再用 `Tab` 选择 Austin/Tony） |
 | `Ctrl+Q` / `Ctrl+D` | 退出 Duo 并保留 session |
 | `←` / `→`，`Alt+←` / `Alt+→` | 按字符或按词移动 composer 光标 |
 | `Home` / `End` | 移到 composer 当前行的开头/结尾 |

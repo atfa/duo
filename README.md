@@ -156,7 +156,7 @@ The gotui frontend opens in a **split dashboard**: a workflow sidebar with the p
 | `Ctrl+]` / `Ctrl+\` / `Ctrl+】` | Detach from the agent's own session back to gotui |
 | `Ctrl+R` / `Ctrl+Y` | Restart Austin / Tony if exited or failed |
 | `Ctrl+X` | Copy Austin's latest message to the human to the clipboard |
-| `Shift+Tab` | Cycle the selected agent's thinking level (the target is chosen in `Ctrl+M`) |
+| `Shift+Tab` | Cycle the selected agent's thinking level (open `Ctrl+M`, then `Tab` to choose Austin/Tony) |
 | `Ctrl+Q` / `Ctrl+D` | Quit Duo and preserve the session |
 | `←` / `→`, `Alt+←` / `Alt+→` | Move the composer cursor by character or word |
 | `Home` / `End` | Move to the start or end of the composer line |

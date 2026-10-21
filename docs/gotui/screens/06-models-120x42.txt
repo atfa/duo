@@ -20,7 +20,7 @@
                      │ ●  openai/gpt-5  ·  thinking  ·  images                                    │
                      │   anthropic/claude  ·  thinking                                            │
                      │                                                                            │
-                     │ Enter apply ·  Space keep open ·  Ctrl+T thinking ·  Esc close             │
+                     │ Tab agent ·  Enter apply ·  Space keep open ·  Ctrl+T thinking ·  Esc cl…  │
                      ╰────────────────────────────────────────────────────────────────────────────╯
 
 

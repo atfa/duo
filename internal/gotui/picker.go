@@ -302,9 +302,9 @@ func (p *modelPicker) Draw(buf *ui.Buffer) {
 		}
 	}
 	bottom := p.Inner.Max.Y - 1
-	hint := p.theme.tr("Enter apply · Space keep open · Ctrl+T thinking · Esc close")
+	hint := p.theme.tr("Tab agent · Enter apply · Space keep open · Ctrl+T thinking · Esc close")
 	if p.tab == 1 {
-		hint = p.theme.tr("Enter advance thinking · Ctrl+T models · Esc close")
+		hint = p.theme.tr("Tab agent · Enter advance thinking · Ctrl+T models · Esc close")
 	}
 	buf.SetString(fitText(hint, p.Inner.Dx()), p.theme.Timestamp, image.Pt(p.Inner.Min.X, bottom))
 	if len(p.all) > 0 && p.Inner.Dx() > 55 {
