@@ -2,12 +2,15 @@ package gotui
 
 import (
 	"image"
+
+	rw "github.com/mattn/go-runewidth"
 )
 
 type layout struct {
 	width, height int
 	header        image.Rectangle
-	tabs          image.Rectangle
+	tabSplit      image.Rectangle
+	tabTimeline   image.Rectangle
 	sidebar       image.Rectangle
 	workflow      image.Rectangle
 	austinCard    image.Rectangle
@@ -36,10 +39,6 @@ func (a *App) computeLayout(w, h int) layout {
 	if h < 14 {
 		headerH = 1
 	}
-	tabsH := 1
-	if h < 14 {
-		tabsH = 0
-	}
 	footerH := 1
 	composerH := 4
 	switch {
@@ -52,13 +51,19 @@ func (a *App) computeLayout(w, h int) layout {
 	case h >= 40:
 		composerH = 5
 	}
-	if headerH+tabsH+composerH+footerH+4 > h {
-		composerH = max(1, h-headerH-tabsH-footerH-4)
+	if headerH+composerH+footerH+4 > h {
+		composerH = max(1, h-headerH-footerH-4)
 	}
 	l.compact = h < 28
 	l.header = image.Rect(0, 0, w, headerH)
-	l.tabs = image.Rect(1, headerH, max(1, w-1), headerH+tabsH)
-	contentTop := headerH + tabsH
+	if headerH >= 2 {
+		split, timeline := viewTabLabels(a.theme)
+		x := 1
+		y := headerH - 1
+		l.tabSplit = image.Rect(x, y, x+rw.StringWidth(split), y+1)
+		l.tabTimeline = image.Rect(l.tabSplit.Max.X, y, l.tabSplit.Max.X+rw.StringWidth(timeline), y+1)
+	}
+	contentTop := headerH
 	contentBottom := h - composerH - footerH
 	if contentBottom-contentTop < 3 {
 		contentTop = headerH

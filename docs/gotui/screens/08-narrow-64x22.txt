@@ -1,13 +1,13 @@
  ◆ DUO test /tmp/example  ·   main           FAST  ·   RUNNING
-────────────────────────────────────────────────────────────────
-    Split    Timeline
+  Split  Timeline ──────────────────────────────────────────────
  ╭─ CONVERSATION ─────────────────────────────────────────────╮
+ │     •  opaque cursor values                              │ │
  │     •  OpenAPI updated                                   │ │
  │                                                          │ │
  │     page, err := store.Sessions(ctx, limit, cursor)      │ │
  │                                                          │ │
  │   Tests: go test ./internal/sessionstore —  你好世界     │ │
- │                                                          │ │
+ │                                                          ┃ │
  │ 16:03  Tony →  Austin                                    ┃ │
  │   Verified the boundary cases. One request with an       ┃ │
  │   expired cursor returns 400 rather than silently        ┃ │

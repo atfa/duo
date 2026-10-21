@@ -217,6 +217,12 @@ func TestSimulationDashboardCommandsAndOverlays(t *testing.T) {
 		t.Fatalf("resumed session showed a startup banner:\n%s", text)
 	}
 
+	// The view switch lives on the header divider row and remains clickable.
+	sim.InjectMouse(12, 2, tcell.Button1, tcell.ModNone)
+	waitForText(t, sim, "CONVERSATION")
+	sim.InjectMouse(3, 2, tcell.Button1, tcell.ModNone)
+	waitGone(t, sim, "CONVERSATION")
+
 	// Unicode survives both the composer and the transcript.
 	typeText(sim, "hello 你好")
 	waitForText(t, sim, "hello 你")
@@ -387,7 +393,7 @@ func TestSidebarPanelClickExpands(t *testing.T) {
 	austin.Runtime.LastError = "ERROR-MARKER"
 	fake.view.Agents[protocol.Austin] = austin
 	app := New(fake)
-	backend, err := ui.NewBackend(&ui.InitConfig{SimulationMode: true, SimulationSize: image.Pt(120, 42)})
+	backend, err := ui.NewBackend(&ui.InitConfig{SimulationMode: true, SimulationSize: image.Pt(120, 40)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -417,14 +423,14 @@ func TestSidebarPanelClickExpands(t *testing.T) {
 	waitForText(t, sim, "ERROR-MARKER")
 
 	// The expanded Austin card now occupies the middle of the sidebar.
-	sim.InjectMouse(10, 20, tcell.Button1, tcell.ModNone)
+	sim.InjectMouse(10, 28, tcell.Button1, tcell.ModNone)
 	waitGone(t, sim, "AUSTIN ▾")
 
 	sim.InjectMouse(10, 5, tcell.Button1, tcell.ModNone)
 	waitForText(t, sim, "WORKFLOW ▾")
 
 	// Clicking Tony moves the expansion instead of stacking two open panels.
-	sim.InjectMouse(10, 34, tcell.Button1, tcell.ModNone)
+	sim.InjectMouse(10, 31, tcell.Button1, tcell.ModNone)
 	waitForText(t, sim, "TONY ▾")
 	waitForText(t, sim, "WORKFLOW ▸")
 }

@@ -21,7 +21,12 @@ other Duo frontend. It never owns workflow state or makes project transitions:
 - **Split dashboard (default).** A workflow sidebar with the phase chain,
   verification/delivery state, worktrees and two agent cards; Austin and Tony in
   side-by-side transcripts; and a full-width Duo/Human pane below them.
-- **Timeline.** One chronological conversation, one toggle away.
+- **Timeline.** One chronological conversation, one toggle away. The
+  `Split` / `Timeline` switch shares the header divider row instead of taking a
+  row of its own.
+- **Step workflow.** Step shows the queue lifecycle `PLAN → STEPS → DONE`, not
+  Goal's `EXECUTE → REVIEW → INTEGRATE` chain. A `step status` line reports the
+  current item's stage (planning, working, reviewing or integrating).
 - **Composer.** Multiline editing, history recall, bracketed-paste handling,
   cursor-aware scrolling, slash palette, and the model/thinking picker.
 - **Language.** `/language zh|en` changes Duo-authored messages and the dashboard
@@ -65,7 +70,7 @@ The dashboard adds:
 | `Ctrl+Q` / `Ctrl+D` | Quit and preserve the session |
 | Mouse wheel | Scroll the transcript or an open help/details modal |
 | Mouse drag | Select transcript text and copy it |
-| Click on a tab | Switch view |
+| Click `Split` / `Timeline` | Switch view; the labels sit on the header divider |
 | Click a sidebar panel | Expand workflow, Austin or Tony; click again to restore |
 
 Modal choices are keyboard-driven (`←` / `→`, `Enter`, `Esc`). The model picker
@@ -90,9 +95,11 @@ The layout is computed from the terminal size on every resize:
 | narrower or shorter | conversation timeline without the sidebar |
 | under 80 columns | compact footer hints |
 
-The Duo composer grows to three visible text rows as height allows.
-Long sidebar values wrap instead of being truncated, and the workflow phase
-chain wraps to a second line when the sidebar is too narrow for all phases.
+The Duo composer grows to three visible text rows as height allows. The view
+switch is part of the header divider, so the conversation starts one row higher
+than before. Long sidebar values wrap instead of being truncated, and the
+workflow phase chain wraps to a second line when the sidebar is too narrow for
+all phases.
 Clicking one of the three sidebar panels expands it to the available height and
 shrinks the other two to their title bars; clicking it again restores the even
 layout. The disclosure triangle in each title (`▸` collapsed, `▾` expanded)

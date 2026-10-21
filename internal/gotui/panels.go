@@ -33,6 +33,13 @@ func expandableTitle(label string, expanded bool) string {
 	return " " + label + " ▸ "
 }
 
+// viewTabLabels are drawn on the header's divider row, not on a row of their
+// own; computeLayout and the header use the same strings so their hit boxes and
+// glyphs cannot drift apart.
+func viewTabLabels(t theme) (string, string) {
+	return " " + t.tr("Split") + " ", " " + t.tr("Timeline") + " "
+}
+
 type background struct {
 	ui.Block
 	theme theme
@@ -58,6 +65,7 @@ type headerBar struct {
 	status                string
 	statusErr             bool
 	compact               bool
+	view                  viewMode
 }
 
 func newHeader(t theme) *headerBar {
@@ -125,7 +133,19 @@ func (h *headerBar) Draw(buf *ui.Buffer) {
 		y++
 	}
 	if y < h.Max.Y {
-		for xx := h.Min.X; xx < h.Max.X; xx++ {
+		x = h.Min.X + 1
+		split, timeline := viewTabLabels(h.theme)
+		drawTab := func(label string, active bool) {
+			st := ui.Style{Fg: h.theme.Muted, Bg: h.theme.Panel}
+			if active {
+				st = ui.Style{Fg: h.theme.Bg, Bg: h.theme.Accent, Modifier: ui.ModifierBold}
+			}
+			buf.SetString(label, st, image.Pt(x, y))
+			x += rw.StringWidth(label)
+		}
+		drawTab(split, h.view == viewSplit)
+		drawTab(timeline, h.view == viewTimeline)
+		for xx := x; xx < h.Max.X; xx++ {
 			buf.SetCell(ui.NewCell('─', ui.Style{Fg: h.theme.Border, Bg: h.theme.Panel}), image.Pt(xx, y))
 		}
 	}
@@ -169,6 +189,9 @@ func (w *workflowPanel) Draw(buf *ui.Buffer) {
 	}
 	mode := w.view.EffectiveMode()
 	phase := string(w.view.Phase())
+	if mode == project.ModeStep {
+		phase = stepQueuePhase(w.view.Project)
+	}
 	chain := modeChain(mode.String())
 	chainStyle := ui.Style{Fg: w.theme.Accent, Bg: w.theme.Panel, Modifier: ui.ModifierBold}
 	chainLine := ""
@@ -218,6 +241,7 @@ func (w *workflowPanel) Draw(buf *ui.Buffer) {
 				step := w.view.Project.Steps[cur-1]
 				line(fmt.Sprintf("%s  %d. [%s] %s", w.theme.tr("current"), cur, strings.ToUpper(step.EffectivePolicy().String()), step.Title), w.theme.BodyMuted)
 			}
+			line(w.theme.tr("step status")+"  "+w.theme.tr(stepStage(w.view.Project)), w.theme.Subtle)
 		} else {
 			line(fmt.Sprintf("%s  A:%s  T:%s", w.theme.tr("ready"), readyMark(w.view.Project.Ready[protocol.Austin]), readyMark(w.view.Project.Ready[protocol.Tony])), w.theme.Subtle)
 		}
@@ -259,6 +283,34 @@ func (w *workflowPanel) deliveryStyle() ui.Style {
 		return w.theme.Error
 	default:
 		return w.theme.Subtle
+	}
+}
+
+// stepQueuePhase collapses Step's internal Goal phase set onto the queue's
+// top-level lifecycle. The per-step gate remains visible in the step status.
+func stepQueuePhase(s project.Snapshot) string {
+	switch s.Phase {
+	case project.PhasePlan:
+		return "PLAN"
+	case project.PhaseDone:
+		return "DONE"
+	default:
+		return "STEPS"
+	}
+}
+
+func stepStage(s project.Snapshot) string {
+	switch s.Phase {
+	case project.PhasePlan:
+		return "planning"
+	case project.PhaseReview:
+		return "reviewing"
+	case project.PhaseIntegrate:
+		return "integrating"
+	case project.PhaseDone:
+		return "done"
+	default:
+		return "working"
 	}
 }
 

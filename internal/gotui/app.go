@@ -16,7 +16,6 @@ import (
 	"github.com/atfa/duo/internal/terminal"
 	"github.com/gdamore/tcell/v3"
 	ui "github.com/metaspartan/gotui/v5"
-	"github.com/metaspartan/gotui/v5/widgets"
 )
 
 type viewMode int
@@ -58,7 +57,6 @@ type App struct {
 	background *background
 	modalBg    *background
 	header     *headerBar
-	tabs       *widgets.TabPane
 	workflow   *workflowPanel
 	austinCard *agentCard
 	tonyCard   *agentCard
@@ -141,11 +139,6 @@ func New(svc Session) *App {
 	a.background = newBackground(t)
 	a.modalBg = newBackground(t)
 	a.header = newHeader(t)
-	a.tabs = widgets.NewTabPane("Split", "Timeline")
-	a.tabs.Border = false
-	a.tabs.ActiveTabStyle = ui.Style{Fg: t.Bg, Bg: t.Accent, Modifier: ui.ModifierBold}
-	a.tabs.InactiveTabStyle = ui.Style{Fg: t.Muted, Bg: t.Bg}
-	a.tabs.PadLeft, a.tabs.PadRight = 2, 2
 	a.workflow = newWorkflow(t)
 	a.austinCard = newAgentCard(t, protocol.Austin)
 	a.tonyCard = newAgentCard(t, protocol.Tony)
@@ -386,9 +379,6 @@ func (a *App) draw() {
 	}
 	items := make([]ui.Drawable, 0, 14)
 	items = append(items, a.background, a.header)
-	if a.layout.tabs.Dy() > 0 {
-		items = append(items, a.tabs)
-	}
 	if a.layout.sidebarVisible {
 		items = append(items, a.workflow, a.austinCard, a.tonyCard)
 	}
@@ -434,13 +424,7 @@ func (a *App) updateWidgets() {
 	a.header.online, a.header.total = onlineAgents(a.live)
 	a.header.status, a.header.statusErr = a.status, a.statusErr
 	a.header.compact = l.compact
-
-	a.tabs.SetRect(l.tabs.Min.X, l.tabs.Min.Y, l.tabs.Max.X, l.tabs.Max.Y)
-	if a.layout.split {
-		a.tabs.ActiveTabIndex = int(viewSplit)
-	} else {
-		a.tabs.ActiveTabIndex = int(viewTimeline)
-	}
+	a.header.view = a.viewMode
 
 	a.workflow.SetRect(l.workflow.Min.X, l.workflow.Min.Y, l.workflow.Max.X, l.workflow.Max.Y)
 	a.workflow.view = a.live
@@ -490,7 +474,6 @@ func (a *App) updateWidgets() {
 		a.footer.hint = ""
 		a.footer.right = ""
 	}
-	a.tabs.TabNames = []string{"Split", "Timeline"}
 	a.picker.place(l)
 	a.help.place(l)
 	a.details.place(l)

@@ -61,7 +61,11 @@ func modeChain(mode string) []string {
 	case "FAST":
 		return []string{"RUNNING", "VERIFY", "DONE"}
 	case "STEP":
-		return []string{"PLAN", "EXECUTE", "REVIEW", "INTEGRATE", "DONE"}
+		// Step's queue uses the Goal phase set internally, but its top-level
+		// workflow is only plan the queue, run it, finish. The current step's
+		// Fast/Goal gate is shown separately, so Goal's REVIEW/INTEGRATE phases
+		// do not masquerade as session-level stages here.
+		return []string{"PLAN", "STEPS", "DONE"}
 	default:
 		return []string{"PLAN", "EXECUTE", "REVIEW", "INTEGRATE", "DONE"}
 	}

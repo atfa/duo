@@ -428,8 +428,9 @@ func (a *App) handleMouse(ev *tcell.EventMouse) {
 		return
 	}
 	if btn&tcell.Button1 != 0 {
-		if image.Pt(x, y).In(a.layout.tabs) {
-			if x < a.layout.tabs.Min.X+a.layout.tabs.Dx()/2 {
+		point := image.Pt(x, y)
+		if point.In(a.layout.tabSplit) || point.In(a.layout.tabTimeline) {
+			if point.In(a.layout.tabSplit) {
 				a.viewMode = viewSplit
 			} else {
 				a.viewMode = viewTimeline

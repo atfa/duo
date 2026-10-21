@@ -8,9 +8,16 @@ func TestSidebarPanelExpansion(t *testing.T) {
 	if !normal.sidebarVisible {
 		t.Fatal("sidebar should be visible at 120x42")
 	}
-	if normal.workflow.Dy() != 12 || normal.austinCard.Dy() != 9 || normal.tonyCard.Dy() != 9 {
+	if normal.workflow.Dy() != 12 || normal.austinCard.Dy() != 10 || normal.tonyCard.Dy() != 10 {
 		t.Fatalf("unexpected normal panel heights: workflow=%d austin=%d tony=%d",
 			normal.workflow.Dy(), normal.austinCard.Dy(), normal.tonyCard.Dy())
+	}
+	if normal.main.Min.Y != normal.header.Max.Y {
+		t.Fatalf("view tabs still occupy their own row: main starts at %d, header ends at %d",
+			normal.main.Min.Y, normal.header.Max.Y)
+	}
+	if normal.tabSplit.Min.Y != normal.header.Max.Y-1 || normal.tabTimeline.Min.Y != normal.tabSplit.Min.Y {
+		t.Fatal("view tabs are not on the header divider row")
 	}
 
 	cases := []struct {
@@ -19,9 +26,9 @@ func TestSidebarPanelExpansion(t *testing.T) {
 		austin   int
 		tony     int
 	}{
-		{panelWorkflow, 24, 3, 3},
-		{panelAustin, 3, 24, 3},
-		{panelTony, 3, 3, 24},
+		{panelWorkflow, 25, 3, 3},
+		{panelAustin, 3, 25, 3},
+		{panelTony, 3, 3, 25},
 	}
 	for _, tc := range cases {
 		app.sidebarFocus = tc.focus
