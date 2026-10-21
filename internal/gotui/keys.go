@@ -30,6 +30,7 @@ func (a *App) handleEvent(ev tcell.Event) {
 }
 
 func (a *App) handleKey(ev *tcell.EventKey) {
+	defer a.syncMention()
 	// Bracketed paste is text, not a command stream: a pasted newline must not
 	// submit, and a pasted Ctrl+Q must not reach the application keymap.
 	if a.pasting {
@@ -77,6 +78,29 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 			}
 		case tcell.KeyEsc:
 			a.slashHidden = true
+			return
+		}
+	}
+	if a.mentionOpen() {
+		switch ev.Key() {
+		case tcell.KeyUp:
+			a.fileMenu.move(-1)
+			return
+		case tcell.KeyDown:
+			a.fileMenu.move(1)
+			return
+		case tcell.KeyTab:
+			a.acceptMention()
+			return
+		case tcell.KeyEnter:
+			// Ctrl/Alt/Shift+Enter still means a newline; only plain Enter
+			// accepts the highlighted file.
+			if ev.Modifiers() == 0 {
+				a.acceptMention()
+				return
+			}
+		case tcell.KeyEsc:
+			a.closeMention()
 			return
 		}
 	}
@@ -252,6 +276,17 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 				a.openHelp()
 			}
 			return
+		}
+		if str == "@" && a.mentionStart < 0 {
+			line := a.composer.CurrentLine()
+			_, col := a.composer.Cursor()
+			if mentionBoundary(line, col) {
+				a.composer.InsertString(str)
+				a.openMention(col)
+				a.slashHidden = false
+				a.resetHistory()
+				return
+			}
 		}
 		a.composer.InsertString(str)
 		a.slashHidden = false

@@ -86,6 +86,13 @@ type App struct {
 	slashCursor  int
 	slashHidden  bool
 
+	fileMenu     *mentionMenu
+	mentionStart int
+	mentionRow   int
+	mentionQuery string
+	mentionFiles []string
+	listFiles    func(string) []string
+
 	modelTarget  protocol.AgentID
 	currentModel map[protocol.AgentID]string
 	currentThink map[protocol.AgentID]string
@@ -135,6 +142,7 @@ func New(svc Session) *App {
 		sidebar:       true,
 		warnedNotices: map[string]bool{},
 		historyIdx:    -1,
+		mentionStart:  -1,
 		modelTarget:   protocol.Austin,
 		currentModel:  map[protocol.AgentID]string{},
 		currentThink:  map[protocol.AgentID]string{},
@@ -165,6 +173,8 @@ func New(svc Session) *App {
 	a.help = newHelp(t)
 	a.details = newDetails(t)
 	a.slash = newSlashMenu(t)
+	a.fileMenu = newMentionMenu(t)
+	a.listFiles = gitListFiles
 	a.confirm = &confirmOverlay{Block: newModalBlock(t), theme: t, active: 0, choice2: "Cancel", choice1: "Confirm"}
 	if svc != nil {
 		a.live = svc.View()
@@ -420,6 +430,10 @@ func (a *App) draw() {
 	}
 	if a.overlay == overlayNone && a.slashOpen() {
 		items = append(items, a.slash)
+	}
+	if a.overlay == overlayNone && a.mentionOpen() {
+		a.fileMenu.place(a.layout, a.composer)
+		items = append(items, a.fileMenu)
 	}
 	if a.overlay != overlayNone {
 		a.modalBg.SetRect(0, a.layout.main.Min.Y, a.width, a.layout.main.Max.Y)

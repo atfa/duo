@@ -28,7 +28,8 @@ other Duo frontend. It never owns workflow state or makes project transitions:
   Goal's `EXECUTE → REVIEW → INTEGRATE` chain. A `step status` line reports the
   current item's stage (planning, working, reviewing or integrating).
 - **Composer.** Multiline editing, history recall, bracketed-paste handling,
-  cursor-aware scrolling, slash palette, and the model/thinking picker.
+  tracked-file `@` completion, cursor-aware scrolling, slash palette, and the
+  model/thinking picker.
 - **Language.** `/language zh|en` changes Duo-authored messages and the dashboard
   chrome immediately, and the choice is persisted in `.duo/config.json` for the
   next launch. Protocol names such as FAST/GOAL/STEP stay canonical.

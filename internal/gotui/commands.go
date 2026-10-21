@@ -18,6 +18,7 @@ func (a *App) submit() {
 		return
 	}
 	a.composer.Clear()
+	a.closeMention()
 	a.slashHidden = false
 	a.slashCursor = 0
 	a.pushHistory(text)
@@ -191,11 +192,13 @@ func (a *App) switchModeFromComposer(target project.Mode, reason string) {
 }
 
 func (a *App) openHelp() {
+	a.closeMention()
 	a.help.offset = 0
 	a.overlay = overlayHelp
 }
 
 func (a *App) openDetails() {
+	a.closeMention()
 	a.details.begin()
 	a.overlay = overlayDetails
 	if a.svc == nil {
@@ -228,6 +231,7 @@ func (a *App) openPicker() {
 	if a.svc == nil {
 		return
 	}
+	a.closeMention()
 	a.modelTarget = a.picker.agent
 	if a.modelTarget == "" {
 		a.modelTarget = protocol.Austin

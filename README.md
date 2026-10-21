@@ -145,6 +145,7 @@ The gotui frontend opens in a **split dashboard**: a workflow sidebar with the p
 |---|---|
 | `Enter` | Send composer text to Austin in Fast, or both agents in Goal and Step |
 | `Ctrl+Enter` / `Shift+Enter`\* | Insert a newline in the composer |
+| `@` | At the start of a word, complete a tracked repository file; `↑`/`↓` choose, `Tab`/`Enter` insert, `Esc` dismiss |
 | `F2` / click the `Split` or `Timeline` tab | Switch between the split dashboard and the single timeline |
 | `Ctrl+P` | Show or hide the workflow sidebar |
 | `F1` / `Ctrl+/` / `Alt+H` | Open Help |
@@ -162,12 +163,12 @@ The gotui frontend opens in a **split dashboard**: a workflow sidebar with the p
 | `Home` / `End` | Move to the start or end of the composer line |
 | `Ctrl+U` / `Ctrl+K`, `Ctrl+W` | Delete to line start/end, or delete the previous word |
 | `Backspace` / `Del` | Delete the preceding or following composer character |
-| `↑` / `↓` | Move between composer lines; recall task history at the first/last line |
-| `Tab` | Insert four spaces, or autocomplete the highlighted slash command |
+| `↑` / `↓` | Move between composer lines or choose a file mention; recall task history at the first/last line |
+| `Tab` | Insert four spaces, or accept the highlighted slash command or file mention |
 | `PgUp` / `PgDn` | Scroll the active conversation pane (or an open modal) |
 | Mouse wheel / drag | Scroll the pane under the pointer, or select and copy transcript text; a `COPIED` toast appears briefly in the top-right |
 | Click a URL / existing file path | Open the URL in the browser, or show the file in the system file manager |
-| `Esc` | Close an overlay, dismiss the slash menu, or clear a selection/status |
+| `Esc` | Close an overlay, dismiss the slash or file menu, or clear a selection/status |
 
 The layout responds to the terminal: the workflow sidebar needs at least 104 columns, the split view needs a 72-column by 16-row main pane, and narrower terminals fall back to the timeline. The sidebar phase chain wraps when it does not fit, and the footer uses compact hints below 80 columns. A resumed session starts with its restored conversation; the startup banner is only added to a new session.
 

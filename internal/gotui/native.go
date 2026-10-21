@@ -68,6 +68,7 @@ func (a *App) enterNative(target protocol.AgentID) {
 	if a.native != "" {
 		return
 	}
+	a.closeMention()
 	if err := a.nativeAttach(target); err != nil {
 		a.setStatus(err.Error(), true)
 		a.addLabeled(protocol.Duo, directionLabel(protocol.Duo, ""), "ERROR: "+err.Error(), true, false)

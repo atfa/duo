@@ -156,7 +156,7 @@ func (h *helpOverlay) rebuild() {
 			"Ctrl+R restart Austin  ·  Ctrl+Y restart Tony  ·  Ctrl+/ help",
 			"Ctrl+O details & changes  ·  Ctrl+X copy Austin's latest  ·  Ctrl+P sidebar",
 			"Ctrl+G timestamps  ·  PgUp/PgDn scroll  ·  Ctrl+Q / Ctrl+D quit",
-			"Esc closes dialogs  ·  Tab autocompletes slash commands  ·  ↑/↓ recalls history",
+			"@ completes a tracked file  ·  Tab autocompletes slash commands or files  ·  Esc closes dialogs  ·  ↑/↓ recalls history",
 		}},
 		{"SLASH COMMANDS", []string{
 			"/help · /overview · /model · /copy · /preview · /timestamps",

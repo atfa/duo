@@ -6,6 +6,7 @@ package gotui
 var zhUI = map[string]string{
 	"WORKFLOW":          "工作流",
 	"COMMANDS":          "命令",
+	"FILES":             "文件",
 	"CONVERSATION":      "会话",
 	"MODELS & THINKING": "模型与思考",
 	"Message":           "消息",
@@ -44,6 +45,7 @@ var zhUI = map[string]string{
 	"Redraw the screen":                                            "重绘屏幕",
 	"Quit and preserve this session (Ctrl+Q)":                      "退出并保留当前会话（Ctrl+Q）",
 	"↑/↓ choose  ·  Tab complete  ·  Enter select  ·  Esc dismiss": "↑/↓ 选择  ·  Tab 补全  ·  Enter 确认  ·  Esc 关闭",
+	"↑/↓ choose  ·  Tab/Enter insert  ·  Esc dismiss":              "↑/↓ 选择  ·  Tab/Enter 插入  ·  Esc 关闭",
 
 	"Enter send · Ctrl+Enter newline · Alt+M models · Ctrl+A/T native · F1 help · F2 view · Ctrl+Q quit": "Enter 发送 · Ctrl+Enter 换行 · Alt+M 模型 · Ctrl+A/T 原生会话 · F1 帮助 · F2 视图 · Ctrl+Q 退出",
 	"Enter send · Alt+M models · F1 help · F2 view · Ctrl+Q quit":                                        "Enter 发送 · Alt+M 模型 · F1 帮助 · F2 视图 · Ctrl+Q 退出",
@@ -93,7 +95,7 @@ var zhUI = map[string]string{
 	"Ctrl+R restart Austin  ·  Ctrl+Y restart Tony  ·  Ctrl+/ help":                                                                            "Ctrl+R 重启 Austin  ·  Ctrl+Y 重启 Tony  ·  Ctrl+/ 帮助",
 	"Ctrl+O details & changes  ·  Ctrl+X copy Austin's latest  ·  Ctrl+P sidebar":                                                              "Ctrl+O 详情与变更  ·  Ctrl+X 复制 Austin 最新消息  ·  Ctrl+P 侧边栏",
 	"Ctrl+G timestamps  ·  PgUp/PgDn scroll  ·  Ctrl+Q / Ctrl+D quit":                                                                          "Ctrl+G 时间戳  ·  PgUp/PgDn 滚动  ·  Ctrl+Q / Ctrl+D 退出",
-	"Esc closes dialogs  ·  Tab autocompletes slash commands  ·  ↑/↓ recalls history":                                                          "Esc 关闭弹窗  ·  Tab 补全斜杠命令  ·  ↑/↓ 回溯历史",
+	"@ completes a tracked file  ·  Tab autocompletes slash commands or files  ·  Esc closes dialogs  ·  ↑/↓ recalls history":                  "补全仓库中的已跟踪文件  ·  Tab 补全斜杠命令或文件  ·  Esc 关闭弹窗  ·  ↑/↓ 回溯历史",
 	"Attach suspends the dashboard and hands the real PTY to the agent. The":                                                                   "进入 Agent 会话会暂停仪表盘并把真实 PTY 交给 Agent。",
 	"terminal is restored on detach. Use Ctrl+] (or Ctrl+\\, Ctrl+】) to return.":                                                               "返回时会恢复终端。使用 Ctrl+]（或 Ctrl+\\、Ctrl+】）返回。",
 	"Every visible message is recorded through the session journal, so resume":                                                                 "每条可见消息都会写入会话日志，因此 resume",

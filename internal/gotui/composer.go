@@ -64,6 +64,36 @@ func (c *composer) Text() string {
 
 func (c *composer) Empty() bool { return len(c.Text()) == 0 }
 
+// Cursor returns the edit position as a row and column.
+func (c *composer) Cursor() (row, col int) { return c.row, c.col }
+
+// CurrentLine returns a copy of the line being edited.
+func (c *composer) CurrentLine() []rune {
+	return append([]rune(nil), c.lines[c.row]...)
+}
+
+// ReplaceRange replaces a single-line span with text and leaves the cursor at
+// the end of the replacement. It is what turns an @ token into a completed path
+// without rebuilding the whole composer text.
+func (c *composer) ReplaceRange(row, start, end int, text string) bool {
+	if row < 0 || row >= len(c.lines) {
+		return false
+	}
+	line := c.lines[row]
+	if start < 0 || end < start || end > len(line) || strings.ContainsRune(text, '\n') || strings.ContainsRune(text, '\r') {
+		return false
+	}
+	replacement := []rune(text)
+	updated := make([]rune, 0, len(line)-(end-start)+len(replacement))
+	updated = append(updated, line[:start]...)
+	updated = append(updated, replacement...)
+	updated = append(updated, line[end:]...)
+	c.lines[row] = updated
+	c.row, c.col = row, start+len(replacement)
+	c.goalCol = -1
+	return true
+}
+
 func (c *composer) Clear() {
 	c.lines = [][]rune{{}}
 	c.row, c.col, c.goalCol, c.scroll = 0, 0, -1, 0
