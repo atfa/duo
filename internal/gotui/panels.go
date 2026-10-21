@@ -91,9 +91,9 @@ func (h *headerBar) Draw(buf *ui.Buffer) {
 	}
 	y++
 	if !h.compact {
-		line := "session " + h.session
+		line := h.theme.tr("session") + " " + h.session
 		if h.online > 0 {
-			line += fmt.Sprintf("   ·   %d/%d agents online", h.online, h.total)
+			line += fmt.Sprintf("   ·   %d/%d %s", h.online, h.total, h.theme.tr("agents online"))
 		}
 		status := h.status
 		statusText := ""
@@ -134,13 +134,14 @@ func newWorkflow(t theme) *workflowPanel {
 	w.BorderRounded = true
 	w.BorderStyle = ui.Style{Fg: t.Border, Bg: t.Panel}
 	w.BackgroundColor = t.Panel
-	w.Title = " WORKFLOW "
+	w.Title = " " + w.theme.tr("WORKFLOW") + " "
 	w.TitleStyle = ui.Style{Fg: t.Accent, Bg: t.Panel, Modifier: ui.ModifierBold}
 	w.PaddingLeft, w.PaddingRight = 1, 1
 	return w
 }
 
 func (w *workflowPanel) Draw(buf *ui.Buffer) {
+	w.Title = " " + w.theme.tr("WORKFLOW") + " "
 	w.Block.Draw(buf)
 	if w.Inner.Dx() <= 2 || w.Inner.Dy() <= 0 {
 		return
@@ -185,10 +186,10 @@ func (w *workflowPanel) Draw(buf *ui.Buffer) {
 		line(chainLine, chainStyle)
 	}
 	if mode == project.ModeFast {
-		line("verify    "+w.view.Project.Verification.Label(), w.verifyStyle())
-		line("delivery  "+deliveryLabel(w.view.Delivery), w.deliveryStyle())
+		line(w.theme.tr("verify")+"  "+w.theme.tr(w.view.Project.Verification.Label()), w.verifyStyle())
+		line(w.theme.tr("delivery")+"  "+deliveryLabel(w.view.Delivery, w.theme), w.deliveryStyle())
 	} else {
-		line(fmt.Sprintf("plan v%d  ·  %d bytes", w.view.Project.PlanVersion, len(strings.TrimSpace(w.view.Project.Plan))), w.theme.Subtle)
+		line(fmt.Sprintf("%s v%d  ·  %d %s", w.theme.tr("plan"), w.view.Project.PlanVersion, len(strings.TrimSpace(w.view.Project.Plan)), w.theme.tr("bytes")), w.theme.Subtle)
 		if mode == project.ModeStep && len(w.view.Project.Steps) > 0 {
 			cur := w.view.Project.Step
 			if cur < 1 {
@@ -200,29 +201,29 @@ func (w *workflowPanel) Draw(buf *ui.Buffer) {
 					done++
 				}
 			}
-			line(fmt.Sprintf("steps         %d/%d landed", done, len(w.view.Project.Steps)), w.theme.Subtle)
+			line(fmt.Sprintf("%s  %d/%d %s", w.theme.tr("steps"), done, len(w.view.Project.Steps), w.theme.tr("landed")), w.theme.Subtle)
 			if cur <= len(w.view.Project.Steps) {
 				step := w.view.Project.Steps[cur-1]
-				line(fmt.Sprintf("current       %d. [%s] %s", cur, strings.ToUpper(step.EffectivePolicy().String()), step.Title), w.theme.BodyMuted)
+				line(fmt.Sprintf("%s  %d. [%s] %s", w.theme.tr("current"), cur, strings.ToUpper(step.EffectivePolicy().String()), step.Title), w.theme.BodyMuted)
 			}
 		} else {
-			line(fmt.Sprintf("ready         A:%s  T:%s", readyMark(w.view.Project.Ready[protocol.Austin]), readyMark(w.view.Project.Ready[protocol.Tony])), w.theme.Subtle)
+			line(fmt.Sprintf("%s  A:%s  T:%s", w.theme.tr("ready"), readyMark(w.view.Project.Ready[protocol.Austin]), readyMark(w.view.Project.Ready[protocol.Tony])), w.theme.Subtle)
 		}
-		line("delivery      "+deliveryLabel(w.view.Delivery), w.deliveryStyle())
+		line(w.theme.tr("delivery")+"  "+deliveryLabel(w.view.Delivery, w.theme), w.deliveryStyle())
 	}
 	if w.Inner.Dy() >= 7 {
 		root := w.view.Worktrees.Root
 		if root == "" {
 			root = w.view.Worktrees.Repository
 		}
-		line("worktrees     "+shortPath(root, max(8, w.Inner.Dx()-14)), w.theme.Subtle)
+		line(w.theme.tr("worktrees")+"  "+shortPath(root, max(8, w.Inner.Dx()-14)), w.theme.Subtle)
 	}
 	if !w.compact {
 		if note := strings.TrimSpace(w.view.Project.Verification.Note); note != "" && mode == project.ModeFast {
-			line("note          "+strings.ReplaceAll(note, "\n", " "), w.theme.Warning)
+			line(w.theme.tr("note")+"  "+strings.ReplaceAll(note, "\n", " "), w.theme.Warning)
 		}
 		if w.view.Delivery.Reason != "" && w.view.Delivery.Status == sessionstore.DeliveryBlocked {
-			line("delivery note "+w.view.Delivery.Reason, w.theme.Warning)
+			line(w.theme.tr("delivery note")+"  "+w.view.Delivery.Reason, w.theme.Warning)
 		}
 	}
 }
@@ -261,16 +262,16 @@ func phaseDone(mode project.Mode, current, candidate string) bool {
 	return false
 }
 
-func deliveryLabel(d sessionstore.Delivery) string {
+func deliveryLabel(d sessionstore.Delivery, t theme) string {
 	switch d.Status {
 	case sessionstore.DeliveryApplied:
-		return "applied" + hashSuffix(d.AppliedHead)
+		return t.tr("applied") + hashSuffix(d.AppliedHead)
 	case sessionstore.DeliveryBlocked:
-		return "blocked" + hashSuffix(d.Reason)
+		return t.tr("blocked") + hashSuffix(d.Reason)
 	case sessionstore.DeliveryPending:
-		return "pending"
+		return t.tr("pending")
 	default:
-		return "not requested"
+		return t.tr("not requested")
 	}
 }
 
@@ -343,33 +344,33 @@ func (a *agentCard) Draw(buf *ui.Buffer) {
 		model = a.av.Manifest.DefaultModel
 	}
 	if model == "" {
-		model = "model not reported"
+		model = a.theme.tr("model not reported")
 	}
-	line("model    "+model, a.theme.Body)
+	line(a.theme.tr("model")+"    "+model, a.theme.Body)
 	driver := a.av.Driver
 	if driver == "" {
-		driver = "driver"
+		driver = a.theme.tr("driver")
 	}
 	thinking := a.thinking
 	if thinking == "" {
 		thinking = a.av.Thinking
 	}
 	if thinking == "" {
-		thinking = "default"
+		thinking = a.theme.tr("default")
 	}
-	line("driver   "+driver, a.theme.Subtle)
-	line("thinking "+thinking, a.theme.Subtle)
+	line(a.theme.tr("driver")+"   "+driver, a.theme.Subtle)
+	line(a.theme.tr("thinking")+" "+thinking, a.theme.Subtle)
 	rt := a.av.Runtime
 	if rt.ContextWindow > 0 {
 		pct := float64(rt.ContextTokens) / float64(rt.ContextWindow) * 100
-		line(fmt.Sprintf("context  %s / %s  %.0f%%", humanTokens(rt.ContextTokens), humanTokens(rt.ContextWindow), pct), a.theme.Subtle)
+		line(fmt.Sprintf("%s  %s / %s  %.0f%%", a.theme.tr("context"), humanTokens(rt.ContextTokens), humanTokens(rt.ContextWindow), pct), a.theme.Subtle)
 	} else {
-		line("context  not reported", a.theme.Subtle)
+		line(a.theme.tr("context")+"  "+a.theme.tr("not reported"), a.theme.Subtle)
 	}
 	if rt.ToolDepth > 0 || rt.Tool != "" {
 		tool := rt.Tool
 		if tool == "" {
-			tool = "tool"
+			tool = a.theme.tr("tool")
 		}
 		if rt.ToolDetail != "" {
 			tool += "  " + rt.ToolDetail
@@ -378,12 +379,12 @@ func (a *agentCard) Draw(buf *ui.Buffer) {
 		if !rt.ToolStarted.IsZero() && rt.ToolDepth > 0 {
 			dur = "  " + shortDuration(a.now.Sub(rt.ToolStarted))
 		}
-		line("tool     "+tool+dur, a.theme.Warning)
+		line(a.theme.tr("tool")+"     "+tool+dur, a.theme.Warning)
 	}
 	if rt.Busy && !rt.TurnStarted.IsZero() {
-		line("turn     "+shortDuration(a.now.Sub(rt.TurnStarted))+fmt.Sprintf("  ·  %d tools", rt.Tools), a.theme.Subtle)
+		line(fmt.Sprintf("%s     %s  ·  %d %s", a.theme.tr("turn"), shortDuration(a.now.Sub(rt.TurnStarted)), rt.Tools, a.theme.tr("tools")), a.theme.Subtle)
 	} else if !rt.LastActivity.IsZero() {
-		line("idle     "+shortDuration(a.now.Sub(rt.LastActivity))+" ago", a.theme.Subtle)
+		line(a.theme.tr("idle")+"     "+shortDuration(a.now.Sub(rt.LastActivity))+" "+a.theme.tr("ago"), a.theme.Subtle)
 	}
 	if !a.compact {
 		for i := len(rt.Recent) - 1; i >= 0 && i >= len(rt.Recent)-2; i-- {
@@ -407,28 +408,28 @@ func agentState(av session.AgentView, id protocol.AgentID, t theme) (string, ui.
 	base := ui.Style{Fg: color, Bg: t.Panel}
 	switch {
 	case !av.Present:
-		return "not configured", t.Subtle
+		return t.tr("not configured"), t.Subtle
 	case av.Process == agent.ProcessFailed:
-		return "failed", t.Error
+		return t.tr("failed"), t.Error
 	case av.Process == agent.ProcessExited:
-		return "exited", t.Warning
+		return t.tr("exited"), t.Warning
 	case av.Process == agent.ProcessStarting:
-		return "starting", t.Warning
+		return t.tr("starting"), t.Warning
 	case av.Process == agent.ProcessStopping:
-		return "stopping", t.Warning
+		return t.tr("stopping"), t.Warning
 	case !av.Connected && av.Capabilities.SelfReports:
-		return "connecting", t.Warning
+		return t.tr("connecting"), t.Warning
 	}
 	rt := av.Runtime
 	switch {
 	case rt.ToolDepth > 0:
-		return "working · tool", base
+		return t.tr("working · tool"), base
 	case rt.Busy && rt.ProviderActive:
-		return "thinking", base
+		return t.tr("thinking"), base
 	case rt.Busy:
-		return "working", base
+		return t.tr("working"), base
 	default:
-		return "ready", t.Success
+		return t.tr("ready"), t.Success
 	}
 }
 

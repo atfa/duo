@@ -95,6 +95,7 @@ func (s *slashMenu) selected() (slashCommand, bool) {
 
 func (s *slashMenu) Draw(buf *ui.Buffer) {
 	fillBlock(buf, s.GetRect(), ui.Style{Fg: s.theme.Fg, Bg: s.theme.PanelHigh})
+	s.Title = " " + s.theme.tr("COMMANDS") + " "
 	s.Block.Draw(buf)
 	s.clamp()
 	rows := max(1, s.Inner.Dy()-1)
@@ -145,10 +146,11 @@ func (s *slashMenu) Draw(buf *ui.Buffer) {
 		if idx == s.cursor {
 			descStyle = style
 		}
-		buf.SetString(fitText(cmd.desc, max(1, s.Inner.Dx()-nameWidth)), descStyle, image.Pt(s.Inner.Min.X+nameWidth, y))
+		desc := s.theme.tr(cmd.desc)
+		buf.SetString(fitText(desc, max(1, s.Inner.Dx()-nameWidth)), descStyle, image.Pt(s.Inner.Min.X+nameWidth, y))
 	}
 	if s.Inner.Dy() > 0 {
-		buf.SetString(fitText("↑/↓ choose  ·  Tab complete  ·  Enter select  ·  Esc dismiss", s.Inner.Dx()), s.theme.Timestamp, image.Pt(s.Inner.Min.X, s.Inner.Max.Y-1))
+		buf.SetString(fitText(s.theme.tr("↑/↓ choose  ·  Tab complete  ·  Enter select  ·  Esc dismiss"), s.Inner.Dx()), s.theme.Timestamp, image.Pt(s.Inner.Min.X, s.Inner.Max.Y-1))
 	}
 }
 

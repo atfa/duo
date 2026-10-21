@@ -92,21 +92,34 @@ func (a *App) runSlash(text string) bool {
 		a.requestQuit()
 		return true
 	case "/language":
+		zh := a.live.Language == "zh"
 		if len(fields) == 1 {
 			lang := a.live.Language
 			if lang == "" {
 				lang = "en"
 			}
-			a.setStatus(fmt.Sprintf("current language: %s (use /language zh or /language en)", lang), false)
+			if zh {
+				a.setStatus(fmt.Sprintf("当前语言：%s（使用 /language zh 或 /language en）", lang), false)
+			} else {
+				a.setStatus(fmt.Sprintf("current language: %s (use /language zh or /language en)", lang), false)
+			}
 			return true
 		}
 		if len(fields) > 2 {
-			a.setStatus("usage: /language [zh|en]", true)
+			if zh {
+				a.setStatus("用法：/language [zh|en]", true)
+			} else {
+				a.setStatus("usage: /language [zh|en]", true)
+			}
 			return true
 		}
 		lang := strings.ToLower(fields[1])
 		if lang != "zh" && lang != "en" {
-			a.setStatus(fmt.Sprintf("invalid language %q: use zh or en", fields[1]), true)
+			if zh {
+				a.setStatus(fmt.Sprintf("无效语言 %q：请使用 zh 或 en", fields[1]), true)
+			} else {
+				a.setStatus(fmt.Sprintf("invalid language %q: use zh or en", fields[1]), true)
+			}
 			return true
 		}
 		if err := a.svc.Do(context.Background(), session.SetLanguage{Language: lang}); err != nil {
@@ -114,7 +127,11 @@ func (a *App) runSlash(text string) bool {
 			return true
 		}
 		a.refreshView()
-		a.setStatus(fmt.Sprintf("language → %s (saved to config)", lang), false)
+		if lang == "zh" {
+			a.setStatus(fmt.Sprintf("语言 → %s（已保存到配置）", lang), false)
+		} else {
+			a.setStatus(fmt.Sprintf("language → %s (saved to config)", lang), false)
+		}
 		return true
 	case "/mode":
 		if len(fields) == 1 {

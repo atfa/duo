@@ -79,6 +79,7 @@ func (c *confirmOverlay) place(l layout) {
 
 func (c *confirmOverlay) Draw(buf *ui.Buffer) {
 	fillBlock(buf, c.GetRect(), ui.Style{Fg: c.theme.Fg, Bg: c.theme.PanelHigh})
+	c.Title = " " + c.theme.tr(c.title) + " "
 	c.Block.Draw(buf)
 	width := c.Inner.Dx()
 	y := c.Inner.Min.Y
@@ -95,7 +96,7 @@ func (c *confirmOverlay) Draw(buf *ui.Buffer) {
 		if active {
 			st = ui.Style{Fg: c.theme.Bg, Bg: c.theme.Accent, Modifier: ui.ModifierBold}
 		}
-		text := "  " + label + "  "
+		text := "  " + c.theme.tr(label) + "  "
 		buf.SetString(text, st, image.Pt(x, y))
 		return x + rw.StringWidth(text)
 	}
@@ -103,7 +104,7 @@ func (c *confirmOverlay) Draw(buf *ui.Buffer) {
 	x = drawChoice(c.choice2, c.active == 0, x)
 	x++
 	drawChoice(c.choice1, c.active == 1, x)
-	buf.SetString(fitText("←/→ choose  ·  Enter select  ·  Esc cancel", width), c.theme.Timestamp, image.Pt(c.Inner.Min.X, c.Inner.Max.Y-2))
+	buf.SetString(fitText(c.theme.tr("←/→ choose  ·  Enter select  ·  Esc cancel"), width), c.theme.Timestamp, image.Pt(c.Inner.Min.X, c.Inner.Max.Y-2))
 }
 
 // helpOverlay is a scrollable guide. Content is rebuilt on width changes, so a
@@ -168,9 +169,9 @@ func (h *helpOverlay) rebuild() {
 	var lines []renderLine
 	for _, s := range sections {
 		lines = append(lines, makeLine("", h.theme.Body, 0))
-		lines = append(lines, makeLine(s.title, ui.Style{Fg: h.theme.Accent, Bg: h.theme.Panel, Modifier: ui.ModifierBold}, 0))
+		lines = append(lines, makeLine(h.theme.tr(s.title), ui.Style{Fg: h.theme.Accent, Bg: h.theme.Panel, Modifier: ui.ModifierBold}, 0))
 		for _, text := range s.lines {
-			wrapped := wrapText(text, h.theme.BodyMuted, max(1, h.Inner.Dx()-2))
+			wrapped := wrapText(h.theme.tr(text), h.theme.BodyMuted, max(1, h.Inner.Dx()-2))
 			for _, line := range wrapped {
 				line.runs = append([]textRun{{"  ", h.theme.BodyMuted}}, line.runs...)
 				lines = append(lines, line)
@@ -186,6 +187,7 @@ func (h *helpOverlay) Draw(buf *ui.Buffer) {
 
 func (h *helpOverlay) DrawBase(buf *ui.Buffer) {
 	fillBlock(buf, h.GetRect(), ui.Style{Fg: h.theme.Fg, Bg: h.theme.PanelHigh})
+	h.Title = " " + h.theme.tr("HELP") + " "
 	h.Block.Draw(buf)
 	height := max(0, h.Inner.Dy()-1)
 	for i := 0; i < height; i++ {
@@ -199,7 +201,7 @@ func (h *helpOverlay) DrawBase(buf *ui.Buffer) {
 			x += rw.StringWidth(run.text)
 		}
 	}
-	hint := "↑/↓ scroll  ·  Esc close"
+	hint := h.theme.tr("↑/↓ scroll  ·  Esc close")
 	if h.Inner.Dy() > 0 {
 		buf.SetString(fitText(hint, h.Inner.Dx()), h.theme.Timestamp, image.Pt(h.Inner.Min.X, h.Inner.Max.Y-1))
 	}
@@ -283,9 +285,9 @@ func (d *detailOverlay) rebuild() {
 		wrapped := wrapText(text, style, max(1, d.Inner.Dx()))
 		d.lines = append(d.lines, wrapped...)
 	}
-	add("SESSION STATUS", ui.Style{Fg: d.theme.Accent, Bg: d.theme.Panel, Modifier: ui.ModifierBold})
+	add(d.theme.tr("SESSION STATUS"), ui.Style{Fg: d.theme.Accent, Bg: d.theme.Panel, Modifier: ui.ModifierBold})
 	if d.loading {
-		add("loading…", d.theme.Subtle)
+		add(d.theme.tr("loading…"), d.theme.Subtle)
 	}
 	if d.err != "" {
 		add("error: "+d.err, d.theme.Error)
@@ -294,9 +296,9 @@ func (d *detailOverlay) rebuild() {
 		add(line, d.theme.Body)
 	}
 	d.lines = append(d.lines, renderLine{})
-	add("CHANGES", ui.Style{Fg: d.theme.Accent, Bg: d.theme.Panel, Modifier: ui.ModifierBold})
+	add(d.theme.tr("CHANGES"), ui.Style{Fg: d.theme.Accent, Bg: d.theme.Panel, Modifier: ui.ModifierBold})
 	if len(d.changes) == 0 {
-		add("working tree clean", d.theme.Subtle)
+		add(d.theme.tr("working tree clean"), d.theme.Subtle)
 	} else {
 		for _, line := range d.changes {
 			st := d.theme.Body
@@ -310,6 +312,7 @@ func (d *detailOverlay) rebuild() {
 
 func (d *detailOverlay) Draw(buf *ui.Buffer) {
 	fillBlock(buf, d.GetRect(), ui.Style{Fg: d.theme.Fg, Bg: d.theme.PanelHigh})
+	d.Title = " " + d.theme.tr("SESSION DETAILS") + " "
 	d.Block.Draw(buf)
 	height := max(0, d.Inner.Dy()-1)
 	for i := 0; i < height; i++ {
@@ -323,7 +326,7 @@ func (d *detailOverlay) Draw(buf *ui.Buffer) {
 			x += rw.StringWidth(run.text)
 		}
 	}
-	buf.SetString(fitText("↑/↓ scroll  ·  Esc close", d.Inner.Dx()), d.theme.Timestamp, image.Pt(d.Inner.Min.X, d.Inner.Max.Y-1))
+	buf.SetString(fitText(d.theme.tr("↑/↓ scroll  ·  Esc close"), d.Inner.Dx()), d.theme.Timestamp, image.Pt(d.Inner.Min.X, d.Inner.Max.Y-1))
 }
 
 func (d *detailOverlay) Scroll(delta int) {

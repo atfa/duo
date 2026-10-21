@@ -24,6 +24,9 @@ other Duo frontend. It never owns workflow state or makes project transitions:
 - **Timeline.** One chronological conversation, one toggle away.
 - **Composer.** Multiline editing, history recall, bracketed-paste handling,
   cursor-aware scrolling, slash palette, and the model/thinking picker.
+- **Language.** `/language zh|en` changes Duo-authored messages and the dashboard
+  chrome immediately, and the choice is persisted in `.duo/config.json` for the
+  next launch. Protocol names such as FAST/GOAL/STEP stay canonical.
 - **Overlays.** Help, session details, model picker and destructive confirmations
   are centered modals with a cleared content backdrop. The slash palette occupies
   the conversation pane so no text or border fragments show through it.

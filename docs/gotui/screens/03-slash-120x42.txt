@@ -4,9 +4,9 @@
     Split    Timeline
  ╭─ WORKFLOW ───────────────────────╮ ╭─ CONVERSATION ────────────────────────────────────────────────────────────────╮
  │ ●  RUNNING  ○  VERIFY  ○  DONE   │ │ 16:02  Human →  Austin                                                        │
- │ verify    passed                 │ │   Add cursor pagination to GET /sessions and document the new parameters.     │
+ │ verify  passed                   │ │   Add cursor pagination to GET /sessions and document the new parameters.     │
  │ delivery  pending                │ │                                                                               │
- │ worktrees     /tmp/example       │ │ 16:02  Austin →  Human                                                        │
+ │ worktrees  /tmp/example          │ │ 16:02  Austin →  Human                                                        │
  │                                  │ │   Result                                                                      │
  │                                  │ │                                                                               │
  │                                  │ │   Implemented cursor pagination.                                              │

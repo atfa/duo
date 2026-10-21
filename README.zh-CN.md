@@ -333,7 +333,7 @@ duo mcp-server config --agent tony            # 打印 MCP 客户端配置 JSON
 }
 ```
 
-可用 `language` 设置 Duo 内置消息语言（`zh` 或 `en`），默认是 `en`。命令行 `duo --language zh`（或 `duo -l zh`） 会覆盖配置文件；此设置会影响 Duo 发给 Austin、Tony 和用户的内置消息，不会翻译 TUI 标签。
+可用 `language` 设置 Duo 内置消息语言（`zh` 或 `en`），默认是 `en`。命令行 `duo --language zh`（或 `duo -l zh`） 会覆盖配置文件；此设置会立即改变 Duo 发给 Austin、Tony 和用户的内置消息以及 gotui 界面文案，并在之后的启动中保持；FAST/GOAL/STEP、Agent 名和阶段名等协议词保留标准拼写。
 
 `agents.<name>.command` 只覆盖这一个 Agent 的启动命令，`agents.<name>.driver`
 只覆盖它自己的 driver；顶层的 `driver` 与 `piCommand` 则是两个 Agent 的共同默认。

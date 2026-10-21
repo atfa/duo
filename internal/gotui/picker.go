@@ -7,6 +7,7 @@ import (
 
 	"github.com/atfa/duo/internal/models"
 	"github.com/atfa/duo/internal/protocol"
+	rw "github.com/mattn/go-runewidth"
 	ui "github.com/metaspartan/gotui/v5"
 )
 
@@ -190,6 +191,7 @@ func (p *modelPicker) switchAgent() protocol.AgentID {
 
 func (p *modelPicker) Draw(buf *ui.Buffer) {
 	fillBlock(buf, p.GetRect(), ui.Style{Fg: p.theme.Fg, Bg: p.theme.PanelHigh})
+	p.Title = " " + p.theme.tr("MODELS & THINKING") + " "
 	p.Block.Draw(buf)
 	if p.Inner.Dx() <= 2 || p.Inner.Dy() < 6 {
 		return
@@ -214,23 +216,25 @@ func (p *modelPicker) Draw(buf *ui.Buffer) {
 	} else {
 		tStyle = ui.Style{Fg: p.theme.Bg, Bg: p.theme.Tony, Modifier: ui.ModifierBold}
 	}
-	buf.SetString("agent ", p.theme.Subtle, image.Pt(x, y))
-	buf.SetString(austin, aStyle, image.Pt(x+6, y))
-	buf.SetString(tony, tStyle, image.Pt(x+6+len([]rune(austin)), y))
-	buf.SetString("   Tab switch agent", p.theme.Timestamp, image.Pt(x+6+len([]rune(austin))+len([]rune(tony)), y))
+	agentLabel := p.theme.tr("agent") + " "
+	buf.SetString(agentLabel, p.theme.Subtle, image.Pt(x, y))
+	agentX := x + rw.StringWidth(agentLabel)
+	buf.SetString(austin, aStyle, image.Pt(agentX, y))
+	buf.SetString(tony, tStyle, image.Pt(agentX+rw.StringWidth(austin), y))
+	buf.SetString("   "+p.theme.tr("Tab switch agent"), p.theme.Timestamp, image.Pt(agentX+rw.StringWidth(austin)+rw.StringWidth(tony), y))
 	y++
 
 	if p.tab == 0 {
 		filter := string(p.filter)
-		label := "search  "
+		label := p.theme.tr("search") + "  "
 		if filter == "" {
-			label += "all models"
+			label += p.theme.tr("all models")
 		} else {
 			label += filter
 		}
 		line(label, p.theme.BodyMuted)
 	} else {
-		line("thinking level  ·  Enter advances · shifts the driver's reasoning effort", p.theme.BodyMuted)
+		line(p.theme.tr("thinking level  ·  Enter advances · shifts the driver's reasoning effort"), p.theme.BodyMuted)
 	}
 	if y < p.Inner.Max.Y {
 		for xx := p.Inner.Min.X; xx < p.Inner.Max.X; xx++ {
@@ -243,29 +247,29 @@ func (p *modelPicker) Draw(buf *ui.Buffer) {
 		levels := []string{"off", "low", "medium", "high", "xhigh"}
 		current := strings.ToLower(strings.TrimSpace(p.thinking))
 		if current == "" {
-			current = "default"
+			current = p.theme.tr("default")
 		}
-		line("current  "+current, ui.Style{Fg: p.theme.Accent, Bg: p.theme.Panel, Modifier: ui.ModifierBold})
+		line(p.theme.tr("current")+"  "+current, ui.Style{Fg: p.theme.Accent, Bg: p.theme.Panel, Modifier: ui.ModifierBold})
 		for _, level := range levels {
 			st := p.theme.BodyMuted
 			mark := "  "
-			if level == current {
+			if level == strings.ToLower(strings.TrimSpace(p.thinking)) {
 				st = p.theme.Success
 				mark = "● "
 			}
 			line(mark+level, st)
 		}
-		line("Enter advances one level (some drivers restart to apply it).", p.theme.Timestamp)
+		line(p.theme.tr("Enter advances one level (some drivers restart to apply it)."), p.theme.Timestamp)
 	} else {
 		if p.loading {
-			line(spinnerFrame(len(p.filter))+" reading "+string(p.agent)+" model catalog…", p.theme.Warning)
+			line(spinnerFrame(len(p.filter))+" "+p.theme.tr("reading")+" "+string(p.agent)+" "+p.theme.tr("model catalog…"), p.theme.Warning)
 		}
 		if p.err != "" {
-			line("catalog error: "+p.err, p.theme.Error)
+			line(p.theme.tr("catalog error:")+" "+p.err, p.theme.Error)
 		}
 		list := p.filtered()
 		if !p.loading && len(list) == 0 && p.err == "" {
-			line("no models reported by this driver", p.theme.Subtle)
+			line(p.theme.tr("no models reported by this driver"), p.theme.Subtle)
 		}
 		p.clamp()
 		for i := 0; i < rows; i++ {
@@ -280,10 +284,10 @@ func (p *modelPicker) Draw(buf *ui.Buffer) {
 			}
 			suffix := ""
 			if m.Thinking {
-				suffix += "  · thinking"
+				suffix += "  · " + p.theme.tr("thinking")
 			}
 			if m.Images {
-				suffix += "  · images"
+				suffix += "  · " + p.theme.tr("images")
 			}
 			text := mark + m.Reference() + suffix
 			st := p.theme.Body
@@ -298,13 +302,13 @@ func (p *modelPicker) Draw(buf *ui.Buffer) {
 		}
 	}
 	bottom := p.Inner.Max.Y - 1
-	hint := "Enter apply · Space keep open · Ctrl+T thinking · Esc close"
+	hint := p.theme.tr("Enter apply · Space keep open · Ctrl+T thinking · Esc close")
 	if p.tab == 1 {
-		hint = "Enter advance thinking · Ctrl+T models · Esc close"
+		hint = p.theme.tr("Enter advance thinking · Ctrl+T models · Esc close")
 	}
 	buf.SetString(fitText(hint, p.Inner.Dx()), p.theme.Timestamp, image.Pt(p.Inner.Min.X, bottom))
 	if len(p.all) > 0 && p.Inner.Dx() > 55 {
-		count := fmt.Sprintf("%d models", len(p.filtered()))
+		count := fmt.Sprintf("%d %s", len(p.filtered()), p.theme.tr("models"))
 		buf.SetString(fitText(count, 12), p.theme.Timestamp, image.Pt(max(p.Inner.Min.X, p.Inner.Max.X-12), p.Inner.Min.Y))
 	}
 }

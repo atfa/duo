@@ -362,7 +362,7 @@ defaults both agents start from. Duo passes the selected model and thinking leve
 to the driver unless the command already carries them; opencode receives the
 model through its config environment because its TUI has no `--model` flag.
 
-Precedence: explicit CLI flags (`--mode`, `--language`, `--test-cmd`, `--agent`/`--austin-driver`/`--tony-driver`) > environment variables (`DUO_*`) > repository `.duo/config.json` > global `~/.duo/config.json` > built-in defaults. Set `language` to `zh` or `en`; `duo --language zh` (or `duo -l zh`) overrides the file. This changes Duo-authored messages to agents and the human, not the TUI labels.
+Precedence: explicit CLI flags (`--mode`, `--language`, `--test-cmd`, `--agent`/`--austin-driver`/`--tony-driver`) > environment variables (`DUO_*`) > repository `.duo/config.json` > global `~/.duo/config.json` > built-in defaults. Set `language` to `zh` or `en`; `duo --language zh` (or `duo -l zh`) overrides the file. This changes Duo-authored messages and the gotui interface chrome immediately and for later launches; canonical protocol words such as FAST/GOAL/STEP, agent names and phase names stay in their standard spelling.
 
 Duo also **writes** the repository `.duo/config.json`: on every launch it records
 each agent's active driver and model there, so a model chosen in the picker is

@@ -10,6 +10,12 @@ All notable project milestones are documented here.
   `duo` opens it directly. The old hand-written TUI is preserved on the
   `legacy-tui` Git branch and is no longer built or installed from `main`; the
   UI-selection flag has been removed.
+- `/language zh|en` now translates the gotui chrome live, not just Duo-authored
+  messages, and the choice survives a restart through `.duo/config.json`.
+- The `/mode` command column is sized from the longest command, so
+  `/mode [fast|goal|step]` is visible in full.
+- A model chosen in `/model` is written to `.duo/config.json` so the next launch
+  in that repository starts with the same model.
 - `scripts/install.sh` now builds the gotui-based `duo` with the rest of the
   commands, so a source install and the release archives ship the same frontend.
 

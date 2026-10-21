@@ -154,6 +154,7 @@ func New(svc Session) *App {
 	a.confirm = &confirmOverlay{Block: newModalBlock(t), theme: t, active: 0, choice2: "Cancel", choice1: "Confirm"}
 	if svc != nil {
 		a.live = svc.View()
+		a.applyLanguage()
 		before := len(a.entries)
 		for _, item := range svc.History() {
 			a.restoreEntry(item)
@@ -188,6 +189,27 @@ func (a *App) refreshView() {
 	if a.svc != nil {
 		a.live = a.svc.View()
 	}
+	a.applyLanguage()
+}
+
+// applyLanguage makes the session's /language setting visible in the dashboard.
+// Widgets share theme.Lang by pointer, so this updates every constructed panel
+// without rebuilding the layout. The help overlay caches wrapped lines, so its
+// width is invalidated to force a rebuild in the new language.
+func (a *App) applyLanguage() {
+	lang := "en"
+	if a.live.Language == "zh" {
+		lang = "zh"
+	}
+	if a.theme.Lang == nil {
+		a.theme.Lang = &lang
+	}
+	if *a.theme.Lang == lang {
+		return
+	}
+	*a.theme.Lang = lang
+	a.help.width = 0
+	a.details.width = 0
 }
 
 func (a *App) refreshNotices() {
@@ -241,6 +263,7 @@ func (a *App) runWithBackend(ctx context.Context, backend *ui.Backend) error {
 	if sub.View.SessionID != "" || len(sub.View.Worktrees.Repository) > 0 {
 		a.live = sub.View
 	}
+	a.applyLanguage()
 	a.addNotices(sub.View.Notices)
 	// On resume the header and the restored conversation are the context; a
 	// startup banner at the bottom would push the human's own request out of
@@ -425,30 +448,33 @@ func (a *App) updateWidgets() {
 	a.tonyCard.compact = l.tonyCard.Dy() < 10
 
 	a.timeline.SetRect(l.main.Min.X, l.main.Min.Y, l.main.Max.X, l.main.Max.Y)
+	a.timeline.Title = " " + a.theme.tr("CONVERSATION") + " "
 	a.timeline.SetEntries(a.entries, a.showTimestamp)
 	a.austin.SetRect(l.austin.Min.X, l.austin.Min.Y, l.austin.Max.X, l.austin.Max.Y)
 	a.austin.SetEntries(a.filterEntries(string(protocol.Austin)), a.showTimestamp)
 	a.tony.SetRect(l.tony.Min.X, l.tony.Min.Y, l.tony.Max.X, l.tony.Max.Y)
 	a.tony.SetEntries(a.filterEntries(string(protocol.Tony)), a.showTimestamp)
 	a.duo.SetRect(l.duo.Min.X, l.duo.Min.Y, l.duo.Max.X, l.duo.Max.Y)
+	a.duo.Title = " " + a.theme.tr("DUO / HUMAN") + " "
 	a.duo.SetEntries(a.filterEntries(string(protocol.Duo)), a.showTimestamp)
 
 	a.composer.SetRect(l.composer.Min.X, l.composer.Min.Y, l.composer.Max.X, l.composer.Max.Y)
 	a.footer.SetRect(l.footer.Min.X, l.footer.Min.Y, l.footer.Max.X, l.footer.Max.Y)
 	a.footer.status, a.footer.isError = a.status, a.statusErr
 	if a.overlay == overlayNone {
-		a.footer.hint = "Enter send · Ctrl+Enter newline · Ctrl+M models · Ctrl+A/T native · F1 help · F2 view · Ctrl+Q quit"
+		a.footer.hint = a.theme.tr("Enter send · Ctrl+Enter newline · Ctrl+M models · Ctrl+A/T native · F1 help · F2 view · Ctrl+Q quit")
 		if l.width < 100 {
-			a.footer.hint = "Enter send · Ctrl+M models · F1 help · F2 view · Ctrl+Q quit"
+			a.footer.hint = a.theme.tr("Enter send · Ctrl+M models · F1 help · F2 view · Ctrl+Q quit")
 		}
 		if l.width < 80 {
-			a.footer.hint = "Enter send · F1 help · F2 view · Ctrl+Q quit"
+			a.footer.hint = a.theme.tr("Enter send · F1 help · F2 view · Ctrl+Q quit")
 		}
-		a.footer.right = strings.ToUpper(map[bool]string{true: "SPLIT", false: "TIMELINE"}[l.split])
+		a.footer.right = a.theme.tr(strings.ToUpper(map[bool]string{true: "SPLIT", false: "TIMELINE"}[l.split]))
 	} else {
 		a.footer.hint = ""
 		a.footer.right = ""
 	}
+	a.tabs.TabNames = []string{"Split", "Timeline"}
 	a.picker.place(l)
 	a.help.place(l)
 	a.details.place(l)
@@ -488,15 +514,15 @@ func (a *App) startupMessage() string {
 	if sessionID == "" {
 		sessionID = a.live.SessionID
 	}
-	where := fmt.Sprintf("\nRepository: %s (branch %s) · Session: %s", repo, set.BaseBranch, sessionID)
+	where := fmt.Sprintf("\n%s: %s (%s %s) · %s: %s", a.theme.tr("Repository"), repo, a.theme.tr("branch"), set.BaseBranch, a.theme.tr("Session"), sessionID)
 	mode := a.live.EffectiveMode()
 	switch mode {
 	case project.ModeFast:
-		return "Duo " + a.live.Version + " ready (FAST mode). Type a task and press Enter; Austin drives while Tony independently verifies before Duo delivers the result." + where
+		return "Duo " + a.live.Version + " " + a.theme.tr("ready (FAST mode). Type a task and press Enter; Austin drives while Tony independently verifies before Duo delivers the result.") + where
 	case project.ModeStep:
-		return "Duo " + a.live.Version + " ready (STEP mode). Type the complex task and press Enter; both agents plan a queue tagged [fast] or [goal], then Duo lands each approved step." + where
+		return "Duo " + a.live.Version + " " + a.theme.tr("ready (STEP mode). Type the complex task and press Enter; both agents plan a queue tagged [fast] or [goal], then Duo lands each approved step.") + where
 	default:
-		return "Duo " + a.live.Version + " ready (GOAL mode). Type a task and press Enter; Duo sends it to both Austin and Tony to co-design the shared plan." + where
+		return "Duo " + a.live.Version + " " + a.theme.tr("ready (GOAL mode). Type a task and press Enter; Duo sends it to both Austin and Tony to co-design the shared plan.") + where
 	}
 }
 
@@ -509,7 +535,7 @@ func (a *App) announceRunningAgents() {
 		if av.Process != agent.ProcessRunning {
 			continue
 		}
-		a.addLabeled(id, directionLabel(id, ""), fmt.Sprintf("%s connected", id), false, false)
+		a.addLabeled(id, directionLabel(id, ""), fmt.Sprintf("%s %s", id, a.theme.tr("connected")), false, false)
 	}
 }
 
@@ -542,7 +568,7 @@ func (a *App) toggleView() {
 	// The tab pane already shows which view is active. Only explain a
 	// fallback, where the split view cannot actually be drawn.
 	if !a.layout.split {
-		a.setStatus("split view needs a wider terminal", false)
+		a.setStatus(a.theme.tr("split view needs a wider terminal"), false)
 	}
 }
 
@@ -570,7 +596,7 @@ func (a *App) requestQuit() {
 		a.stopApp()
 		return
 	}
-	a.openConfirm("Quit Duo?", "The session is not finished. It will be preserved and can be resumed with `duo resume`.", func() {
+	a.openConfirm(a.theme.tr("Quit Duo?"), a.theme.tr("The session is not finished. It will be preserved and can be resumed with `duo resume`."), func() {
 		a.stopApp()
 	})
 }

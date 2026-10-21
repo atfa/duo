@@ -141,7 +141,7 @@ func (v *transcript) rebuildLines(width int) {
 		}
 		header := label
 		if e.summary {
-			header += "  · FINAL REPORT"
+			header += "  · " + v.theme.tr("FINAL REPORT")
 		}
 		var headerRuns []textRun
 		if v.showTimestamps {
@@ -212,7 +212,7 @@ func (v *transcript) Draw(buf *ui.Buffer) {
 	v.rebuild()
 	if len(v.lines) == 0 {
 		if v.emptyText != "" {
-			buf.SetString(fitText(v.emptyText, v.Inner.Dx()), v.theme.Subtle, image.Pt(v.Inner.Min.X, v.Inner.Min.Y))
+			buf.SetString(fitText(v.theme.tr(v.emptyText), v.Inner.Dx()), v.theme.Subtle, image.Pt(v.Inner.Min.X, v.Inner.Min.Y))
 		}
 		return
 	}
@@ -248,9 +248,9 @@ func (v *transcript) Draw(buf *ui.Buffer) {
 	}
 	v.drawScrollbar(buf)
 	if !v.follow {
-		label := fmt.Sprintf(" ↓ %d new ", max(v.newLines, len(v.lines)-(v.offset+height)))
+		label := fmt.Sprintf(" ↓ %d %s ", max(v.newLines, len(v.lines)-(v.offset+height)), v.theme.tr("new"))
 		if v.newLines <= 0 {
-			label = " ↓ more "
+			label = " ↓ " + v.theme.tr("more") + " "
 		}
 		x := max(v.Inner.Min.X, v.Inner.Max.X-rw.StringWidth(label))
 		buf.SetString(fitText(label, v.Inner.Dx()), ui.Style{Fg: v.theme.Bg, Bg: v.theme.Accent, Modifier: ui.ModifierBold}, image.Pt(x, v.Inner.Max.Y-1))

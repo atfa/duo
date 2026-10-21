@@ -29,6 +29,10 @@ type theme struct {
 	CodeBg    tcell.Color
 	SelectBg  tcell.Color
 
+	// Lang is shared by every copy of the theme, so switching /language updates
+	// the already-constructed widgets without rebuilding the dashboard.
+	Lang *string
+
 	Base      ui.Style
 	PanelS    ui.Style
 	Title     ui.Style
@@ -48,8 +52,23 @@ type theme struct {
 	HumanS    ui.Style
 }
 
+// tr translates the static interface labels used by the dashboard. Technical
+// values (paths, model ids, phases) stay untranslated; this is chrome, not
+// protocol text.
+func (t theme) tr(en string) string {
+	if t.Lang == nil || *t.Lang != "zh" {
+		return en
+	}
+	if zh, ok := zhUI[en]; ok {
+		return zh
+	}
+	return en
+}
+
 func newTheme() theme {
+	lang := "en"
 	t := theme{
+		Lang:      &lang,
 		Bg:        rgb(10, 14, 20),
 		Panel:     rgb(17, 23, 32),
 		PanelHigh: rgb(24, 32, 44),

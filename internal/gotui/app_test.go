@@ -117,6 +117,9 @@ func (f *fakeSession) Do(ctx context.Context, cmd session.Command) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.commands = append(f.commands, cmd)
+	if set, ok := cmd.(session.SetLanguage); ok {
+		f.view.Language = strings.ToLower(set.Language)
+	}
 	return nil
 }
 
@@ -369,6 +372,43 @@ func waitForCommands(t *testing.T, fake *fakeSession, predicate func([]session.C
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for command; got %#v", fake.snapshotCommands())
+}
+
+// The language command must change the dashboard chrome live, not only the
+// Duo-authored notices. This pins the shared theme language used by every
+// already-constructed panel and the translated slash descriptions.
+func TestLanguageCommandTranslatesDashboard(t *testing.T) {
+	fake := newFakeSession()
+	app := New(fake)
+	backend, err := ui.NewBackend(&ui.InitConfig{SimulationMode: true, SimulationSize: image.Pt(120, 42)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sim, ok := backend.Screen.(tcell.SimulationScreen)
+	if !ok {
+		t.Fatalf("screen %T is not a simulation screen", backend.Screen)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- app.runWithBackend(ctx, backend) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Error("runWithBackend did not stop")
+		}
+	})
+
+	waitForText(t, sim, "WORKFLOW")
+	typeText(sim, "/language zh")
+	injectKey(sim, tcell.KeyEnter, 0, tcell.ModNone)
+	waitForText(t, sim, "工作流")
+	waitForText(t, sim, "语言 →")
+
+	typeText(sim, "/")
+	waitForText(t, sim, "命令")
+	waitForText(t, sim, "切换会话模式")
 }
 
 func TestNewSessionNoticeDoesNotSuppressStartup(t *testing.T) {

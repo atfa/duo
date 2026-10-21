@@ -388,6 +388,7 @@ func (c *composer) prepare() (int, int) {
 }
 
 func (c *composer) Draw(buf *ui.Buffer) {
+	c.Title = " " + c.theme.tr("Message") + " "
 	c.Block.Draw(buf)
 	if c.Inner.Dx() <= 0 || c.Inner.Dy() <= 0 {
 		return
@@ -395,7 +396,8 @@ func (c *composer) Draw(buf *ui.Buffer) {
 	width, height := c.textWidth(), c.Inner.Dy()
 	rows := c.visualRows(width)
 	if c.Empty() {
-		buf.SetString(fitText(c.placeholder, width), c.theme.Subtle, image.Pt(c.Inner.Min.X+2, c.Inner.Min.Y))
+		placeholder := c.theme.tr("Message Duo…  Enter sends · Ctrl+Enter newline")
+		buf.SetString(fitText(placeholder, width), c.theme.Subtle, image.Pt(c.Inner.Min.X+2, c.Inner.Min.Y))
 	}
 	for i := 0; i < height; i++ {
 		idx := c.scroll + i

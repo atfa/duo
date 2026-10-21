@@ -4,9 +4,9 @@
     Split    Timeline
  ╭─ WORKFLOW ───────────────────────╮ ╭─ AUSTIN ─────────────────────────────╮ ╭─ TONY ───────────────────────────────╮
  │ ●  RUNNING  ○  VERIFY  ○  DONE   │ │ 16:02  Austin →  Human               │ │ 16:03  Tony →  Austin                │
- │ verify    passed                 │ │   Result                             │ │   Verified the boundary cases. One   │
+ │ verify  passed                   │ │   Result                             │ │   Verified the boundary cases. One   │
  │ delivery  pending                │ │                                      │ │   request with an expired cursor     │
- │ worktrees     /tmp/example       │ │   Implemented cursor pagination.     │ │   returns 400 rather than silently   │
+ │ worktrees  /tmp/example          │ │   Implemented cursor pagination.     │ │   returns 400 rather than silently   │
  │                                  │ │                                      │ │   restarting.                        │
  │                                  │ │     •  limit is capped at 200        │ │                                      │
  │                                  │ │     •  opaque cursor values          │ │                                      │
