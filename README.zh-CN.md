@@ -72,7 +72,7 @@ Fast 没有共享 Plan，也没有双重签字。一次 `passed` 绑定到当时
 
 **切换模式**：人类可在 composer 中输入 `/mode goal`、`/escalate [理由]` 或 `/mode step`，Agent 也可调用 `duo_escalate`，无需重启任一 Agent。在 gotui 中，`/mode` 和 `/escalate` 先切换模式，再询问 **Resume work?**；选择 **Not now** 会让两个 Agent 保持空闲，直到人类提交下一个任务，同时暂停 harness watchdog 的自动提醒。运行中的 Fast → Goal 保留原有的升级行为：会话进入 `PLAN`，用升级原因初始化共享计划，Tony 变为活跃协作者，已有 commit 无损保留。其他切换会按新模式的门禁开始新一轮。
 
-**暂停与切换驱动**：`/pause` 只登记暂停请求，不会打断正在执行的回合。Duo 会扣住新的提示、watchdog 提醒和 peer 消息，并在 Austin 与 Tony 都到达空闲回合边界前显示 `PAUSING`；都停下后 header 显示 `PAUSED`，footer 指明仍在工作的 Agent。`/unpause` 只取消尚未完成的暂停。完全暂停后，`/continue` 是唯一恢复工作的入口：它发送一份 resume prompt，携带当前阶段、计划或队列，以及暂停期间扣住的消息。完全暂停时还可以使用 `/driver`，其界面与模型选择器一致（`Tab` 切换 Agent、输入过滤、`Enter` 应用、`Esc` 关闭）。切换驱动只重启该 Agent 的进程，不会恢复工作。新驱动的对话从空开始——原生会话状态属于旧驱动——因此 `/continue` 后 Duo 会让它读取仓库 `.duo/logs/<session>.md` 与 `.duo/logs/<session>-<agent>.md` 日志来恢复完整上下文。
+**暂停与切换驱动**：`/pause` 只登记暂停请求，不会打断正在执行的回合。Duo 会扣住新的提示、watchdog 提醒和 peer 消息，并在 Austin 与 Tony 都到达空闲回合边界前显示 `PAUSING`；都停下后 header 显示 `PAUSED`，footer 指明仍在工作的 Agent。`/unpause` 只取消尚未完成的暂停。完全暂停后，`/continue` 是唯一恢复工作的入口：它发送一份 resume prompt，携带当前阶段、计划或队列，以及暂停期间扣住的消息。`/driver` 可在首个任务前、完全暂停时或 `DONE` 后使用，界面与模型选择器一致（`Tab` 切换 Agent、输入过滤、`Enter` 应用、`Esc` 关闭）。切换驱动只重启该 Agent 的进程，不会恢复工作。新驱动的对话从空开始——原生会话状态属于旧驱动——因此暂停期间切换后，`/continue` 会让它读取仓库 `.duo/logs/<session>.md` 与 `.duo/logs/<session>-<agent>.md` 日志来恢复完整上下文。
 
 ### Goal（`duo --mode goal`）
 
@@ -192,7 +192,7 @@ gotui 默认打开 **分栏仪表盘**：侧边栏显示阶段链、验证/交�
 | `/pause` | 等双方当前回合结束后暂停；期间新提示、peer 消息和 watchdog 提醒都会被扣住 |
 | `/unpause` | 取消尚未完成的暂停 |
 | `/continue` | 用一份包含状态上下文的 resume prompt 恢复已完全暂停的会话 |
-| `/driver` | 仅在完全暂停时可用，为 Austin 或 Tony 打开驱动选择器（`Tab` 切换 Agent，`Enter` 应用） |
+| `/driver` | 首个任务前、完全暂停时或 `DONE` 后可用，为 Austin 或 Tony 打开驱动选择器（`Tab` 切换 Agent，`Enter` 应用） |
 | `/overview` | 切换会话总览与 Git 变更统计详情（等同于 `Ctrl+O`） |
 | `/preview` | 展开或折叠 gotui 的工作流侧边栏（等同于 `Ctrl+P`） |
 | `/timestamps` | 切换时间线消息时间戳显示（等同于 `Ctrl+G`） |

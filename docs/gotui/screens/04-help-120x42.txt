@@ -1,41 +1,41 @@
- ◆ DUO test /tmp/example  ·   main                                                                   FAST  ·   RUNNING
- session session-1   ·    2/2 agents online                                                            Split  Timeline
+ ◆ DUO test /tmp/example  ·  main                                                                     FAST  ·  RUNNING
+ session session-1   ·   2/2 agents online                                                             Split  Timeline
 
 
                  ╭─ HELP ─────────────────────────────────────────────────────────────────────────────╮
                  │                                                                                    │
                  │ WORKFLOW                                                                           │
-                 │   FAST: RUNNING →  VERIFY →  DONE. Austin implements, Tony verifies, Duo lands     │
-                 │   the diff.                                                                        │
-                 │   GOAL: PLAN →  EXECUTE →  REVIEW →  INTEGRATE →  DONE. Both agents agree on the   │
-                 │   plan first.                                                                      │
+                 │   FAST: RUNNING → VERIFY → DONE. Austin implements, Tony verifies, Duo lands the   │
+                 │   diff.                                                                            │
+                 │   GOAL: PLAN → EXECUTE → REVIEW → INTEGRATE → DONE. Both agents agree on the plan  │
+                 │   first.                                                                           │
                  │   STEP: plan a dual-approved queue, then run each step as FAST (Austin             │
                  │   implements, Tony verifies) or GOAL (both implement and cross-sign).              │
                  │                                                                                    │
                  │ KEYS                                                                               │
-                 │   Enter send  ·   Ctrl+Enter / Shift+Enter / Alt+Enter / Ctrl+J newline            │
-                 │   Ctrl+M / Alt+M model & thinking picker  ·   F2 split / timeline  ·   F1 help     │
-                 │   In picker: Tab switches Agent  ·   Shift+Tab cycles thinking  ·   Space selects  │
+                 │   Enter send  ·  Ctrl+Enter / Shift+Enter / Alt+Enter / Ctrl+J newline             │
+                 │   Ctrl+M / Alt+M model & thinking picker  ·  F2 split / timeline  ·  F1 help       │
+                 │   In picker: Tab switches Agent  ·  Shift+Tab cycles thinking  ·  Space selects    │
                  │   model                                                                            │
-                 │   Ctrl+A/T attach  ·   Ctrl+V image path  ·   Ctrl+] or Ctrl+\ detach              │
-                 │   Ctrl+R restart Austin  ·   Ctrl+Y restart Tony  ·   Ctrl+/ help                  │
-                 │   Ctrl+O details & changes  ·   Ctrl+X copy Austin's latest  ·   Ctrl+P sidebar    │
-                 │   Ctrl+G timestamps  ·   PgUp/PgDn scroll  ·   Ctrl+Q / Ctrl+D quit                │
-                 │   @ completes a tracked file  ·   Tab autocompletes slash commands or files  ·     │
-                 │   Esc closes dialogs  ·   ↑ /↓  recalls history                                    │
+                 │   Ctrl+A/T attach  ·  Ctrl+V image path  ·  Ctrl+] or Ctrl+\ detach                │
+                 │   Ctrl+R restart Austin  ·  Ctrl+Y restart Tony  ·  Ctrl+/ help                    │
+                 │   Ctrl+O details & changes  ·  Ctrl+X copy Austin's latest  ·  Ctrl+P sidebar      │
+                 │   Ctrl+G timestamps  ·  PgUp/PgDn scroll  ·  Ctrl+Q / Ctrl+D quit                  │
+                 │   @ completes a tracked file  ·  Tab autocompletes slash commands or files  ·      │
+                 │   Esc closes dialogs  ·  ↑/↓ recalls history                                       │
                  │                                                                                    │
                  │ PAUSE & DRIVERS                                                                    │
                  │   /pause waits for both agents to finish their current turn, then holds new work.  │
                  │   While pausing, /unpause cancels the request; once paused, /continue resumes      │
                  │   work.                                                                            │
-                 │   While fully paused, /driver switches an agent's driver. After /continue the new  │
-                 │   driver reads the repository's .duo transcript to recover the conversation.       │
-                 │ ↑ /↓  scroll  ·   Esc close                                                        │
+                 │   Use /driver before the first task, while fully paused, or after DONE. The new    │
+                 │   driver starts idle; /continue resumes a paused session.                          │
+                 │ ↑/↓ scroll  ·  Esc close                                                           │
                  ╰────────────────────────────────────────────────────────────────────────────────────╯
 
 
  ╭─ Message ──────────────────────────────────────────────────────────────────────────────────────────────────────────╮
- │ › Message Duo…   Enter sends ·  Ctrl+Enter newline                                                                 │
+ │ › Message Duo…  Enter sends · Ctrl+Enter newline                                                                   │
  │                                                                                                                    │
  │                                                                                                                    │
  ╰────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯

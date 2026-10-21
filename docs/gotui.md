@@ -41,8 +41,9 @@ other Duo frontend. It never owns workflow state or makes project transitions:
 - **Pause and drivers.** `/pause` waits for a turn boundary and shows
   `PAUSING`/`PAUSED` in the header, with the footer naming who is still working.
   `/unpause` cancels an incomplete request; `/continue` resumes a full pause.
-  `/driver` is the paused-only driver picker: agent tabs, typing filter, a marker
-  on the current driver, and no resume when a choice is applied.
+  `/driver` is available before the first task, while fully paused, or after
+  `DONE`: agent tabs, typing filter, a marker on the current driver, and no
+  resume when a choice is applied.
 - **Overlays.** Help, session details, model picker, driver picker and
   destructive confirmations are centered modals with a cleared content backdrop.
   The slash palette occupies the conversation pane so no text or border fragments
@@ -181,7 +182,7 @@ the text files.
 | [details 120×42](screens/05-details-120x42.txt) | session details and diffstat |
 | [models 120×42](screens/06-models-120x42.txt) | model/thinking picker after the async catalog load |
 | [paused 120×42](screens/09-paused-120x42.txt) | PAUSED badge and the paused footer hint |
-| [drivers 120×42](screens/10-drivers-120x42.txt) | paused-only driver picker |
+| [drivers 120×42](screens/10-drivers-120x42.txt) | driver picker |
 | [confirm 80×24](screens/07-confirm-80x24.txt) | destructive confirmation at a compact size |
 | [narrow 64×22](screens/08-narrow-64x22.txt) | no-sidebar timeline with compact footer |
 
