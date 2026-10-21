@@ -31,8 +31,6 @@ func TestCaptureFrames(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake := newFakeSession()
-	repo := t.TempDir()
-	fake.view.Worktrees.Repository = repo
 	fake.history = []sessionstore.TUIEntry{
 		{Time: time.Date(2026, 10, 20, 16, 2, 0, 0, time.Local), Pane: "Duo", Label: "Human → Austin", Text: "Add cursor pagination to GET /sessions and document the new parameters."},
 		{Time: time.Date(2026, 10, 20, 16, 2, 12, 0, time.Local), Pane: "Austin", Label: "Austin → Human", Text: "## Result\n\nImplemented cursor pagination.\n\n- `limit` is capped at 200\n- opaque `cursor` values\n- OpenAPI updated\n\n```go\npage, err := store.Sessions(ctx, limit, cursor)\n```\n\nTests: `go test ./internal/sessionstore` — 你好世界"},
@@ -59,6 +57,7 @@ func TestCaptureFrames(t *testing.T) {
 
 	app := New(fake)
 	app.viewMode = viewSplit
+	app.saveViewPref = nil
 	backend, err := ui.NewBackend(&ui.InitConfig{SimulationMode: true, SimulationSize: image.Pt(120, 42)})
 	if err != nil {
 		t.Fatal(err)
@@ -80,14 +79,15 @@ func TestCaptureFrames(t *testing.T) {
 	}()
 	capture := func(name string) {
 		t.Helper()
-		frame := strings.ReplaceAll(trimmedScreen(sim), repo, "/tmp/example")
-		if err := os.WriteFile(filepath.Join(dir, name+".txt"), []byte(frame), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, name+".txt"), []byte(trimmedScreen(sim)), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 	waitForText(t, sim, "DUO")
 	capture("01-dashboard-120x42")
 
+	// Persistence is covered by the App tests. This test only captures the
+	// visual transition and must not write to the fixed frame repository.
 	injectKey(sim, tcell.KeyF2, 0, tcell.ModNone)
 	waitForText(t, sim, "CONVERSATION")
 	capture("02-timeline-120x42")

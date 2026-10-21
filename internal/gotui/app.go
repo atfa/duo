@@ -124,6 +124,7 @@ type App struct {
 	pasteImage    func() (string, error)
 	openURL       func(string) error
 	openFile      func(string) error
+	saveViewPref  func(string, string) error
 	toast         *toastPanel
 	toastDuration time.Duration
 }
@@ -154,6 +155,7 @@ func New(svc Session) *App {
 		pasteImage:    pasteClipboardImage,
 		openURL:       openURLDefault,
 		openFile:      openFileDefault,
+		saveViewPref:  workspace.SaveProjectTUIView,
 		toastDuration: 2 * time.Second,
 	}
 	a.background = newBackground(t)
@@ -209,8 +211,10 @@ func (a *App) setViewMode(mode viewMode) {
 	if mode == viewSplit {
 		view = "split"
 	}
-	if err := workspace.SaveProjectTUIView(a.live.Worktrees.Repository, view); err != nil {
-		a.setStatus("could not save TUI view preference: "+err.Error(), true)
+	if a.saveViewPref != nil {
+		if err := a.saveViewPref(a.live.Worktrees.Repository, view); err != nil {
+			a.setStatus("could not save TUI view preference: "+err.Error(), true)
+		}
 	}
 }
 
