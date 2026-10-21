@@ -89,10 +89,15 @@ func (m *Monitor) maybeWake(ctx context.Context) {
 		return
 	}
 
-	// Dispatch once, by mode. Fast nudges only the agent that must move next;
-	// Goal keeps the original both-idle logic untouched below.
-	if m.project.Snapshot().EffectiveMode() == project.ModeFast {
+	// Dispatch once, by mode. Fast and Step nudge only the agent that must move
+	// next; Goal keeps the original both-idle logic untouched below.
+	state := m.project.Snapshot()
+	switch state.EffectiveMode() {
+	case project.ModeFast:
 		m.maybeWakeFast(ctx)
+		return
+	case project.ModeStep:
+		m.maybeWakeStep(ctx)
 		return
 	}
 
@@ -100,7 +105,6 @@ func (m *Monitor) maybeWake(ctx context.Context) {
 		return
 	}
 
-	state := m.project.Snapshot()
 	if !state.Started || state.Phase == project.PhaseDone {
 		return
 	}
