@@ -13,7 +13,7 @@ import (
 )
 
 func (a *App) submit() {
-	text := strings.TrimSpace(a.composer.Text())
+	text := strings.TrimSpace(a.composer.ExpandedText())
 	if text == "" {
 		return
 	}

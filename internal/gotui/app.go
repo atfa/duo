@@ -116,6 +116,7 @@ type App struct {
 	ctx             context.Context
 
 	pasting     bool
+	pasteBuf    strings.Builder
 	mousePane   *transcript
 	focusPane   *transcript
 	pendingLink *linkTarget

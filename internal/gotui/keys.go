@@ -23,7 +23,17 @@ func (a *App) handleEvent(ev tcell.Event) {
 	case *tcell.EventResize:
 		a.resize()
 	case *tcell.EventPaste:
-		a.pasting = ev.Start()
+		if ev.Start() {
+			a.pasting = true
+			a.pasteBuf.Reset()
+		} else {
+			a.pasting = false
+			pasted := a.pasteBuf.String()
+			a.pasteBuf.Reset()
+			if pasted != "" {
+				a.composer.InsertPaste(pasted)
+			}
+		}
 	case *tcell.EventError:
 		a.setStatus("terminal error: "+ev.Error(), true)
 	}
@@ -36,12 +46,12 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 	if a.pasting {
 		switch ev.Key() {
 		case tcell.KeyEnter, tcell.KeyCtrlJ:
-			a.composer.InsertNewline()
+			a.pasteBuf.WriteString("\n")
 		case tcell.KeyTab:
-			a.composer.InsertString("    ")
+			a.pasteBuf.WriteString("    ")
 		case tcell.KeyRune:
 			if str := ev.Str(); str != "" {
-				a.composer.InsertString(str)
+				a.pasteBuf.WriteString(str)
 			}
 		}
 		return
@@ -297,7 +307,11 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 				return
 			}
 		}
-		a.composer.InsertString(str)
+		if strings.ContainsRune(str, '\n') || strings.ContainsRune(str, '\r') {
+			a.composer.InsertPaste(str)
+		} else {
+			a.composer.InsertString(str)
+		}
 		a.slashHidden = false
 		a.resetHistory()
 	}
