@@ -87,11 +87,9 @@ func maybeChooseResumeSession(ctx context.Context, cfg *config) error {
 	if err != nil {
 		return err
 	}
-	available := make([]sessionstore.Summary, 0, len(items))
-	for _, item := range items {
-		if item.Err == nil && item.Unfinished() && !sessionIsActive(item.Dir) {
-			available = append(available, item)
-		}
+	available, broken := resumeChoices(items)
+	if len(available) > 0 {
+		writeResumeDiagnostics(tty, broken)
 	}
 	if len(available) < 2 {
 		return nil
@@ -102,4 +100,21 @@ func maybeChooseResumeSession(ctx context.Context, cfg *config) error {
 	}
 	cfg.resumeSession = selected
 	return nil
+}
+
+func writeResumeDiagnostics(out io.Writer, broken []sessionstore.Summary) {
+	if len(broken) > 0 {
+		fmt.Fprintf(out, "Unreadable Duo session(s):\n%s\n", formatBroken(broken))
+	}
+}
+
+func resumeChoices(items []sessionstore.Summary) (available, broken []sessionstore.Summary) {
+	for _, item := range items {
+		if item.Err != nil {
+			broken = append(broken, item)
+		} else if item.Unfinished() && !sessionIsActive(item.Dir) {
+			available = append(available, item)
+		}
+	}
+	return available, broken
 }

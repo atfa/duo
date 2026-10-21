@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -107,13 +108,14 @@ func writeUnfinishedSessionIDs(list []sessionstore.Summary) {
 func sessionIsActive(sessionDir string) bool {
 	file, err := os.Open(filepath.Join(sessionDir, "lock"))
 	if err != nil {
-		return !os.IsNotExist(err)
+		return false
 	}
 	defer file.Close()
 	if err := unix.Flock(int(file.Fd()), unix.LOCK_SH|unix.LOCK_NB); err != nil {
-		return true
+		return errors.Is(err, unix.EWOULDBLOCK)
 	}
-	return unix.Flock(int(file.Fd()), unix.LOCK_UN) != nil
+	_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
+	return false
 }
 
 func safeSessionIDLine(value string) bool {

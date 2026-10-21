@@ -1,11 +1,14 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/sessionstore"
+	"golang.org/x/sys/unix"
 )
 
 func TestSessionStatusReportsAStepAwaitingDelivery(t *testing.T) {
@@ -61,5 +64,28 @@ func TestSessionStatusReportsAStepAwaitingDelivery(t *testing.T) {
 	done.Delivery = sessionstore.Delivery{Status: sessionstore.DeliveryApplied, FinalHead: "h", AppliedHead: "h"}
 	if got := sessionStatus(sessionstore.Summary{SessionID: "g", Dir: t.TempDir(), Snapshot: done}); got != "delivered" {
 		t.Fatalf("status = %q, want delivered for a DONE session whose artifact landed", got)
+	}
+}
+
+func TestSessionIsActiveOnlyWhenLockIsContended(t *testing.T) {
+	dir := t.TempDir()
+	if sessionIsActive(dir) {
+		t.Fatal("missing lock file reported active")
+	}
+	lockPath := filepath.Join(dir, "lock")
+	file, err := os.Create(lockPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	defer unix.Flock(int(file.Fd()), unix.LOCK_UN)
+	if !sessionIsActive(dir) {
+		t.Fatal("contended lock not reported active")
+	}
+	if sessionIsActive(filepath.Join(dir, "not-a-directory")) {
+		t.Fatal("lock open failure reported active")
 	}
 }

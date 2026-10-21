@@ -2,8 +2,10 @@ package session
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -18,7 +20,7 @@ import (
 // startResume reloads a persisted session, proves it is still valid against Git,
 // revokes anything that is no longer true, and only then starts anything.
 func (s *Service) startResume(ctx context.Context) (Result, error) {
-	summary, err := SelectSession(s.baseDir, s.repoID, s.opts.ResumeSession, s.root)
+	summary, broken, err := SelectSession(s.baseDir, s.repoID, s.opts.ResumeSession, s.root)
 	if err != nil {
 		return Result{}, err
 	}
@@ -42,6 +44,9 @@ func (s *Service) startResume(ctx context.Context) (Result, error) {
 
 	s.store, s.lock = store, lock
 	s.logger = store.OpenLog()
+	if len(broken) > 0 {
+		s.logger.Printf("warning: unreadable stored Duo sessions:\n%s", FormatBroken(broken))
+	}
 	s.journal = store.OpenEvents()
 	s.sessionID = snap.SessionID
 	s.history = s.journal.TUIEntries()
@@ -194,22 +199,22 @@ func DriverSeeds(snap sessionstore.Snapshot) map[protocol.AgentID]sessionstore.D
 // SelectSession resolves which persisted session to resume: an explicit id, the
 // single unfinished one, or an error listing the choices. Unreadable sessions are
 // reported rather than silently skipped.
-func SelectSession(baseDir, repoID, requested, root string) (sessionstore.Summary, error) {
+func SelectSession(baseDir, repoID, requested, root string) (sessionstore.Summary, []sessionstore.Summary, error) {
 	if requested != "" {
 		store, err := sessionstore.Open(baseDir, repoID, requested)
 		if err != nil {
-			return sessionstore.Summary{}, err
+			return sessionstore.Summary{}, nil, err
 		}
 		snap, err := store.Load()
 		if err != nil {
-			return sessionstore.Summary{}, err
+			return sessionstore.Summary{}, nil, err
 		}
-		return sessionstore.Summary{SessionID: requested, Dir: store.Dir(), Snapshot: snap}, nil
+		return sessionstore.Summary{SessionID: requested, Dir: store.Dir(), Snapshot: snap}, nil, nil
 	}
 
 	list, err := sessionstore.List(baseDir, repoID)
 	if err != nil {
-		return sessionstore.Summary{}, err
+		return sessionstore.Summary{}, nil, err
 	}
 
 	var candidates, broken []sessionstore.Summary
@@ -224,21 +229,89 @@ func SelectSession(baseDir, repoID, requested, root string) (sessionstore.Summar
 
 	switch len(candidates) {
 	case 1:
-		return candidates[0], nil
+		return candidates[0], broken, nil
 	case 0:
 		if len(broken) > 0 {
-			return sessionstore.Summary{}, fmt.Errorf(
+			message := fmt.Sprintf(
 				"no resumable Duo session for %s; %d stored session(s) could not be read:\n%s",
 				root, len(broken), FormatBroken(broken),
 			)
+			if hint := otherCheckoutHint(baseDir, repoID, root); hint != "" {
+				message += "\n" + hint
+			}
+			return sessionstore.Summary{}, nil, errors.New(message)
 		}
-		return sessionstore.Summary{}, fmt.Errorf("no unfinished Duo session for %s; run `duo` to start a new one", root)
+		message := fmt.Sprintf("no unfinished Duo session for %s; run `duo` to start a new one", root)
+		if hint := otherCheckoutHint(baseDir, repoID, root); hint != "" {
+			message += "\n" + hint
+		}
+		return sessionstore.Summary{}, nil, errors.New(message)
 	default:
-		return sessionstore.Summary{}, fmt.Errorf(
-			"multiple unfinished Duo sessions for %s:\n%s\nrun `duo resume <session-id>` to pick one",
-			root, FormatCandidates(candidates),
+		message := fmt.Sprintf("multiple unfinished Duo sessions for %s:\n%s", root, FormatCandidates(candidates))
+		if len(broken) > 0 {
+			message += fmt.Sprintf("\n%d stored session(s) could not be read:\n%s", len(broken), FormatBroken(broken))
+		}
+		return sessionstore.Summary{}, nil, fmt.Errorf(
+			"%s\nrun `duo resume <session-id>` to pick one",
+			message,
 		)
 	}
+}
+
+func otherCheckoutHint(baseDir, repoID, root string) string {
+	commonDir := gitCommonDir(root)
+	if commonDir == "" {
+		return ""
+	}
+	repos, err := sessionstore.ListRepos(baseDir)
+	if err != nil {
+		return ""
+	}
+	for _, otherID := range repos {
+		if otherID == repoID {
+			continue
+		}
+		items, err := sessionstore.List(baseDir, otherID)
+		if err != nil {
+			continue
+		}
+		for _, item := range items {
+			if item.Err != nil || !item.Unfinished() || item.Snapshot.Repository == "" {
+				continue
+			}
+			if _, err := os.Stat(item.Snapshot.Repository); err != nil {
+				continue
+			}
+			if gitCommonDir(item.Snapshot.Repository) == commonDir {
+				return fmt.Sprintf("A Duo session for this Git repository was found under checkout %q; run `duo resume` from that checkout", item.Snapshot.Repository)
+			}
+		}
+	}
+	return ""
+}
+
+func gitCommonDir(repository string) string {
+	repository = strings.TrimSpace(repository)
+	if repository == "" {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "git", "-C", repository, "rev-parse", "--git-common-dir").Output()
+	if err != nil {
+		return ""
+	}
+	path := strings.TrimSpace(string(out))
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(repository, path)
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		path = resolved
+	}
+	return filepath.Clean(path)
 }
 
 // FormatCandidates renders a session list for an error message.

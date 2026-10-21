@@ -403,22 +403,51 @@ func (a *App) runWithBackend(ctx context.Context, backend *ui.Backend) error {
 			a.refreshNotices()
 			a.draw()
 		case ev := <-a.screen.EventQ():
-			a.handleEvent(ev)
-			if a.isStopped() {
+			if a.handleInputBatch(ev, func() (tcell.Event, bool) {
+				select {
+				case next := <-a.screen.EventQ():
+					return next, true
+				default:
+					return nil, false
+				}
+			}, a.draw) {
 				return nil
 			}
-			a.draw()
 		case res := <-a.asyncCh:
 			a.handleAsync(res)
 			a.draw()
 		case <-tick.C:
-			if a.busy() || a.toast != nil {
+			if a.busy() || a.toast != nil || a.pasting {
 				a.frame++
 				a.refreshView()
 				a.draw()
 			}
 		}
 	}
+}
+
+const maxInputBatch = 4096
+
+// handleInputBatch handles one screen event and coalesces any events already
+// queued behind it into a single frame. Bracketed paste can produce one event
+// per byte, so drawing for every event multiplies paste latency by a full-screen
+// render. Paste contents are invisible until the closing paste event.
+func (a *App) handleInputBatch(first tcell.Event, next func() (tcell.Event, bool), draw func()) (stopped bool) {
+	a.handleEvent(first)
+	for i := 1; i < maxInputBatch && !a.isStopped(); i++ {
+		ev, ok := next()
+		if !ok {
+			break
+		}
+		a.handleEvent(ev)
+	}
+	if a.isStopped() {
+		return true
+	}
+	if !a.pasting {
+		draw()
+	}
+	return false
 }
 
 func (a *App) isStopped() bool {

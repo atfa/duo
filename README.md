@@ -488,7 +488,7 @@ The remaining commands do not touch sessions: `duo plugins` lists the built-in d
 
 ## Limits that affect use
 
-Duo supports two fixed roles, Austin and Tony, across switchable Fast, Goal and Step modes. A session cannot recover agent reasoning, and Duo Core does not restart itself after a crash; run `duo resume`. Session data is local to the machine and repository path. The shell scripts target macOS/Linux. gotui needs a terminal large enough for its split dashboard; smaller terminals fall back to its timeline view, and the retired hand-written TUI remains on the `legacy-tui` branch. Delivery safety and local TCP trust boundaries are described in [architecture](./docs/architecture.md) and [SECURITY.md](./SECURITY.md).
+Duo supports two fixed roles, Austin and Tony, across switchable Fast, Goal and Step modes. A session cannot recover agent reasoning, and Duo Core does not restart itself after a crash; run `duo resume`. Session data is local to the machine and repository path: linked Git worktrees have distinct paths, so resume from the same checkout path that started the session. If Duo reports a matching session under another checkout of the same Git repository, change to that checkout and run `duo resume` there. The shell scripts target macOS/Linux. gotui needs a terminal large enough for its split dashboard; smaller terminals fall back to its timeline view, and the retired hand-written TUI remains on the `legacy-tui` branch. Delivery safety and local TCP trust boundaries are described in [architecture](./docs/architecture.md) and [SECURITY.md](./SECURITY.md).
 
 ## Development
 

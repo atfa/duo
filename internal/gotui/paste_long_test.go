@@ -99,6 +99,79 @@ func TestPasteSuperLongTextCollapsedAndNavigation(t *testing.T) {
 	}
 }
 
+func TestInputBatchCoalescesPasteEventsAndDrawsOnPasteEnd(t *testing.T) {
+	app := New(newFakeSession())
+	draws := 0
+	draw := func() { draws++ }
+
+	if stopped := app.handleInputBatch(tcell.NewEventPaste(true), func() (tcell.Event, bool) {
+		return nil, false
+	}, draw); stopped {
+		t.Fatal("paste start unexpectedly stopped app")
+	}
+	if draws != 0 || !app.pasting {
+		t.Fatalf("paste start draws=%d, pasting=%t; want 0 draws and active paste", draws, app.pasting)
+	}
+
+	events := []tcell.Event{
+		tcell.NewEventKey(tcell.KeyRune, "first line", tcell.ModNone),
+		tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone),
+		tcell.NewEventKey(tcell.KeyRune, "second line", tcell.ModNone),
+		tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone),
+		tcell.NewEventKey(tcell.KeyRune, "third line", tcell.ModNone),
+		tcell.NewEventPaste(false),
+	}
+	index := 0
+	next := func() (tcell.Event, bool) {
+		if index == len(events) {
+			return nil, false
+		}
+		ev := events[index]
+		index++
+		return ev, true
+	}
+	index = 1
+	if stopped := app.handleInputBatch(events[0], func() (tcell.Event, bool) {
+		return next()
+	}, draw); stopped {
+		t.Fatal("paste contents unexpectedly stopped app")
+	}
+	if draws != 1 || app.pasting {
+		t.Fatalf("paste batch draws=%d, pasting=%t; want one final draw and closed paste", draws, app.pasting)
+	}
+	if got, want := app.composer.Text(), "[3 Lines]"; got != want {
+		t.Fatalf("composer text = %q, want %q", got, want)
+	}
+	if got, want := app.composer.ExpandedText(), "first line\nsecond line\nthird line"; got != want {
+		t.Fatalf("expanded paste = %q, want %q", got, want)
+	}
+}
+
+func TestInputBatchIsBoundedAndStopsDraining(t *testing.T) {
+	app := New(newFakeSession())
+	processed, draws := 0, 0
+	app.handleInputBatch(tcell.NewEventKey(tcell.KeyRune, "a", tcell.ModNone), func() (tcell.Event, bool) {
+		processed++
+		return tcell.NewEventKey(tcell.KeyRune, "b", tcell.ModNone), true
+	}, func() { draws++ })
+	if processed != maxInputBatch-1 || draws != 1 {
+		t.Fatalf("bounded batch processed=%d draws=%d; want %d queued events and one draw", processed, draws, maxInputBatch-1)
+	}
+
+	app = New(newFakeSession())
+	app.stopApp()
+	processed, draws = 0, 0
+	if stopped := app.handleInputBatch(tcell.NewEventKey(tcell.KeyRune, "a", tcell.ModNone), func() (tcell.Event, bool) {
+		processed++
+		return tcell.NewEventKey(tcell.KeyRune, "b", tcell.ModNone), true
+	}, func() { draws++ }); !stopped {
+		t.Fatal("stopped app continued input handling")
+	}
+	if processed != 0 || draws != 0 {
+		t.Fatalf("stopped batch processed=%d queued events and drew=%d times", processed, draws)
+	}
+}
+
 func TestPasteSuperLongTextRenderingStyle(t *testing.T) {
 	c := newComposer(newTheme())
 	c.SetRect(1, 10, 80, 20)
@@ -275,4 +348,3 @@ func TestPasteSingleLineSuperLong(t *testing.T) {
 		t.Fatalf("c.ExpandedText() does not match original long single line")
 	}
 }
-
