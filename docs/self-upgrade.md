@@ -145,6 +145,9 @@ scripts/duo-step-loop.sh            the only process that survives an upgrade
    that can continue it. A migration path is still the larger, later fix.
 2. **Install source.** Installing from Austin's feature worktree puts the running
    coordinator on unmerged code. Install from the delivered `main` only.
+   `installFromRepo` therefore refuses a checkout with uncommitted changes,
+   including untracked files, and prints the HEAD it installs from so the
+   operator can compare it with the request's `builtCommit`.
 3. **Install is not atomic today.** `install.sh` installs the two bridges, runs the
    tests, then builds the binaries. A failure in the middle leaves a mix — new
    bridges over the old coordinator, for instance. Driver protocol
@@ -162,13 +165,16 @@ scripts/duo-step-loop.sh            the only process that survives an upgrade
 6. **Crash vs upgrade are the same path, mostly.** Recovery is Git-ground-truth, so a
    kill between commit and deliver is safe. A kill between install and resume leaves a
    new binary over an old session — resume handles it, schema permitting (risk 1).
-7. **Version identity.** The installed version is a compile-time constant
-   (`internal/version/version.go`), so a self-built binary reports the version of its
-   source, not of the commit it was built from. `.duo/upgrade.json` therefore records
-   the reporting binary's version and schema, and the loop installs from the
-   repository checkout it was launched in: the commit that reaches the machine is that
-   checkout's HEAD, which the request does not record. Recording the built commit is
-   the obvious next improvement, not something to read out of `duo --version`.
+7. **Version identity.** The version is a compile-time constant
+   (`internal/version/version.go`), so on its own it does not say which commit a
+   self-built binary came from. The Go toolchain's `vcs.revision` and
+   `vcs.modified` settings now supply that identity: `duo --version` prints the
+   abbreviated commit (and marks a binary built from a dirty checkout), and
+   `.duo/upgrade.json` records `builtCommit` and `builtModified`. `duo step-loop`
+   prints the requesting build and the install-source HEAD, so a mismatch between
+   the code that requested the restart and the code that was installed is visible
+   in the handoff. A binary built without VCS metadata, such as one unpacked from
+   an archive, reports only its version.
 
 ## What is not proven yet
 

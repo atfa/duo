@@ -249,16 +249,43 @@ func performUpgrade(
 	return nil
 }
 
+// installSourceHead refuses a checkout with uncommitted work and returns its
+// HEAD. Untracked files count: `go build` compiles untracked .go files too, so
+// a dirty tree would put code nobody reviewed into the coordinator. The
+// untracked-files mode is explicit because the repository's own
+// status.showUntrackedFiles setting can otherwise hide them from this check.
+func installSourceHead(ctx context.Context, repo string) (string, error) {
+	status := exec.CommandContext(ctx, "git", "-C", repo, "status", "--porcelain", "--untracked-files=normal")
+	out, err := status.Output()
+	if err != nil {
+		return "", fmt.Errorf("inspect the install source %s: %w", repo, err)
+	}
+	if strings.TrimSpace(string(out)) != "" {
+		return "", fmt.Errorf("refusing to install from %s: the checkout has uncommitted changes; commit or discard them first so the installed binary is built from a reviewed commit", repo)
+	}
+	head := exec.CommandContext(ctx, "git", "-C", repo, "rev-parse", "HEAD")
+	out, err = head.Output()
+	if err != nil {
+		return "", fmt.Errorf("read the install source HEAD: %w", err)
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
 // installFromRepo builds and installs Duo from the repository's own checkout,
 // which is the branch the steps are landing on. Installing from the delivered
 // branch, never from an agent's feature worktree, is what keeps the running
-// coordinator on code the user actually received.
+// coordinator on code the user actually received. The HEAD is printed so the
+// operator can compare it with the build that requested the restart.
 func installFromRepo(ctx context.Context, repo string) error {
+	head, err := installSourceHead(ctx, repo)
+	if err != nil {
+		return err
+	}
 	script := filepath.Join(repo, "scripts", "install.sh")
 	if _, err := os.Stat(script); err != nil {
 		return fmt.Errorf("no installer at %s; install Duo yourself and let step-loop restart it: %w", script, err)
 	}
-	fmt.Printf("duo step-loop: installing from %s\n", repo)
+	fmt.Printf("duo step-loop: installing from %s at %s\n", repo, head)
 	cmd := exec.CommandContext(ctx, script)
 	cmd.Dir = repo
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr

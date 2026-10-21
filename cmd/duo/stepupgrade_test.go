@@ -77,6 +77,76 @@ func TestUpgradeRequestPersistsBuildIdentity(t *testing.T) {
 	}
 }
 
+// TestInstallFromRepoRefusesDirtyCheckout is the install-source guard: the
+// coordinator must not be replaced by a binary built from uncommitted work, and
+// the loop must print the HEAD it actually installs so it can be compared with
+// the request's builtCommit.
+func TestInstallFromRepoRefusesDirtyCheckout(t *testing.T) {
+	ctx := context.Background()
+	repo := t.TempDir()
+	deliveryGit(t, repo, "init", "-q")
+	deliveryGit(t, repo, "config", "user.email", "duo@example.invalid")
+	deliveryGit(t, repo, "config", "user.name", "Duo Test")
+	tracked := filepath.Join(repo, "tracked.txt")
+	if err := os.WriteFile(tracked, []byte("base\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	deliveryGit(t, repo, "add", "tracked.txt")
+	deliveryGit(t, repo, "commit", "-q", "-m", "base")
+
+	head, err := installSourceHead(ctx, repo)
+	if err != nil {
+		t.Fatalf("installSourceHead on a clean checkout: %v", err)
+	}
+	if want := strings.TrimSpace(deliveryGit(t, repo, "rev-parse", "HEAD")); head != want {
+		t.Fatalf("install-source HEAD = %q, want %q", head, want)
+	}
+
+	// A modified tracked file is uncommitted work.
+	if err := os.WriteFile(tracked, []byte("changed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := installFromRepo(ctx, repo); err == nil || !strings.Contains(err.Error(), "uncommitted changes") {
+		t.Fatalf("dirty checkout was not refused by installFromRepo: %v", err)
+	}
+
+	// So is an untracked file, which go build would compile if it were .go.
+	deliveryGit(t, repo, "checkout", "--", "tracked.txt")
+	untracked := filepath.Join(repo, "untracked.go")
+	if err := os.WriteFile(untracked, []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := installSourceHead(ctx, repo); err == nil || !strings.Contains(err.Error(), "uncommitted changes") {
+		t.Fatalf("untracked file was not refused: %v", err)
+	}
+	if err := os.Remove(untracked); err != nil {
+		t.Fatal(err)
+	}
+
+	// A repository can hide untracked files from git status for speed; the guard
+	// must still see them, or an untracked .go file would be compiled in.
+	deliveryGit(t, repo, "config", "status.showUntrackedFiles", "no")
+	if err := os.WriteFile(untracked, []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := installSourceHead(ctx, repo); err == nil || !strings.Contains(err.Error(), "uncommitted changes") {
+		t.Fatalf("status.showUntrackedFiles=no bypassed the guard: %v", err)
+	}
+	if err := os.Remove(untracked); err != nil {
+		t.Fatal(err)
+	}
+
+	// With a clean checkout the guard passes and the missing installer is the
+	// next error, proving the dirty check runs before anything is installed.
+	if err := installFromRepo(ctx, repo); err == nil || !strings.Contains(err.Error(), "no installer") {
+		t.Fatalf("clean checkout without an installer = %v, want the installer error", err)
+	}
+
+	if _, err := installSourceHead(ctx, t.TempDir()); err == nil {
+		t.Fatal("a non-repository install source must be refused")
+	}
+}
+
 // TestStepLoopLaunchFindsTheGitRootAndKeepsTheLaunchDir is the regression for
 // the broken self-upgrade chain: the session writes .duo/upgrade.json at the Git
 // root, while the loop used to read it from its own working directory. A launch

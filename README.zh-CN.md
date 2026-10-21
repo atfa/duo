@@ -70,7 +70,7 @@ RUNNING → VERIFY → DONE
 
 Fast 没有共享 Plan，也没有双重签字。一次 `passed` 绑定到当时被请求验证的那个确切 commit；任何新 commit 都会使其失效并把会话退回 `RUNNING`。只有 Austin 会写进被交付的成果——Tony 的 worktree 永远不会被交付。
 
-**切换模式**：人类可在 composer 中输入 `/mode goal`、`/escalate [理由]` 或 `/mode step`，Agent 也可调用 `duo_escalate`，无需重启任一 Agent。运行中的 Fast → Goal 保留原有的升级行为：会话进入 `PLAN`，用升级原因初始化共享计划，Tony 变为活跃协作者，已有 commit 无损保留。其他切换会按新模式的门禁开始新一轮。
+**切换模式**：人类可在 composer 中输入 `/mode goal`、`/escalate [理由]` 或 `/mode step`，Agent 也可调用 `duo_escalate`，无需重启任一 Agent。在 gotui 中，`/mode` 和 `/escalate` 先切换模式，再询问 **Resume work?**；选择 **Not now** 会让两个 Agent 保持空闲，直到人类提交下一个任务，同时暂停 harness watchdog 的自动提醒。运行中的 Fast → Goal 保留原有的升级行为：会话进入 `PLAN`，用升级原因初始化共享计划，Tony 变为活跃协作者，已有 commit 无损保留。其他切换会按新模式的门禁开始新一轮。
 
 ### Goal（`duo --mode goal`）
 

@@ -4,6 +4,25 @@ All notable project milestones are documented here.
 
 ## v0.12.2 — unreleased
 
+### Self-upgrade reliability
+
+- `duo step-loop` resolves the repository like `duo sessions` and `duo apply`
+  (positional path, `DUO_REPO`, then the working directory) once a real upgrade
+  request exists, so a request written from a subdirectory or an explicit path is
+  found, while `--version` and `--help` still pass straight through. Resumes keep
+  the original launch directory, so a subdirectory's language and test command
+  survive the restart.
+- `duo_restart_duo` is refused while either agent worktree has uncommitted
+  changes, naming the worktree and path; a restart can no longer discard work
+  that was never committed.
+- `duo --version` reports the build commit from `debug.ReadBuildInfo()` and marks
+  a binary built from a dirty checkout. `.duo/upgrade.json` records
+  `builtCommit`/`builtModified`, and `duo step-loop` prints the requesting build.
+- `duo step-loop` refuses to install from a checkout with uncommitted changes and
+  prints the install-source HEAD next to the request's build identity.
+- The Chinese README now documents the gotui mode-switch **Resume work?** prompt
+  and **Not now** behavior.
+
 ### gotui becomes the terminal frontend
 
 - The gotui dashboard is now the default and only bundled terminal frontend, so
