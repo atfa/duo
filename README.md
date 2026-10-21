@@ -36,7 +36,7 @@ Requirements:
 
 ## Install
 
-**Released binaries** (macOS/Linux, amd64/arm64; installs `duo`, driver helpers and agent bridges):
+**Released binaries (v0.13.0)** (macOS/Linux, amd64/arm64; installs `duo`, driver helpers and agent bridges):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash

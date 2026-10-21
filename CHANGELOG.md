@@ -2,7 +2,7 @@
 
 All notable project milestones are documented here.
 
-## v0.12.2 — unreleased
+## v0.13.0 — 2026-10-22
 
 ### Cooperative pause and driver switching
 
@@ -84,10 +84,6 @@ All notable project milestones are documented here.
   preview. The host caches the preview asynchronously and marks truncated text.
 - Agent cards show whether their driver can change models without restarting.
 
-This version has not been tagged or published.
-
-## v0.12.1 — unreleased
-
 ### xduo desktop usability
 
 - The task composer wraps long lines and supports keyboard selection, including
@@ -103,8 +99,6 @@ This version has not been tagged or published.
 - Desktop launchers offer to resume an unfinished session in the chosen
   repository. A window smoke script and platform checklist cover decorations.
 - Automatic Git diffstat refresh disables repository-configured fsmonitor commands.
-
-This version has not been tagged or published.
 
 ## v0.12.0 — 2026-10-16
 
