@@ -117,6 +117,10 @@ type Service struct {
 
 	noticeMu sync.Mutex
 	notices  []string
+
+	// thinkingMu guards AgentThinkings against the asynchronous thinking_state
+	// report that confirms a live switch.
+	thinkingMu sync.Mutex
 }
 
 // New creates a session service. Nothing is started and no file is touched until
@@ -276,6 +280,7 @@ func (s *Service) launch(ctx context.Context) (Result, error) {
 	tracker := harness.NewTracker()
 	coord := coordinator.New(server, s.state, tracker, s.ws, s.bus)
 	coord.SetLanguage(s.opts.Language)
+	coord.SetThinkingObserver(s.rememberThinking)
 	s.server, s.tracker, s.coord = server, tracker, coord
 
 	// The driver plugins were registered once, by New: a session must not import a
@@ -374,6 +379,7 @@ func (s *Service) launch(ctx context.Context) (Result, error) {
 		}
 		agents.Add(session)
 		coord.SetCurrentModel(agentID, modelName)
+		coord.SetCurrentThinking(agentID, effort)
 		s.logger.Printf("%s: driver=%s model=%s worktree=%s cwd=%s sessionID=%s command=%s", agentID, session.DriverType(), modelName, wt.Path, dir, session.SessionID(), session.EffectiveCommand())
 	}
 	coord.SetAgents(agents)
@@ -724,7 +730,9 @@ func (s *Service) setDriver(ctx context.Context, c SetDriver) error {
 		return fmt.Errorf("%s is unavailable: %s", name, probe.Reason)
 	}
 
+	s.thinkingMu.Lock()
 	commands, modelsByAgent, thinkingByAgent := driverSwitchOptions(s.opts, c.Agent)
+	s.thinkingMu.Unlock()
 	manifest := manifestOf(probeCtx, plugin)
 	baseCommand, model, effort := ResolveDriver(commands, modelsByAgent, thinkingByAgent, c.Agent, manifest)
 	previous, ok := old.(*agent.Session)
@@ -757,6 +765,7 @@ func (s *Service) setDriver(ctx context.Context, c SetDriver) error {
 	if s.opts.AgentCommands == nil {
 		s.opts.AgentCommands = make(map[protocol.AgentID]string)
 	}
+	s.thinkingMu.Lock()
 	if s.opts.AgentThinkings == nil {
 		s.opts.AgentThinkings = make(map[protocol.AgentID]string)
 	}
@@ -764,6 +773,7 @@ func (s *Service) setDriver(ctx context.Context, c SetDriver) error {
 	s.opts.AgentCommands[c.Agent] = baseCommand
 	s.opts.AgentModels[c.Agent] = ""
 	s.opts.AgentThinkings[c.Agent] = ""
+	s.thinkingMu.Unlock()
 	s.coord.SetCurrentModel(c.Agent, model)
 	s.tracker.Reset(c.Agent)
 	s.persistProjectConfig()
@@ -872,39 +882,68 @@ func (s *Service) bareModels(agent protocol.AgentID) bool {
 // effort live, restarts the agent so the level takes effect. The restart used to
 // be the interface's job; it belongs to the session, because the failure it can
 // produce is a fact about an agent process.
+// cycleThinking asks the agent for its next effort level. A live bridge answers
+// asynchronously with thinking_state, so the confirmed level is persisted by
+// rememberThinking rather than read here: reading immediately would store the
+// level the agent is leaving, which is exactly the restart mismatch this fixes.
 func (s *Service) cycleThinking(ctx context.Context, agent protocol.AgentID) error {
 	if err := s.coord.CycleThinking(ctx, agent); err != nil {
 		return err
 	}
-	thinking := s.coord.Thinking(agent)
-	if thinking == "" {
-		thinking = "unknown"
-	}
 	if s.agents != nil {
-		if d, ok := s.agents.Driver(agent); ok {
-			d.SetEffort(thinking)
-			if !d.Capabilities().LiveThinkingSwitch {
-				if err := d.RestartRunning(ctx); err != nil {
-					return fmt.Errorf("%s thinking: %s failed: %w", agent, thinking, err)
-				}
+		if d, ok := s.agents.Driver(agent); ok && !d.Capabilities().LiveThinkingSwitch {
+			level := s.coord.Thinking(agent)
+			if level == "" {
+				level = "unknown"
+			}
+			if err := d.RestartRunning(ctx); err != nil {
+				return fmt.Errorf("%s thinking: %s failed: %w", agent, level, err)
 			}
 		}
 	}
+	return nil
+}
+
+// rememberThinking records the level an agent actually reported. That is the
+// only value that can be trusted for persistence: a live bridge may clamp the
+// requested level to what its model supports.
+func (s *Service) rememberThinking(agent protocol.AgentID, level string) {
+	level = strings.TrimSpace(level)
+	if level == "" {
+		return
+	}
+	s.thinkingMu.Lock()
 	if s.opts.AgentThinkings == nil {
 		s.opts.AgentThinkings = make(map[protocol.AgentID]string)
 	}
-	s.opts.AgentThinkings[agent] = thinking
+	s.opts.AgentThinkings[agent] = level
+	s.thinkingMu.Unlock()
+
+	if s.coord != nil {
+		s.coord.SetCurrentThinking(agent, level)
+	}
+	if s.agents != nil {
+		if d, ok := s.agents.Driver(agent); ok {
+			d.SetEffort(level)
+		}
+	}
 	repo := ""
 	if s.ws != nil {
 		repo = s.ws.Set().Repository
 	}
 	repo = strings.TrimSpace(repo)
-	if repo != "" {
-		if err := workspace.SaveProjectThinking(repo, agent, thinking); err != nil {
-			return fmt.Errorf("save %s thinking: %w", agent, err)
+	if repo == "" {
+		return
+	}
+	if err := workspace.SaveProjectThinking(repo, agent, level); err != nil {
+		if s.logger != nil {
+			s.logger.Printf("persist %s thinking: %v", agent, err)
+		}
+		if s.bus != nil {
+			s.bus.Emit(events.Event{Time: time.Now(), Kind: events.KindError, Agent: protocol.Duo,
+				Text: fmt.Sprintf("thinking changed to %s but could not be saved: %v", level, err)})
 		}
 	}
-	return nil
 }
 
 // persistProjectConfig records the drivers and models in use, so the next session

@@ -11,6 +11,22 @@ import (
 	"github.com/atfa/duo/internal/protocol"
 )
 
+func TestThinkingObserverReceivesConfirmedLevel(t *testing.T) {
+	coord := New(nil, project.NewStateFor(project.ModeFast), harness.NewTracker(), nil, events.NewBus())
+	var gotAgent protocol.AgentID
+	var gotLevel string
+	coord.SetThinkingObserver(func(agent protocol.AgentID, level string) {
+		gotAgent, gotLevel = agent, level
+	})
+	coord.handleThinkingState(protocol.Tony, protocol.Message{Thinking: "xhigh"})
+	if gotAgent != protocol.Tony || gotLevel != "xhigh" {
+		t.Fatalf("observer saw %s/%q, want Tony/xhigh", gotAgent, gotLevel)
+	}
+	if level := coord.Thinking(protocol.Tony); level != "xhigh" {
+		t.Fatalf("coordinator level = %q, want xhigh", level)
+	}
+}
+
 func TestCoordinatorSetModelAndCycleThinkingOffline(t *testing.T) {
 	ctx := context.Background()
 	bus := events.NewBus()

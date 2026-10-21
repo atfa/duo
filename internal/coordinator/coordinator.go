@@ -76,6 +76,10 @@ type Coordinator struct {
 	// finished round may make. See requestFinalSummary.
 	summaryMu        sync.Mutex
 	summaryRequested bool
+
+	// thinkingObserver records the level an agent actually reports, after any
+	// live clamping. It is installed once before the event loop starts.
+	thinkingObserver func(protocol.AgentID, string)
 }
 
 // Durability wires a session store into the coordinator.
@@ -108,6 +112,13 @@ func (c *Coordinator) SetAgents(agents *agentpkg.Manager) {
 
 // SetLanguage selects the language for Duo-authored agent and human messages.
 func (c *Coordinator) SetLanguage(language string) { c.language = language }
+
+// SetThinkingObserver is called with the level an agent actually reports. Live
+// drivers answer cycle_thinking asynchronously, so the session cannot read the
+// new value from CycleThinking's return; it persists the confirmed value here.
+func (c *Coordinator) SetThinkingObserver(observer func(protocol.AgentID, string)) {
+	c.thinkingObserver = observer
+}
 
 // RestartRequested reports the pending request to continue on a new Duo binary,
 // which the frontend reads to stop the session and exit with the upgrade code.
@@ -1079,6 +1090,23 @@ func (c *Coordinator) SetCurrentModel(agent protocol.AgentID, model string) {
 	c.currentModel[agent] = strings.TrimSpace(model)
 }
 
+// SetCurrentThinking seeds the level an agent was launched with, before a live
+// bridge has had a chance to report its own thinking_state. Without it the
+// cards show an empty level until the agent speaks even though the stored
+// configuration already chose one.
+func (c *Coordinator) SetCurrentThinking(agent protocol.AgentID, level string) {
+	level = strings.TrimSpace(level)
+	if level == "" {
+		return
+	}
+	c.modelMu.Lock()
+	defer c.modelMu.Unlock()
+	if c.currentThinking == nil {
+		c.currentThinking = make(map[protocol.AgentID]string)
+	}
+	c.currentThinking[agent] = level
+}
+
 func (c *Coordinator) handleThinkingState(agent protocol.AgentID, message protocol.Message) {
 	level := strings.TrimSpace(message.Thinking)
 	if level == "" {
@@ -1093,6 +1121,9 @@ func (c *Coordinator) handleThinkingState(agent protocol.AgentID, message protoc
 
 	if c.bus != nil {
 		c.bus.Emit(events.Event{Kind: events.KindThinking, Agent: agent, Thinking: level})
+	}
+	if c.thinkingObserver != nil {
+		c.thinkingObserver(agent, level)
 	}
 	c.logf("%s thinking: %s", agent, level)
 }

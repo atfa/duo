@@ -475,6 +475,35 @@ func TestSetLanguageSwitchesAndPersists(t *testing.T) {
 // /model's thinking control must write the level into the same project entry
 // that carries the agent's driver and model, so the next launch in this
 // repository starts with that effort.
+func TestRememberThinkingPersistsConfirmedLevel(t *testing.T) {
+	repo := gitRepo(t)
+	svc := New(headlessOptions(t, repo, t.TempDir(), "127.0.0.1:0"))
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer svc.Close()
+
+	svc.rememberThinking(protocol.Tony, "xhigh")
+	if got := svc.View().Agent(protocol.Tony).Thinking; got != "xhigh" {
+		t.Fatalf("confirmed Tony thinking = %q, want xhigh", got)
+	}
+	data, err := os.ReadFile(filepath.Join(repo, ".duo", "config.json"))
+	if err != nil {
+		t.Fatalf("project config not written: %v", err)
+	}
+	var cfg struct {
+		Agents map[string]struct {
+			Thinking string `json:"thinking"`
+		} `json:"agents"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("parse project config: %v\n%s", err, data)
+	}
+	if got := cfg.Agents["tony"].Thinking; got != "xhigh" {
+		t.Fatalf("persisted Tony thinking = %q, want xhigh\n%s", got, data)
+	}
+}
+
 func TestCycleThinkingPersistsProjectConfig(t *testing.T) {
 	repo := gitRepo(t)
 	svc := New(headlessOptions(t, repo, t.TempDir(), "127.0.0.1:0"))

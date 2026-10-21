@@ -281,15 +281,10 @@ func (a *App) cycleThinking() {
 		a.setStatus(err.Error(), true)
 		return
 	}
+	// The level shown by the cards and picker comes from the agent's confirmed
+	// thinking_state event. Reading View here would show the level being left
+	// behind on a live bridge, which reports asynchronously.
 	a.refreshView()
-	thinking := a.live.Agent(agent).Thinking
-	if thinking == "" {
-		thinking = "unknown"
-	}
-	a.currentThink[agent] = thinking
-	if a.overlay == overlayPicker {
-		a.picker.thinking = thinking
-	}
 }
 
 func (a *App) restartAgent(agent protocol.AgentID) {

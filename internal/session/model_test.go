@@ -81,11 +81,13 @@ func modelSession(t *testing.T, d *modelDriver) *Service {
 	state := project.NewStateFor(project.ModeFast)
 	agents := agent.NewManager()
 	agents.Add(d)
-	return &Service{
+	svc := &Service{
 		state:  state,
 		coord:  coordinator.New(nil, state, harness.NewTracker(), nil, events.NewBus()),
 		agents: agents,
 	}
+	svc.coord.SetThinkingObserver(svc.rememberThinking)
+	return svc
 }
 
 func TestSetModelGivesTheDriverAReferenceItCanUse(t *testing.T) {

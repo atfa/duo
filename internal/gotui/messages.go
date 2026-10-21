@@ -21,6 +21,9 @@ func (a *App) route(event events.Event) {
 	}
 	if event.Kind == events.KindThinking && event.Thinking != "" {
 		a.currentThink[event.Agent] = event.Thinking
+		if a.overlay == overlayPicker {
+			a.picker.thinking = event.Thinking
+		}
 		return
 	}
 	text := strings.TrimSpace(event.Text)
