@@ -9,9 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
+	"github.com/atfa/duo/internal/session"
 	"github.com/atfa/duo/internal/sessionstore"
 	"github.com/gdamore/tcell/v3"
 	ui "github.com/metaspartan/gotui/v5"
@@ -93,10 +95,10 @@ func TestCaptureFrames(t *testing.T) {
 	injectKey(sim, tcell.KeyCtrlU, 0, tcell.ModNone)
 
 	injectKey(sim, tcell.KeyF1, 0, tcell.ModNone)
-	waitForText(t, sim, "NATIVE TERMINALS")
+	waitForText(t, sim, "PAUSE & DRIVERS")
 	capture("04-help-120x42")
 	injectKey(sim, tcell.KeyEsc, 0, tcell.ModNone)
-	waitGone(t, sim, "NATIVE TERMINALS")
+	waitGone(t, sim, "PAUSE & DRIVERS")
 
 	injectKey(sim, tcell.KeyCtrlO, 0, tcell.ModNone)
 	waitForText(t, sim, "STATUS OK")
@@ -110,6 +112,28 @@ func TestCaptureFrames(t *testing.T) {
 	capture("06-models-120x42")
 	injectKey(sim, tcell.KeyEsc, 0, tcell.ModNone)
 	waitGone(t, sim, "MODELS & THINKING")
+
+	// A paused session shows the badge and progress, and the driver picker is its
+	// only process-changing control.
+	fake.mu.Lock()
+	fake.view.Pause = session.PauseView{State: session.PausePaused, Paused: map[protocol.AgentID]bool{protocol.Austin: true, protocol.Tony: true}}
+	fake.mu.Unlock()
+	fake.events <- events.Event{Time: time.Now(), Kind: events.KindActivity, Agent: protocol.Austin}
+	waitForText(t, sim, "PAUSED")
+	capture("09-paused-120x42")
+
+	typeText(sim, "/driver")
+	injectKey(sim, tcell.KeyEnter, 0, tcell.ModNone)
+	waitForText(t, sim, "DRIVERS")
+	capture("10-drivers-120x42")
+	injectKey(sim, tcell.KeyEsc, 0, tcell.ModNone)
+	waitGone(t, sim, "DRIVERS")
+
+	fake.mu.Lock()
+	fake.view.Pause = session.PauseView{State: session.PauseRunning, Paused: map[protocol.AgentID]bool{}}
+	fake.mu.Unlock()
+	fake.events <- events.Event{Time: time.Now(), Kind: events.KindActivity, Agent: protocol.Tony}
+	waitGone(t, sim, "PAUSED")
 
 	sim.SetSize(80, 24)
 	waitGone(t, sim, "WORKFLOW")

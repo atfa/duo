@@ -21,6 +21,7 @@ type Session interface {
 	Subscribe(buffer int) (session.Subscription, func())
 	Do(ctx context.Context, cmd session.Command) error
 	Models(ctx context.Context, agent protocol.AgentID) ([]models.Model, error)
+	Drivers(ctx context.Context) ([]session.DriverChoice, error)
 	StatusText(ctx context.Context) string
 	Changes(ctx context.Context) []string
 	Notices() []string

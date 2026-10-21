@@ -38,9 +38,15 @@ other Duo frontend. It never owns workflow state or makes project transitions:
   immediately, then ask whether to resume Austin and Tony. The safe default is
   **Not now**, which leaves both agents idle until the human submits the next
   task; it also holds harness nudges so the watchdog cannot start work by itself.
-- **Overlays.** Help, session details, model picker and destructive confirmations
-  are centered modals with a cleared content backdrop. The slash palette occupies
-  the conversation pane so no text or border fragments show through it.
+- **Pause and drivers.** `/pause` waits for a turn boundary and shows
+  `PAUSING`/`PAUSED` in the header, with the footer naming who is still working.
+  `/unpause` cancels an incomplete request; `/continue` resumes a full pause.
+  `/driver` is the paused-only driver picker: agent tabs, typing filter, a marker
+  on the current driver, and no resume when a choice is applied.
+- **Overlays.** Help, session details, model picker, driver picker and
+  destructive confirmations are centered modals with a cleared content backdrop.
+  The slash palette occupies the conversation pane so no text or border fragments
+  show through it.
 - **Copy feedback.** Copying a transcript selection or Austin's latest message
   briefly overlays a `COPIED` panel in the top-right; it dismisses itself after
   two seconds and does not consume layout space.
@@ -136,7 +142,7 @@ The frontend lives entirely under `internal/gotui/`:
 | `session.go` | local Session seam over `session.Service` |
 | `theme.go` | TrueColor palette and shared styles |
 | `composer.go` | multiline editing, visual rows, scrolling, history |
-| `slash.go`, `picker.go`, `overlay.go` | command palette and modal surfaces |
+| `slash.go`, `picker.go`, `driverpicker.go`, `overlay.go` | command palette, model picker, driver picker and modal surfaces |
 | `keys.go`, `commands.go` | key routing, mouse, slash commands, native actions |
 | `native.go` | suspend/attach/detach/restore and input assembly |
 | `capture_test.go` | deterministic SimulationScreen frames |
@@ -174,6 +180,8 @@ the text files.
 | [help 120×42](screens/04-help-120x42.txt) | help modal on a cleared backdrop |
 | [details 120×42](screens/05-details-120x42.txt) | session details and diffstat |
 | [models 120×42](screens/06-models-120x42.txt) | model/thinking picker after the async catalog load |
+| [paused 120×42](screens/09-paused-120x42.txt) | PAUSED badge and the paused footer hint |
+| [drivers 120×42](screens/10-drivers-120x42.txt) | paused-only driver picker |
 | [confirm 80×24](screens/07-confirm-80x24.txt) | destructive confirmation at a compact size |
 | [narrow 64×22](screens/08-narrow-64x22.txt) | no-sidebar timeline with compact footer |
 
@@ -187,9 +195,10 @@ DUO_GOTUI_CAPTURE_DIR="$PWD/docs/gotui/screens" \
 ## Verification
 
 The frontend has focused tests for layout, wrapping, Markdown, composer/paste
-behavior, session restore, slash filtering, picker state, overlay draw order,
-CLI selection, native detach parsing, and a real PTY attach/detach round trip
-that checks terminal-state restoration. Run the repository checks with:
+behavior, session restore, slash filtering, pause commands and progress, driver
+picker gating/application, picker state, overlay draw order, CLI selection,
+native detach parsing, and a real PTY attach/detach round trip that checks
+terminal-state restoration. Run the repository checks with:
 
 ```bash
 go test ./...

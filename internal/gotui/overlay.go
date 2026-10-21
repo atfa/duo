@@ -13,6 +13,7 @@ type overlayKind int
 const (
 	overlayNone overlayKind = iota
 	overlayPicker
+	overlayDrivers
 	overlayHelp
 	overlayDetails
 	overlayConfirm
@@ -158,9 +159,16 @@ func (h *helpOverlay) rebuild() {
 			"Ctrl+G timestamps  ·  PgUp/PgDn scroll  ·  Ctrl+Q / Ctrl+D quit",
 			"@ completes a tracked file  ·  Tab autocompletes slash commands or files  ·  Esc closes dialogs  ·  ↑/↓ recalls history",
 		}},
+		{"PAUSE & DRIVERS", []string{
+			"/pause waits for both agents to finish their current turn, then holds new work.",
+			"While pausing, /unpause cancels the request; once paused, /continue resumes work.",
+			"While fully paused, /driver switches an agent's driver. After /continue the new",
+			"driver reads the repository's .duo transcript to recover the conversation.",
+		}},
 		{"SLASH COMMANDS", []string{
 			"/help · /overview · /model · /copy · /preview · /timestamps",
 			"/status · /language [zh|en] · /mode [fast|goal|step] · /escalate [reason] · /quit",
+			"/pause · /unpause · /continue · /driver (only while paused)",
 		}},
 		{"NATIVE TERMINALS", []string{
 			"Attach suspends the dashboard and hands the real PTY to the agent. The",
