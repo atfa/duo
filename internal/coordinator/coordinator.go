@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
@@ -333,7 +334,8 @@ func (c *Coordinator) ContinuePause(ctx context.Context) error {
 			index = 1
 		}
 		if c.resumeRepo != "" && c.resumeSession != "" {
-			text += fmt.Sprintf("\n\nSession transcripts (read before continuing): .duo/logs/%s.md and .duo/logs/%s-%s.md. If your driver changed while paused, the previous conversation did not carry over; read the transcript first.", c.resumeSession, c.resumeSession, strings.ToLower(string(id)))
+			logs := filepath.Join(c.resumeRepo, ".duo", "logs")
+			text += fmt.Sprintf("\n\nSession transcripts (read before continuing): %s and %s. If your driver changed while paused, the previous conversation did not carry over; read your transcript first.", filepath.Join(logs, c.resumeSession+".md"), filepath.Join(logs, c.resumeSession+"-"+strings.ToLower(string(id))+".md"))
 		}
 		if len(summaries[index]) > 0 {
 			text += "\n\nDuo held these while paused:\n- " + strings.Join(summaries[index], "\n- ")

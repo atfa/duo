@@ -81,7 +81,7 @@ func TestContinueCombinesHeldWorkIntoSingleResumePrompt(t *testing.T) {
 	if len(austin.written) != 1 || !strings.Contains(austin.written[0], "Duo held these while paused") || !strings.Contains(austin.written[0], "finish task") {
 		t.Fatalf("Austin should receive one combined prompt, got %#v", austin.written)
 	}
-	if len(tony.written) != 1 || !strings.Contains(tony.written[0], ".duo/logs/session-1-tony.md") {
+	if len(tony.written) != 1 || !strings.Contains(tony.written[0], "/repo/.duo/logs/session-1.md") || !strings.Contains(tony.written[0], "/repo/.duo/logs/session-1-tony.md") {
 		t.Fatalf("Tony should receive one resume prompt with transcript context, got %#v", tony.written)
 	}
 }
