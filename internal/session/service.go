@@ -890,6 +890,20 @@ func (s *Service) cycleThinking(ctx context.Context, agent protocol.AgentID) err
 			}
 		}
 	}
+	if s.opts.AgentThinkings == nil {
+		s.opts.AgentThinkings = make(map[protocol.AgentID]string)
+	}
+	s.opts.AgentThinkings[agent] = thinking
+	repo := ""
+	if s.ws != nil {
+		repo = s.ws.Set().Repository
+	}
+	repo = strings.TrimSpace(repo)
+	if repo != "" {
+		if err := workspace.SaveProjectThinking(repo, agent, thinking); err != nil {
+			return fmt.Errorf("save %s thinking: %w", agent, err)
+		}
+	}
 	return nil
 }
 

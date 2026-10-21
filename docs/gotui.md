@@ -68,6 +68,8 @@ uses `Tab` to switch the target agent, `Space` to select a model without closing
 `Shift+Tab` to cycle the selected agent's thinking level in place, and `Ctrl+T` to
 switch between the explicit Models and Thinking tabs. Thinking-capable model rows
 show the current level after the model name (`thinking · high` / `思考·强`).
+Model and thinking selections are written to the repository's `.duo/config.json`
+under the agent's driver, so the next launch loads them again.
 Closing the picker keeps the selected agent. `Shift+Tab` is deliberately not bound
 in the main view, where the target agent would be ambiguous.
 

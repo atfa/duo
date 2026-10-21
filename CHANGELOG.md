@@ -15,7 +15,8 @@ All notable project milestones are documented here.
 - The `/mode` command column is sized from the longest command, so
   `/mode [fast|goal|step]` is visible in full.
 - A model chosen in `/model` is written to `.duo/config.json` so the next launch
-  in that repository starts with the same model.
+  in that repository starts with the same model. Thinking levels selected in the
+  same picker are persisted with the agent's driver and model as well.
 - `scripts/install.sh` now builds the gotui-based `duo` with the rest of the
   commands, so a source install and the release archives ship the same frontend.
 

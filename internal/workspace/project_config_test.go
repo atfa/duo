@@ -385,6 +385,57 @@ func TestSaveProjectLanguageWritesPreservesAndRemoves(t *testing.T) {
 	}
 }
 
+func TestSaveProjectThinkingPreservesDriverModelAndOtherKeys(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, ".duo", "config.json")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, []byte(`{
+  "language": "zh",
+  "agents": {
+    "austin": {"driver": "opencode", "model": "opencode/gpt-5", "thinking": "low", "custom": "keep"},
+    "tony": {"driver": "pi", "model": "anthropic/claude", "thinking": "medium"}
+  }
+}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveProjectThinking(dir, protocol.Austin, "high"); err != nil {
+		t.Fatalf("SaveProjectThinking: %v", err)
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cfg struct {
+		Language string `json:"language"`
+		Agents   map[string]struct {
+			Driver   string `json:"driver"`
+			Model    string `json:"model"`
+			Thinking string `json:"thinking"`
+			Custom   string `json:"custom"`
+		} `json:"agents"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("parse config: %v\n%s", err, data)
+	}
+	austin := cfg.Agents["austin"]
+	if austin.Driver != "opencode" || austin.Model != "opencode/gpt-5" || austin.Thinking != "high" || austin.Custom != "keep" {
+		t.Fatalf("Austin entry was not preserved: %+v\n%s", austin, data)
+	}
+	if cfg.Agents["tony"].Thinking != "medium" || cfg.Language != "zh" {
+		t.Fatalf("other entries changed: %+v language=%q\n%s", cfg.Agents, cfg.Language, data)
+	}
+
+	if err := SaveProjectThinking(dir, protocol.Austin, ""); err != nil {
+		t.Fatalf("clear thinking: %v", err)
+	}
+	data, _ = os.ReadFile(configPath)
+	if strings.Contains(string(data), `"thinking": "high"`) || strings.Contains(string(data), `"thinking":"high"`) {
+		t.Fatalf("empty thinking did not remove the Austin key:\n%s", data)
+	}
+}
+
 func TestSaveProjectLanguageMutualPreservationWithSaveProjectConfig(t *testing.T) {
 	dir := t.TempDir()
 	if err := SaveProjectLanguage(dir, "zh"); err != nil {

@@ -148,6 +148,76 @@ func SaveProjectLanguage(repoRoot, language string) error {
 	return os.Rename(tmpFile, configPath)
 }
 
+// SaveProjectThinking records one agent's reasoning effort in .duo/config.json,
+// preserving the driver, model and every other key. An empty level removes the
+// key so a later run falls back to the driver's own default.
+func SaveProjectThinking(repoRoot string, agent protocol.AgentID, thinking string) error {
+	repoRoot = strings.TrimSpace(repoRoot)
+	if repoRoot == "" {
+		return nil
+	}
+	duoDir := filepath.Join(repoRoot, ".duo")
+	if err := os.MkdirAll(duoDir, 0755); err != nil {
+		return err
+	}
+	_ = EnsureGitIgnore(repoRoot)
+
+	configPath := filepath.Join(duoDir, "config.json")
+	config := make(map[string]json.RawMessage)
+	agents := make(map[string]json.RawMessage)
+	data, err := os.ReadFile(configPath)
+	if err == nil {
+		if err := json.Unmarshal(data, &config); err != nil || config == nil {
+			if err == nil {
+				err = fmt.Errorf("expected a JSON object")
+			}
+			return fmt.Errorf("read Duo project config: %w", err)
+		}
+		if rawAgents := config["agents"]; len(rawAgents) > 0 {
+			if err := json.Unmarshal(rawAgents, &agents); err != nil {
+				return fmt.Errorf("read Duo project agent config: %w", err)
+			}
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("read Duo project config: %w", err)
+	}
+	if agents == nil {
+		agents = make(map[string]json.RawMessage)
+	}
+	key := strings.ToLower(string(agent))
+	fields := make(map[string]json.RawMessage)
+	if raw := agents[key]; len(raw) > 0 {
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			return fmt.Errorf("read Duo project agent config %q: %w", key, err)
+		}
+	}
+	thinking = strings.TrimSpace(thinking)
+	if thinking == "" {
+		delete(fields, "thinking")
+	} else {
+		fields["thinking"], _ = json.Marshal(thinking)
+	}
+	agents[key], err = json.Marshal(fields)
+	if err != nil {
+		return err
+	}
+	config["agents"], err = json.Marshal(agents)
+	if err != nil {
+		return err
+	}
+
+	data, err = json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	tmpFile := configPath + ".tmp"
+	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmpFile, configPath)
+}
+
 // SaveProjectConfig writes or updates .duo/config.json in repoRoot with the active driver and models.
 func SaveProjectConfig(repoRoot string, driver string, agentDrivers map[protocol.AgentID]string, agentModels map[protocol.AgentID]string) error {
 	repoRoot = strings.TrimSpace(repoRoot)

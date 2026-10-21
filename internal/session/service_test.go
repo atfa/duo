@@ -471,3 +471,44 @@ func TestSetLanguageSwitchesAndPersists(t *testing.T) {
 		t.Fatalf("rejected command changed language to %q, want zh", got)
 	}
 }
+
+// /model's thinking control must write the level into the same project entry
+// that carries the agent's driver and model, so the next launch in this
+// repository starts with that effort.
+func TestCycleThinkingPersistsProjectConfig(t *testing.T) {
+	repo := gitRepo(t)
+	svc := New(headlessOptions(t, repo, t.TempDir(), "127.0.0.1:0"))
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer svc.Close()
+
+	if err := svc.Do(context.Background(), CycleThinking{Agent: protocol.Tony}); err != nil {
+		t.Fatalf("CycleThinking: %v", err)
+	}
+	want := svc.View().Agent(protocol.Tony).Thinking
+	if want == "" {
+		t.Fatal("the session did not report the new Tony thinking level")
+	}
+	data, err := os.ReadFile(filepath.Join(repo, ".duo", "config.json"))
+	if err != nil {
+		t.Fatalf("project config not written: %v", err)
+	}
+	var cfg struct {
+		Driver string `json:"driver"`
+		Agents map[string]struct {
+			Driver   string `json:"driver"`
+			Thinking string `json:"thinking"`
+		} `json:"agents"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		t.Fatalf("parse project config: %v\n%s", err, data)
+	}
+	tony := cfg.Agents["tony"]
+	if tony.Thinking != want {
+		t.Fatalf("persisted Tony thinking = %q, want %q\n%s", tony.Thinking, want, data)
+	}
+	if tony.Driver == "" && cfg.Driver == "" {
+		t.Fatalf("persisted thinking has no driver beside it:\n%s", data)
+	}
+}
