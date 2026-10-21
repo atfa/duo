@@ -453,6 +453,18 @@ func TestThinkingTargetFollowsPickerAgent(t *testing.T) {
 	injectKey(sim, tcell.KeyEsc, 0, tcell.ModNone)
 }
 
+func TestThinkingEventUpdatesCardsWithoutSingleAgentStatus(t *testing.T) {
+	fake := newFakeSession()
+	app := New(fake)
+	app.route(events.Event{Time: time.Now(), Kind: events.KindThinking, Agent: protocol.Tony, Thinking: "high"})
+	if got := app.currentThink[protocol.Tony]; got != "high" {
+		t.Fatalf("Tony thinking state = %q, want high", got)
+	}
+	if app.status != "" {
+		t.Fatalf("thinking event set a single-agent status %q; the agent cards show both levels", app.status)
+	}
+}
+
 func TestMainViewBacktabDoesNotChangeThinking(t *testing.T) {
 	fake := newFakeSession()
 	app := New(fake)
