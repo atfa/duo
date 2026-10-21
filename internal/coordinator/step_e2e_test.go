@@ -118,6 +118,82 @@ func TestStepModeLandsEachStepEndToEnd(t *testing.T) {
 	}
 }
 
+// TestStepRestartRefusesDirtyWorktrees pins the guard that keeps
+// duo_restart_duo from killing both agents while either worktree still holds
+// uncommitted work. A restart is allowed only when both are clean, and a refusal
+// must name the worktree and path so the agent knows what to clean up.
+func TestStepRestartRefusesDirtyWorktrees(t *testing.T) {
+	ctx := context.Background()
+
+	runtime := startE2EWithMode(t, ctx, project.ModeStep)
+	set, state, server := runtime.set, runtime.state, runtime.server
+
+	austin := runtime.dialAgent(t, protocol.Austin)
+	tony := runtime.dialAgent(t, protocol.Tony)
+	waitFor(t, func() bool { return server.IsConnected(protocol.Austin) && server.IsConnected(protocol.Tony) }, "both agents to connect")
+
+	request(t, austin, protocol.Message{Version: protocol.Version, Type: protocol.MsgSetPlan, Plan: "two steps"})
+	request(t, austin, protocol.Message{Version: protocol.Version, Type: protocol.MsgSetSteps, Steps: "- [ ] one\n- [ ] two"})
+	sign(t, austin)
+	sign(t, tony)
+	waitPhase(t, state, project.PhaseExecute)
+
+	restart := func() (protocol.Message, error) {
+		return austin.request(protocol.Message{
+			Version: protocol.Version, Type: protocol.MsgRestartDuo, Note: "upgrade", Install: true,
+		})
+	}
+
+	dirty := filepath.Join(set.Austin.Path, "uncommitted.txt")
+	writeFile(t, set.Austin.Path, "uncommitted.txt", "austin work in progress\n")
+	response, err := restart()
+	if err == nil || response.OK {
+		t.Fatalf("a restart with a dirty Austin worktree was accepted: %+v", response)
+	}
+	if !strings.Contains(response.Text, string(protocol.Austin)) || !strings.Contains(response.Text, set.Austin.Path) {
+		t.Fatalf("refusal must name Austin and the worktree path, got: %s", response.Text)
+	}
+	if reason, _ := runtime.coord.RestartRequested(); reason != "" {
+		t.Fatalf("a refused restart left a pending request: %q", reason)
+	}
+	if err := os.Remove(dirty); err != nil {
+		t.Fatal(err)
+	}
+
+	// The requester may be Austin, but a restart kills Tony too, so Tony's
+	// worktree must block it just the same.
+	tonyDirty := filepath.Join(set.Tony.Path, "uncommitted.txt")
+	writeFile(t, set.Tony.Path, "uncommitted.txt", "tony work in progress\n")
+	response, err = restart()
+	if err == nil || response.OK {
+		t.Fatalf("a restart with a dirty Tony worktree was accepted: %+v", response)
+	}
+	if !strings.Contains(response.Text, string(protocol.Tony)) || !strings.Contains(response.Text, set.Tony.Path) {
+		t.Fatalf("refusal must name Tony and the worktree path, got: %s", response.Text)
+	}
+	if reason, _ := runtime.coord.RestartRequested(); reason != "" {
+		t.Fatalf("a refused restart left a pending request: %q", reason)
+	}
+	if err := os.Remove(tonyDirty); err != nil {
+		t.Fatal(err)
+	}
+
+	response, err = restart()
+	if err != nil {
+		t.Fatalf("a restart with clean worktrees was refused: %v", err)
+	}
+	if !response.OK {
+		t.Fatalf("restart response = %+v, want OK", response)
+	}
+	reason, install := runtime.coord.RestartRequested()
+	if reason == "" {
+		t.Fatal("a successful request must record its reason for the launcher")
+	}
+	if !install {
+		t.Fatal("install=true was lost from the restart request")
+	}
+}
+
 // TestStepModeRefusesAnEmptyQueue pins the PLAN gate: the queue is the PLAN
 // artifact, so a plan with no steps must not be approvable. Without this, EXECUTE
 // would begin with no step to work on and the session would be stuck.

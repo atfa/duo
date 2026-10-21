@@ -440,6 +440,21 @@ func (c *Coordinator) handleRestartDuo(ctx context.Context, client *transport.Cl
 			fmt.Sprintf("Duo only restarts between steps, not during %s", snap.Phase), c.statusText(ctx))
 		return
 	}
+	// A restart kills both agents. Their committed HEADs survive, but anything
+	// still only in a worktree does not, so a dirty worktree must stop the
+	// restart instead of being silently discarded.
+	dirty, err := c.dirtyWorktree(ctx)
+	if err != nil {
+		_ = c.respond(ctx, client, message.RequestID, false,
+			"cannot safely restart: "+err.Error(), c.statusText(ctx))
+		return
+	}
+	if dirty != "" {
+		_ = c.respond(ctx, client, message.RequestID, false,
+			fmt.Sprintf("refusing to restart: the %s worktree has uncommitted changes; commit or discard them first so the queue resumes without losing work", dirty),
+			c.statusText(ctx))
+		return
+	}
 	reason := strings.TrimSpace(message.Note)
 	if reason == "" {
 		reason = strings.TrimSpace(message.Text)
@@ -456,6 +471,25 @@ func (c *Coordinator) handleRestartDuo(ctx context.Context, client *transport.Cl
 	_ = c.respond(ctx, client, message.RequestID, true,
 		fmt.Sprintf("Restart recorded at step %d/%d. This Duo process is stopping; the launcher installs the new binary and resumes the session, and the queue continues at step %d.", snap.Step, len(snap.Steps), snap.Step),
 		c.statusText(ctx))
+}
+
+// dirtyWorktree names the first agent worktree with uncommitted changes,
+// including untracked files, and the path it lives at. A restart also kills the
+// agent that did not ask for it, so both worktrees are checked.
+func (c *Coordinator) dirtyWorktree(ctx context.Context) (string, error) {
+	if c.workspace == nil {
+		return "", nil
+	}
+	for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		status, err := c.workspace.Status(ctx, agent)
+		if err != nil {
+			return "", fmt.Errorf("inspect the %s worktree: %w", agent, err)
+		}
+		if status.Dirty {
+			return fmt.Sprintf("%s (%s)", agent, status.Path), nil
+		}
+	}
+	return "", nil
 }
 
 // notifyFinalStepSignOff tells both agents the queue is finished and that the

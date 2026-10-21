@@ -140,8 +140,6 @@ func (c *Coordinator) RequestRestart(reason string, install bool) {
 	c.restartMu.Unlock()
 }
 
-// IsAgentConnected reports whether an agent is connected via the bridge server
-// or running under the agent manager.
 // HarnessHeld reports whether the harness must stay quiet. A quiet mode switch
 // holds automatic nudges until the human submits a task or explicitly resumes.
 func (c *Coordinator) HarnessHeld() bool {
@@ -162,6 +160,8 @@ func (c *Coordinator) releaseHarness() {
 	c.holdMu.Unlock()
 }
 
+// IsAgentConnected reports whether an agent is connected via the bridge server
+// or running under the agent manager.
 func (c *Coordinator) IsAgentConnected(agent protocol.AgentID) bool {
 	if c.server != nil && c.server.IsConnected(agent) {
 		return true
