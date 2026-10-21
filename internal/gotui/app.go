@@ -119,6 +119,7 @@ type App struct {
 	pendingLink *linkTarget
 
 	clipboard     func(string) error
+	pasteImage    func() (string, error)
 	openURL       func(string) error
 	openFile      func(string) error
 	toast         *toastPanel
@@ -148,6 +149,7 @@ func New(svc Session) *App {
 		currentThink:  map[protocol.AgentID]string{},
 		asyncCh:       make(chan asyncResult, 16),
 		history:       loadComposerHistory(),
+		pasteImage:    pasteClipboardImage,
 		openURL:       openURLDefault,
 		openFile:      openFileDefault,
 		toastDuration: 2 * time.Second,

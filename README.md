@@ -157,6 +157,7 @@ The gotui frontend opens in a **split dashboard**: a workflow sidebar with the p
 | `Ctrl+]` / `Ctrl+\` / `Ctrl+】` | Detach from the agent's own session back to gotui |
 | `Ctrl+R` / `Ctrl+Y` | Restart Austin / Tony if exited or failed |
 | `Ctrl+X` | Copy Austin's latest message to the human to the clipboard |
+| `Ctrl+V` | Paste a PNG from the system clipboard as a temporary image path; macOS uses `pngpaste` (install with `brew install pngpaste`), Linux uses `wl-paste` or `xclip`. If no image or tool is available, use `Ctrl+A`/`Ctrl+T` native attach |
 | `Shift+Tab` | In the model picker, cycle the selected agent's thinking level directly; the main view does not bind it because the target agent would be ambiguous |
 | `Ctrl+Q` / `Ctrl+D` | Quit Duo and preserve the session |
 | `←` / `→`, `Alt+←` / `Alt+→` | Move the composer cursor by character or word |

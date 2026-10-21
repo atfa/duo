@@ -143,6 +143,9 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 	case tcell.KeyCtrlX:
 		a.copyLatest()
 		return
+	case tcell.KeyCtrlV:
+		a.pasteImageFromClipboard()
+		return
 	case tcell.KeyCtrlL:
 		a.screen.Sync()
 		return

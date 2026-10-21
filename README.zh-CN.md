@@ -160,6 +160,7 @@ gotui 默认打开 **分栏仪表盘**：侧边栏显示阶段链、验证/交�
 | `Ctrl+]` / `Ctrl+\` / `Ctrl+】` | 从 Agent 自己的会话返回 gotui |
 | `Ctrl+R` / `Ctrl+Y` | 若 Austin / Tony 进程已退出或失败，重启它 |
 | `Ctrl+X` | 复制 Austin 最新发给人类的消息到剪贴板 |
+| `Ctrl+V` | 把系统剪贴板中的 PNG 粘贴为临时图片路径；macOS 使用 `pngpaste`（用 `brew install pngpaste` 安装），Linux 使用 `wl-paste` 或 `xclip`。若没有图片或工具不可用，请用 `Ctrl+A`/`Ctrl+T` 进入原生会话粘贴 |
 | `Shift+Tab` | 在模型选择器中直接循环调整当前选中 Agent 的思考强度；主界面不绑定它，因为无法确定目标 Agent |
 | `Ctrl+Q` / `Ctrl+D` | 退出 Duo 并保留 session |
 | `←` / `→`，`Alt+←` / `Alt+→` | 按字符或按词移动 composer 光标 |
