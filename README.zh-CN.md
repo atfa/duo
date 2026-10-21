@@ -147,7 +147,7 @@ gotui 默认打开 **分栏仪表盘**：侧边栏显示阶段链、验证/交�
 | 按键 | 操作 |
 |---|---|
 | `Enter` | 把 composer 内容发送给 Austin（Fast）或两个 Agent（Goal / Step） |
-| `Ctrl+Enter` / `Shift+Enter`\* | 在 composer 中插入换行 |
+| `Ctrl+Enter` / `Shift+Enter` / `Alt+Enter` / `Ctrl+J`\* | 在 composer 中插入换行 |
 | `@` | 在词首补全仓库中的已跟踪文件；`↑`/`↓` 选择，`Tab`/`Enter` 插入，`Esc` 关闭 |
 | `F2` / 点击 `Split` 或 `Timeline` 标签 | 在分栏仪表盘与单一时间线之间切换 |
 | `Ctrl+P` | 显示/隐藏工作流侧边栏 |
@@ -172,6 +172,8 @@ gotui 默认打开 **分栏仪表盘**：侧边栏显示阶段链、验证/交�
 | `PgUp` / `PgDn` | 滚动当前会话窗格（或打开中的弹窗） |
 | 鼠标滚轮 / 拖拽 | 滚动指针所在窗格，或划选并复制会话文本 |
 | `Esc` | 关闭弹窗、收起斜杠或文件面板，或清除选择/状态提示 |
+
+**Composer 输入。** `Enter` 发送；`Ctrl+Enter`、`Shift+Enter`（终端能区分时）、`Alt+Enter` 和 `Ctrl+J` 插入换行，粘贴的文字也会保留换行。在词首输入 `@` 可补全仓库中的已跟踪文件；`↑`/`↓` 选择，`Tab`/`Enter` 插入。`Ctrl+V` 会把系统剪贴板中的 PNG 读入私有临时文件，并把该路径插入 composer 供 Agent 读取；若没有图片或剪贴板工具不可用，用 `Ctrl+A`/`Ctrl+T` 进入 Agent 自己的终端粘贴。
 
 [gotui 指南](./docs/gotui.md#captures)中的确定性 tcell 截图覆盖仪表盘、时间线、斜杠面板、帮助、详情、模型选择器、确认对话框和窄终端。
 
@@ -206,7 +208,7 @@ Agent 输出按轻量 markdown 渲染：标题、引用、链接以及粗体/斜
 
 gotui 用 `F1`、`Ctrl+/` 或 `Alt+H` 打开 Help 弹窗，用 `↑`/`↓`、`PgUp`/`PgDn`、`Home`/`End` 滚动，用 `Esc` 关闭；它是仪表盘快捷键与工作流的精简参考。完整用法、全部环境变量以及每个命令的详细说明见 `duo --help`。
 
-\* 只有当终端能明确区分上报该组合键时才会插入换行（`\x1b[13;2u` CSI-u 或 Duo 启用 modifyOtherKeys 后的 `\x1b[27;2;13~`）。若你的终端把 `Shift+Enter` 发成裸 `\r`，它会**提交**而不是换行——这种情况请改用 `Ctrl+Enter`（到达时是 `\n`）。`Ctrl+M` 有同样的限制：只有支持上述模式的终端才会把它上报成带 Ctrl 的 `m` 键（`\x1b[27;5;109~` 或 `\x1b[109;5u`），其余终端上与 `Enter` 无法区分——这种情况请用 `Alt+M`。
+\* 只有当终端能明确区分上报该组合键时才会插入换行（`\x1b[13;2u` CSI-u 或 Duo 启用 modifyOtherKeys 后的 `\x1b[27;2;13~`）。若你的终端把 `Shift+Enter` 发成裸 `\r`，它会**提交**而不是换行——这种情况请改用 `Ctrl+Enter` 或 `Ctrl+J`（始终插入换行）。`Ctrl+M` 有同样的限制：只有支持上述模式的终端才会把它上报成带 Ctrl 的 `m` 键（`\x1b[27;5;109~` 或 `\x1b[109;5u`），其余终端上与 `Enter` 无法区分——这种情况请用 `Alt+M`。
 
 ## 配置
 

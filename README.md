@@ -144,7 +144,7 @@ The gotui frontend opens in a **split dashboard**: a workflow sidebar with the p
 | Key | Action |
 |---|---|
 | `Enter` | Send composer text to Austin in Fast, or both agents in Goal and Step |
-| `Ctrl+Enter` / `Shift+Enter`\* | Insert a newline in the composer |
+| `Ctrl+Enter` / `Shift+Enter` / `Alt+Enter` / `Ctrl+J`\* | Insert a newline in the composer |
 | `@` | At the start of a word, complete a tracked repository file; `↑`/`↓` choose, `Tab`/`Enter` insert, `Esc` dismiss |
 | `F2` / click the `Split` or `Timeline` tab | Switch between the split dashboard and the single timeline |
 | `Ctrl+P` | Show or hide the workflow sidebar |
@@ -170,6 +170,8 @@ The gotui frontend opens in a **split dashboard**: a workflow sidebar with the p
 | Mouse wheel / drag | Scroll the pane under the pointer, or select and copy transcript text; a `COPIED` toast appears briefly in the top-right |
 | Click a URL / existing file path | Open the URL in the browser, or show the file in the system file manager |
 | `Esc` | Close an overlay, dismiss the slash or file menu, or clear a selection/status |
+
+**Composer input.** `Enter` sends; `Ctrl+Enter`, `Shift+Enter` (when the terminal reports it distinctly), `Alt+Enter` and `Ctrl+J` insert a newline, and pasted text keeps its newlines. Type `@` at the start of a word to complete a tracked repository file; `↑`/`↓` choose, `Tab`/`Enter` insert. `Ctrl+V` reads a PNG from the system clipboard into a private temporary file and inserts its path for the agent to read; if no image or clipboard tool is available, attach with `Ctrl+A`/`Ctrl+T` and paste into the agent's own terminal.
 
 The layout responds to the terminal: the workflow sidebar needs at least 104 columns, the split view needs a 72-column by 16-row main pane, and narrower terminals fall back to the timeline. The sidebar phase chain wraps when it does not fit, and the footer uses compact hints below 80 columns. A resumed session starts with its restored conversation; the startup banner is only added to a new session.
 
@@ -204,7 +206,7 @@ Agent output is rendered as lightweight markdown: headings, blockquotes, links a
 
 Mouse selection copies through terminal OSC 52 escape sequences (works seamlessly over SSH, tmux, and modern terminal emulators) alongside native desktop clipboard commands (`pbcopy` on macOS, `wl-copy` on Wayland, `xclip`/`xsel` on X11).
 
-\* A newline is inserted only when the terminal reports the combination distinctly (`\x1b[13;2u` CSI-u or `\x1b[27;2;13~` modifyOtherKeys, which Duo enables). Terminals that send a bare `\r` for `Shift+Enter` will **submit** instead — use `Ctrl+Enter`, which arrives as `\n`, if `Shift+Enter` submits in your terminal. The same limit applies to `Ctrl+M`: it is reported as the `m` key with Ctrl (`\x1b[27;5;109~` or `\x1b[109;5u`) only on terminals that honor those modes, and on the others it is indistinguishable from `Enter` — use `Alt+M` there.
+\* A newline is inserted only when the terminal reports the combination distinctly (`\x1b[13;2u` CSI-u or `\x1b[27;2;13~` modifyOtherKeys, which Duo enables). Terminals that send a bare `\r` for `Shift+Enter` will **submit** instead — use `Ctrl+Enter` or `Ctrl+J`, which always insert a newline, if `Shift+Enter` submits in your terminal. The same limit applies to `Ctrl+M`: it is reported as the `m` key with Ctrl (`\x1b[27;5;109~` or `\x1b[109;5u`) only on terminals that honor those modes, and on the others it is indistinguishable from `Enter` — use `Alt+M` there.
 
 `F1`, `Ctrl+/` or `Alt+H` opens the gotui Help modal; scroll with `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End` and close with `Esc`; it is a compact dashboard key and workflow reference. Run `duo --help` for the full usage, every environment variable and each command's own detail.
 

@@ -149,10 +149,10 @@ func (h *helpOverlay) rebuild() {
 			"STEP: plan a dual-approved queue, then run each step as FAST (Austin implements, Tony verifies) or GOAL (both implement and cross-sign).",
 		}},
 		{"KEYS", []string{
-			"Enter send  ·  Ctrl+Enter / Shift+Enter newline",
+			"Enter send  ·  Ctrl+Enter / Shift+Enter / Alt+Enter / Ctrl+J newline",
 			"Ctrl+M / Alt+M model & thinking picker  ·  F2 split / timeline  ·  F1 help",
 			"In picker: Tab switches Agent  ·  Shift+Tab cycles thinking  ·  Space selects model",
-			"Ctrl+A attach Austin  ·  Ctrl+T attach Tony  ·  Ctrl+] or Ctrl+\\ detach",
+			"Ctrl+A/T attach  ·  Ctrl+V image path  ·  Ctrl+] or Ctrl+\\ detach",
 			"Ctrl+R restart Austin  ·  Ctrl+Y restart Tony  ·  Ctrl+/ help",
 			"Ctrl+O details & changes  ·  Ctrl+X copy Austin's latest  ·  Ctrl+P sidebar",
 			"Ctrl+G timestamps  ·  PgUp/PgDn scroll  ·  Ctrl+Q / Ctrl+D quit",
@@ -164,7 +164,8 @@ func (h *helpOverlay) rebuild() {
 		}},
 		{"NATIVE TERMINALS", []string{
 			"Attach suspends the dashboard and hands the real PTY to the agent. The",
-			"terminal is restored on detach. Use Ctrl+] (or Ctrl+\\, Ctrl+】) to return.",
+			"terminal is restored on detach; paste images directly there when Ctrl+V",
+			"has no clipboard tool. Use Ctrl+] (or Ctrl+\\, Ctrl+】) to return.",
 		}},
 		{"SESSION", []string{
 			"Every visible message is recorded through the session journal, so resume",

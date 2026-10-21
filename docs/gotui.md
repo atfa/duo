@@ -27,9 +27,10 @@ other Duo frontend. It never owns workflow state or makes project transitions:
 - **Step workflow.** Step shows the queue lifecycle `PLAN → STEPS → DONE`, not
   Goal's `EXECUTE → REVIEW → INTEGRATE` chain. A `step status` line reports the
   current item's stage (planning, working, reviewing or integrating).
-- **Composer.** Multiline editing, history recall, bracketed-paste handling,
-  tracked-file `@` completion, clipboard-image paths (`Ctrl+V`), cursor-aware
-  scrolling, slash palette, and the model/thinking picker.
+- **Composer.** Multiline editing (`Ctrl+Enter`, `Shift+Enter` where reported,
+  `Alt+Enter`, `Ctrl+J`), history recall, bracketed-paste handling, tracked-file
+  `@` completion, clipboard-image paths (`Ctrl+V`), cursor-aware scrolling, slash
+  palette, and the model/thinking picker.
 - **Language.** `/language zh|en` changes Duo-authored messages and the dashboard
   chrome immediately, and the choice is persisted in `.duo/config.json` for the
   next launch. Protocol names such as FAST/GOAL/STEP stay canonical.
@@ -45,7 +46,9 @@ other Duo frontend. It never owns workflow state or makes project transitions:
   two seconds and does not consume layout space.
 - **Native attach.** `Ctrl+A` / `Ctrl+T` suspend the dashboard, hand the real PTY
   to the agent, and `Ctrl+]`, `Ctrl+\` or `Ctrl+】` return to a fully redrawn
-  dashboard.
+  dashboard. This is also the reliable way to paste a real image when `Ctrl+V`
+  cannot reach a clipboard-image tool: the agent's own terminal receives the
+  pixels directly.
 - **Resume.** Restored history is rendered immediately. A startup banner is only
   added to a new session, so a resumed Duo pane starts with the human's request.
 

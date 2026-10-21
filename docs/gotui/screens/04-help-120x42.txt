@@ -13,16 +13,16 @@
                  │   implements, Tony verifies) or GOAL (both implement and cross-sign).              │
                  │                                                                                    │
                  │ KEYS                                                                               │
-                 │   Enter send  ·   Ctrl+Enter / Shift+Enter newline                                 │
+                 │   Enter send  ·   Ctrl+Enter / Shift+Enter / Alt+Enter / Ctrl+J newline            │
                  │   Ctrl+M / Alt+M model & thinking picker  ·   F2 split / timeline  ·   F1 help     │
                  │   In picker: Tab switches Agent  ·   Shift+Tab cycles thinking  ·   Space selects  │
                  │   model                                                                            │
-                 │   Ctrl+A attach Austin  ·   Ctrl+T attach Tony  ·   Ctrl+] or Ctrl+\ detach        │
+                 │   Ctrl+A/T attach  ·   Ctrl+V image path  ·   Ctrl+] or Ctrl+\ detach              │
                  │   Ctrl+R restart Austin  ·   Ctrl+Y restart Tony  ·   Ctrl+/ help                  │
                  │   Ctrl+O details & changes  ·   Ctrl+X copy Austin's latest  ·   Ctrl+P sidebar    │
                  │   Ctrl+G timestamps  ·   PgUp/PgDn scroll  ·   Ctrl+Q / Ctrl+D quit                │
-                 │   Esc closes dialogs  ·   Tab autocompletes slash commands  ·   ↑ /↓  recalls      │
-                 │   history                                                                          │
+                 │   @ completes a tracked file  ·   Tab autocompletes slash commands or files  ·     │
+                 │   Esc closes dialogs  ·   ↑ /↓  recalls history                                    │
                  │                                                                                    │
                  │ SLASH COMMANDS                                                                     │
                  │   /help ·  /overview ·  /model ·  /copy ·  /preview ·  /timestamps                 │
