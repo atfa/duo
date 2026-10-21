@@ -9,14 +9,17 @@ import (
 )
 
 // markdownRuns is a deliberately small Markdown renderer. It covers the forms
-// Duo messages actually use: headings, lists, quotes, fenced code, inline code,
-// emphasis and links. Unlike the Legacy renderer it emits styled runs instead of
-// ANSI sequences, so gotui can draw them as real terminal cells.
-func markdownRuns(text string, base ui.Style, t theme) []textRun {
+// Duo messages actually use: headings, lists, quotes, fenced code, tables,
+// inline code, emphasis and links. Unlike the Legacy renderer it emits styled
+// runs instead of ANSI sequences, so gotui can draw them as real terminal cells.
+// width is the transcript body width; tables use it to wrap cells before the
+// ordinary line wrapper sees the box-drawing borders.
+func markdownRuns(text string, base ui.Style, t theme, width int) []textRun {
 	var out []textRun
 	inCode := false
-	for _, raw := range strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n") {
-		line := strings.TrimRight(raw, "\r")
+	lines := strings.Split(strings.ReplaceAll(text, "\r\n", "\n"), "\n")
+	for i := 0; i < len(lines); i++ {
+		line := strings.TrimRight(lines[i], "\r")
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "```") {
 			inCode = !inCode
@@ -25,6 +28,11 @@ func markdownRuns(text string, base ui.Style, t theme) []textRun {
 		if inCode {
 			out = append(out, textRun{"  " + line, t.Code})
 			out = append(out, textRun{"\n", base})
+			continue
+		}
+		if table, next, ok := parseTable(lines, i, width, base, t); ok {
+			out = append(out, table...)
+			i = next - 1
 			continue
 		}
 		switch {

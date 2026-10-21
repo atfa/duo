@@ -46,8 +46,10 @@ other Duo frontend. It never owns workflow state or makes project transitions:
   added to a new session, so a resumed Duo pane starts with the human's request.
 
 Long lines wrap at cell boundaries, including wide CJK runes; Markdown headings,
-lists, quotes, fenced code, inline emphasis and links are rendered in the
-transcript. Colours are TrueColor with terminal fallback.
+lists, quotes, fenced code, tables, inline emphasis and links are rendered in
+the transcript. Table cells wrap individually so a wide table keeps its column
+alignment instead of breaking its borders. Colours are TrueColor with terminal
+fallback.
 
 ## Keys
 
@@ -187,8 +189,9 @@ make check
 - The split view and workflow sidebar intentionally disappear on terminals that
   are too small rather than squeezing unreadable panes.
 - Captures are deterministic text frames; they do not preserve colour or style.
-- Markdown is lightweight: no images, embedded HTML, aligned tables or full
-  CommonMark; table rows are shown as plain text.
+- Markdown is lightweight: no images, embedded HTML or full CommonMark. Tables
+  render with box-drawing borders and wrap wide cells to the transcript width;
+  malformed tables fall back to plain text.
 - Modal buttons are keyboard-driven; mouse support covers tabs, sidebar panel
   expansion, transcripts, selection and modal wheel scrolling.
 - The available models and whether a switch is live or restarts the agent are

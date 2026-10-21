@@ -164,7 +164,7 @@ func (v *transcript) rebuildLines(width int) {
 		} else if e.warn {
 			base = v.theme.Warning
 		}
-		runs := markdownRuns(e.text, base, v.theme)
+		runs := markdownRuns(e.text, base, v.theme, bodyWidth)
 		wrappedBody := wrapRuns(runs, bodyWidth)
 		for _, line := range wrappedBody {
 			line.entry = e.seq
