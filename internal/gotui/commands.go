@@ -336,6 +336,16 @@ func (a *App) switchModeFromComposer(target project.Mode, reason string) {
 		return
 	}
 	a.refreshView()
+	if pause := a.live.Pause.State; pause == session.PausePausing || pause == session.PausePaused {
+		// The resume prompt would promise work that the pause gate holds. Offer
+		// the pause verbs instead and let /continue deliver the new mode notice.
+		if a.live.Language == "zh" {
+			a.setStatus("模式 → "+target.Display()+"；暂停仍生效，用 /continue 或 /unpause 处理", false)
+		} else {
+			a.setStatus("mode → "+target.Display()+"; pause is still active — use /continue or /unpause", false)
+		}
+		return
+	}
 	if a.live.Language == "zh" {
 		a.setStatus("模式 → "+target.Display()+"；尚未恢复 Agent 工作", false)
 	} else {

@@ -164,6 +164,33 @@ func TestDriverPickerRequiresAFullPause(t *testing.T) {
 	}
 }
 
+func TestModeSwitchDuringPauseSkipsResumePrompt(t *testing.T) {
+	fake := newFakeSession()
+	fake.view.Pause = pausedView(session.PausePaused, true, true)
+	app := New(fake)
+
+	app.runSlash("/mode goal")
+
+	if app.overlay != overlayNone {
+		t.Fatal("the mode-switch resume prompt opened while the session was paused")
+	}
+	switched := false
+	for _, command := range fake.snapshotCommands() {
+		switch command.(type) {
+		case session.SwitchMode:
+			switched = true
+		case session.ResumeModeWork:
+			t.Fatal("resume work was sent while the session was paused")
+		}
+	}
+	if !switched {
+		t.Fatalf("commands = %#v, want a quiet mode switch", fake.snapshotCommands())
+	}
+	if !strings.Contains(app.status, "/continue") {
+		t.Fatalf("status = %q, want the pause-aware resume hint", app.status)
+	}
+}
+
 func TestPausedDashboardBadgeAndDriverOverlay(t *testing.T) {
 	fake := newFakeSession()
 	fake.view.Pause = pausedView(session.PausePaused, true, true)
