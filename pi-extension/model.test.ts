@@ -9,7 +9,7 @@ test("nextThinkingLevel escalates and wraps", () => {
   expect(nextThinkingLevel(undefined)).toBe("off");
 });
 
-function bridgeFixture(options: { thinking?: string; available?: string[] } = {}) {
+function bridgeFixture(options: { thinking?: string; available?: string[]; resetThinkingOnModel?: boolean } = {}) {
   const handlers = new Map<string, (event: any, ctx: any) => Promise<void>>();
   const inbound: Array<(message: DuoMessage) => void> = [];
   const sent: any[] = [];
@@ -23,7 +23,11 @@ function bridgeFixture(options: { thinking?: string; available?: string[] } = {}
     getModelRegistry: () => ({ find: (p: string, m: string) => (p === model.provider && m === model.id ? model : undefined) }),
     getModel: () => model,
     getThinkingLevel: () => state.thinking,
-    setModel: async (selected: any) => selected === model,
+    setModel: async (selected: any) => {
+      if (selected !== model) return false;
+      if (options.resetThinkingOnModel) state.thinking = "medium";
+      return true;
+    },
     // Mirrors Pi: a level the current model does not support clamps back to the
     // current one, and only a real change emits thinking_level_select.
     setThinkingLevel: (level: string) => {
@@ -54,6 +58,20 @@ test("set_model resolves the registry entry and reports the new state", async ()
     model: "anthropic/claude-opus-4.8",
     ok: true,
   });
+});
+
+test("selecting a model preserves the chosen thinking level", async () => {
+  const { state, inbound, sent } = bridgeFixture({
+    thinking: "xhigh",
+    resetThinkingOnModel: true,
+    available: ["off", "low", "medium", "high", "xhigh"],
+  });
+  inbound({ version: 1, type: "set_model", to: "Austin", provider: "cline", model: "anthropic/claude-opus-4.8" });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(state.thinking).toBe("xhigh");
+  const thinking = sent.filter((message) => message.type === "thinking_state");
+  expect(thinking.at(-1)).toMatchObject({ thinking: "xhigh", ok: true });
 });
 
 test("an unknown model is reported instead of silently ignored", async () => {

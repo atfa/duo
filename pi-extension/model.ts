@@ -60,11 +60,16 @@ export function installModelBridge(pi: any, transport: DuoTransport, agent: Agen
       return;
     }
     try {
+      // Selecting a model can reset Pi's effort to the model's default. Keep the
+      // level the operator chose in this dialog, then report whatever Pi actually
+      // accepts for the new model.
+      const thinking = pi.getThinkingLevel?.();
       const ok = await pi.setModel(model);
       if (!ok) {
         fail("model_state", `no credentials for ${model.provider}/${model.id}`);
         return;
       }
+      if (thinking) pi.setThinkingLevel(thinking);
       reportModel(model);
       reportThinking(pi.getThinkingLevel?.());
     } catch (error: any) {
