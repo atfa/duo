@@ -737,8 +737,9 @@ func (s *Service) setDriver(ctx context.Context, c SetDriver) error {
 		return fmt.Errorf("unknown agent %q", c.Agent)
 	}
 	pause := s.coord.PauseSnapshot()
-	if pause.State != string(PausePaused) {
-		return fmt.Errorf("driver can only be changed while session is paused")
+	projectState := s.state.Snapshot()
+	if pause.State != string(PausePaused) && projectState.Started && projectState.Phase != project.PhaseDone {
+		return fmt.Errorf("driver can only be changed before the first task, while session is paused, or after DONE")
 	}
 	name := strings.TrimSpace(c.Driver)
 	if name == "" {

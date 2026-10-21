@@ -162,13 +162,13 @@ func (h *helpOverlay) rebuild() {
 		{"PAUSE & DRIVERS", []string{
 			"/pause waits for both agents to finish their current turn, then holds new work.",
 			"While pausing, /unpause cancels the request; once paused, /continue resumes work.",
-			"While fully paused, /driver switches an agent's driver. After /continue the new",
-			"driver reads the repository's .duo transcript to recover the conversation.",
+			"Use /driver before the first task, while fully paused, or after DONE. The new",
+			"driver starts idle; /continue resumes a paused session.",
 		}},
 		{"SLASH COMMANDS", []string{
 			"/help · /overview · /model · /copy · /preview · /timestamps",
 			"/status · /language [zh|en] · /mode [fast|goal|step] · /escalate [reason] · /quit",
-			"/pause · /unpause · /continue · /driver (only while paused)",
+			"/pause · /unpause · /continue · /driver (before first task, paused, or after DONE)",
 		}},
 		{"NATIVE TERMINALS", []string{
 			"Attach suspends the dashboard and hands the real PTY to the agent. The",

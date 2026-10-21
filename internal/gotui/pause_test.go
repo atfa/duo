@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/session"
 	"github.com/gdamore/tcell/v3"
@@ -128,10 +129,21 @@ func TestDriverPickerRequiresAFullPause(t *testing.T) {
 		t.Fatal("driver picker opened while the session was running")
 	}
 	if !strings.Contains(app.status, "fully paused") {
-		t.Fatalf("status = %q, want the paused-only explanation", app.status)
+		t.Fatalf("status = %q, want the driver-change restrictions", app.status)
 	}
 
+	// A fresh Duo session can select a driver before its first task.
+	fake.view.Project.Started = false
+	fake.view.Project.Phase = project.PhasePlan
+	app.refreshView()
+	app.runSlash("/driver")
+	if app.overlay != overlayDrivers {
+		t.Fatalf("overlay = %v before first task, want the driver picker", app.overlay)
+	}
+	app.overlay = overlayNone
+
 	fake.view.Pause = pausedView(session.PausePaused, true, true)
+	fake.view.Project.Started = true
 	app.refreshView()
 	app.runSlash("/driver")
 	if app.overlay != overlayDrivers {
@@ -161,6 +173,15 @@ func TestDriverPickerRequiresAFullPause(t *testing.T) {
 		if _, ok := command.(session.Continue); ok {
 			t.Fatal("changing a driver resumed the session")
 		}
+	}
+
+	// A completed workflow can select a driver for the next task without pausing.
+	fake.view.Pause = pausedView(session.PauseRunning, false, false)
+	fake.view.Project.Phase = project.PhaseDone
+	app.refreshView()
+	app.runSlash("/driver")
+	if app.overlay != overlayDrivers {
+		t.Fatalf("overlay = %v after DONE, want the driver picker", app.overlay)
 	}
 }
 

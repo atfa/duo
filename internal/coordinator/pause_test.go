@@ -41,6 +41,37 @@ func TestPauseTracksSettledBoundariesAndLateStart(t *testing.T) {
 	}
 }
 
+func TestDriverSwitchAllowedBeforeFirstTaskAndAfterDone(t *testing.T) {
+	state := project.NewStateFor(project.ModeFast)
+	c := New(nil, state, harness.NewTracker(), nil, events.NewBus())
+
+	release, err := c.BeginDriverSwitch(protocol.Austin)
+	if err != nil {
+		t.Fatalf("initial driver switch: %v", err)
+	}
+	release()
+
+	state.MarkStarted()
+	if _, err := c.BeginDriverSwitch(protocol.Austin); err == nil {
+		t.Fatal("driver switch was allowed during an active task")
+	}
+
+	if _, _, err := state.SetReady(protocol.Austin, true, "done", "head"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := state.SetVerification(protocol.Tony, project.VerificationPassed, "clean", "head"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := state.Complete(); err != nil {
+		t.Fatal(err)
+	}
+	release, err = c.BeginDriverSwitch(protocol.Austin)
+	if err != nil {
+		t.Fatalf("driver switch after DONE: %v", err)
+	}
+	release()
+}
+
 func TestContinueCombinesHeldWorkIntoSingleResumePrompt(t *testing.T) {
 	c := promptCoordinator()
 	c.project = project.NewStateFor(project.ModeGoal)

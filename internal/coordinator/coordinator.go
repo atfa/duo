@@ -222,10 +222,12 @@ func (c *Coordinator) NotifyPauseUpdate(text string) {
 func (c *Coordinator) BeginDriverSwitch(agent protocol.AgentID) (func(), error) {
 	c.driverSwitchMu.Lock()
 	c.pauseMu.Lock()
-	if c.pauseState != "paused" {
+	projectState := c.project.Snapshot()
+	canSwitch := c.pauseState == "paused" || !projectState.Started || projectState.Phase == project.PhaseDone
+	if !canSwitch {
 		c.pauseMu.Unlock()
 		c.driverSwitchMu.Unlock()
-		return nil, fmt.Errorf("driver can only be changed while session is paused")
+		return nil, fmt.Errorf("driver can only be changed before the first task, while session is paused, or after DONE")
 	}
 	if c.tracker != nil && c.tracker.Snapshot(agent).Busy {
 		c.pauseMu.Unlock()

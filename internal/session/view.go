@@ -91,6 +91,12 @@ func (v View) EffectiveMode() project.Mode { return v.Project.EffectiveMode() }
 // Phase reports the current workflow phase.
 func (v View) Phase() project.Phase { return v.Project.Phase }
 
+// DriverChangeAllowed reports whether replacing a driver is safe at this point
+// in the workflow: before the first task, while fully paused, or after DONE.
+func (v View) DriverChangeAllowed() bool {
+	return !v.Project.Started || v.Project.Phase == project.PhaseDone || v.Pause.State == PausePaused
+}
+
 // Agent returns one agent's projection. A missing agent is the zero value, which
 // reads as "not connected, not running, nothing known" — never as a fabricated
 // agent.

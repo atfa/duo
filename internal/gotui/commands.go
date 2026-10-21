@@ -263,14 +263,14 @@ func (a *App) continueSession() {
 	a.setStatus(a.theme.tr("work resumed"), false)
 }
 
-// openDriverPicker is paused-only. Replacing a driver restarts its process, so
-// doing it during a turn would discard the work it was doing.
+// openDriverPicker is available before the first task, while fully paused, or
+// after DONE. Replacing a driver during a turn would discard its current work.
 func (a *App) openDriverPicker() {
 	if a.svc == nil {
 		return
 	}
-	if a.live.Pause.State != session.PausePaused {
-		a.setStatus(a.theme.tr("changing a driver is only available while fully paused (use /pause first)"), true)
+	if !a.live.DriverChangeAllowed() {
+		a.setStatus(a.theme.tr("changing a driver is only available before the first task, while fully paused, or after DONE"), true)
 		return
 	}
 	a.closeMention()
@@ -314,7 +314,7 @@ func (a *App) applyDriver(keepOpen bool) {
 	}
 	a.refreshView()
 	a.drivers.setCurrent(name)
-	a.setStatus(fmt.Sprintf("%s driver → %s (paused; /continue resumes)", agent, name), false)
+	a.setStatus(fmt.Sprintf("%s driver → %s (new process starts idle)", agent, name), false)
 	if !keepOpen {
 		a.closeOverlay()
 	}
