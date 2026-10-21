@@ -39,6 +39,8 @@ type upgradeRequest struct {
 	Install       bool      `json:"install"`
 	SchemaVersion int       `json:"schemaVersion"`
 	DuoVersion    string    `json:"duoVersion"`
+	BuiltCommit   string    `json:"builtCommit,omitempty"`
+	BuiltModified bool      `json:"builtModified,omitempty"`
 	Step          string    `json:"step,omitempty"`
 	At            time.Time `json:"at"`
 }
@@ -54,6 +56,7 @@ func upgradeRequestPath(repo string) string {
 // always finds the session it must resume. A write failure is reported and does
 // not become a second failure: the exit code alone still preserves the session.
 func writeUpgradeRequest(repo, sessionID, reason, step string, install bool) error {
+	build := version.Current()
 	req := upgradeRequest{
 		SessionID:     sessionID,
 		Repository:    repo,
@@ -61,6 +64,8 @@ func writeUpgradeRequest(repo, sessionID, reason, step string, install bool) err
 		Install:       install,
 		SchemaVersion: sessionstore.SchemaVersion,
 		DuoVersion:    version.Version,
+		BuiltCommit:   build.Revision,
+		BuiltModified: build.Modified,
 		Step:          step,
 		At:            time.Now().UTC(),
 	}
@@ -156,6 +161,15 @@ func runStepLoop(ctx context.Context, args []string) error {
 			return err
 		}
 		fmt.Printf("duo step-loop: upgrade requested (%s) at step %s\n", req.Reason, req.Step)
+		if req.BuiltCommit == "" {
+			fmt.Printf("duo step-loop: request was written by %s with no build revision\n", req.DuoVersion)
+		} else {
+			built := req.BuiltCommit
+			if req.BuiltModified {
+				built += " (modified)"
+			}
+			fmt.Printf("duo step-loop: request was written by %s from commit %s\n", req.DuoVersion, built)
+		}
 
 		if req.Install {
 			if err := performUpgrade(ctx, req, checkSchemaCompatible, installFromRepo); err != nil {

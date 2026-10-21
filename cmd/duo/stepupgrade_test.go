@@ -57,6 +57,26 @@ func TestUpgradeRequestRoundTrips(t *testing.T) {
 	}
 }
 
+// TestUpgradeRequestPersistsBuildIdentity pins the field names the launcher
+// reads: the request must carry the commit the old binary was built from, and
+// whether that checkout had uncommitted changes.
+func TestUpgradeRequestPersistsBuildIdentity(t *testing.T) {
+	data, err := json.Marshal(upgradeRequest{DuoVersion: "v0.12.2", BuiltCommit: "abcdef123456", BuiltModified: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw["builtCommit"] != "abcdef123456" {
+		t.Fatalf("builtCommit = %v, want the build revision", raw["builtCommit"])
+	}
+	if raw["builtModified"] != true {
+		t.Fatalf("builtModified = %v, want true", raw["builtModified"])
+	}
+}
+
 // TestStepLoopLaunchFindsTheGitRootAndKeepsTheLaunchDir is the regression for
 // the broken self-upgrade chain: the session writes .duo/upgrade.json at the Git
 // root, while the loop used to read it from its own working directory. A launch

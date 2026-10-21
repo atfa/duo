@@ -19,7 +19,7 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "--version", "version":
-			fmt.Println("Duo " + version.Version)
+			fmt.Println("Duo " + version.Current().Describe())
 			return
 		case "-h", "--help", "help":
 			printUsage()
@@ -209,7 +209,7 @@ func reportDelivery(outcome session.DeliveryOutcome) {
 // printUsage is `duo --help`. The command lines come from internal/clidoc, the
 // same table the in-app Help panel renders, so the two cannot disagree.
 func printUsage() {
-	fmt.Println("Duo " + version.Version)
+	fmt.Println("Duo " + version.Current().Describe())
 	fmt.Println()
 	fmt.Println("Usage:")
 	for _, line := range clidoc.SummaryLines() {
