@@ -382,6 +382,10 @@ func waitForCommands(t *testing.T, fake *fakeSession, predicate func([]session.C
 // the even layout.
 func TestSidebarPanelClickExpands(t *testing.T) {
 	fake := newFakeSession()
+	austin := fake.view.Agents[protocol.Austin]
+	austin.Runtime.Recent = []harness.ToolNote{{Name: "RECENT-TOOL-MARKER", OK: true, Duration: time.Second}}
+	austin.Runtime.LastError = "ERROR-MARKER"
+	fake.view.Agents[protocol.Austin] = austin
 	app := New(fake)
 	backend, err := ui.NewBackend(&ui.InitConfig{SimulationMode: true, SimulationSize: image.Pt(120, 42)})
 	if err != nil {
@@ -404,8 +408,13 @@ func TestSidebarPanelClickExpands(t *testing.T) {
 	})
 
 	waitForText(t, sim, "AUSTIN ▸")
+	if strings.Contains(screenText(sim), "RECENT-TOOL-MARKER") {
+		t.Fatal("compact Austin card unexpectedly showed its recent-tool history")
+	}
 	sim.InjectMouse(10, 20, tcell.Button1, tcell.ModNone)
 	waitForText(t, sim, "AUSTIN ▾")
+	waitForText(t, sim, "RECENT-TOOL-MARKER")
+	waitForText(t, sim, "ERROR-MARKER")
 
 	// The expanded Austin card now occupies the middle of the sidebar.
 	sim.InjectMouse(10, 20, tcell.Button1, tcell.ModNone)
@@ -418,6 +427,51 @@ func TestSidebarPanelClickExpands(t *testing.T) {
 	sim.InjectMouse(10, 34, tcell.Button1, tcell.ModNone)
 	waitForText(t, sim, "TONY ▾")
 	waitForText(t, sim, "WORKFLOW ▸")
+}
+
+// Expanding the workflow panel must make room for the full current step, not
+// just draw an empty taller border. The marker only fits after the title wraps
+// across the additional rows.
+func TestExpandedWorkflowWrapsCurrentStep(t *testing.T) {
+	fake := newFakeSession()
+	fake.view.Project.Mode = project.ModeStep
+	fake.view.Project.Phase = project.PhaseExecute
+	fake.view.Project.Plan = strings.Repeat("plan ", 20)
+	fake.view.Project.PlanVersion = 4
+	fake.view.Project.Step = 1
+	fake.view.Project.Steps = project.Steps{
+		{Title: strings.Repeat("多行步骤信息 ", 30) + "TAIL-MARKER", Policy: project.ModeFast},
+		{Title: "next step", Policy: project.ModeFast},
+	}
+
+	app := New(fake)
+	backend, err := ui.NewBackend(&ui.InitConfig{SimulationMode: true, SimulationSize: image.Pt(120, 42)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sim, ok := backend.Screen.(tcell.SimulationScreen)
+	if !ok {
+		t.Fatalf("screen %T is not a simulation screen", backend.Screen)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- app.runWithBackend(ctx, backend) }()
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Error("runWithBackend did not stop")
+		}
+	})
+
+	waitForText(t, sim, "WORKFLOW ▸")
+	if strings.Contains(screenText(sim), "TAIL-MARKER") {
+		t.Fatal("the collapsed workflow panel unexpectedly showed the whole step title")
+	}
+	sim.InjectMouse(10, 5, tcell.Button1, tcell.ModNone)
+	waitForText(t, sim, "WORKFLOW ▾")
+	waitForText(t, sim, "TAIL-MARKER")
 }
 
 func TestLanguageCommandTranslatesDashboard(t *testing.T) {
