@@ -53,37 +53,19 @@ func openObserverViaSlash(t *testing.T, sim tcell.SimulationScreen) {
 	waitForText(t, sim, "OBSERVER SETTINGS")
 }
 
-func openObserverViaShortcut(t *testing.T, sim tcell.SimulationScreen) {
-	t.Helper()
-	typeText(sim, "/observer")
-	waitForText(t, sim, "Configure the observer")
-	injectKey(sim, tcell.KeyEnter, 0, tcell.ModNone)
-	waitForText(t, sim, "OBSERVER SETTINGS")
-}
-
-func TestObserverConfigOpensFromSlashAndCtrlE(t *testing.T) {
+func TestObserverConfigOpensFromSlash(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("DUO_OBSERVER", "")
 	t.Setenv("DUO_OBSERVER_ENDPOINT", "")
 	t.Setenv("DUO_OBSERVER_MODEL", "")
 	t.Setenv("DUO_OBSERVER_API_KEY", "")
 
-	for _, open := range []struct {
-		name string
-		fn   func(*testing.T, tcell.SimulationScreen)
-	}{
-		{"slash", openObserverViaSlash},
-		{"slash config", openObserverViaShortcut},
-	} {
-		t.Run(open.name, func(t *testing.T) {
-			fake := newFakeSession()
-			fake.view.Observer = session.ObserverView{Endpoint: "http://127.0.0.1:4000/v1", Model: "exec"}
-			sim, _ := runObserverSimulation(t, fake)
-			open.fn(t, sim)
-			if len(fake.snapshotCommands()) != 0 {
-				t.Fatalf("opening the settings panel issued commands: %#v", fake.snapshotCommands())
-			}
-		})
+	fake := newFakeSession()
+	fake.view.Observer = session.ObserverView{Endpoint: "http://127.0.0.1:4000/v1", Model: "exec"}
+	sim, _ := runObserverSimulation(t, fake)
+	openObserverViaSlash(t, sim)
+	if len(fake.snapshotCommands()) != 0 {
+		t.Fatalf("opening the settings panel issued commands: %#v", fake.snapshotCommands())
 	}
 }
 
@@ -98,7 +80,7 @@ func TestObserverConfigArrowKeysDoNotCorruptValues(t *testing.T) {
 	fake := newFakeSession()
 	fake.view.Observer = session.ObserverView{Endpoint: endpoint, Model: "exec"}
 	sim, _ := runObserverSimulation(t, fake)
-	openObserverViaShortcut(t, sim)
+	openObserverViaSlash(t, sim)
 
 	// Move around the existing text; redraws during cursor movement must not
 	// write the visible cursor marker back into the configured value.
@@ -142,7 +124,7 @@ func TestObserverConfigLeftArrowRendersAdjacentValue(t *testing.T) {
 	fake := newFakeSession()
 	fake.view.Observer = session.ObserverView{Endpoint: "http://127.0.0.1:4000/v1", Model: "exec"}
 	sim, _ := runObserverSimulation(t, fake)
-	openObserverViaShortcut(t, sim)
+	openObserverViaSlash(t, sim)
 	startX, startY, visible := sim.GetCursor()
 	if !visible {
 		t.Fatal("observer field cursor is hidden")
@@ -174,7 +156,7 @@ func TestObserverConfigSaveMasksKeyAndAppliesSettings(t *testing.T) {
 	fake := newFakeSession()
 	fake.view.Observer = session.ObserverView{Endpoint: "http://old/v1", Model: "old-model"}
 	sim, _ := runObserverSimulation(t, fake)
-	openObserverViaShortcut(t, sim)
+	openObserverViaSlash(t, sim)
 
 	// Replace the endpoint, model and key using the actual overlay controls.
 	injectKey(sim, tcell.KeyCtrlU, 0, tcell.ModNone)
@@ -312,7 +294,7 @@ func TestObserverConfigShowsEnvironmentOverridesAndKeyState(t *testing.T) {
 		KeyFile: true, Configured: true, EnvOverride: true, EnvOverrideEndpoint: true, EnvOverrideModel: true,
 	}
 	sim, _ := runObserverSimulation(t, fake)
-	openObserverViaShortcut(t, sim)
+	openObserverViaSlash(t, sim)
 	text := screenText(sim)
 	for _, want := range []string{"controlled by environment", "key available", "key file present", "configured", "DUO_OBSERVER*"} {
 		if !strings.Contains(text, want) {

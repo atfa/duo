@@ -41,7 +41,7 @@ func (o *observerReportOverlay) hasReports() bool { return len(o.reports) > 0 }
 func (o *observerReportOverlay) reflow() {
 	o.lines = nil
 	width := max(1, o.Inner.Dx())
-	if len(o.reports) == 0 {
+	if !o.hasReports() {
 		o.lines = wrapText(o.theme.tr("No observer reports yet. Enable the observer and reports will appear here as work progresses."), o.theme.BodyMuted, width)
 		return
 	}
