@@ -16,7 +16,9 @@ environments where those agents may operate.
 
 After the phase-specific approval, Duo delivers by fast-forwarding only the branch
 recorded when the session started: Tony's successful verification of Austin's exact
-commit in Fast, or both agents' approval of the integrated Austin HEAD in Goal.
+commit in Fast or a Step `[fast]`; both agents' approval of the integrated Austin
+HEAD in Goal or a Step `[goal]`. The final Step always requires both agents to sign
+off, including when its policy is `[fast]`.
 
 Duo checks safety with read-only Git queries before changing the original checkout.
 For delivery, its only mutating Git command against that checkout is
@@ -27,17 +29,25 @@ rewrites history there, and never runs `reset --hard`, `checkout -f`, `clean`, o
 
 Delivery refuses without changing the checkout if it is dirty, on a different or
 detached branch, diverged from the final result, or the result cannot be proven to
-derive from the recorded base. A refused handoff remains pending in VERIFY (Fast)
-or INTEGRATE (Goal). If you finish the merge yourself, `duo apply` recognizes it
-when the final HEAD is an ancestor of your current HEAD. A cherry-pick alone does
-not satisfy that check. A no-change task is a no-op when the final commit is already
-an ancestor, even if the checkout is dirty.
+derive from the recorded base. A refused handoff remains pending for retry with
+`duo apply`. If you finish the merge yourself, `duo apply` recognizes it when the
+final HEAD is an ancestor of your current HEAD. A cherry-pick alone does not satisfy
+that check. A no-change task is a no-op when the final commit is already an
+ancestor, even if the checkout is dirty.
 
 After a successful fast-forward, Duo re-reads HEAD and fails loudly if it is not
 exactly the expected final commit.
 
 Review the delivered commit like any other branch change. Duo guarantees that it
 refuses an unsafe handoff; it does not guarantee the agents' work is correct.
+
+## Session recovery
+
+Session snapshots and event logs are local, unencrypted files; they may contain
+agent output and project details. On resume, Duo treats Git as ground truth and
+revokes approvals whose recorded evidence no longer matches the worktrees. A
+signature is not a guarantee that changed or unverifiable work will still be
+approved after recovery.
 
 ## On-disk session files
 

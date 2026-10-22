@@ -34,7 +34,7 @@ Everything else should remain flexible enough for the models to collaborate natu
 | `internal/delivery` | Read-only safety decision and final handoff, repeated once per landed Step | Move only the recorded branch by a provably safe fast-forward; otherwise refuse without changing the checkout. |
 | `internal/harness`, `internal/events` | Runtime activity tracking, nudges and event fan-out | Harness observes runtime state; events are non-blocking and do not become project state. |
 | `internal/session` | The composition root, session lock, agent bridge, lifecycle observer and delivery handoff, behind `Options`, `View`, `Command` and `Subscribe` | Every frontend drives a session only through this seam; a frontend that re-implements part of it will disagree with the others. |
-| `internal/gotui` | Input, dashboard/timeline rendering, help, overlays and transcript | A projection of project state, never another source of truth. It depends on the `session.Service` seam and holds no core handle. The retired hand-written TUI is preserved on the `legacy-tui` branch and is not built from main. |
+| `internal/gotui` | Input, dashboard/timeline rendering, help, overlays and transcript | A projection of project state, never another source of truth. It depends on the `session.Service` seam and holds no core handle. |
 | `pi-extension/`, `opencode-extension/` | Agent-side tool, activity and prompt adapters | Keep the adapter thin; Go Core remains responsible for shared state and authorization. |
 
 The Driver Plugin Protocol is specified in [driver-plugin-protocol.md](driver-plugin-protocol.md),
@@ -88,16 +88,16 @@ This keeps coordination deterministic without making agent behavior rigid.
 
 Integration **inside** Duo is intentionally asymmetric: Austin is the integration worktree, and Duo merges Tony into Austin after REVIEW. This applies to Goal and to a Step `[goal]` step; a Step `[fast]` step has no merge. Conflicts stay visible in Austin's worktree for the agents or human to resolve; the core does not guess at a resolution. Fast has no integration step by design: Tony is read-only, so Austin's branch is already the deliverable and only Austin's HEAD is ever delivered.
 
-The handoff **back to the human** is deliberately narrower than a merge. Once the artifact is approved — both agents sign INTEGRATE in Goal, or Tony's verification passes in Fast — Duo fast-forwards only the branch it recorded when the session started, and only to the final result. It never creates a merge commit, never rebases, and never rewrites history in the user's repository.
+The handoff **back to the human** is deliberately narrower than a merge. Once the artifact is approved — Tony's verification in Fast or Step `[fast]`, or both agents' approval in Goal or Step `[goal]` — Duo fast-forwards only the branch it recorded when the session started, and only to the final result. It never creates a merge commit, rebases, or rewrites history in the user's repository.
 
-Delivery refuses — leaving the repository completely untouched — when the original repository:
+Delivery refuses without changing the repository when the original repository:
 
 - has uncommitted changes;
 - is on a different branch than the one Duo recorded;
 - has diverged from the final result, or the final result is not derived from the recorded base commit;
 - is on a detached HEAD, or the recorded starting branch is unknown.
 
-A task that changes no repository files is a no-op: once the final commit is already an ancestor of the current HEAD, delivery succeeds and records `DONE` even if the working tree is dirty. Every other delivery still goes through the checks above.
+A task that changes no repository files is a no-op: if the final commit is already an ancestor of the current HEAD, delivery succeeds and records `DONE` even if the working tree is dirty. Every other delivery still goes through the checks above.
 
 Two properties make this safe to automate:
 
@@ -106,8 +106,7 @@ Two properties make this safe to automate:
 
 So the boundary is not "Duo never moves your branch". It is: **Duo only ever moves the recorded branch forward, by an amount Git itself proves to be lossless, and refuses rather than guesses.** When it refuses, the human finishes the handoff from the printed final HEAD with `git merge --no-ff <final-head>` and re-runs `duo apply`, which then recognizes the result as already applied. A cherry-pick does not work here: it leaves the final HEAD out of the branch's history, so `duo apply` refuses again until the histories are merged.
 
-This integration strategy is fixed: Austin is the integration worktree in Goal and
-in a Step `[goal]` step, while Fast and Step `[fast]` deliver Austin's verified commit directly.
+Austin is the integration worktree in Goal and Step `[goal]`; Fast and Step `[fast]` deliver Austin's verified commit directly.
 
 ## Driving a session from a frontend
 
@@ -172,12 +171,6 @@ state must read `History()` and the journal, not the stream.
   the final commit for a human-managed merge.
 - The bridge uses a random token on a localhost TCP endpoint. It is not designed
   for remote or untrusted networks; see [SECURITY.md](../SECURITY.md).
-- `Coordinator.SetAgents` is called before `agents.StartAll`, so the window in which
-  it races `IsAgentConnected` and the capability lookup is not reachable in the
-  current startup order. This is recorded rather than fixed: closing it means
-  reordering startup, which is a larger change than the race is worth while the
-  order holds. A frontend that starts agents itself must keep that order.
-- `Do` runs the operator's configured test command for a gate request, and that
-  command is unbounded in principle (the coordinator applies a three-minute
-  timeout). Treat `--test-command` as input from whoever owns the repository, not
-  as untrusted input from the wire.
+- `session.Service` is the frontend seam; frontends do not independently start
+  agents or authorize gate decisions. See [the frontend guide](gotui.md) for the
+  terminal implementation and [SECURITY.md](../SECURITY.md) for trust boundaries.
