@@ -166,7 +166,7 @@ var zhUI = map[string]string{
 	"Ctrl+E observer status report  ·  Ctrl+O / Alt+O details & changes":                                                                       "Ctrl+E 观察报告  ·  Ctrl+O / Alt+O 详情与变更",
 	"In picker: Tab switches Agent  ·  Shift+Tab cycles thinking  ·  Space selects model":                                                      "选择器中：Tab 切换 Agent  ·  Shift+Tab 调整思考强度  ·  Space 选择模型",
 	"Ctrl+A / Alt+A attach Austin  ·  Ctrl+T / Alt+T attach Tony  ·  Ctrl+V image path  ·  Ctrl+] or Ctrl+\\ detach":                           "Ctrl+A / Alt+A 进入 Austin  ·  Ctrl+T / Alt+T 进入 Tony  ·  Ctrl+V 图片路径  ·  Ctrl+] 或 Ctrl+\\ 返回",
-	"Ctrl+R restart Austin  ·  Ctrl+Y restart Tony  ·  Ctrl+O / Alt+O details & changes":                                                       "Ctrl+R 重启 Austin  ·  Ctrl+Y 重启 Tony  ·  Ctrl+O / Alt+O 详情与变更",
+	"Ctrl+R restart Austin  ·  Ctrl+Y restart Tony":                                                                                            "Ctrl+R 重启 Austin  ·  Ctrl+Y 重启 Tony",
 	"Ctrl+X copy Austin's latest  ·  Ctrl+P sidebar  ·  Ctrl+G timestamps  ·  Ctrl+L redraw":                                                   "Ctrl+X 复制 Austin 最新消息  ·  Ctrl+P 侧边栏  ·  Ctrl+G 时间戳  ·  Ctrl+L 重绘",
 	"Ctrl+K / Ctrl+U / Ctrl+W delete to end / to start / word  ·  ↑/↓ history  ·  PgUp/PgDn scroll  ·  Ctrl+Q / Ctrl+D quit":                   "Ctrl+K / Ctrl+U / Ctrl+W 删除到行尾 / 行首 / 一个词  ·  ↑/↓ 历史  ·  PgUp/PgDn 滚动  ·  Ctrl+Q / Ctrl+D 退出",
 	"←/→ cursor  ·  Alt+←/→ by word  ·  Home/End line start/end  ·  Backspace/Delete remove before/after cursor":                               "←/→ 移动光标  ·  Alt+←/→ 按词移动  ·  Home/End 行首/行尾  ·  Backspace/Delete 删除光标前/后",

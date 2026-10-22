@@ -37,12 +37,13 @@ workflow state or makes project transitions:
 - **Mode switching.** `Ctrl+S` or `Alt+S` opens a FAST/GOAL/STEP panel with
   the current mode marked; `/mode` without an argument opens the same panel and
   `/mode fast|goal|step` still switches directly. The mode badge in the header
-  is clickable. A choice applies immediately, then asks whether to resume Austin
-  and Tony. When the switch would reset the current round, a first dialog names
-  exactly what is discarded (plan version, Step queue, signatures, Fast
-  verification) and keeps the current mode by default. The safe resume default
-  is **Not now**, which leaves both agents idle until the human submits the next
-  task; it also holds harness nudges so the watchdog cannot start work by itself.
+  is clickable. A switch that would reset the current round first names exactly
+  what is discarded (plan version, Step queue, signatures, Fast verification)
+  and keeps the current mode by default; Fast → Goal escalation and a DONE round
+  switch immediately. After the switch, Duo asks whether to resume Austin and
+  Tony. The safe resume default is **Not now**, which leaves both agents idle
+  until the human submits the next task; it also holds harness nudges so the
+  watchdog cannot start work by itself.
 - **Plan & steps.** `F3` or `/plan` opens a read-only overlay with the shared
   plan rendered as Markdown, the mode, phase and plan version, and the full Step
   queue with landed/current/pending markers. It scrolls with the same keys as

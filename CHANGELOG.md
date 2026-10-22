@@ -2,6 +2,48 @@
 
 All notable project milestones are documented here.
 
+## Unreleased
+
+### Mode switching
+
+- `Ctrl+S` / `Alt+S`, `/mode` without an argument, and a click on the header mode
+  badge open one FAST/GOAL/STEP panel with the current mode marked, a one-line
+  purpose per mode, and `↑`/`↓` plus `Enter` to switch; `Esc` cancels.
+- A switch that would reset the round asks first and names exactly what is
+  discarded: the shared plan version, the Step queue and its landed count, the
+  signatures, and Fast verification evidence. Keeping the current mode is the
+  default and `Esc` sends nothing; Fast → Goal escalation and a DONE round stay
+  immediate.
+- `duo --help` now names the Ctrl+S panel, the reset confirmation and F3 /plan,
+  so the first surface a human reads no longer describes mode switching as a
+  slash command only.
+
+### Plan & steps
+
+- `F3` or `/plan` opens a read-only PLAN & STEPS overlay with the shared plan as
+  Markdown, the mode, phase and plan version, and the full Step queue with
+  landed, current and pending markers. It scrolls like help and details and
+  closes with `Esc`.
+- The overlay refreshes when a step lands or changes review state without a new
+  plan version, and clamps its viewport when the content gets shorter instead of
+  going blank.
+- A round without a plan (Fast, or DONE after the plan was cleared) no longer
+  advertises `plan v0` beside “no shared plan”.
+
+### Chinese interface
+
+- Status feedback now goes through the translation table: send, clear, copy,
+  sidebar and timestamp toggles, driver and model changes, image paste, restart,
+  view preferences and the `/status` fallback all follow `/language zh`.
+- The mode panel, the destructive-switch confirmation and the plan overlay are
+  translated as well; protocol names, paths, ids and core errors stay verbatim.
+
+### Fixes
+
+- The header reserves the mode badge's actual width, so `PAUSED` no longer
+  overwrites the end of the branch name.
+- The interactive help no longer lists `Ctrl+O` twice.
+
 ## v0.13.2 — 2026-10-22
 
 ### Product site
