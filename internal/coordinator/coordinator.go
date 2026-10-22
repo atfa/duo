@@ -948,7 +948,7 @@ func (c *Coordinator) escalateToGoal(ctx context.Context, reason string, notify 
 		c.sendModeChange(ctx, project.ModeGoal, "")
 		return nil
 	}
-	c.releaseHarness()
+	c.clearResumePending()
 
 	reasonDesc := "(none provided)"
 	if reason != "" {
@@ -1055,7 +1055,7 @@ func (c *Coordinator) switchMode(ctx context.Context, target project.Mode, reaso
 		c.agents.SetMode(target.String())
 	}
 	if notify {
-		c.releaseHarness()
+		c.clearResumePending()
 	} else {
 		c.holdHarness()
 	}
@@ -1081,7 +1081,7 @@ func (c *Coordinator) switchMode(ctx context.Context, target project.Mode, reaso
 // state transition: the frontend uses it after a quiet SwitchMode, once the
 // human confirms that the agents should resume now.
 func (c *Coordinator) ResumeMode(ctx context.Context) error {
-	c.releaseHarness()
+	c.clearResumePending()
 	snap := c.project.Snapshot()
 	mode := snap.EffectiveMode()
 	for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
