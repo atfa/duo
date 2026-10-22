@@ -11,7 +11,9 @@ import (
 )
 
 func TestCtrlEOpensObserverReportInsteadOfSettings(t *testing.T) {
-	app := New(newFakeSession())
+	fake := newFakeSession()
+	fake.view.Observer.Model = "exec"
+	app := New(fake)
 	app.route(events.Event{
 		Time: time.Date(2026, 10, 22, 13, 5, 0, 0, time.Local), Kind: events.KindObserver,
 		Agent: protocol.Duo, Text: "Austin completed the parser; tests are still running.",
@@ -35,8 +37,18 @@ func TestCtrlEOpensObserverReportInsteadOfSettings(t *testing.T) {
 	}
 }
 
-func TestReportsSlashCommandOpensReportPanel(t *testing.T) {
+func TestCtrlEOpensObserverSettingsWhenModelIsMissing(t *testing.T) {
 	app := New(newFakeSession())
+	app.handleKey(tcell.NewEventKey(tcell.KeyCtrlE, "", tcell.ModNone))
+	if app.overlay != overlayObserver {
+		t.Fatalf("Ctrl+E without observer model opened overlay %v, want settings", app.overlay)
+	}
+}
+
+func TestReportsSlashCommandOpensReportPanel(t *testing.T) {
+	fake := newFakeSession()
+	fake.view.Observer.Model = "exec"
+	app := New(fake)
 	if !app.runSlash("/reports") {
 		t.Fatal("/reports was not recognized")
 	}

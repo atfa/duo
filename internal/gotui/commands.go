@@ -378,6 +378,11 @@ func (a *App) openObserverConfig() {
 
 func (a *App) openObserverReports() {
 	a.closeMention()
+	a.refreshView()
+	if strings.TrimSpace(a.live.Observer.Model) == "" {
+		a.openObserverConfig()
+		return
+	}
 	a.observerReports.begin(a.entries)
 	a.overlay = overlayObserverReports
 }

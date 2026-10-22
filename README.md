@@ -67,7 +67,7 @@ The optional LLM observer is disabled by default and advisory only: it cannot me
 
 ### Optional observer
 
-In the gotui dashboard, use `/observer` to open observer settings. Press `Ctrl+E` at any time to read the observer's progress reports. On first run, the settings panel is offered only when the observer has never been configured: no observer section in config, no key file, and no `DUO_OBSERVER*` environment setting. It starts with `http://127.0.0.1:4000/v1` and model `exec`; press `Esc` (**Later**) to save `observer: {"enabled": false}` in the project config and prevent the prompt from appearing again. You can open settings at any time afterward.
+In the gotui dashboard, use `/observer` to open observer settings. Press `Ctrl+E` at any time to read the observer's progress reports; if no observer model is configured, it opens settings instead. On first run, the settings panel is offered only when the observer has never been configured: no observer section in config, no key file, and no `DUO_OBSERVER*` environment setting. It starts with `http://127.0.0.1:4000/v1` and model `exec`; press `Esc` (**Later**) to save `observer: {"enabled": false}` in the project config and prevent the prompt from appearing again. You can open settings at any time afterward.
 
 The non-secret settings can be stored in the `observer` section of `~/.duo/config.json` or the repository's `.duo/config.json`. A project `observer` section replaces the global observer section as a whole; its fields are not merged with the global section. For example:
 
