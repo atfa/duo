@@ -111,7 +111,7 @@ func (a *App) runSlash(text string) bool {
 		}
 		status := strings.TrimSpace(a.svc.StatusText(context.Background()))
 		if status == "" {
-			status = "no status reported"
+			status = a.theme.tr("no status reported")
 		}
 		a.addLabeled(protocol.Duo, directionLabel(protocol.Duo, ""), status, false, false)
 		a.setStatus(a.theme.tr("status reported in timeline"), false)

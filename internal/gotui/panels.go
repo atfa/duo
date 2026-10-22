@@ -92,13 +92,6 @@ func (h *headerBar) Draw(buf *ui.Buffer) {
 		buf.SetString(" "+h.version+" ", ui.Style{Fg: h.theme.Faint, Bg: h.theme.Panel}, image.Pt(x, y))
 		x += len(h.version) + 2
 	}
-	where := h.repo
-	if h.branch != "" {
-		where += "  ·  " + h.branch
-	}
-	if x < h.Max.X-10 {
-		buf.SetString(fitText(where, h.Max.X-x-18), h.theme.Subtle, image.Pt(x, y))
-	}
 	badge := strings.ToUpper(h.mode) + "  ·  " + h.phase
 	if h.mode == "" {
 		badge = h.phase
@@ -115,10 +108,24 @@ func (h *headerBar) Draw(buf *ui.Buffer) {
 		badge += "  ·  PAUSED"
 		badgeStyle = ui.Style{Fg: h.theme.OK, Bg: h.theme.Panel, Modifier: ui.ModifierBold}
 	}
+	// Reserve the badge's actual width, not a fixed 18 columns: PAUSED grows it
+	// and the old reservation let the badge overwrite the end of the branch.
+	badgeWidth := rw.StringWidth(badge)
+	reserve := 18
 	if width >= 40 {
-		badgeX := max(h.Min.X+1, h.Max.X-rw.StringWidth(badge)-2)
+		reserve = badgeWidth + 2
+	}
+	where := h.repo
+	if h.branch != "" {
+		where += "  ·  " + h.branch
+	}
+	if x < h.Max.X-10 {
+		buf.SetString(fitText(where, max(1, h.Max.X-x-reserve)), h.theme.Subtle, image.Pt(x, y))
+	}
+	if width >= 40 {
+		badgeX := max(h.Min.X+1, h.Max.X-badgeWidth-2)
 		buf.SetString(badge, badgeStyle, image.Pt(badgeX, y))
-		h.modeBadge = image.Rect(badgeX, y, badgeX+rw.StringWidth(badge), y+1)
+		h.modeBadge = image.Rect(badgeX, y, badgeX+badgeWidth, y+1)
 	}
 	y++
 	if y < h.Max.Y {

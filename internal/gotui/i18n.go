@@ -184,6 +184,7 @@ var zhUI = map[string]string{
 	"sent to Austin and Tony":       "已发送给 Austin 和 Tony",
 	"screen redrawn":                "屏幕已重绘",
 	"status reported in timeline":   "状态已输出到时间线",
+	"no status reported":            "未报告状态",
 	"workflow sidebar shown":        "已显示工作流侧边栏",
 	"workflow sidebar hidden":       "已隐藏工作流侧边栏",
 	"timestamps shown":              "已显示消息时间戳",

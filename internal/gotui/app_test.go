@@ -38,6 +38,7 @@ type fakeSession struct {
 	doErr    error
 
 	reportRequests int
+	statusText     string
 }
 
 func newFakeSession() *fakeSession {
@@ -161,7 +162,12 @@ func (f *fakeSession) Drivers(ctx context.Context) ([]session.DriverChoice, erro
 	}, nil
 }
 
-func (f *fakeSession) StatusText(ctx context.Context) string { return "STATUS OK" }
+func (f *fakeSession) StatusText(ctx context.Context) string {
+	if f.statusText != "" {
+		return f.statusText
+	}
+	return "STATUS OK"
+}
 
 func (f *fakeSession) Changes(ctx context.Context) []string {
 	return []string{"M internal/gotui/app.go", "A internal/gotui/picker.go"}

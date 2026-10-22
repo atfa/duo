@@ -148,3 +148,23 @@ func TestStatusMessagesHaveChineseTranslations(t *testing.T) {
 		}
 	}
 }
+
+// The /status fallback is Duo's own text, so a zh session must not print the
+// English "no status reported" into the timeline.
+func TestChineseStatusFallbackWhenNoStatusReported(t *testing.T) {
+	fake := newFakeSession()
+	fake.view.Language = "zh"
+	fake.statusText = "  "
+	app := New(fake)
+	app.runSlash("/status")
+	if len(app.entries) == 0 {
+		t.Fatal("no timeline entry was added")
+	}
+	last := app.entries[len(app.entries)-1]
+	if !strings.Contains(last.text, "未报告状态") {
+		t.Fatalf("fallback entry = %q, want the zh text", last.text)
+	}
+	if strings.Contains(last.text, "no status reported") {
+		t.Fatalf("fallback entry leaked English: %q", last.text)
+	}
+}
