@@ -1,0 +1,51 @@
+/*
+ * Chinese typography only. Layout, colour and components live in site.css;
+ * nothing here should move or recolour the English page.
+ */
+
+html[lang="zh-Hans"] body {
+  font-family: "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC",
+    "Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei", system-ui,
+    -apple-system, "Segoe UI", sans-serif;
+  line-height: 1.8;
+  letter-spacing: 0.01em;
+  line-break: strict;
+  word-break: normal;
+}
+
+html[lang="zh-Hans"] :is(h1, h2, h3, h4) {
+  line-height: 1.3;
+  letter-spacing: 0;
+  text-wrap: balance;
+}
+
+html[lang="zh-Hans"] .hero h1 {
+  line-height: 1.16;
+  letter-spacing: -0.01em;
+}
+
+html[lang="zh-Hans"] .line-2 {
+  letter-spacing: 0.03em;
+}
+
+html[lang="zh-Hans"] :is(.eyebrow, .section-eyebrow) {
+  letter-spacing: 0.08em;
+}
+
+html[lang="zh-Hans"] :is(p, li, .lede, .hero-sub, .agent-note, .best-for) {
+  text-wrap: pretty;
+}
+
+html[lang="zh-Hans"] :is(code, pre, kbd, samp, .mono, .mode-cmd) {
+  letter-spacing: 0;
+}
+
+html[lang="zh-Hans"] .manifesto p {
+  max-width: 24ch;
+  line-height: 1.4;
+}
+
+html[lang="zh-Hans"] .best-for {
+  font-size: 11px;
+  line-height: 1.7;
+}

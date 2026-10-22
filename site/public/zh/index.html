@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="zh-Hans" class="no-js">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Duo — 两个平级 Agent，一个经过验证的结果</title>
+<meta name="description" content="Duo 让两个平级 Coding Agent 在隔离的 Git 工作树中协作。Austin 实现，Tony 验证确切的 commit，只有通过验证的结果才会进入你的分支。">
+<link rel="canonical" href="https://xduo.dev/zh/">
+<link rel="alternate" hreflang="en" href="https://xduo.dev/">
+<link rel="alternate" hreflang="zh-Hans" href="https://xduo.dev/zh/">
+<link rel="alternate" hreflang="x-default" href="https://xduo.dev/">
+<meta name="theme-color" content="#0A0E14">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="zh_CN">
+<meta property="og:locale:alternate" content="en_US">
+<meta property="og:site_name" content="Duo">
+<meta property="og:title" content="Duo — 两个平级 Agent，一个经过验证的结果">
+<meta property="og:description" content="两个平级 Coding Agent，在隔离的 Git 工作树中协作，并把结果交付回你的仓库。">
+<meta property="og:url" content="https://xduo.dev/zh/">
+<meta property="og:image" content="https://xduo.dev/assets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Duo — 两个平级 Agent，一个经过验证的结果">
+<meta name="twitter:description" content="两个平级 Coding Agent，在隔离的 Git 工作树中协作，并把结果交付回你的仓库。">
+<meta name="twitter:image" content="https://xduo.dev/assets/og.png">
+<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<link rel="stylesheet" href="/assets/site.css">
+<link rel="stylesheet" href="/assets/zh.css">
+<script src="/assets/site.js"></script>
+</head>
+<body>
+<div class="backdrop" aria-hidden="true"></div>
+<a class="skip" href="#main">跳到主要内容</a>
+
+<header class="nav site-header">
+  <div class="container nav-inner">
+    <a class="brand" href="/zh/" aria-label="Duo 首页">
+      <svg class="brand-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+        <rect x="0.5" y="0.5" width="31" height="31" rx="8" fill="#111720" stroke="rgba(255,255,255,.14)"/>
+        <path d="M11 8.5v15" stroke="#60C8FF" stroke-width="2.6" stroke-linecap="round"/>
+        <path d="M21 8.5v15" stroke="#D894FF" stroke-width="2.6" stroke-linecap="round"/>
+        <path d="M8 26.5h16" stroke="rgba(255,255,255,.3)" stroke-width="1.4" stroke-linecap="round"/>
+      </svg>
+      duo
+    </a>
+    <nav class="nav-links" id="nav-menu" aria-label="主导航">
+      <a href="#why">为什么 Duo</a>
+      <a href="#workflows">工作流</a>
+      <a href="#how">如何落地</a>
+      <a href="#features">特性</a>
+      <a href="#start">安装</a>
+    </nav>
+    <div class="nav-actions">
+      <a class="lang" href="/" hreflang="en" lang="en">EN</a>
+      <a class="btn btn-ghost" href="https://github.com/atfa/duo" rel="noopener">
+        GitHub
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M6 3h7v7M13 3 4.5 11.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </a>
+      <button class="nav-toggle" type="button" data-nav-toggle aria-expanded="false" aria-controls="nav-menu" aria-label="打开菜单">
+        <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 4.5h12M2 8h12M2 11.5h12" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main id="main">
+
+  <section class="container hero" id="top">
+    <div class="hero-copy">
+      <span class="eyebrow"><span class="pulse"></span>v0.13.1 · 两个平级 Agent，一个经过验证的结果</span>
+      <h1>想两遍，<span class="line-2">做得更好。</span></h1>
+      <p class="hero-sub">Duo 让<strong>两个平级 Coding Agent</strong>在隔离的 Git 工作树中协作。Austin 实现，Tony 独立验证确切的 commit，只有通过验证的结果才会进入你的分支。</p>
+
+      <div class="install">
+        <code id="install-cmd"><span class="prompt">$</span> curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash</code>
+        <button class="copy" type="button" data-copy="#install-cmd" aria-label="复制安装命令">
+          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.6" stroke="currentColor" stroke-width="1.3"/><path d="M10.5 3.5H3.6A1.6 1.6 0 0 0 2 5.1v6.9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
+          <span class="copy-label">复制</span>
+        </button>
+        <span class="copy-status sr-only" role="status" aria-live="polite"></span>
+      </div>
+
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="#start">开始使用</a>
+        <a class="btn btn-ghost" href="https://github.com/atfa/duo#readme" rel="noopener">阅读文档</a>
+      </div>
+
+      <div class="hero-meta">
+        <span>macOS 与 Linux</span>
+        <span>Go · 单二进制</span>
+        <span>MIT 开源</span>
+        <span>自带 Agent CLI</span>
+      </div>
+    </div>
+
+    <div class="session reveal" role="img" aria-label="一个处于 Goal 模式的 Duo 会话：Austin 实现并提交，Tony 审查确切的 commit 并签字，然后改动被交付。">
+      <div class="session-bar">
+        <span class="session-title"><b>duo</b> — goal</span>
+        <span class="session-live"><i></i>live</span>
+      </div>
+      <div class="session-phase">
+        <span class="phase done">plan</span>
+        <span class="phase done">execute</span>
+        <span class="phase active">review</span>
+        <span class="phase">integrate</span>
+      </div>
+      <div class="session-agents">
+        <div class="agent austin">
+          <div class="agent-head"><span class="agent-dot"></span>Austin<span class="agent-role">实现</span></div>
+          <div class="msg"><span class="k">plan</span> 计划已共同确认</div>
+          <div class="msg"><span class="k">commit</span> 6f2a1c9 · 6 个文件</div>
+          <div class="msg"><span class="k">test</span> go test ./... <b>通过</b></div>
+        </div>
+        <div class="agent tony">
+          <div class="agent-head"><span class="agent-dot"></span>Tony<span class="agent-role">验证</span></div>
+          <div class="msg"><span class="k">review</span> 6f2a1c9 · 独立审查</div>
+          <div class="msg"><span class="k">vet</span> go vet ./... <b>通过</b></div>
+          <div class="msg"><span class="k">sign</span> <span class="warn">6f2a1c9 ✓</span></div>
+        </div>
+      </div>
+      <div class="session-gate">
+        <span class="gate-label">gate</span>
+        <span class="gate-step ok">verify</span><span class="arrow">→</span>
+        <span class="gate-step ok">sign</span><span class="arrow">→</span>
+        <span class="gate-step">deliver</span>
+        <span class="gate-state">ready</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="container section" id="why">
+    <div class="section-head reveal">
+      <p class="section-eyebrow">为什么是两个 Agent</p>
+      <h2 class="section-title">一个 Agent 检查自己，仍然只有一种视角。</h2>
+      <p class="lede">单 Agent 可以在同一个上下文里写完代码又批准代码。Duo 让审查在结构上独立：两个会话、两个工作树、一个双方都能检查的 commit。</p>
+    </div>
+
+    <div class="agents grid">
+      <article class="agent-card card reveal">
+        <span class="tag"><i></i>Austin · 实现者</span>
+        <h3>在自己的工作树里实现。</h3>
+        <p>在自己的分支与检出中工作。完成约定的任务，以可审查的粒度提交，并给出 Duo 验证所需的证据。</p>
+        <ul>
+          <li>自己的分支与工作树</li>
+          <li>提交带有确切 SHA</li>
+          <li>附上测试与构建结果</li>
+        </ul>
+      </article>
+      <article class="agent-card card reveal">
+        <span class="tag"><i></i>Tony · 独立验证者</span>
+        <h3>验证确切的 commit。</h3>
+        <p>在另一份检出中阅读真实的 diff。在 Goal 与 Step 中，Tony 还会共同设计计划，并在签字前交叉审查实现。</p>
+        <ul>
+          <li>独立的检出</li>
+          <li>阅读真实 diff</li>
+          <li>签名绑定 SHA</li>
+        </ul>
+      </article>
+    </div>
+
+    <p class="agent-note reveal">
+      <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 1.8 14 4v4.2c0 3.2-2.4 5.3-6 6-3.6-.7-6-2.8-6-6V4l6-2.2Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="m5.6 7.9 1.7 1.7 3.1-3.3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <span><strong>平级，而非 subagent。</strong>Tony 拥有自己的上下文和工作树。Tony 不会对一份摘要盖章，Austin 也不会编辑 Tony 的检出。</span>
+    </p>
+  </section>
+
+  <section class="container manifesto reveal" aria-label="品牌宣言">
+    <p>因为重要的事，值得多一份<em>认真</em>。</p>
+    <small lang="en">Think Twice. Build Better.</small>
+  </section>
+
+  <section class="container section" id="workflows">
+    <div class="section-head reveal">
+      <p class="section-eyebrow">工作流</p>
+      <h2 class="section-title">选择适合任务的严谨程度。</h2>
+      <p class="lede">同样的两个 Agent，三种协作策略。可以在运行中切换模式；协议名称在任何语言中保持原样。</p>
+    </div>
+
+    <div class="workflows grid">
+      <article class="workflow-card card is-fast reveal">
+        <div class="workflow-top">
+          <span class="mode">Fast</span>
+          <span class="mode-cmd">duo</span>
+        </div>
+        <h3>多一双眼睛，再交付。</h3>
+        <p>Austin 实现，Tony 独立验证确切的 commit，Duo 交付经过验证的结果。</p>
+        <div class="chain">
+          <div class="chip"><b>TASK</b> 你描述任务<small>01</small></div>
+          <div class="chip austin"><b>AUSTIN</b> 实现并提交<small>02</small></div>
+          <div class="chip tony"><b>TONY</b> 验证该 commit<small>03</small></div>
+          <div class="chip gate"><b>DELIVER</b> 交付到你的分支<small>04</small></div>
+        </div>
+        <span class="best-for">适合 <b>边界清晰的修复与小功能</b></span>
+      </article>
+
+      <article class="workflow-card card is-goal reveal">
+        <div class="workflow-top">
+          <span class="mode">Goal</span>
+          <span class="mode-cmd">duo --mode goal</span>
+        </div>
+        <h3>先谈好计划，再交叉审查。</h3>
+        <p>两个 Agent 先就共享计划达成一致，各自独立工作，并审查对方确切的 commit。双方必须为同一个干净的集成 HEAD 签字。</p>
+        <div class="chain">
+          <div class="chip gate"><b>PLAN</b> 双方同意并签字<small>01</small></div>
+          <div class="chip austin"><b>EXECUTE</b> 并行工作<small>02</small></div>
+          <div class="chip tony"><b>REVIEW</b> 交叉审查<small>03</small></div>
+          <div class="chip gate"><b>INTEGRATE</b> 双方为 HEAD 签字<small>04</small></div>
+        </div>
+        <span class="best-for">适合 <b>架构调整与高风险重构</b></span>
+      </article>
+
+      <article class="workflow-card card is-step reveal">
+        <div class="workflow-top">
+          <span class="mode">Step</span>
+          <span class="mode-cmd">duo --mode step</span>
+        </div>
+        <h3>一次只落地一个经过验证的增量。</h3>
+        <p>双方先商定有序队列。每一步在下一步开始前落地，按 Fast 或 Goal 策略执行；队列可以跨重启保留。</p>
+        <div class="chain">
+          <div class="chip gate"><b>PLAN</b> 有序队列<small>01</small></div>
+          <div class="chip austin"><b>STEP 1</b> 落地并验证<small>02</small></div>
+          <div class="chip tony"><b>STEP 2</b> 落地并验证<small>03</small></div>
+          <div class="chip gate"><b>DONE</b> 已交付<small>04</small></div>
+        </div>
+        <span class="best-for">适合 <b>迁移与长周期任务</b></span>
+      </article>
+    </div>
+  </section>
+
+  <section class="container section" id="how">
+    <div class="section-head reveal">
+      <p class="section-eyebrow">如何落地</p>
+      <h2 class="section-title">从想法到你的分支，有四道检查点。</h2>
+      <p class="lede">每个检查点都由 Git 背书，而不是一句聊天消息。证据一旦对不上，关卡就会关闭。</p>
+    </div>
+
+    <div class="principles grid">
+      <article class="principle card reveal">
+        <span class="p-num">01 / ISOLATE</span>
+        <h3>两个工作树，两个分支。</h3>
+        <p>每个 Agent 在会话目录下拥有自己的检出。并行修改会变成一次显式的合并，而不是静默覆盖。</p>
+        <div class="evidence"><span class="dim">worktrees/</span>20261022-211328/<span class="agent-a">austin</span>  <span class="dim">·</span>  <span class="dim">worktrees/</span>20261022-211328/<span class="agent-b">tony</span></div>
+      </article>
+      <article class="principle card reveal">
+        <span class="p-num">02 / COORDINATE</span>
+        <h3>一份双方签过字的计划。</h3>
+        <p>在 Goal 与 Step 中，只有双方批准同一份计划或步骤队列版本后，工作才开始。任何修改都会创建新版本并重置双方签字。</p>
+        <div class="evidence"><span class="dim">plan</span> v4  <span class="agent-a">austin ✓</span>  <span class="agent-b">tony ✓</span>  <span class="dim">· 任何修改重置双方</span></div>
+      </article>
+      <article class="principle card reveal">
+        <span class="p-num">03 / VERIFY + SIGN</span>
+        <h3>批准针对一个 commit，而不是一种感觉。</h3>
+        <p>验证会阅读真实 diff 并运行检查。签名绑定被审查的 SHA；分支一旦移动，旧批准立即失效。</p>
+        <div class="evidence"><span class="agent-a">austin</span> 6f2a1c9  <span class="dim">·</span>  <span class="agent-b">tony</span> signed 6f2a1c9 <span class="ok">✓</span><br><span class="dim">分支移动 → 签名撤销</span></div>
+      </article>
+      <article class="principle card reveal">
+        <span class="p-num">04 / DELIVER</span>
+        <h3>只在可证明安全时移动。</h3>
+        <p>在最后的 fast-forward 之前，交付全程只读。如果你的仓库有未提交改动，或分支无法 fast-forward，Duo 会拒绝并且不做任何修改。</p>
+        <div class="evidence"><span class="dim">deliver</span> main <span class="ok">← verified HEAD</span>  <span class="dim">(fast-forward only)</span><br><span class="dim">有未提交改动 → 拒绝，检出保持不变</span></div>
+      </article>
+    </div>
+  </section>
+
+  <section class="container section" id="features">
+    <div class="section-head reveal">
+      <p class="section-eyebrow">为真实工作而建</p>
+      <h2 class="section-title">表面很小，机制很重。</h2>
+      <p class="lede">一个 Go 二进制协调会话、Git 状态与关卡。Agent、模型与仓库仍然属于你。</p>
+    </div>
+
+    <div class="features grid">
+      <article class="feature card reveal">
+        <span class="f-icon"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.2"/><path d="M5 5h6M5 8h6M5 11h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span>
+        <h3>确定性的核心</h3>
+        <p>阶段、关卡、路由与交付由 Go 强制执行，而不是在提示词里即兴发挥。Agent 只能通过核心授权的工具行动。</p>
+        <span class="f-meta">internal/project · internal/coordinator</span>
+      </article>
+
+      <article class="feature card reveal">
+        <span class="f-icon"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 1.8 13.5 4v4c0 3.3-2.3 5.4-5.5 6.2C4.8 13.4 2.5 11.3 2.5 8V4L8 1.8Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="m5.8 7.9 1.6 1.6 3-3.1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <h3>绑定 commit 的证据</h3>
+        <p>签名、验证与交付都引用确切的 SHA。恢复时，Git 已无法证明的批准会被撤销。</p>
+        <span class="f-meta">duo_status · session snapshots</span>
+      </article>
+
+      <article class="feature card reveal">
+        <span class="f-icon"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 3v6a2 2 0 0 0 2 2h6M11 3v3M8.5 8.5 11 11l2.5-2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <h3>冲突，而不是丢失工作</h3>
+        <p>独立工作树把竞争变成可见的合并冲突。没有静默覆盖，未提交的工作会留在原处。</p>
+        <span class="f-meta">无文件锁 · Git 即边界</span>
+      </article>
+
+      <article class="feature card reveal">
+        <span class="f-icon"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 8h5l1.5-4 2 8L12 8h2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <h3>会拒绝的交付</h3>
+        <p>在触碰你的检出之前，Duo 会证明这次移动是 fast-forward 且工作树干净。否则它会停下，不做猜测。</p>
+        <span class="f-meta">只读检查 · 仅 fast-forward</span>
+      </article>
+
+      <article class="feature card reveal">
+        <span class="f-icon"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M13.7 1.8v3.4h-3.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        <h3>恢复与继续</h3>
+        <p>计划、队列与对话记录都会持久化。崩溃后，恢复会用 Git 证据核对批准，并保留队列位置。</p>
+        <span class="f-meta">duo resume · 日志重放</span>
+      </article>
+
+      <article class="feature card reveal">
+        <span class="f-icon"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5 3.5 1.8 8 5 12.5M11 3.5 14.2 8 11 12.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.4 2.8 6.6 13.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>
+        <h3>本地优先，MIT</h3>
+        <p>一个二进制、普通配置、常规 Git。你与代码之间没有托管服务；源码以 MIT 许可发布。</p>
+        <span class="f-meta">macOS/Linux · amd64/arm64</span>
+      </article>
+    </div>
+
+    <div class="stack" aria-label="搭配">
+      <span class="stack-label">搭配</span>
+      <span class="stack-item"><b>pi</b></span>
+      <span class="stack-item"><b>agy</b></span>
+      <span class="stack-item"><b>opencode</b></span>
+      <span class="stack-item"><b>codex</b></span>
+      <span class="stack-item">8 个 Duo 工具 + MCP 子集</span>
+      <span class="stack-item">gotui 仪表盘</span>
+      <span class="stack-item">任意 Git 仓库</span>
+    </div>
+  </section>
+
+  <section class="container section" id="start">
+    <div class="start">
+      <div class="reveal">
+        <p class="section-eyebrow">快速开始</p>
+        <h2 class="section-title">两条命令，得到第二个意见。</h2>
+        <p class="lede">安装二进制，在任意 Git 仓库中运行，然后描述任务。Duo 负责工作树、关卡与交付。</p>
+
+        <div class="steps">
+          <div class="step">
+            <span class="step-num">01</span>
+            <div>
+              <h3>安装</h3>
+              <p>macOS 或 Linux，amd64 或 arm64。也可以使用 Go 1.24+ 从源码构建。</p>
+              <code id="install-cmd-start">curl -fsSL …/install-release.sh | bash</code>
+              <code>./scripts/install.sh</code>
+            </div>
+          </div>
+          <div class="step">
+            <span class="step-num">02</span>
+            <div>
+              <h3>在仓库中运行</h3>
+              <p>Fast 是默认模式。需要协商计划或有序队列时再切换。</p>
+              <code>duo</code> <code>duo --mode goal</code> <code>duo --mode step</code>
+            </div>
+          </div>
+          <div class="step">
+            <span class="step-num">03</span>
+            <div>
+              <h3>审查并推送</h3>
+              <p>Duo 会把验证过的结果交付到你启动时所在的分支。检查 commit、运行你自己的测试，满意后再推送。</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="reveal">
+        <div class="terminal">
+          <div class="terminal-bar">
+            <span class="dots"><i></i><i></i><i></i></span>
+            <span>your-repo — duo</span>
+          </div>
+          <pre aria-label="示例 Duo 终端会话"><span class="c">$</span> cd ~/projects/your-repo
+<span class="c">$</span> duo --mode goal
+
+<span class="hl">duo</span> <span class="muted">v0.13.1</span>  <span class="muted">·</span>  goal  <span class="muted">·</span>  pi
+<span class="muted">──────────────────────────────────────</span>
+  <span class="c">austin</span>  plan      计划已共同确认
+  <span class="t">tony</span>    plan      计划已共同确认
+  <span class="muted">phase</span>   <span class="hl">execute</span>
+
+  <span class="c">austin</span>  working   src/auth/session.go
+  <span class="t">tony</span>    waiting   等待确切 commit
+
+  <span class="muted">gate</span>    verify <span class="muted">→</span> sign <span class="muted">→</span> deliver
+</pre>
+        </div>
+        <p class="note">需要 Git 与至少一种受支持的 Agent CLI。Agent 以你的权限运行——工作树隔离修改，但不是安全沙箱。</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="container section" id="faq">
+    <div class="section-head reveal">
+      <p class="section-eyebrow">常见问题</p>
+      <h2 class="section-title">工程师最先会问的问题。</h2>
+    </div>
+
+    <div class="faq reveal">
+      <details class="faq-item">
+        <summary class="faq-q">这和 subagent 有什么不同？</summary>
+        <div class="faq-a"><p>不同。Subagent 与父会话共享同一工作树；Duo 运行两个独立的 Agent 会话，拥有各自的工作树与分支，它们的批准绑定到真正审查过的 commit。</p></div>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">需要两个模型或两个 API key 吗？</summary>
+        <div class="faq-a"><p>不需要。可以让两个 Agent 使用同一个 driver，也可以用 <code>--austin-driver</code> 与 <code>--tony-driver</code> 分别指定。内置 driver 为 pi、agy、opencode 与 codex。</p></div>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">两个 Agent 修改同一个文件会怎样？</summary>
+        <div class="faq-a"><p>每次修改都落在各自的分支，所以结果是在集成阶段出现一次普通的 Git 冲突——可见、可解决。Duo 不会为了强行合并而丢弃未提交的工作。</p></div>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">验证失败会怎样？</summary>
+        <div class="faq-a"><p>关卡保持关闭。Tony 针对该 commit 报告问题，Austin 在自己的工作树中修复；新的 commit 需要新的验证，旧签名不会延续。</p></div>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">Duo 会改写我的历史吗？</summary>
+        <div class="faq-a"><p>不会。交付只会 fast-forward 你启动时所在的分支。如果无法做到，或工作树有未提交改动，Duo 会拒绝并保持检出不变。</p></div>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">我的代码会离开本机吗？</summary>
+        <div class="faq-a"><p>Duo 是本地 Go 二进制，没有托管后端。提示词会像没有 Duo 时一样发送给你的 Agent 提供商；协调、工作树与证据都留在本地。</p></div>
+      </details>
+      <details class="faq-item">
+        <summary class="faq-q">开源吗？</summary>
+        <div class="faq-a"><p>是，MIT 许可。源码、issue 与发布都在 <a href="https://github.com/atfa/duo" rel="noopener">github.com/atfa/duo</a>。</p></div>
+      </details>
+    </div>
+  </section>
+
+</main>
+
+<footer class="footer site-footer">
+  <div class="container">
+    <div class="footer-top">
+      <div class="footer-brand">
+        <a class="brand" href="/zh/" aria-label="Duo 首页">
+          <svg class="brand-mark" viewBox="0 0 32 32" fill="none" aria-hidden="true">
+            <rect x="0.5" y="0.5" width="31" height="31" rx="8" fill="#111720" stroke="rgba(255,255,255,.14)"/>
+            <path d="M11 8.5v15" stroke="#60C8FF" stroke-width="2.6" stroke-linecap="round"/>
+            <path d="M21 8.5v15" stroke="#D894FF" stroke-width="2.6" stroke-linecap="round"/>
+            <path d="M8 26.5h16" stroke="rgba(255,255,255,.3)" stroke-width="1.4" stroke-linecap="round"/>
+          </svg>
+          duo
+        </a>
+        <p>想两遍，做得更好。两个平级 Agent，在隔离的工作树中协作，并把结果交付回你的仓库。</p>
+      </div>
+      <div class="footer-cols">
+        <div class="footer-col">
+          <h4>产品</h4>
+          <ul>
+            <li><a href="#why">为什么 Duo</a></li>
+            <li><a href="#workflows">工作流</a></li>
+            <li><a href="#how">如何落地</a></li>
+            <li><a href="#features">特性</a></li>
+            <li><a href="#start">安装</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>资源</h4>
+          <ul>
+            <li><a href="https://github.com/atfa/duo" rel="noopener">GitHub</a></li>
+            <li><a href="https://github.com/atfa/duo#readme" rel="noopener">文档</a></li>
+            <li><a href="https://github.com/atfa/duo/blob/main/CHANGELOG.md" rel="noopener">更新日志</a></li>
+            <li><a href="https://github.com/atfa/duo/blob/main/SECURITY.md" rel="noopener">安全模型</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h4>语言</h4>
+          <ul>
+            <li><a href="/" hreflang="en" lang="en">English</a></li>
+            <li><a href="/zh/" hreflang="zh-Hans" lang="zh-Hans" aria-current="page">简体中文</a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Duo · xduo.dev</span>
+      <span>MIT 许可 · 由<span class="heart">两个</span>Agent 构建</span>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
