@@ -153,10 +153,10 @@ Two optional messages keep Duo's model and thinking displays honest:
 {"version":1,"type":"thinking_state","agent":"Austin","thinking":"high","ok":true}
 ```
 
-Send `model_state` when the agent starts and whenever the model changes — including
-when your agent clamps a requested thinking level to what the current model supports.
-Report what the agent **settled on**, not what was asked for. Duo's whole value here
-is that the picker shows reality.
+Send `model_state` for the model and `thinking_state` for the reasoning level when the
+agent starts and whenever either changes — including when the agent clamps a
+requested level to what the current model supports. Report what the agent **settled
+on**, not what was asked for. Duo's whole value here is that the picker shows reality.
 
 If your agent does not implement a live switch, send neither, and declare
 `liveModelSwitch: false` so Core restarts the process instead of asking.
@@ -173,10 +173,10 @@ request/response calls over the same socket:
 | `duo_send` | send a message to the peer |
 | `duo_set_plan` | publish the shared plan (Goal, or the design prose in Step) |
 | `duo_set_steps` | publish the Step queue (Step only) |
-| `duo_set_status` | sign the current gate, or request verification in Fast |
+| `duo_set_status` | Fast: Austin requests verification. Goal and Step plans, `[goal]` items and the final step: both agents sign the gate. |
 | `duo_set_verification` | publish a Fast or Step `[fast]` verdict (Tony only) |
 | `duo_escalate` | switch the session to Goal from any mode |
-| `duo_restart_duo` | request a restart on a new Duo binary (Step, between steps) |
+| `duo_restart_duo` | request a guarded STEP/EXECUTE restart between steps, optionally installing a new binary |
 
 These eight are the whole set; availability still follows the session mode. The MCP
 server (`duo mcp-server`) exposes a six-tool subset — everything except

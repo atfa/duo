@@ -50,7 +50,7 @@ func DefaultTools() []Tool {
 		},
 		{
 			Name:        "duo_set_status",
-			Description: "Sign the current gate (ready: true) or revoke the signature (ready: false). Fast: Austin requests independent verification. Goal and Step: both agents sign the phase or step. A new plan or queue version resets signatures.",
+			Description: "Sign the current gate (ready: true) or revoke the signature (ready: false). Fast, and a non-final Step [fast] item: Austin requests verification. Goal and Step plans, [goal] items and the final step: both agents sign. A new plan or queue version resets signatures.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{

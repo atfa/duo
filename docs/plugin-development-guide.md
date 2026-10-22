@@ -30,9 +30,10 @@ round-trip, or real-binary checks below.
 
 ## What you are building
 
-Duo runs two agents, Austin and Tony, each in its own worktree, and has them
-collaborate: Austin plans, both build, they review each other, and the agreed result
-is merged and delivered back to your repository.
+Duo runs two agents, Austin and Tony, each in its own worktree, and hands the
+approved result back to your repository. How much they negotiate depends on the
+mode: Fast has Austin implement and Tony verify; Goal has both plan, build,
+cross-review and sign; Step runs a dual-approved queue under either policy.
 
 Duo does not know anything about coding agents. It has no idea what a "model" is
 for your agent, whether your agent can be resumed, or what flags it takes. **Your
@@ -55,12 +56,11 @@ that is your choice, and the most common reason a plugin is worth writing well.
 
 ## Before you start
 
-You need two things:
+You need **your agent's CLI**: how to launch it, how to resume a session, how to
+list models, and how to set a reasoning level. That is the only requirement.
 
-1. **Your agent's CLI.** How to launch it, how to resume a session, how to list
-   models, how to set a reasoning level.
-2. **A way to observe it**, if it has an extension API, a plugin API, a log file, or
-   anything else you can read. This is optional.
+**A way to observe it** — an extension API, a plugin API, a log file, or anything
+else you can read — is optional and only buys the richer adapter below.
 
 You do not need Duo's source code. You do need its protocol document, which is the
 first link at the top.
@@ -253,10 +253,10 @@ chase for a day.
 `state` is yours. Duo stores the JSON you return and hands it back verbatim. It never
 reads it, never migrates it, never changes its schema. Put whatever you need in it.
 
-**One compatibility requirement.** Duo stores the identity under the one word every
-driver shares, because it does not know your agent's vocabulary, and a session
-recorded before your driver learned its own spelling can present that shape. Accept
-`sessionId` as the identity, in addition to whatever spelling you prefer:
+**Legacy-session compatibility.** Your blob stays opaque, but a session recorded
+before the plugin format can be resumed with the saved identity under the one word
+every driver shares: `{"sessionId":"…"}`. Accept `sessionId` as the identity in
+addition to whatever spelling you prefer:
 
 ```go
 type state struct {
