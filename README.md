@@ -84,7 +84,7 @@ The non-secret settings can be stored in the `observer` section of `~/.duo/confi
 }
 ```
 
-The settings panel stores a newly entered API key only in `~/.duo/observer.key` as **plaintext** (the key file is not encrypted or stored in a keychain); a newly created `~/.duo` directory uses mode `0700`, and the key file uses mode `0600`. A blank key leaves the saved key unchanged. Keep API keys out of config files; config may contain the environment-variable name in `apiKeyEnv`, never the key itself. Key lookup precedence is `DUO_OBSERVER_API_KEY`, then the environment variable named by `observer.apiKeyEnv`, then the key file. `DUO_OBSERVER`, `DUO_OBSERVER_ENDPOINT`, and `DUO_OBSERVER_MODEL` override the saved enabled, endpoint, and model values, respectively; the settings panel identifies environment-controlled values.
+The settings panel stores a newly entered API key only in `~/.duo/observer.key` as **plaintext** (the key file is not encrypted or stored in a keychain); a newly created `~/.duo` directory uses mode `0700`, and the key file uses mode `0600`. A blank key leaves the saved key unchanged. The key field shows what you type in plaintext so a mistyped key is visible; a saved key is never loaded back into the field. Keep API keys out of config files; config may contain the environment-variable name in `apiKeyEnv`, never the key itself. Key lookup precedence is `DUO_OBSERVER_API_KEY`, then the environment variable named by `observer.apiKeyEnv`, then the key file. `DUO_OBSERVER`, `DUO_OBSERVER_ENDPOINT`, and `DUO_OBSERVER_MODEL` override the saved enabled, endpoint, and model values, respectively; the settings panel identifies environment-controlled values.
 
 Observer configuration keys are:
 
@@ -100,7 +100,7 @@ Observer configuration keys are:
 | `timeoutSeconds` | Request timeout; defaults to `60` seconds. |
 | `maxTokens` | Maximum response tokens; defaults to `300`. |
 
-Observer output appears on Duo's timeline with an `Observer: ` prefix and is also available from the `Ctrl+E` or `/reports` panel. After a three-second quiet period, the observer considers new events together with the previous report; it emits an update only when there is meaningful new information. Missing keys, timeouts, and non-2xx responses are recorded in the session log and shown as diagnostics in the reports panel; they do not interrupt coordination. If the panel has no reports, it explains whether the observer is disabled, missing a key, or has encountered a recent error.
+Observer output appears on Duo's timeline with an `Observer: ` prefix and is also available from the `Ctrl+E` or `/reports` panel. After a three-second quiet period, the observer considers new events together with the previous report; it emits an update only when there is meaningful new information. Reports follow the interface language, so a Chinese interface asks the observer for Chinese reports. Missing keys, timeouts, and non-2xx responses are recorded in the session log and shown as diagnostics in the reports panel; they do not interrupt coordination. If the panel has no reports, it explains whether the observer is disabled, missing a key, or has encountered a recent error.
 
 ## Resume and delivery
 

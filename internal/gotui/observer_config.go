@@ -144,7 +144,10 @@ func (o *observerConfigOverlay) displayValue(field int) string {
 	case observerModelField:
 		value = o.model
 	case observerAPIKeyField:
-		value = []rune(strings.Repeat("•", len(o.apiKey)))
+		// The field shows exactly what the human typed: a mistyped key is the
+		// failure this panel has to make visible, and a mask hides it. The saved
+		// key is never loaded back into this buffer, so nothing else is exposed.
+		value = o.apiKey
 	}
 	if field != o.active {
 		return string(value)
@@ -164,9 +167,6 @@ func (o *observerConfigOverlay) cursorPosition() (int, int, bool) {
 	cursor := max(0, min(o.cursor, len(*field)))
 	x := o.Inner.Min.X + rw.StringWidth(o.theme.tr(labels[o.active])+": ")
 	prefix := string((*field)[:cursor])
-	if o.active == observerAPIKeyField {
-		prefix = strings.Repeat("•", cursor)
-	}
 	x += rw.StringWidth(prefix)
 	if x >= o.Inner.Max.X {
 		x = o.Inner.Max.X - 1

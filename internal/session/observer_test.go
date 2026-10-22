@@ -506,3 +506,94 @@ func TestSetObserverRejectsInvalidSavedSettingsUnderADisablingOverride(t *testin
 		t.Fatal("an effective configuration without endpoint or model was accepted")
 	}
 }
+
+// The observer writes its report for the human, so the request prompt has to
+// follow the session language and the saved configuration must not accumulate
+// instructions when the observer is rebuilt.
+func TestObserverPromptFollowsSessionLanguage(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("DUO_OBSERVER_API_KEY", "sk-test")
+
+	prompts := make(chan string, 8)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Messages []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		for _, message := range body.Messages {
+			if message.Role == "system" {
+				select {
+				case prompts <- message.Content:
+				default:
+				}
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"report"}}]}`)
+	}))
+	defer server.Close()
+
+	repo := gitRepo(t)
+	opts := headlessOptions(t, repo, t.TempDir(), "127.0.0.1:0")
+	opts.Language = "zh"
+	opts.Observer = observer.Config{
+		Enabled: true, Endpoint: server.URL + "/v1", Model: "exec",
+		MaxEvents: 4, Debounce: 10 * time.Millisecond, Timeout: time.Second,
+	}
+	svc := New(opts)
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer svc.Close()
+
+	sub, unsubscribe := svc.Subscribe(32)
+	defer unsubscribe()
+
+	svc.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "first event"})
+	waitObserverText(t, sub, "report")
+	if got := nextObserverPrompt(t, prompts); !strings.Contains(got, "Simplified Chinese") {
+		t.Fatalf("zh system prompt = %q, want a Simplified Chinese instruction", got)
+	}
+
+	if err := svc.Do(context.Background(), SetLanguage{Language: "en"}); err != nil {
+		t.Fatalf("switch language: %v", err)
+	}
+	svc.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "second event"})
+	waitObserverText(t, sub, "report")
+	if got := nextObserverPrompt(t, prompts); strings.Contains(got, "Simplified Chinese") {
+		t.Fatalf("en system prompt kept the Chinese instruction: %q", got)
+	}
+
+	// Rebuilding the observer must not stack the instruction into the saved
+	// settings, so switching back yields exactly one copy.
+	if err := svc.Do(context.Background(), SetLanguage{Language: "zh"}); err != nil {
+		t.Fatalf("switch language back: %v", err)
+	}
+	if err := svc.Do(context.Background(), SetObserver{
+		Enabled: true, Endpoint: server.URL + "/v1", Model: "exec",
+	}); err != nil {
+		t.Fatalf("reconfigure observer: %v", err)
+	}
+	svc.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "third event"})
+	waitObserverText(t, sub, "report")
+	if got := nextObserverPrompt(t, prompts); strings.Count(got, "Simplified Chinese") != 1 {
+		t.Fatalf("rebuilt zh system prompt = %q, want one Chinese instruction", got)
+	}
+	if saved := svc.opts.Observer.SystemPrompt; strings.Contains(saved, "Simplified Chinese") {
+		t.Fatalf("saved observer prompt was mutated: %q", saved)
+	}
+}
+
+func nextObserverPrompt(t *testing.T, prompts <-chan string) string {
+	t.Helper()
+	select {
+	case prompt := <-prompts:
+		return prompt
+	case <-time.After(3 * time.Second):
+		t.Fatal("no observer request was recorded")
+		return ""
+	}
+}

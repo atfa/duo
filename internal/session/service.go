@@ -554,6 +554,13 @@ func (s *Service) startObserver() {
 	if !s.opts.Observer.Enabled {
 		return
 	}
+	// The report is written for the human, so it follows the interface language.
+	// Use a copy so restarting cannot mutate saved settings or stack instructions.
+	cfg := s.opts.Observer
+	if effectiveLanguage(s.opts.Language) == "zh" {
+		cfg.SystemPrompt = strings.TrimSpace(cfg.SystemPrompt) +
+			"\n\nAlways write the report in Simplified Chinese (始终用简体中文撰写报告)."
+	}
 	logf := func(format string, args ...any) {
 		message := fmt.Sprintf(format, args...)
 		// Missing-key state has a dedicated, actionable rendering in ObserverView;
@@ -563,7 +570,7 @@ func (s *Service) startObserver() {
 		}
 		s.logf()("%s", message)
 	}
-	obs, err := observer.New(s.bus, s.opts.Observer, func(text string) {
+	obs, err := observer.New(s.bus, cfg, func(text string) {
 		s.clearObserverNotice()
 		s.bus.Emit(events.Event{Time: time.Now(), Kind: events.KindObserver, Agent: protocol.Duo, Text: text})
 	}, logf)
@@ -1030,6 +1037,10 @@ func (s *Service) setLanguage(c SetLanguage) error {
 	}
 	s.opts.Language = language
 	s.coord.SetLanguage(language)
+	// The observer writes for the human, so a language switch has to rebuild it:
+	// the old one carries the previous language's instruction in its prompt.
+	s.stopObserver()
+	s.startObserver()
 	repo := ""
 	if s.ws != nil {
 		repo = s.ws.Set().Repository
