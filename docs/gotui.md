@@ -1,7 +1,8 @@
 # gotui terminal frontend
 
-gotui is Duo's default and only bundled terminal frontend. Plain `duo` opens it;
-the explicit form is available for scripts and for resumed sessions:
+gotui is Duo's default and only bundled terminal frontend. `duo` opens it
+without a separate UI-selection flag; modes and resume are passed on the command
+line as usual:
 
 ```bash
 duo
@@ -10,13 +11,10 @@ duo resume
 duo resume <session-id>
 ```
 
-The retired hand-written TUI is preserved on the `legacy-tui` Git branch. It is
-not built or installed from `main`.
-
 ## What it shows
 
-The gotui frontend is a live dashboard over the same `session.Service` as every
-other Duo frontend. It never owns workflow state or makes project transitions:
+The gotui frontend is a live dashboard over `session.Service`. It never owns
+workflow state or makes project transitions:
 
 - **Timeline (default).** One chronological conversation. The selected view is
   saved as `tuiMode` in the repository's `.duo/config.json` whenever you switch
@@ -72,10 +70,9 @@ with terminal fallback.
 
 ## Keys
 
-Shared Duo keys — slash commands, composer editing, history, native attach,
-model picker, copy and quit — are documented in the [main README](../README.md#terminal-ui).
-
-The dashboard adds:
+Slash commands and composer editing are documented in the in-app help (`F1`,
+`Ctrl+/`, `/help`); `duo --help` covers startup flags, commands and environment
+variables. The dashboard adds:
 
 | Key | Action |
 |---|---|
@@ -113,15 +110,14 @@ The layout is computed from the terminal size on every resize:
 
 | Space | Result |
 |---|---|
-| at least 104 columns and enough height | workflow sidebar and agent cards |
+| at least 104 columns and 21 content rows | default workflow sidebar and agent cards |
+| at least 104 columns and 18 content rows, with a panel focused | sidebar; the focused panel expands |
 | main pane at least 72 columns and 16 rows | split Austin/Tony/Duo dashboard |
 | narrower or shorter | conversation timeline without the sidebar |
-| under 80 columns | compact footer hints |
 
 The Duo composer grows to three visible text rows as height allows. The header
 uses two rows: title and mode/phase, then session information and the view
-switch on the right. The conversation starts one row higher than the previous
-three-row header. Long sidebar values wrap instead of being truncated, and the
+switch on the right. Long sidebar values wrap instead of being truncated, and the
 workflow phase chain wraps to a second line when the sidebar is too narrow for
 all phases.
 Clicking one of the three sidebar panels expands it to the available height and
@@ -177,16 +173,16 @@ the text files.
 
 | Frame | What it covers |
 |---|---|
-| [dashboard 120×42](screens/01-dashboard-120x42.txt) | split dashboard, workflow sidebar, agent cards, Duo/Human pane |
-| [timeline 120×42](screens/02-timeline-120x42.txt) | single conversation view and restored history |
-| [slash palette 120×42](screens/03-slash-120x42.txt) | filtered command palette over the conversation pane |
-| [help 120×42](screens/04-help-120x42.txt) | help modal on a cleared backdrop |
-| [details 120×42](screens/05-details-120x42.txt) | session details and diffstat |
-| [models 120×42](screens/06-models-120x42.txt) | model/thinking picker after the async catalog load |
-| [paused 120×42](screens/09-paused-120x42.txt) | PAUSED badge and the paused footer hint |
-| [drivers 120×42](screens/10-drivers-120x42.txt) | driver picker |
-| [confirm 80×24](screens/07-confirm-80x24.txt) | destructive confirmation at a compact size |
-| [narrow 64×22](screens/08-narrow-64x22.txt) | no-sidebar timeline with compact footer |
+| [dashboard 120×42](gotui/screens/01-dashboard-120x42.txt) | split dashboard, workflow sidebar, agent cards, Duo/Human pane |
+| [timeline 120×42](gotui/screens/02-timeline-120x42.txt) | single conversation view and restored history |
+| [slash palette 120×42](gotui/screens/03-slash-120x42.txt) | filtered command palette over the conversation pane |
+| [help 120×42](gotui/screens/04-help-120x42.txt) | help modal on a cleared backdrop |
+| [details 120×42](gotui/screens/05-details-120x42.txt) | session details and diffstat |
+| [models 120×42](gotui/screens/06-models-120x42.txt) | model/thinking picker after the async catalog load |
+| [paused 120×42](gotui/screens/09-paused-120x42.txt) | PAUSED badge and the paused footer hint |
+| [drivers 120×42](gotui/screens/10-drivers-120x42.txt) | driver picker |
+| [confirm 80×24](gotui/screens/07-confirm-80x24.txt) | destructive confirmation at a compact size |
+| [narrow 64×22](gotui/screens/08-narrow-64x22.txt) | no-sidebar timeline in a small terminal |
 
 Regenerate them with:
 
