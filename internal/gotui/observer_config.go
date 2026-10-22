@@ -156,7 +156,9 @@ func (o *observerConfigOverlay) displayValue(field int) string {
 	value = append([]rune(nil), value...)
 	value = append(value, 0)
 	copy(value[o.cursor+1:], value[o.cursor:len(value)-1])
-	value[o.cursor] = '│'
+	// Use an ASCII marker: the box-drawing vertical line is East Asian
+	// ambiguous-width and occupies two cells in CJK terminals.
+	value[o.cursor] = '|'
 	return string(value)
 }
 
