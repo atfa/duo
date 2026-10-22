@@ -383,7 +383,7 @@ func (a *App) openObserverReports() {
 		a.openObserverConfig()
 		return
 	}
-	a.observerReports.begin(a.entries)
+	a.observerReports.begin(a.entries, a.live.Observer)
 	a.overlay = overlayObserverReports
 }
 

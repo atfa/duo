@@ -1,6 +1,8 @@
 package session
 
 import (
+	"time"
+
 	"github.com/atfa/duo/internal/agent"
 	"github.com/atfa/duo/internal/driver"
 	"github.com/atfa/duo/internal/harness"
@@ -72,6 +74,10 @@ type ObserverView struct {
 	Endpoint  string
 	Model     string
 	APIKeyEnv string
+	// LastNotice and LastNoticeAt expose the most recent observer diagnostic,
+	// without placing observer failures in the session event stream.
+	LastNotice   string
+	LastNoticeAt time.Time
 	// HasKey reports that a key resolves from the environment, the apiKeyEnv
 	// variable, or the owner-only key file.
 	HasKey bool

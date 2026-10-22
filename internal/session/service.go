@@ -108,6 +108,10 @@ type Service struct {
 	observer    *observer.Observer
 	transcripts *sessionstore.LogWriter
 
+	observerNoticeMu sync.RWMutex
+	observerNotice   string
+	observerNoticeAt time.Time
+
 	driverState  map[protocol.AgentID]sessionstore.DriverState
 	pauseState   PauseState
 	pausedAgents map[protocol.AgentID]bool
@@ -550,8 +554,17 @@ func (s *Service) startObserver() {
 	if !s.opts.Observer.Enabled {
 		return
 	}
-	logf := s.logf()
+	logf := func(format string, args ...any) {
+		message := fmt.Sprintf(format, args...)
+		// Missing-key state has a dedicated, actionable rendering in ObserverView;
+		// do not expose the raw logger template (which can contain an empty "or").
+		if !strings.Contains(message, "no API key in DUO_OBSERVER_API_KEY") {
+			s.setObserverNotice(message)
+		}
+		s.logf()("%s", message)
+	}
 	obs, err := observer.New(s.bus, s.opts.Observer, func(text string) {
+		s.clearObserverNotice()
 		s.bus.Emit(events.Event{Time: time.Now(), Kind: events.KindObserver, Agent: protocol.Duo, Text: text})
 	}, logf)
 	if err != nil {
@@ -570,6 +583,26 @@ func (s *Service) stopObserver() {
 	}
 	s.observer.Close()
 	s.observer = nil
+}
+
+func (s *Service) setObserverNotice(message string) {
+	s.observerNoticeMu.Lock()
+	s.observerNotice = strings.TrimSpace(message)
+	s.observerNoticeAt = time.Now()
+	s.observerNoticeMu.Unlock()
+}
+
+func (s *Service) clearObserverNotice() {
+	s.observerNoticeMu.Lock()
+	s.observerNotice = ""
+	s.observerNoticeAt = time.Time{}
+	s.observerNoticeMu.Unlock()
+}
+
+func (s *Service) observerNoticeSnapshot() (string, time.Time) {
+	s.observerNoticeMu.RLock()
+	defer s.observerNoticeMu.RUnlock()
+	return s.observerNotice, s.observerNoticeAt
 }
 
 // logf is the session logger, or a no-op sink for a service that has none.
@@ -623,6 +656,7 @@ func (s *Service) setObserver(c SetObserver) error {
 	s.opts.Observer = effective
 	s.opts.ObserverConfigured = true
 	s.stopObserver()
+	s.clearObserverNotice()
 	s.startObserver()
 	return nil
 }
@@ -631,6 +665,7 @@ func (s *Service) setObserver(c SetObserver) error {
 // key itself is not part of the projection; HasKey only says one resolves.
 func (s *Service) observerView() ObserverView {
 	hasKey := s.opts.Observer.APIKey() != ""
+	lastNotice, lastNoticeAt := s.observerNoticeSnapshot()
 	keyFile := observer.KeyFileExists()
 	enabledOverride, endpointOverride, modelOverride := observer.EnvOverrides()
 	return ObserverView{
@@ -638,6 +673,8 @@ func (s *Service) observerView() ObserverView {
 		Endpoint:            s.opts.Observer.Endpoint,
 		Model:               s.opts.Observer.Model,
 		APIKeyEnv:           s.opts.Observer.APIKeyEnv,
+		LastNotice:          lastNotice,
+		LastNoticeAt:        lastNoticeAt,
 		HasKey:              hasKey,
 		KeyFile:             keyFile,
 		EnvOverride:         enabledOverride,

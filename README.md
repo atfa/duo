@@ -100,7 +100,7 @@ Observer configuration keys are:
 | `timeoutSeconds` | Request timeout; defaults to `60` seconds. |
 | `maxTokens` | Maximum response tokens; defaults to `300`. |
 
-Observer output appears on Duo's timeline with an `Observer: ` prefix and is also available from the `Ctrl+E` or `/reports` panel. After a three-second quiet period, the observer considers new events together with the previous report; it emits an update only when there is meaningful new information. Missing keys, timeouts, and non-2xx responses are recorded only in the session log and do not interrupt coordination.
+Observer output appears on Duo's timeline with an `Observer: ` prefix and is also available from the `Ctrl+E` or `/reports` panel. After a three-second quiet period, the observer considers new events together with the previous report; it emits an update only when there is meaningful new information. Missing keys, timeouts, and non-2xx responses are recorded in the session log and shown as diagnostics in the reports panel; they do not interrupt coordination. If the panel has no reports, it explains whether the observer is disabled, missing a key, or has encountered a recent error.
 
 ## Resume and delivery
 

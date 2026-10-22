@@ -3,7 +3,9 @@ package gotui
 import (
 	"image"
 	"strings"
+	"time"
 
+	"github.com/atfa/duo/internal/session"
 	rw "github.com/mattn/go-runewidth"
 	ui "github.com/metaspartan/gotui/v5"
 )
@@ -12,19 +14,20 @@ import (
 // reports without mixing them up with observer configuration.
 type observerReportOverlay struct {
 	*ui.Block
-	theme   theme
-	box     image.Rectangle
-	width   int
-	offset  int
-	lines   []renderLine
-	reports []entry
+	theme    theme
+	box      image.Rectangle
+	width    int
+	offset   int
+	lines    []renderLine
+	reports  []entry
+	observer session.ObserverView
 }
 
 func newObserverReports(t theme) *observerReportOverlay {
 	return &observerReportOverlay{Block: newModalBlock(t), theme: t, width: -1}
 }
 
-func (o *observerReportOverlay) begin(entries []entry) {
+func (o *observerReportOverlay) begin(entries []entry, observer session.ObserverView) {
 	o.offset = 0
 	var reports []entry
 	for _, e := range entries {
@@ -33,6 +36,15 @@ func (o *observerReportOverlay) begin(entries []entry) {
 		}
 	}
 	o.reports = reports
+	o.observer = observer
+	o.reflow()
+}
+
+func (o *observerReportOverlay) updateObserver(observer session.ObserverView) {
+	if o.observer == observer {
+		return
+	}
+	o.observer = observer
 	o.reflow()
 }
 
@@ -42,8 +54,29 @@ func (o *observerReportOverlay) reflow() {
 	o.lines = nil
 	width := max(1, o.Inner.Dx())
 	if !o.hasReports() {
-		o.lines = wrapText(o.theme.tr("No observer reports yet. Enable the observer and reports will appear here as work progresses."), o.theme.BodyMuted, width)
+		message := "No observer reports yet. Enable the observer and reports will appear here as work progresses."
+		switch {
+		case !o.observer.Enabled:
+			// Keep the disabled state distinct from an enabled observer that has
+			// not produced a report yet.
+		case !o.observer.HasKey:
+			message = "The observer has no API key. Set DUO_OBSERVER_API_KEY, the configured key environment variable, or save a key in observer settings."
+		case o.observer.LastNotice != "":
+			message = o.theme.tr("Latest observer notice") + observerNoticeTimestamp(o.observer.LastNoticeAt) + ": " + observerNoticeText(o.observer.LastNotice)
+		default:
+			message = "The observer is enabled; no new report is available yet. Reports appear as work progresses."
+		}
+		if o.observer.Enabled && o.observer.HasKey && o.observer.LastNotice != "" {
+			o.lines = wrapText(message, o.theme.BodyMuted, width)
+		} else {
+			o.lines = wrapText(o.theme.tr(message), o.theme.BodyMuted, width)
+		}
 		return
+	}
+	if o.observer.LastNotice != "" {
+		message := o.theme.tr("Latest observer notice") + observerNoticeTimestamp(o.observer.LastNoticeAt) + ": " + observerNoticeText(o.observer.LastNotice)
+		o.lines = append(o.lines, wrapText(message, o.theme.BodyMuted, width)...)
+		o.lines = append(o.lines, makeLine("", o.theme.BodyMuted, 0))
 	}
 	for i := len(o.reports) - 1; i >= 0; i-- {
 		e := o.reports[i]
@@ -52,6 +85,17 @@ func (o *observerReportOverlay) reflow() {
 		o.lines = append(o.lines, wrapText(strings.TrimPrefix(e.text, "Observer: "), o.theme.BodyMuted, width)...)
 		o.lines = append(o.lines, makeLine("", o.theme.BodyMuted, 0))
 	}
+}
+
+func observerNoticeTimestamp(at time.Time) string {
+	if at.IsZero() {
+		return ""
+	}
+	return " (" + at.Format("15:04") + ")"
+}
+
+func observerNoticeText(notice string) string {
+	return strings.TrimPrefix(notice, "observer: ")
 }
 
 func (o *observerReportOverlay) place(l layout) {

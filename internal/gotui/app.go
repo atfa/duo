@@ -435,9 +435,12 @@ func (a *App) runWithBackend(ctx context.Context, backend *ui.Backend) error {
 			a.handleAsync(res)
 			a.draw()
 		case <-tick.C:
-			if a.busy() || a.toast != nil || a.pasting {
+			if a.busy() || a.toast != nil || a.pasting || a.overlay == overlayObserverReports {
 				a.frame++
 				a.refreshView()
+				if a.overlay == overlayObserverReports {
+					a.observerReports.updateObserver(a.live.Observer)
+				}
 				a.draw()
 			}
 		}

@@ -66,7 +66,8 @@ func (a *App) route(event events.Event) {
 		// text as a verdict or a failure.
 		a.addLabeled(protocol.Duo, directionLabel(protocol.Duo, ""), "Observer: "+text, false, false)
 		if a.overlay == overlayObserverReports {
-			a.observerReports.begin(a.entries)
+			a.refreshView()
+			a.observerReports.begin(a.entries, a.live.Observer)
 		}
 	default:
 		if event.Agent == protocol.Austin || event.Agent == protocol.Tony {

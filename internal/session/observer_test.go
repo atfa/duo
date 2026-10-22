@@ -97,6 +97,67 @@ func TestEnabledObserverPublishesObservationOnSessionBus(t *testing.T) {
 	}
 }
 
+func TestObserverNoticeReachesViewAndClearsOnReconfigureAndReport(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("DUO_OBSERVER_API_KEY", "sk-test")
+	var failures, successes atomic.Int32
+	badEndpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		failures.Add(1)
+		http.Error(w, "invalid model name", http.StatusBadRequest)
+	}))
+	defer badEndpoint.Close()
+	goodEndpoint := newObserverTestServer(t, "useful progress report", &successes)
+
+	repo := gitRepo(t)
+	opts := headlessOptions(t, repo, t.TempDir(), "127.0.0.1:0")
+	opts.Observer = observer.Config{
+		Enabled: true, Endpoint: badEndpoint.URL + "/v1", Model: "wrong-model",
+		MaxEvents: 4, Debounce: 10 * time.Millisecond, Timeout: time.Second,
+	}
+	svc := New(opts)
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer svc.Close()
+
+	svc.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "first event"})
+	waitFor(t, time.Second, func() bool { return svc.View().Observer.LastNotice != "" })
+	failed := svc.View().Observer
+	if !strings.Contains(failed.LastNotice, "invalid model name") || failed.LastNoticeAt.IsZero() {
+		t.Fatalf("observer diagnostic = %+v", failed)
+	}
+
+	if err := svc.Do(context.Background(), SetObserver{Enabled: true, Endpoint: goodEndpoint.URL + "/v1", Model: "exec"}); err != nil {
+		t.Fatalf("reconfigure observer: %v", err)
+	}
+	if got := svc.View().Observer; got.LastNotice != "" || !got.LastNoticeAt.IsZero() {
+		t.Fatalf("diagnostic remained after reconfiguration: %+v", got)
+	}
+
+	sub, unsubscribe := svc.Subscribe(32)
+	defer unsubscribe()
+	svc.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "second event"})
+	waitObserverText(t, sub, "useful progress report")
+	if got := svc.View().Observer; got.LastNotice != "" || !got.LastNoticeAt.IsZero() {
+		t.Fatalf("diagnostic remained after successful report: %+v", got)
+	}
+	if failures.Load() != 1 || successes.Load() != 1 {
+		t.Fatalf("requests failed=%d succeeded=%d, want 1 each", failures.Load(), successes.Load())
+	}
+}
+
+func waitFor(t *testing.T, timeout time.Duration, condition func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("condition did not become true before timeout")
+}
+
 func TestInvalidDirectObserverConfigDoesNotPreventSessionStart(t *testing.T) {
 	repo := gitRepo(t)
 	opts := headlessOptions(t, repo, t.TempDir(), "127.0.0.1:0")
