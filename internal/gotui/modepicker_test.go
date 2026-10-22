@@ -37,7 +37,7 @@ func TestModePickerStartsAtCurrentAndWraps(t *testing.T) {
 }
 
 // The panel is reachable from the keyboard, the slash command and the header
-// badge, and every apply path still goes through switchModeFromComposer.
+// badge, and every apply path still goes through requestModeSwitch.
 func TestModePickerEntryPointsAndApply(t *testing.T) {
 	fake := newFakeSession()
 	app := New(fake)

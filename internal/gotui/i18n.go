@@ -208,4 +208,16 @@ var zhUI = map[string]string{
 	"could not read TUI view preference: %s":      "无法读取 TUI 视图偏好：%s",
 	"could not save TUI view preference: %s":      "无法保存 TUI 视图偏好：%s",
 	"Austin and Tony resumed in %s mode":          "已在 %s 模式恢复 Austin 和 Tony 的工作",
+
+	// Destructive mode-switch confirmation. The loss list is built from the
+	// project snapshot and each item is translated before it is joined.
+	"Switch to %s?": "切换到 %s 模式？",
+	"Switching starts a new round and discards:":    "切换会开始新一轮，并丢弃：",
+	"Keep the current mode to preserve this round.": "保留当前模式可保留本轮。",
+	"Keep current mode":                             "保留当前模式",
+	"Switch mode":                                   "切换模式",
+	"the Step queue (%d steps, %d landed)":          "Step 队列（%d 步，%d 步已落地）",
+	"the shared plan v%d":                           "共享计划 v%d",
+	"signatures from %s":                            "%s 的签名",
+	"Tony's verification result":                    "Tony 的验证结果",
 }

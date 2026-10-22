@@ -76,7 +76,12 @@ type confirmOverlay struct {
 }
 
 func (c *confirmOverlay) place(l layout) {
-	c.box = centered(l, 68, 7)
+	// Grow the modal for a multi-line explanation (a destructive mode switch names
+	// each discarded item); short confirmations keep the original height.
+	probe := centered(l, 68, 7)
+	lines := wrapText(c.text, c.theme.BodyMuted, max(1, probe.Dx()-4))
+	height := max(7, len(lines)+4)
+	c.box = centered(l, 68, height)
 	c.Block.SetRect(c.box.Min.X, c.box.Min.Y, c.box.Max.X, c.box.Max.Y)
 	c.Title = " " + c.title + " "
 }

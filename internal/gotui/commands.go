@@ -172,14 +172,14 @@ func (a *App) runSlash(text string) bool {
 			a.setStatus(err.Error(), true)
 			return true
 		}
-		a.switchModeFromComposer(target, "")
+		a.requestModeSwitch(target, "")
 		return true
 	case "/escalate":
 		reason := strings.TrimSpace(strings.TrimPrefix(text, "/escalate"))
 		if strings.HasPrefix(reason, ":") {
 			reason = strings.TrimSpace(strings.TrimPrefix(reason, ":"))
 		}
-		a.switchModeFromComposer(project.ModeGoal, reason)
+		a.requestModeSwitch(project.ModeGoal, reason)
 		return true
 	case "/pause":
 		a.pauseSession()
@@ -354,14 +354,80 @@ func (a *App) applyDriver(keepOpen bool) {
 	}
 }
 
-// switchModeFromComposer applies a slash-command mode change quietly, then
-// offers the explicit resume step. Both /mode and /escalate go through here so
-// a mode switch never wakes the agents by itself.
-func (a *App) switchModeFromComposer(target project.Mode, reason string) {
+// requestModeSwitch applies a slash, panel or /escalate mode change. A
+// transition that would discard the current round asks first; the confirmed
+// callback calls applyModeSwitch directly so the question is asked at most once.
+func (a *App) requestModeSwitch(target project.Mode, reason string) {
 	if target == a.live.EffectiveMode() {
 		a.setStatus(fmt.Sprintf(a.theme.tr("already in %s mode"), target.Display()), false)
 		return
 	}
+	if a.svc == nil {
+		return
+	}
+	if loss := a.modeSwitchLoss(target); len(loss) > 0 {
+		a.confirmModeSwitch(target, reason, loss)
+		return
+	}
+	a.applyModeSwitch(target, reason)
+}
+
+// modeSwitchLoss names only what the transition really discards. A finished
+// round keeps its result, and Fast → Goal escalation carries the reason and
+// notes into the new Goal plan, so neither asks.
+func (a *App) modeSwitchLoss(target project.Mode) []string {
+	snap := a.live.Project
+	from := snap.EffectiveMode()
+	if target == from || snap.Phase == project.PhaseDone {
+		return nil
+	}
+	if from == project.ModeFast && target == project.ModeGoal {
+		return nil
+	}
+	var loss []string
+	if len(snap.Steps) > 0 && !project.QueueFinished(snap.Steps) {
+		landed := 0
+		for _, step := range snap.Steps {
+			if step.Done {
+				landed++
+			}
+		}
+		loss = append(loss, fmt.Sprintf(a.theme.tr("the Step queue (%d steps, %d landed)"), len(snap.Steps), landed))
+	}
+	if strings.TrimSpace(snap.Plan) != "" {
+		loss = append(loss, fmt.Sprintf(a.theme.tr("the shared plan v%d"), snap.PlanVersion))
+	}
+	var signed []string
+	for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		if snap.Ready[agent] {
+			signed = append(signed, string(agent))
+		}
+	}
+	if len(signed) > 0 {
+		loss = append(loss, fmt.Sprintf(a.theme.tr("signatures from %s"), strings.Join(signed, ", ")))
+	}
+	if from == project.ModeFast && snap.Verification.Head != "" && (target == project.ModeFast || target == project.ModeStep) {
+		loss = append(loss, a.theme.tr("Tony's verification result"))
+	}
+	return loss
+}
+
+// confirmModeSwitch keeps the current mode by default: the left button is the
+// safe choice, and Esc sends no command at all.
+func (a *App) confirmModeSwitch(target project.Mode, reason string, loss []string) {
+	title := fmt.Sprintf(a.theme.tr("Switch to %s?"), target.Display())
+	text := a.theme.tr("Switching starts a new round and discards:") +
+		"\n\n• " + strings.Join(loss, "\n• ") +
+		"\n\n" + a.theme.tr("Keep the current mode to preserve this round.")
+	a.openConfirmChoices(title, text, "Keep current mode", "Switch mode", func() {
+		a.applyModeSwitch(target, reason)
+	})
+}
+
+// applyModeSwitch changes the mode quietly, then offers the explicit resume
+// step. Both /mode and /escalate go through here so a mode switch never wakes
+// the agents by itself.
+func (a *App) applyModeSwitch(target project.Mode, reason string) {
 	if a.svc == nil {
 		return
 	}
@@ -452,7 +518,7 @@ func (a *App) copyLatest() {
 }
 
 // openModePicker shows the FAST/GOAL/STEP panel. It is the keyboard, slash and
-// header-badge entry point; every path applies through switchModeFromComposer.
+// header-badge entry point; every path applies through requestModeSwitch.
 func (a *App) openModePicker() {
 	if a.svc == nil {
 		return

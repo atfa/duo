@@ -811,7 +811,9 @@ func (a *App) openModeResumePrompt(target project.Mode) {
 
 func (a *App) closeOverlay() {
 	a.overlay = overlayNone
-	a.screen.HideCursor()
+	if a.screen != nil {
+		a.screen.HideCursor()
+	}
 }
 
 func (a *App) requestQuit() {

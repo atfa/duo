@@ -10,8 +10,8 @@ import (
 
 // modePicker is the one place a human changes the workflow without remembering
 // the slash spelling. It is a projection only: applying a choice funnels through
-// switchModeFromComposer, the same path /mode and /escalate use, so the panel
-// cannot invent a different mode-change rule.
+// requestModeSwitch, the same path /mode and /escalate use, so the panel cannot
+// invent a different mode-change rule.
 type modePicker struct {
 	*ui.Block
 	theme   theme

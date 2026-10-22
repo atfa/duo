@@ -440,10 +440,10 @@ func (a *App) handleModePickerKey(ev *tcell.EventKey) {
 		p.cursor = len(pickerModes) - 1
 	case tcell.KeyEnter:
 		target := p.selected()
-		// Close first: switchModeFromComposer may open the resume prompt, which
-		// must replace this panel instead of being hidden behind it.
+		// Close first: requestModeSwitch may open the confirm or resume prompt,
+		// which must replace this panel instead of being hidden behind it.
 		a.closeOverlay()
-		a.switchModeFromComposer(target, "")
+		a.requestModeSwitch(target, "")
 	}
 }
 
