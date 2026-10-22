@@ -22,10 +22,15 @@ site/
 ## Preview locally
 
 ```bash
-python3 -m http.server -d site/public 8080
+# works from the repository root and from site/
+python3 -m http.server -d "$(git rev-parse --show-toplevel)/site/public" 8080
 # http://localhost:8080/      (English)
 # http://localhost:8080/zh/   (Chinese)
 ```
+
+`-d` is resolved against the current directory, so a bare `-d site/public`
+only works from the repository root; run inside `site/` it points at the
+missing `site/site/public` and every URL answers 404.
 
 `wrangler dev` from `site/` also works and applies `_headers`.
 
