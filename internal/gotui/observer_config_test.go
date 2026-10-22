@@ -85,6 +85,37 @@ func TestObserverConfigOpensFromSlashAndCtrlE(t *testing.T) {
 	}
 }
 
+func TestObserverConfigArrowKeysDoNotCorruptValues(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("DUO_OBSERVER", "")
+	t.Setenv("DUO_OBSERVER_ENDPOINT", "")
+	t.Setenv("DUO_OBSERVER_MODEL", "")
+	t.Setenv("DUO_OBSERVER_API_KEY", "")
+
+	const endpoint = "http://127.0.0.1:4000/v1"
+	fake := newFakeSession()
+	fake.view.Observer = session.ObserverView{Endpoint: endpoint, Model: "exec"}
+	sim, _ := runObserverSimulation(t, fake)
+	openObserverViaShortcut(t, sim)
+
+	// Move around the existing text; redraws during cursor movement must not
+	// write the visible cursor marker back into the configured value.
+	injectKey(sim, tcell.KeyLeft, 0, tcell.ModNone)
+	injectKey(sim, tcell.KeyLeft, 0, tcell.ModNone)
+	injectKey(sim, tcell.KeyRight, 0, tcell.ModNone)
+	injectKey(sim, tcell.KeyEnter, 0, tcell.ModNone)
+	waitGone(t, sim, "OBSERVER SETTINGS")
+
+	commands := fake.snapshotCommands()
+	if len(commands) != 1 {
+		t.Fatalf("commands = %#v, want one SetObserver", commands)
+	}
+	cmd, ok := commands[0].(session.SetObserver)
+	if !ok || cmd.Endpoint != endpoint {
+		t.Fatalf("saved command = %#v, want endpoint %q", commands[0], endpoint)
+	}
+}
+
 func TestObserverConfigSaveMasksKeyAndAppliesSettings(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

@@ -151,6 +151,9 @@ func (o *observerConfigOverlay) displayValue(field int) string {
 	if o.cursor < 0 || o.cursor > len(value) {
 		o.cursor = len(value)
 	}
+	// Insert the visible cursor into a copy. Appending directly to a field slice
+	// can reuse its backing array, corrupting the configured value as it is drawn.
+	value = append([]rune(nil), value...)
 	value = append(value, 0)
 	copy(value[o.cursor+1:], value[o.cursor:len(value)-1])
 	value[o.cursor] = '│'
