@@ -2,6 +2,7 @@ package gotui
 
 import (
 	"fmt"
+	"hash/fnv"
 	"image"
 	"strings"
 
@@ -48,6 +49,11 @@ func (p *planOverlay) place(l layout, view session.View, active bool) {
 		p.width = width
 		p.cacheKey = key
 		p.rebuild()
+		// A shorter plan, a revised queue or a smaller window shrinks the content;
+		// keep the viewport inside it instead of drawing an empty panel.
+		if max := p.maxOffset(); p.offset > max {
+			p.offset = max
+		}
 	}
 }
 
@@ -67,10 +73,24 @@ func (p *planOverlay) begin(view session.View) {
 // but the rendered lines only change with the snapshot, width or language.
 func planCacheKey(view session.View, width int, lang string) string {
 	snap := view.Project
-	return fmt.Sprintf("%s|%s|%d|%d|%d|%d|%s|%s|%s|%d|%s|%d|%s",
+	return fmt.Sprintf("%s|%s|%d|%d|%d|%d|%s|%s|%s|%d|%s|%d|%s|%x",
 		snap.EffectiveMode(), snap.Phase, snap.PlanVersion, len(snap.Plan), len(snap.Steps), width,
 		lang, snap.Verification.Status, snap.Verification.Head, len(snap.Verification.Note),
-		view.Delivery.Status, len(view.Delivery.Reason), view.Delivery.AppliedHead)
+		view.Delivery.Status, len(view.Delivery.Reason), view.Delivery.AppliedHead,
+		stepsSignature(snap.Steps))
+}
+
+// stepsSignature folds every per-step field the queue lines render, so a queue
+// revision, a submission or a landing rebuilds the panel even when the step
+// count, phase and plan version stay the same.
+func stepsSignature(steps project.Steps) uint64 {
+	h := fnv.New64a()
+	for _, step := range steps {
+		fmt.Fprintf(h, "%s\x00%t\x00%s\x00%s\x00%s\x00%s\x00",
+			step.Title, step.Done, step.EffectivePolicy(), step.Head,
+			step.Verification.Status, step.DeliveryHead)
+	}
+	return h.Sum64()
 }
 
 func (p *planOverlay) rebuild() {
@@ -86,12 +106,16 @@ func (p *planOverlay) rebuild() {
 		add(p.theme.tr(text), ui.Style{Fg: p.theme.Accent, Bg: p.theme.Panel, Modifier: ui.ModifierBold})
 	}
 
-	add(fmt.Sprintf("%s  %s   ·   %s  %s   ·   %s v%d",
-		p.theme.tr("MODE"), mode.Display(),
-		p.theme.tr("PHASE"), string(snap.Phase),
-		p.theme.tr("plan"), snap.PlanVersion), p.theme.Subtle)
-
 	plan := strings.TrimSpace(snap.Plan)
+	header := fmt.Sprintf("%s  %s   ·   %s  %s",
+		p.theme.tr("MODE"), mode.Display(),
+		p.theme.tr("PHASE"), string(snap.Phase))
+	if plan != "" {
+		// A round without a plan has no version to show: "plan v0" beside "FAST
+		// has no shared plan." would contradict itself.
+		header += fmt.Sprintf("   ·   %s v%d", p.theme.tr("plan"), snap.PlanVersion)
+	}
+	add(header, p.theme.Subtle)
 	if plan != "" {
 		heading("PLAN")
 		runs := markdownRuns(plan, p.theme.Body, p.theme, width)

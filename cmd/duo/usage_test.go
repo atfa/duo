@@ -484,6 +484,18 @@ func TestRemovedCLIFormsAreRejected(t *testing.T) {
 	}
 }
 
+// TestUsageMentionsDashboardModeAndPlanShortcuts keeps the first surface a human
+// reads in step with the dashboard: mode switching and the plan overlay are
+// keyboard actions, so --help has to name them instead of only /mode.
+func TestUsageMentionsDashboardModeAndPlanShortcuts(t *testing.T) {
+	usage := captureStdout(t, printUsage)
+	for _, want := range []string{"Ctrl+S", "F3", "/plan"} {
+		if !strings.Contains(usage, want) {
+			t.Errorf("duo --help never mentions %s, so the dashboard shortcut stays undiscoverable", want)
+		}
+	}
+}
+
 // TestUsageExcludesAgentFacingFlags guards D2: the flags Duo hands to an agent
 // CLI are not duo flags and must stay out of the user-facing usage.
 func TestUsageExcludesAgentFacingFlags(t *testing.T) {

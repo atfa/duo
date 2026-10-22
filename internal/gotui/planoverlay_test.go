@@ -169,3 +169,89 @@ func TestPlanOverlayIsTranslated(t *testing.T) {
 		t.Fatalf("zh plan title = %q, want 计划与步骤", got)
 	}
 }
+
+// A queue revision, a submission or a landing changes fields the panel renders
+// without changing the step count, phase or plan version, so the cache key has
+// to cover them: otherwise an open panel keeps showing the old markers.
+func TestPlanOverlayRefreshesWhenAStepChanges(t *testing.T) {
+	fake := newFakeSession()
+	fake.view.Project = project.Snapshot{
+		Mode:        project.ModeStep,
+		Phase:       project.PhasePlan,
+		Plan:        "# Step Plan",
+		PlanVersion: 1,
+		Steps:       project.Steps{{Title: "alpha"}, {Title: "beta"}},
+		Started:     true,
+	}
+	app := New(fake)
+	app.openPlan()
+	placePlan(t, app)
+	if strings.Contains(planLines(app.plan), "landed") {
+		t.Fatalf("fresh queue already shows a landing:\n%s", planLines(app.plan))
+	}
+
+	view := fake.view
+	steps := append(project.Steps{}, view.Project.Steps...)
+	steps[0].Done = true
+	steps[0].DeliveryHead = "abcdef123456789"
+	view.Project.Steps = steps
+	app.plan.place(app.layout, view, true)
+
+	text := planLines(app.plan)
+	for _, want := range []string{"✓ 1. [FAST] alpha", "landed", "abcdef12"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("plan overlay did not refresh after a landing, missing %q:\n%s", want, text)
+		}
+	}
+}
+
+// A shorter plan must clamp the viewport: otherwise Draw starts past the last
+// line and the panel goes blank while the human is reading it.
+func TestPlanOverlayClampsOffsetWhenThePlanShrinks(t *testing.T) {
+	fake := newFakeSession()
+	fake.view.Project = project.Snapshot{
+		Mode:        project.ModeGoal,
+		Phase:       project.PhasePlan,
+		Plan:        "# Plan\n\n" + strings.Repeat("- detail line\n", 40),
+		PlanVersion: 2,
+		Started:     true,
+	}
+	app := New(fake)
+	app.openPlan()
+	app.layout = app.computeLayout(120, 20)
+	app.plan.place(app.layout, app.live, true)
+	app.plan.Scroll(app.plan.maxOffset())
+	if app.plan.offset == 0 {
+		t.Fatal("fixture is too short to scroll")
+	}
+
+	view := fake.view
+	view.Project.Plan = "# Plan\n\none short line"
+	view.Project.PlanVersion = 3
+	app.plan.place(app.layout, view, true)
+
+	if max := app.plan.maxOffset(); app.plan.offset > max {
+		t.Fatalf("offset = %d after the plan shrank, want <= %d", app.plan.offset, max)
+	}
+	if got := planLines(app.plan); strings.TrimSpace(got) == "" {
+		t.Fatal("panel is blank after the plan shrank")
+	}
+}
+
+// A FAST round and a cleared DONE round have no plan, so the header must not
+// advertise a version next to "no shared plan".
+func TestPlanOverlayOmitsPlanVersionWithoutAPlan(t *testing.T) {
+	for _, snap := range []project.Snapshot{
+		{Mode: project.ModeFast, Phase: project.PhaseRunning, Started: true},
+		{Mode: project.ModeGoal, Phase: project.PhaseDone, PlanVersion: 4, Started: true},
+	} {
+		fake := newFakeSession()
+		fake.view.Project = snap
+		app := New(fake)
+		app.openPlan()
+		placePlan(t, app)
+		if text := planLines(app.plan); strings.Contains(text, "v0") || strings.Contains(text, "plan v4") {
+			t.Fatalf("header advertises a plan version for an empty plan:\n%s", text)
+		}
+	}
+}
