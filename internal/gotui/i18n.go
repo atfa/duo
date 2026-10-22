@@ -123,7 +123,7 @@ var zhUI = map[string]string{
 	"Ctrl+X copy Austin's latest  ·  Ctrl+P sidebar  ·  Ctrl+G timestamps  ·  Ctrl+L redraw":                                                   "Ctrl+X 复制 Austin 最新消息  ·  Ctrl+P 侧边栏  ·  Ctrl+G 时间戳  ·  Ctrl+L 重绘",
 	"Ctrl+K / Ctrl+U / Ctrl+W delete to end / to start / word  ·  ↑/↓ history  ·  PgUp/PgDn scroll  ·  Ctrl+Q / Ctrl+D quit":                   "Ctrl+K / Ctrl+U / Ctrl+W 删除到行尾 / 行首 / 一个词  ·  ↑/↓ 历史  ·  PgUp/PgDn 滚动  ·  Ctrl+Q / Ctrl+D 退出",
 	"@ completes a tracked file  ·  Tab autocompletes slash commands or files  ·  Esc closes dialogs":                                          "补全仓库中的已跟踪文件  ·  Tab 补全斜杠命令或文件  ·  Esc 关闭弹窗",
-	"Type any command at the prompt; Tab lists them with descriptions.":                                                                        "在输入框输入命令；Tab 会列出全部命令及说明。",
+	"Type / to see commands and descriptions; Tab completes the selected command.":                                                             "输入 / 查看命令及说明；Tab 补全选中的命令。",
 	"Attach suspends the dashboard and hands the real PTY to the agent. The":                                                                   "进入 Agent 会话会暂停仪表盘并把真实 PTY 交给 Agent。",
 	"terminal is restored on detach; paste images directly there when Ctrl+V":                                                                  "返回时会恢复终端；若 Ctrl+V 没有剪贴板工具，可直接在那里粘贴图片。",
 	"has no clipboard tool. Use Ctrl+] (or Ctrl+\\, Ctrl+】) to return.":                                                                        "使用 Ctrl+]（或 Ctrl+\\、Ctrl+】）返回。",

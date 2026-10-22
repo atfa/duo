@@ -179,7 +179,7 @@ func helpSections() []helpSection {
 			"driver starts idle; /continue resumes a paused session.",
 		}},
 		{"SLASH COMMANDS", append([]string{
-			"Type any command at the prompt; Tab lists them with descriptions.",
+			"Type / to see commands and descriptions; Tab completes the selected command.",
 		}, chunkJoin(commands, 3)...)},
 		{"NATIVE TERMINALS", []string{
 			"Attach suspends the dashboard and hands the real PTY to the agent. The",

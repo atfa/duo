@@ -41,15 +41,16 @@ func TestHelpListsEverySlashCommand(t *testing.T) {
 
 // TestHelpHasChineseTranslations pins the other half of the guide: every heading
 // and hand-written line needs a zh translation, otherwise /language zh leaves
-// English text behind. Generated command lines are canonical tokens and are
-// skipped.
+// English text behind. Generated command rows in SLASH COMMANDS are canonical
+// tokens and are skipped; the hand-written /pause and /driver guidance stays
+// covered.
 func TestHelpHasChineseTranslations(t *testing.T) {
 	for _, section := range helpSections() {
 		if zhUI[section.title] == "" {
 			t.Errorf("no zh translation for help section %q", section.title)
 		}
 		for _, line := range section.lines {
-			if strings.HasPrefix(line, "/") {
+			if section.title == "SLASH COMMANDS" && strings.HasPrefix(line, "/") {
 				continue
 			}
 			if zhUI[line] == "" {
