@@ -78,6 +78,7 @@ func (o *observerReportOverlay) reflow() {
 	}
 	if !o.hasReports() {
 		o.lines = append(o.lines, wrapText(o.emptyMessage(), o.theme.BodyMuted, width)...)
+		o.clampOffset()
 		return
 	}
 	for _, report := range o.observer.Reports {
@@ -86,6 +87,19 @@ func (o *observerReportOverlay) reflow() {
 		o.lines = append(o.lines, wrapText(strings.TrimSpace(report.Text), o.theme.BodyMuted, width)...)
 		o.lines = append(o.lines, makeLine("", o.theme.BodyMuted, 0))
 	}
+	o.clampOffset()
+}
+
+// maxOffset is the furthest the panel can scroll and still fill its body.
+func (o *observerReportOverlay) maxOffset() int {
+	return max(0, len(o.lines)-max(1, o.Inner.Dy()-1))
+}
+
+// clampOffset keeps the viewport inside the content it now holds. A re-analysis
+// or a shorter history can leave an old scroll position past the end, which
+// would draw an empty body until the human scrolled back up.
+func (o *observerReportOverlay) clampOffset() {
+	o.offset = min(max(0, o.offset), o.maxOffset())
 }
 
 // analyzingLine names the elapsed time, which is the only evidence a slow model
@@ -155,5 +169,5 @@ func (o *observerReportOverlay) Draw(buf *ui.Buffer) {
 }
 
 func (o *observerReportOverlay) Scroll(delta int) {
-	o.offset = min(max(0, o.offset+delta), max(0, len(o.lines)-max(1, o.Inner.Dy()-1)))
+	o.offset = min(max(0, o.offset+delta), o.maxOffset())
 }

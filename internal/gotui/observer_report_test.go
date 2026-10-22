@@ -171,3 +171,26 @@ func TestObserverReportNeverBecomesATimelineEntry(t *testing.T) {
 		t.Fatalf("the report was journaled as session history: %+v", recorded)
 	}
 }
+
+// A re-analysis can return a shorter report set than the one already on screen.
+// The viewport has to follow the new content; otherwise an old scroll position
+// stays past the end and the panel draws an empty body.
+func TestObserverReportKeepsTheScrollInsideTheNewContent(t *testing.T) {
+	overlay := newObserverReports(newTheme())
+	overlay.Block.SetRect(0, 0, 60, 12)
+
+	long := strings.Repeat("the agents are running the full test suite\n\n", 12)
+	overlay.begin(reportView(long))
+	overlay.Scroll(1000)
+	if overlay.offset == 0 {
+		t.Fatal("the test could not scroll the panel")
+	}
+
+	overlay.updateObserver(reportView("short report"))
+	if overlay.offset != 0 {
+		t.Fatalf("offset after a shorter report set = %d, want 0", overlay.offset)
+	}
+	if got := normalizeText(panelText(overlay)); !strings.Contains(got, "shortreport") {
+		t.Fatalf("panel after the clamp = %q, want the new report", got)
+	}
+}
