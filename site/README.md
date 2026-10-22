@@ -42,9 +42,9 @@ wrangler deploy
 ```
 
 First deploy creates the `xduo-dev` Worker and, with the `routes` entry in
-`wrangler.jsonc`, attaches `xduo.dev`. If the zone is not active yet, the
-deploy still succeeds at the `*.workers.dev` URL printed by Wrangler; attach the
-domain from the Cloudflare dashboard afterwards. `www` is not configured.
+`wrangler.jsonc`, attaches `xduo.dev`. The zone must be active in the logged-in
+account: if it is not, Wrangler reports an error while attaching the custom
+domain. Activate the zone, then redeploy. `www` is not configured.
 
 Local Wrangler state lives in `site/.wrangler/` and is git-ignored.
 
