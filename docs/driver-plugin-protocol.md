@@ -25,8 +25,8 @@ implementing the protocol itself or reviewing a plugin.
 
 ## The shape of the thing
 
-A plugin is an executable. Duo Core starts one process per session, keeps it alive,
-and talks to it over its stdin and stdout with newline-delimited JSON.
+A plugin is an executable. Duo Core starts one process per agent per session, keeps
+it alive, and talks to it over its stdin and stdout with newline-delimited JSON.
 
 Core never launches the plugin *as* an agent. It asks the plugin what command line
 to run, and runs that in a pseudo-terminal. This is why a plugin needs no support in
@@ -66,11 +66,10 @@ this order within each of those two places:
 2. `duo-driver-codex`
 3. `duo-codex`
 
-`duo-plugin-<name>` is canonical. The other two spellings exist so a plugin written
-against Duo 0.9 keeps working without a reinstall. A `duo-<name>` executable is only
-ever an accepted *name*: if it is one of the pre-plugin launch shims it launches an
-agent and speaks no protocol, so Core ignores it and falls back to the driver it
-ships in-process.
+`duo-plugin-<name>` is canonical. The other two spellings remain accepted for
+compatibility. A `duo-<name>` executable is only ever an accepted *name*: if it is
+one of the pre-plugin launch shims it launches an agent and speaks no protocol, so
+Core ignores it and falls back to the driver it ships in-process.
 
 `~/.duo/plugins/` is searched before `$PATH`, so a plugin you are working on shadows
 a released one. That is deliberate: you can develop a plugin without uninstalling
@@ -160,7 +159,7 @@ Request:
 {
   "agent": "Austin",
   "resumeWake": true,
-  "mode": "goal",
+  "mode": "step",
   "cwd": "/path/to/worktree",
   "repositoryRoot": "/path/to/repo",
   "scopePath": "internal/driver",
@@ -179,7 +178,7 @@ Request:
 |---|---|
 | `agent` | `Austin` or `Tony`. The two agents are always separate. |
 | `resumeWake` | true only for the first launch of a resumed Duo session; use it to wake the agent to continue existing work. |
-| `mode` | `fast` or `goal`. The session's workflow. |
+| `mode` | `fast`, `goal` or `step`. The session's workflow. |
 | `cwd` | the agent's own worktree. **Your agent runs here.** |
 | `repositoryRoot`, `scopePath` | the repository and the subdirectory the human scoped this session to. |
 | `session` | Duo's session id. Stable for the session, including across resumes. |
@@ -340,8 +339,8 @@ change.
 ## Session state and resume
 
 `state` is yours. Core stores the JSON you return and hands it back verbatim on the
-next `prepare`. It never reads it, never migrates it, and never changes its schema.
-Put whatever your agent needs in it.
+next `prepare`; for current session snapshots it does not read or change the blob's
+schema. The legacy-session identity compatibility rule is described below.
 
 `resume` declares who owns the agent session's identity:
 
@@ -407,15 +406,16 @@ Two consequences:
 Do not assume a `state` call arrives after a `prepare` of your own, and do not
 assume your process is the one Core first started.
 
-**Compatibility requirement.** A session written by Duo 0.9.0 migrates to
-`{"sessionId":"…"}` under the one word every driver shares, because Core does not
-know your agent's vocabulary. Your `prepare` **must** accept `sessionId` as the
-identity, in addition to whatever spelling you prefer to write:
+**Legacy-session compatibility requirement.** When Core resumes a session migrated
+from the pre-plugin format, it may pass the saved agent identity as
+`{"sessionId":"…"}`. Core does not know your agent's vocabulary, so your `prepare`
+**must** accept `sessionId` as an identity in addition to whatever spelling you
+prefer to write:
 
 ```go
 type state struct {
     ConversationID string `json:"conversationId,omitempty"` // yours
-    SessionID      string `json:"sessionId,omitempty"`      // read-only: Core's compatibility spelling
+    SessionID      string `json:"sessionId,omitempty"`      // read-only: legacy-session spelling
 }
 
 func (s state) conversation() string {
@@ -432,13 +432,13 @@ what lets you add resume support without anyone changing Duo's schema.
 
 ## Environment
 
-Core defines these for your plugin process **and** for the agent process:
+Core defines these for both your plugin process and the agent process:
 
 ```
 DUO_ACTIVE=1
-DUO_DRIVER=<your name>
 DUO_AGENT=Austin|Tony
 DUO_MODE=fast|goal|step
+DUO_LANGUAGE=en|zh
 DUO_HOST=127.0.0.1
 DUO_PORT=<port>
 DUO_SESSION=<session id>
@@ -448,11 +448,13 @@ DUO_SCOPE_PATH=<path>
 ```
 
 That is the whole contract. It is deliberately small, and it is identical for every
-plugin, so a new driver needs no change to Core.
+plugin, so a new driver needs no change to Core. Core additionally sets
+`DUO_DRIVER=<your name>` for the agent process; it is not part of the plugin
+process's environment.
 
-You define everything else, in `LaunchPlan.env`. Those values reach the agent process
-only. `DUO_PI_SESSION_ID` is Pi's; a plugin should not set a variable named after
-another driver, and Core will not read one if you do.
+You define driver-specific values in `LaunchPlan.env`. Those values reach the agent
+process only. Do not use the reserved `DUO_*` names listed above for unrelated
+settings.
 
 Your Agent Adapter needs `DUO_HOST`, `DUO_PORT`, `DUO_SESSION` and `DUO_TOKEN` to
 reach Duo's bridge — which is why the plugin process gets them. See the [Duo bridge
