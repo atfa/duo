@@ -71,7 +71,8 @@ with terminal fallback.
 ## Keys
 
 Slash commands and composer editing are documented in the in-app help (`F1`,
-`Ctrl+/`, `/help`) and in `duo --help`. The dashboard adds:
+`Ctrl+/`, `/help`); `duo --help` covers startup flags, commands and environment
+variables. The dashboard adds:
 
 | Key | Action |
 |---|---|
@@ -109,7 +110,8 @@ The layout is computed from the terminal size on every resize:
 
 | Space | Result |
 |---|---|
-| at least 104 columns and 12 content rows | workflow sidebar and agent cards |
+| at least 104 columns and 21 content rows | default workflow sidebar and agent cards |
+| at least 104 columns and 18 content rows, with a panel focused | sidebar; the focused panel expands |
 | main pane at least 72 columns and 16 rows | split Austin/Tony/Duo dashboard |
 | narrower or shorter | conversation timeline without the sidebar |
 
