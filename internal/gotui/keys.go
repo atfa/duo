@@ -60,6 +60,8 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 		switch a.overlay {
 		case overlayConfirm:
 			a.handleConfirmKey(ev)
+		case overlayObserver:
+			a.handleObserverConfigKey(ev)
 		case overlayPicker:
 			a.handlePickerKey(ev)
 		case overlayDrivers:
@@ -147,6 +149,9 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 		return
 	case tcell.KeyCtrlM:
 		a.openPicker()
+		return
+	case tcell.KeyCtrlE:
+		a.openObserverConfig()
 		return
 	case tcell.KeyCtrlP:
 		a.sidebar = !a.sidebar

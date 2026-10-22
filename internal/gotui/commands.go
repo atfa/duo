@@ -81,6 +81,9 @@ func (a *App) runSlash(text string) bool {
 	case "/model":
 		a.openPicker()
 		return true
+	case "/observer":
+		a.openObserverConfig()
+		return true
 	case "/copy":
 		a.copyLatest()
 		return true
@@ -358,6 +361,16 @@ func (a *App) openHelp() {
 	a.closeMention()
 	a.help.offset = 0
 	a.overlay = overlayHelp
+}
+
+func (a *App) openObserverConfig() {
+	if a.svc == nil {
+		return
+	}
+	a.closeMention()
+	a.refreshView()
+	a.observer.begin(a.live.Observer)
+	a.overlay = overlayObserver
 }
 
 func (a *App) openDetails() {

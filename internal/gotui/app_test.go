@@ -120,6 +120,17 @@ func (f *fakeSession) Do(ctx context.Context, cmd session.Command) error {
 	if set, ok := cmd.(session.SetLanguage); ok {
 		f.view.Language = strings.ToLower(set.Language)
 	}
+	if set, ok := cmd.(session.SetObserver); ok {
+		f.view.Observer = session.ObserverView{
+			Enabled:    set.Enabled,
+			Endpoint:   set.Endpoint,
+			Model:      set.Model,
+			APIKeyEnv:  set.APIKeyEnv,
+			HasKey:     true,
+			KeyFile:    true,
+			Configured: true,
+		}
+	}
 	return nil
 }
 

@@ -98,13 +98,14 @@ type App struct {
 	currentModel map[protocol.AgentID]string
 	currentThink map[protocol.AgentID]string
 
-	overlay overlayKind
-	picker  *modelPicker
-	drivers *driverPicker
-	help    *helpOverlay
-	details *detailOverlay
-	confirm *confirmOverlay
-	slash   *slashMenu
+	overlay  overlayKind
+	picker   *modelPicker
+	drivers  *driverPicker
+	help     *helpOverlay
+	details  *detailOverlay
+	confirm  *confirmOverlay
+	observer *observerConfigOverlay
+	slash    *slashMenu
 
 	asyncCh chan asyncResult
 
@@ -180,6 +181,7 @@ func New(svc Session) *App {
 	a.drivers = newDriverPicker(t)
 	a.help = newHelp(t)
 	a.details = newDetails(t)
+	a.observer = newObserverConfig(t)
 	a.slash = newSlashMenu(t)
 	a.fileMenu = newMentionMenu(t)
 	a.listFiles = gitListFiles
@@ -545,6 +547,8 @@ func (a *App) draw() {
 			items = append(items, a.details)
 		case overlayConfirm:
 			items = append(items, a.confirm)
+		case overlayObserver:
+			items = append(items, a.observer)
 		}
 	}
 	a.backend.Render(items...)
@@ -623,6 +627,7 @@ func (a *App) updateWidgets() {
 	a.help.place(l)
 	a.details.place(l)
 	a.confirm.place(l)
+	a.observer.place(l)
 	a.slash.commands = a.matchingCommands()
 	if len(a.slash.commands) == 0 {
 		a.slash.cursor = 0
