@@ -123,8 +123,8 @@
       </div>
       <div class="session-gate">
         <span class="gate-label">gate</span>
-        <span class="gate-step ok">verify</span><span class="arrow">→</span>
-        <span class="gate-step ok">sign</span><span class="arrow">→</span>
+        <span class="gate-step ok">verify</span><span class="arrow" aria-hidden="true">→</span>
+        <span class="gate-step ok">sign</span><span class="arrow" aria-hidden="true">→</span>
         <span class="gate-step">deliver</span>
         <span class="gate-state">ready</span>
       </div>
@@ -276,7 +276,7 @@
       <article class="feature card reveal">
         <span class="f-icon"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.2"/><path d="M5 5h6M5 8h6M5 11h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span>
         <h3>确定性的核心</h3>
-        <p>阶段、关卡、路由与交付由 Go 强制执行，而不是在提示词里即兴发挥。Agent 只能通过核心授权的工具行动。</p>
+        <p>阶段、关卡、路由与交付由 Go 强制执行，而不是在提示词里即兴发挥。Agent 使用自己的工具工作，由核心根据证据决定哪一步可以推进。</p>
         <span class="f-meta">internal/project · internal/coordinator</span>
       </article>
 
