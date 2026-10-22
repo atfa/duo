@@ -13,6 +13,9 @@ func TestAPIKeyFileIsLastResort(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("DUO_OBSERVER_API_KEY", "")
+	// Clear the variable this test names too: an ambient value of the same name
+	// must not make the "no key yet" assertion fail on the operator's machine.
+	t.Setenv("OBSERVER_FILE_TEST_KEY", "")
 
 	cfg := Config{APIKeyEnv: "OBSERVER_FILE_TEST_KEY"}
 	if got := cfg.APIKey(); got != "" {
