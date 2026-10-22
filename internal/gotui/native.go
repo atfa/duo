@@ -222,7 +222,7 @@ func (a *App) leaveNative() {
 	}
 	a.resumeDashboard()
 	if target != "" {
-		a.setStatus("detached from "+string(target), false)
+		a.setStatus(fmt.Sprintf(a.theme.tr("detached from %s"), target), false)
 		a.refreshView()
 	}
 }

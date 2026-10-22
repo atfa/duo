@@ -35,7 +35,7 @@ func (a *App) handleEvent(ev tcell.Event) {
 			}
 		}
 	case *tcell.EventError:
-		a.setStatus("terminal error: "+ev.Error(), true)
+		a.setStatus(fmt.Sprintf(a.theme.tr("terminal error: %s"), ev.Error()), true)
 	}
 }
 
@@ -134,7 +134,7 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 		a.requestQuit()
 		return
 	case tcell.KeyCtrlC:
-		a.setStatus("Ctrl+Q quits · Esc closes dialogs", false)
+		a.setStatus(a.theme.tr("Ctrl+Q quits · Esc closes dialogs"), false)
 		return
 	case tcell.KeyCtrlA:
 		a.enterNative(protocol.Austin)
@@ -161,12 +161,10 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 		a.openObserverReports()
 		return
 	case tcell.KeyCtrlP:
-		a.sidebar = !a.sidebar
-		a.setStatus(map[bool]string{true: "workflow sidebar shown", false: "workflow sidebar hidden"}[a.sidebar], false)
+		a.toggleSidebar()
 		return
 	case tcell.KeyCtrlG:
-		a.showTimestamp = !a.showTimestamp
-		a.setStatus(map[bool]string{true: "timestamps shown", false: "timestamps hidden"}[a.showTimestamp], false)
+		a.toggleTimestamps()
 		return
 	case tcell.KeyCtrlX:
 		a.copyLatest()
@@ -653,7 +651,7 @@ func (a *App) handleMouse(ev *tcell.EventMouse) {
 			text, ok := pane.FinishSelection()
 			if ok && strings.TrimSpace(text) != "" {
 				if err := a.copyToClipboard(text); err != nil {
-					a.setStatus("copy failed: "+err.Error(), true)
+					a.setStatus(fmt.Sprintf(a.theme.tr("copy failed: %s"), err.Error()), true)
 				} else {
 					a.showCopiedToast(len([]rune(text)))
 				}

@@ -152,17 +152,17 @@ func pasteClipboardImage() (string, error) {
 // agent's own UI can handle a paste.
 func (a *App) pasteImageFromClipboard() {
 	if a.pasteImage == nil {
-		a.setStatus("clipboard image paste is unavailable; use Ctrl+A / Ctrl+T to paste in the agent's native terminal", true)
+		a.setStatus(a.theme.tr("clipboard image paste is unavailable; use Ctrl+A / Ctrl+T to paste in the agent's native terminal"), true)
 		return
 	}
 	path, err := a.pasteImage()
 	if err != nil {
-		a.setStatus("no image pasted: "+err.Error()+"; use Ctrl+A / Ctrl+T to paste in the agent's native terminal", true)
+		a.setStatus(fmt.Sprintf(a.theme.tr("no image pasted: %s; use Ctrl+A / Ctrl+T to paste in the agent's native terminal"), err.Error()), true)
 		return
 	}
 	path = strings.TrimSpace(path)
 	if path == "" {
-		a.setStatus("no image pasted; use Ctrl+A / Ctrl+T to paste in the agent's native terminal", true)
+		a.setStatus(a.theme.tr("no image pasted; use Ctrl+A / Ctrl+T to paste in the agent's native terminal"), true)
 		return
 	}
 	a.closeMention()
@@ -172,5 +172,5 @@ func (a *App) pasteImageFromClipboard() {
 	}
 	a.composer.InsertString(insert)
 	a.resetHistory()
-	a.setStatus("pasted image path "+path, false)
+	a.setStatus(fmt.Sprintf(a.theme.tr("pasted image path %s"), path), false)
 }

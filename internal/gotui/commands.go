@@ -46,7 +46,7 @@ func (a *App) submit() {
 	if a.live.EffectiveMode() != project.ModeFast {
 		status = "sent to Austin and Tony"
 	}
-	a.setStatus(status, false)
+	a.setStatus(a.theme.tr(status), false)
 }
 
 // isSlashCommand mirrors runSlash's dispatch rule. An absolute path such as
@@ -91,18 +91,16 @@ func (a *App) runSlash(text string) bool {
 		a.copyLatest()
 		return true
 	case "/preview":
-		a.sidebar = !a.sidebar
-		a.setStatus(map[bool]string{true: "workflow sidebar shown", false: "workflow sidebar hidden"}[a.sidebar], false)
+		a.toggleSidebar()
 		return true
 	case "/timestamps":
-		a.showTimestamp = !a.showTimestamp
-		a.setStatus(map[bool]string{true: "timestamps shown", false: "timestamps hidden"}[a.showTimestamp], false)
+		a.toggleTimestamps()
 		return true
 	case "/clear":
 		if a.screen != nil {
 			a.screen.Sync()
 		}
-		a.setStatus("screen redrawn", false)
+		a.setStatus(a.theme.tr("screen redrawn"), false)
 		return true
 	case "/status":
 		if a.svc == nil {
@@ -113,7 +111,7 @@ func (a *App) runSlash(text string) bool {
 			status = "no status reported"
 		}
 		a.addLabeled(protocol.Duo, directionLabel(protocol.Duo, ""), status, false, false)
-		a.setStatus("status reported in timeline", false)
+		a.setStatus(a.theme.tr("status reported in timeline"), false)
 		return true
 	case "/quit", "/exit":
 		a.requestQuit()
@@ -166,7 +164,7 @@ func (a *App) runSlash(text string) bool {
 			return true
 		}
 		if len(fields) != 2 {
-			a.setStatus("usage: /mode [fast|goal|step]", true)
+			a.setStatus(a.theme.tr("usage: /mode [fast|goal|step]"), true)
 			return true
 		}
 		target, err := project.ParseMode(fields[1])
@@ -202,9 +200,19 @@ func (a *App) runSlash(text string) bool {
 		if strings.Contains(cmd[1:], "/") {
 			return false
 		}
-		a.setStatus(fmt.Sprintf("unknown command %q (type / to see commands)", cmd), true)
+		a.setStatus(fmt.Sprintf(a.theme.tr("unknown command %q (type / to see commands)"), cmd), true)
 		return true
 	}
+}
+
+func (a *App) toggleSidebar() {
+	a.sidebar = !a.sidebar
+	a.setStatus(a.theme.tr(map[bool]string{true: "workflow sidebar shown", false: "workflow sidebar hidden"}[a.sidebar]), false)
+}
+
+func (a *App) toggleTimestamps() {
+	a.showTimestamp = !a.showTimestamp
+	a.setStatus(a.theme.tr(map[bool]string{true: "timestamps shown", false: "timestamps hidden"}[a.showTimestamp]), false)
 }
 
 // pausedInputStatus explains why a plain task cannot be sent. Pause only blocks
@@ -340,7 +348,7 @@ func (a *App) applyDriver(keepOpen bool) {
 	}
 	a.refreshView()
 	a.drivers.setCurrent(name)
-	a.setStatus(fmt.Sprintf("%s driver → %s (new process starts idle)", agent, name), false)
+	a.setStatus(fmt.Sprintf(a.theme.tr("%s driver → %s (new process starts idle)"), agent, name), false)
 	if !keepOpen {
 		a.closeOverlay()
 	}
@@ -351,7 +359,7 @@ func (a *App) applyDriver(keepOpen bool) {
 // a mode switch never wakes the agents by itself.
 func (a *App) switchModeFromComposer(target project.Mode, reason string) {
 	if target == a.live.EffectiveMode() {
-		a.setStatus("already in "+target.Display()+" mode", false)
+		a.setStatus(fmt.Sprintf(a.theme.tr("already in %s mode"), target.Display()), false)
 		return
 	}
 	if a.svc == nil {
@@ -365,18 +373,10 @@ func (a *App) switchModeFromComposer(target project.Mode, reason string) {
 	if pause := a.live.Pause.State; pause == session.PausePausing || pause == session.PausePaused {
 		// The resume prompt would promise work that the pause gate holds. Offer
 		// the pause verbs instead and let /continue deliver the new mode notice.
-		if a.live.Language == "zh" {
-			a.setStatus("模式 → "+target.Display()+"；暂停仍生效，用 /continue 或 /unpause 处理", false)
-		} else {
-			a.setStatus("mode → "+target.Display()+"; pause is still active — use /continue or /unpause", false)
-		}
+		a.setStatus(fmt.Sprintf(a.theme.tr("mode → %s; pause is still active — use /continue or /unpause"), target.Display()), false)
 		return
 	}
-	if a.live.Language == "zh" {
-		a.setStatus("模式 → "+target.Display()+"；尚未恢复 Agent 工作", false)
-	} else {
-		a.setStatus("mode → "+target.Display()+"; agents not resumed yet", false)
-	}
+	a.setStatus(fmt.Sprintf(a.theme.tr("mode → %s; agents not resumed yet"), target.Display()), false)
 	a.openModeResumePrompt(target)
 }
 
@@ -441,11 +441,11 @@ func (a *App) openDetails() {
 func (a *App) copyLatest() {
 	text, ok := a.lastAustinToHuman()
 	if !ok {
-		a.setStatus("Austin has not sent a message to the human yet", false)
+		a.setStatus(a.theme.tr("Austin has not sent a message to the human yet"), false)
 		return
 	}
 	if err := a.copyToClipboard(text); err != nil {
-		a.setStatus("copy failed: "+err.Error(), true)
+		a.setStatus(fmt.Sprintf(a.theme.tr("copy failed: %s"), err.Error()), true)
 		return
 	}
 	a.showCopiedToast(len([]rune(text)))
@@ -543,7 +543,7 @@ func (a *App) applyPickerModel(keepOpen bool) {
 	a.currentModel[agent] = model.Reference()
 	a.picker.current = model.Reference()
 	a.modelTarget = agent
-	a.setStatus(fmt.Sprintf("%s model → %s", agent, model.Reference()), false)
+	a.setStatus(fmt.Sprintf(a.theme.tr("%s model → %s"), agent, model.Reference()), false)
 	a.refreshView()
 	if !keepOpen {
 		a.closeOverlay()
@@ -575,5 +575,5 @@ func (a *App) restartAgent(agent protocol.AgentID) {
 		return
 	}
 	a.refreshView()
-	a.setStatus(string(agent)+" restarted", false)
+	a.setStatus(fmt.Sprintf(a.theme.tr("%s restarted"), agent), false)
 }

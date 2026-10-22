@@ -247,14 +247,14 @@ func (a *App) openLink(target linkTarget) {
 		return
 	}
 	if err != nil {
-		a.setStatus("open failed: "+err.Error(), true)
+		a.setStatus(fmt.Sprintf(a.theme.tr("open failed: %s"), err.Error()), true)
 		return
 	}
 	if target.kind == linkURL {
-		a.setStatus("opened "+fitText(label, max(16, a.width-20)), false)
+		a.setStatus(fmt.Sprintf(a.theme.tr("opened %s"), fitText(label, max(16, a.width-20))), false)
 		return
 	}
-	a.setStatus("opened "+shortPath(label, max(16, a.width-20)), false)
+	a.setStatus(fmt.Sprintf(a.theme.tr("opened %s"), shortPath(label, max(16, a.width-20))), false)
 }
 
 func openURLDefault(target string) error {

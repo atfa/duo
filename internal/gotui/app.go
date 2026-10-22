@@ -196,14 +196,15 @@ func New(svc Session) *App {
 	a.confirm = &confirmOverlay{Block: newModalBlock(t), theme: t, active: 0, choice2: "Cancel", choice1: "Confirm"}
 	if svc != nil {
 		a.live = svc.View()
+		// Language first: the statuses set below are translated through theme.tr.
+		a.applyLanguage()
 		if saved, err := workspace.ProjectTUIView(a.live.Worktrees.Repository); err == nil {
 			if saved == "split" {
 				a.viewMode = viewSplit
 			}
 		} else {
-			a.setStatus("could not read TUI view preference: "+err.Error(), true)
+			a.setStatus(fmt.Sprintf(a.theme.tr("could not read TUI view preference: %s"), err.Error()), true)
 		}
-		a.applyLanguage()
 		before := len(a.entries)
 		for _, item := range svc.History() {
 			a.restoreEntry(item)
@@ -224,7 +225,7 @@ func (a *App) setViewMode(mode viewMode) {
 	}
 	if a.saveViewPref != nil {
 		if err := a.saveViewPref(a.live.Worktrees.Repository, view); err != nil {
-			a.setStatus("could not save TUI view preference: "+err.Error(), true)
+			a.setStatus(fmt.Sprintf(a.theme.tr("could not save TUI view preference: %s"), err.Error()), true)
 		}
 	}
 }
@@ -804,11 +805,7 @@ func (a *App) openModeResumePrompt(target project.Mode) {
 			a.setStatus(err.Error(), true)
 			return
 		}
-		if a.live.Language == "zh" {
-			a.setStatus("已在 "+target.Display()+" 模式恢复 Austin 和 Tony 的工作", false)
-		} else {
-			a.setStatus("Austin and Tony resumed in "+target.Display()+" mode", false)
-		}
+		a.setStatus(fmt.Sprintf(a.theme.tr("Austin and Tony resumed in %s mode"), target.Display()), false)
 	})
 }
 
