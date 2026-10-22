@@ -193,6 +193,9 @@ func (a *App) runSlash(text string) bool {
 	case "/continue":
 		a.continueSession()
 		return true
+	case "/resume":
+		a.resumeWork()
+		return true
 	case "/driver":
 		a.openDriverPicker()
 		return true
@@ -267,6 +270,24 @@ func (a *App) continueSession() {
 	}
 	a.refreshView()
 	a.setStatus(a.theme.tr("work resumed"), false)
+}
+
+// resumeWork is the human's explicit opt-in after a restored session. Merely
+// resuming sends nothing, so this is the only way to continue without a task.
+func (a *App) resumeWork() {
+	if a.svc == nil {
+		return
+	}
+	if err := a.svc.Do(context.Background(), session.ResumeWork{}); err != nil {
+		a.setStatus(err.Error(), true)
+		return
+	}
+	a.refreshView()
+	message := a.theme.tr("Austin and Tony were asked to continue")
+	if phase := string(a.live.Phase()); phase != "" {
+		message += " (" + phase + ")"
+	}
+	a.addLabeled(protocol.Duo, directionLabel(protocol.Duo, ""), message, false, false)
 }
 
 // openDriverPicker is available before the first task, while fully paused, or

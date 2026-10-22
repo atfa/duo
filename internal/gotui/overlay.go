@@ -181,6 +181,7 @@ func helpSections() []helpSection {
 			"While pausing, /unpause cancels the request; once paused, /continue resumes work.",
 			"Use /driver before the first task, while fully paused, or after DONE. The new",
 			"driver starts idle; /continue resumes a paused session.",
+			"A resume sends nothing; /resume wakes the agents, and a new task wakes them too.",
 		}},
 		{"SLASH COMMANDS", append([]string{
 			"Type / to see commands and descriptions; Tab completes the selected command.",

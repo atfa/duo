@@ -109,6 +109,7 @@ type App struct {
 	observerReports   *observerReportOverlay
 	onboarding        bool
 	onboardingChecked bool
+	resumeNoticeShown bool
 	slash             *slashMenu
 
 	asyncCh chan asyncResult
@@ -395,6 +396,7 @@ func (a *App) runWithBackend(ctx context.Context, backend *ui.Backend) error {
 	if !a.hadHistory {
 		a.addLabeled(protocol.Duo, directionLabel(protocol.Duo, ""), a.startupMessage(), false, false)
 	}
+	a.announceResumePending()
 	a.announceRunningAgents()
 	a.resize()
 	defer func() {
@@ -701,6 +703,17 @@ func (a *App) startupMessage() string {
 	default:
 		return "Duo " + a.live.Version + " " + a.theme.tr("ready (GOAL mode). Type a task and press Enter; Duo sends it to both Austin and Tony to co-design the shared plan.") + where
 	}
+}
+
+// announceResumePending explains a restored session once: resuming sends the
+// agents nothing, so the dashboard has to say how continuing works.
+func (a *App) announceResumePending() {
+	if a.svc == nil || a.resumeNoticeShown || !a.live.ResumePending {
+		return
+	}
+	a.resumeNoticeShown = true
+	a.addLabeled(protocol.Duo, directionLabel(protocol.Duo, ""),
+		a.theme.tr("Session restored. Nothing was sent to the agents; type /resume to continue, or send a task."), false, false)
 }
 
 func (a *App) announceRunningAgents() {
