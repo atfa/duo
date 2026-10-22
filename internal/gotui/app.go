@@ -98,14 +98,16 @@ type App struct {
 	currentModel map[protocol.AgentID]string
 	currentThink map[protocol.AgentID]string
 
-	overlay  overlayKind
-	picker   *modelPicker
-	drivers  *driverPicker
-	help     *helpOverlay
-	details  *detailOverlay
-	confirm  *confirmOverlay
-	observer *observerConfigOverlay
-	slash    *slashMenu
+	overlay           overlayKind
+	picker            *modelPicker
+	drivers           *driverPicker
+	help              *helpOverlay
+	details           *detailOverlay
+	confirm           *confirmOverlay
+	observer          *observerConfigOverlay
+	onboarding        bool
+	onboardingChecked bool
+	slash             *slashMenu
 
 	asyncCh chan asyncResult
 
@@ -343,6 +345,7 @@ func (a *App) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("open terminal UI: %w", err)
 	}
+	a.onboarding = true
 	return a.runWithBackend(ctx, backend)
 }
 
@@ -372,6 +375,12 @@ func (a *App) runWithBackend(ctx context.Context, backend *ui.Backend) error {
 		a.live = sub.View
 	}
 	a.applyLanguage()
+	if a.onboarding && !a.onboardingChecked {
+		a.onboardingChecked = true
+		if !a.live.Observer.Configured {
+			a.openObserverOnboarding()
+		}
+	}
 	a.addNotices(sub.View.Notices)
 	// On resume the header and the restored conversation are the context; a
 	// startup banner at the bottom would push the human's own request out of

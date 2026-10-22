@@ -22,15 +22,16 @@ const (
 // a transient rune buffer and is never copied into a session command or View.
 type observerConfigOverlay struct {
 	*ui.Block
-	theme    theme
-	box      image.Rectangle
-	endpoint []rune
-	model    []rune
-	apiKey   []rune
-	enabled  bool
-	active   int
-	cursor   int
-	view     session.ObserverView
+	theme      theme
+	box        image.Rectangle
+	endpoint   []rune
+	model      []rune
+	apiKey     []rune
+	enabled    bool
+	active     int
+	cursor     int
+	view       session.ObserverView
+	onboarding bool
 }
 
 func newObserverConfig(t theme) *observerConfigOverlay {
@@ -39,12 +40,25 @@ func newObserverConfig(t theme) *observerConfigOverlay {
 
 func (o *observerConfigOverlay) begin(view session.ObserverView) {
 	o.clearSecret()
+	o.onboarding = false
 	o.view = view
 	o.endpoint = []rune(view.Endpoint)
 	o.model = []rune(view.Model)
 	o.enabled = view.Enabled
 	o.active = observerEndpointField
 	o.cursor = len(o.endpoint)
+}
+
+func (o *observerConfigOverlay) beginOnboarding(view session.ObserverView) {
+	o.begin(view)
+	o.onboarding = true
+	if strings.TrimSpace(view.Endpoint) == "" {
+		o.endpoint = []rune("http://127.0.0.1:4000/v1")
+	}
+	if strings.TrimSpace(view.Model) == "" {
+		o.model = []rune("exec")
+	}
+	o.enabled = false
 }
 
 func (o *observerConfigOverlay) clearSecret() {
@@ -145,7 +159,11 @@ func (o *observerConfigOverlay) displayValue(field int) string {
 
 func (o *observerConfigOverlay) Draw(buf *ui.Buffer) {
 	fillBlock(buf, o.GetRect(), ui.Style{Fg: o.theme.Fg, Bg: o.theme.PanelHigh})
-	o.Title = " " + o.theme.tr("OBSERVER SETTINGS") + " "
+	title := "OBSERVER SETTINGS"
+	if o.onboarding {
+		title = "SET UP OBSERVER"
+	}
+	o.Title = " " + o.theme.tr(title) + " "
 	o.Block.Draw(buf)
 	if o.Inner.Dx() < 24 || o.Inner.Dy() < 8 {
 		return
@@ -159,7 +177,11 @@ func (o *observerConfigOverlay) Draw(buf *ui.Buffer) {
 		y++
 	}
 
-	line(o.theme.tr("Advisory observer; failures do not affect the workflow."), o.theme.BodyMuted)
+	description := "Advisory observer; failures do not affect the workflow."
+	if o.onboarding {
+		description = "Set up the optional advisory observer now, or choose Later."
+	}
+	line(o.theme.tr(description), o.theme.BodyMuted)
 	y++
 	fields := []struct {
 		label    string
@@ -215,6 +237,9 @@ func (o *observerConfigOverlay) Draw(buf *ui.Buffer) {
 		line(o.theme.tr("DUO_OBSERVER* environment values take precedence."), o.theme.Warning)
 	}
 	hint := o.theme.tr("Tab/Shift+Tab move · Space toggles Enabled · Enter save · Esc cancel")
+	if o.onboarding {
+		hint = o.theme.tr("Enter configure · Esc Later")
+	}
 	buf.SetString(fitText(hint, o.Inner.Dx()), o.theme.Timestamp, image.Pt(o.Inner.Min.X, o.Inner.Max.Y-1))
 }
 
@@ -222,6 +247,10 @@ func (a *App) handleObserverConfigKey(ev *tcell.EventKey) {
 	o := a.observer
 	switch ev.Key() {
 	case tcell.KeyEsc:
+		if o.onboarding {
+			a.dismissObserverOnboarding()
+			return
+		}
 		o.clearSecret()
 		a.closeOverlay()
 	case tcell.KeyTab:
@@ -282,6 +311,30 @@ func (a *App) handleObserverConfigKey(ev *tcell.EventKey) {
 	}
 }
 
+func (a *App) openObserverOnboarding() {
+	if a.svc == nil {
+		return
+	}
+	a.closeMention()
+	a.observer.beginOnboarding(a.live.Observer)
+	a.overlay = overlayObserver
+}
+
+func (a *App) dismissObserverOnboarding() {
+	if a.svc == nil {
+		return
+	}
+	if err := a.svc.Do(context.Background(), session.SetObserver{Enabled: false}); err != nil {
+		a.setStatus(err.Error(), true)
+		return
+	}
+	a.refreshView()
+	a.observer.clearSecret()
+	a.observer.onboarding = false
+	a.closeOverlay()
+	a.setStatus(a.theme.tr("observer setup deferred"), false)
+}
+
 func (a *App) saveObserverConfig() {
 	if a.svc == nil {
 		return
@@ -319,6 +372,7 @@ func (a *App) saveObserverConfig() {
 	}
 	a.refreshView()
 	a.observer.clearSecret()
+	a.observer.onboarding = false
 	a.closeOverlay()
 	a.setStatus(a.theme.tr("observer settings saved"), false)
 }
