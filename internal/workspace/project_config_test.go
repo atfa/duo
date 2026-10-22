@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/atfa/duo/internal/observer"
 	"github.com/atfa/duo/internal/protocol"
 )
 
@@ -486,5 +487,163 @@ func TestSaveProjectLanguageRejectsMalformedExistingConfigWithoutReplacingIt(t *
 	}
 	if string(after) != string(initial) {
 		t.Fatalf("malformed config was changed: %q", after)
+	}
+}
+
+// The observer section is written whole and must not disturb anything else in
+// the file: language, drivers and models are Duo's own writes and a human's
+// settings sit beside them.
+func TestSaveProjectObserverRewritesSectionAndPreservesOtherKeys(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".duo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	initial := `{"language":"zh","agents":{"austin":{"driver":"pi","model":"openai/gpt-5"}},"custom":{"keep":true}}`
+	configPath := filepath.Join(dir, ".duo", "config.json")
+	if err := os.WriteFile(configPath, []byte(initial), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	settings := observer.Settings{Enabled: true, Endpoint: "http://127.0.0.1:4000/v1", Model: "exec", APIKeyEnv: "MY_LLM_KEY"}
+	if err := SaveProjectObserver(dir, settings); err != nil {
+		t.Fatalf("SaveProjectObserver: %v", err)
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		Language string                     `json:"language"`
+		Agents   map[string]json.RawMessage `json:"agents"`
+		Custom   map[string]bool            `json:"custom"`
+		Observer map[string]json.RawMessage `json:"observer"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("decode config: %v\n%s", err, data)
+	}
+	if string(parsed.Observer["enabled"]) != "true" ||
+		string(parsed.Observer["endpoint"]) != `"http://127.0.0.1:4000/v1"` ||
+		string(parsed.Observer["model"]) != `"exec"` ||
+		string(parsed.Observer["apiKeyEnv"]) != `"MY_LLM_KEY"` {
+		t.Fatalf("observer section = %v", parsed.Observer)
+	}
+	if parsed.Language != "zh" || !parsed.Custom["keep"] || len(parsed.Agents) != 1 {
+		t.Fatalf("existing keys changed: %s", data)
+	}
+	if strings.Contains(string(data), "sk-") {
+		t.Fatalf("config contains something that looks like a key: %s", data)
+	}
+
+	// An explicit opt-out keeps only enabled, so it cannot shadow global values
+	// with empty strings; the section itself is replaced, not merged.
+	if err := SaveProjectObserver(dir, observer.Settings{Enabled: false}); err != nil {
+		t.Fatalf("SaveProjectObserver(off): %v", err)
+	}
+	data, err = os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed.Observer = nil // Unmarshal reuses a map, so start this read clean.
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if len(parsed.Observer) != 1 || string(parsed.Observer["enabled"]) != "false" {
+		t.Fatalf("disabled observer section = %v, want only enabled:false", parsed.Observer)
+	}
+	if !strings.Contains(string(data), `"language": "zh"`) {
+		t.Fatalf("language removed on opt-out: %s", data)
+	}
+}
+
+// A save from the four-field interface must not erode tuning the operator wrote
+// into the project section by hand, and must not preserve a value they cleared.
+func TestSaveProjectObserverPreservesAdvancedAndUnknownKeys(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".duo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	initial := `{"observer":{"enabled":true,"endpoint":"http://old/v1","model":"old","systemPrompt":"be terse","maxEvents":7,"futureKey":"keep"}}`
+	configPath := filepath.Join(dir, ".duo", "config.json")
+	if err := os.WriteFile(configPath, []byte(initial), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	settings := observer.Settings{
+		Enabled: true, Endpoint: "http://new/v1", Model: "new",
+		SystemPrompt: "be terse", MaxEvents: 7,
+	}
+	if err := SaveProjectObserver(dir, settings); err != nil {
+		t.Fatalf("SaveProjectObserver: %v", err)
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		Observer map[string]json.RawMessage `json:"observer"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	if string(parsed.Observer["endpoint"]) != `"http://new/v1"` {
+		t.Fatalf("endpoint not updated: %s", data)
+	}
+	if string(parsed.Observer["systemPrompt"]) != `"be terse"` || string(parsed.Observer["maxEvents"]) != "7" {
+		t.Fatalf("advanced settings were dropped: %s", data)
+	}
+	if string(parsed.Observer["futureKey"]) != `"keep"` {
+		t.Fatalf("an unknown observer key was dropped: %s", data)
+	}
+
+	// Clearing a custom value must remove the key, not leave the stale value.
+	if err := SaveProjectObserver(dir, observer.Settings{Enabled: true, Endpoint: "http://new/v1", Model: "new"}); err != nil {
+		t.Fatalf("SaveProjectObserver(reset): %v", err)
+	}
+	data, err = os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed.Observer = nil // Unmarshal reuses a map, so start this read clean.
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"systemPrompt", "maxEvents"} {
+		if _, ok := parsed.Observer[key]; ok {
+			t.Fatalf("%s survived after being reset to its default: %s", key, data)
+		}
+	}
+	if string(parsed.Observer["futureKey"]) != `"keep"` {
+		t.Fatalf("an unknown observer key was dropped on reset: %s", data)
+	}
+}
+
+// A `"observer": null` section is valid JSON and easy to write by hand: saving
+// must replace it rather than panic on a nil map.
+func TestSaveProjectObserverReplacesNullSection(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".duo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(dir, ".duo", "config.json")
+	if err := os.WriteFile(configPath, []byte(`{"observer":null,"language":"en"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveProjectObserver(dir, observer.Settings{Enabled: true, Endpoint: "http://127.0.0.1:4000/v1"}); err != nil {
+		t.Fatalf("SaveProjectObserver over null section: %v", err)
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		Language string                     `json:"language"`
+		Observer map[string]json.RawMessage `json:"observer"`
+	}
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		t.Fatalf("decode config: %v\n%s", err, data)
+	}
+	if string(parsed.Observer["enabled"]) != "true" || parsed.Language != "en" {
+		t.Fatalf("null section not replaced cleanly: %s", data)
 	}
 }

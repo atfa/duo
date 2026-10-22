@@ -94,33 +94,47 @@ type Settings struct {
 
 // Config applies defaults to the file settings. It does not validate them.
 func (s Settings) Config() Config {
-	cfg := Config{
+	return Config{
 		Enabled:      s.Enabled,
-		Endpoint:     strings.TrimSpace(s.Endpoint),
-		Model:        strings.TrimSpace(s.Model),
-		APIKeyEnv:    strings.TrimSpace(s.APIKeyEnv),
-		SystemPrompt: strings.TrimSpace(s.SystemPrompt),
+		Endpoint:     s.Endpoint,
+		Model:        s.Model,
+		APIKeyEnv:    s.APIKeyEnv,
+		SystemPrompt: s.SystemPrompt,
 		MaxEvents:    s.MaxEvents,
 		Debounce:     time.Duration(s.DebounceSeconds) * time.Second,
 		Timeout:      time.Duration(s.TimeoutSeconds) * time.Second,
 		MaxTokens:    s.MaxTokens,
+	}.Normalized()
+}
+
+// Normalized fills in every unspecified tuning field with its default.
+//
+// It deliberately leaves Enabled, Endpoint, Model and APIKeyEnv alone: those are
+// the operator's choices, and silently replacing an empty endpoint with a default
+// would hide a misconfiguration. A configuration that arrives from anywhere other
+// than a file (a live switch from the interface, for example) is normalized first
+// so the observer never runs with a zero debounce or a missing prompt.
+func (c Config) Normalized() Config {
+	c.Endpoint = strings.TrimSpace(c.Endpoint)
+	c.Model = strings.TrimSpace(c.Model)
+	c.APIKeyEnv = strings.TrimSpace(c.APIKeyEnv)
+	c.SystemPrompt = strings.TrimSpace(c.SystemPrompt)
+	if c.SystemPrompt == "" {
+		c.SystemPrompt = DefaultSystemPrompt
 	}
-	if cfg.SystemPrompt == "" {
-		cfg.SystemPrompt = DefaultSystemPrompt
+	if c.MaxEvents <= 0 {
+		c.MaxEvents = DefaultMaxEvents
 	}
-	if cfg.MaxEvents <= 0 {
-		cfg.MaxEvents = DefaultMaxEvents
+	if c.Debounce <= 0 {
+		c.Debounce = DefaultDebounce
 	}
-	if cfg.Debounce <= 0 {
-		cfg.Debounce = DefaultDebounce
+	if c.Timeout <= 0 {
+		c.Timeout = DefaultTimeout
 	}
-	if cfg.Timeout <= 0 {
-		cfg.Timeout = DefaultTimeout
+	if c.MaxTokens <= 0 {
+		c.MaxTokens = DefaultMaxTokens
 	}
-	if cfg.MaxTokens <= 0 {
-		cfg.MaxTokens = DefaultMaxTokens
-	}
-	return cfg
+	return c
 }
 
 // Validate reports why an enabled configuration cannot run. A disabled
@@ -148,20 +162,95 @@ func (c Config) Validate() error {
 	return nil
 }
 
+// FileSettings converts a runtime configuration back into the file shape.
+//
+// Fields that equal the built-in defaults are left zero so a save from the
+// interface neither materialises a long prompt into a config file nor pins
+// defaults the operator never chose. A customised value survives a round trip.
+func (c Config) FileSettings() Settings {
+	settings := Settings{
+		Enabled:   c.Enabled,
+		Endpoint:  strings.TrimSpace(c.Endpoint),
+		Model:     strings.TrimSpace(c.Model),
+		APIKeyEnv: strings.TrimSpace(c.APIKeyEnv),
+	}
+	if prompt := strings.TrimSpace(c.SystemPrompt); prompt != "" && prompt != DefaultSystemPrompt {
+		settings.SystemPrompt = prompt
+	}
+	if c.MaxEvents > 0 && c.MaxEvents != DefaultMaxEvents {
+		settings.MaxEvents = c.MaxEvents
+	}
+	if c.Debounce > 0 && c.Debounce != DefaultDebounce {
+		settings.DebounceSeconds = int(c.Debounce / time.Second)
+	}
+	if c.Timeout > 0 && c.Timeout != DefaultTimeout {
+		settings.TimeoutSeconds = int(c.Timeout / time.Second)
+	}
+	if c.MaxTokens > 0 && c.MaxTokens != DefaultMaxTokens {
+		settings.MaxTokens = c.MaxTokens
+	}
+	return settings
+}
+
+// WithEnv applies the observer environment overrides to a configuration.
+//
+// The environment is the operator's last word for one run, so it has to be
+// applied after anything a config file or the interface supplied — including a
+// live save from the interface. Unset or unparsable values leave the
+// configuration alone rather than resetting it.
+func (c Config) WithEnv() Config {
+	if raw, ok := os.LookupEnv("DUO_OBSERVER"); ok {
+		if enabled, ok := parseEnvBool(raw); ok {
+			c.Enabled = enabled
+		}
+	}
+	if value := strings.TrimSpace(os.Getenv("DUO_OBSERVER_ENDPOINT")); value != "" {
+		c.Endpoint = value
+	}
+	if value := strings.TrimSpace(os.Getenv("DUO_OBSERVER_MODEL")); value != "" {
+		c.Model = value
+	}
+	return c
+}
+
+// EnvOverrides reports which settings the environment currently decides.
+func EnvOverrides() (enabled, endpoint, model bool) {
+	if raw, ok := os.LookupEnv("DUO_OBSERVER"); ok {
+		_, enabled = parseEnvBool(raw)
+	}
+	return enabled,
+		strings.TrimSpace(os.Getenv("DUO_OBSERVER_ENDPOINT")) != "",
+		strings.TrimSpace(os.Getenv("DUO_OBSERVER_MODEL")) != ""
+}
+
+// parseEnvBool reads the truthy spellings Duo accepts everywhere else.
+func parseEnvBool(raw string) (bool, bool) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "on":
+		return true, true
+	case "0", "false", "no", "off":
+		return false, true
+	default:
+		return false, false
+	}
+}
+
 // APIKey resolves the key to send, or empty when none is configured.
 //
 // The raw DUO_OBSERVER_API_KEY in the process environment wins over the variable
-// APIKeyEnv names, so a one-off run never has to edit a config file. A key is
-// never read from the file itself.
+// APIKeyEnv names, and both win over the owner-only key file the interface saves.
+// That order lets a one-off run override a remembered key without editing
+// anything, and keeps the file a convenience rather than the authority.
 func (c Config) APIKey() string {
 	if key := strings.TrimSpace(os.Getenv("DUO_OBSERVER_API_KEY")); key != "" {
 		return key
 	}
-	name := strings.TrimSpace(c.APIKeyEnv)
-	if name == "" {
-		return ""
+	if name := strings.TrimSpace(c.APIKeyEnv); name != "" {
+		if key := strings.TrimSpace(os.Getenv(name)); key != "" {
+			return key
+		}
 	}
-	return strings.TrimSpace(os.Getenv(name))
+	return readKeyFile()
 }
 
 // Observer turns a burst of session events into at most one model request per
