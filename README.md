@@ -67,9 +67,9 @@ The optional LLM observer is disabled by default and advisory only: it cannot me
 
 ### Optional observer
 
-In the gotui dashboard, use `/observer` to open observer settings. Press `Ctrl+E` at any time to read the observer's progress reports; if no observer model is configured, it opens settings instead. On first run, the settings panel is offered only when the observer has never been configured: no observer section in config, no key file, and no `DUO_OBSERVER*` environment setting. It starts with `http://127.0.0.1:4000/v1` and model `exec`; edit the fields directly, then press `Enter` to save or `Esc` (**Later**) to save `observer: {"enabled": false}` in the project config and prevent the prompt from appearing again. You can open settings at any time afterward.
+In the gotui dashboard, use `/observer` to open observer settings. Press `Ctrl+E` (or `/reports`) when you want to know what the agents are doing: it opens the status report and asks the observer for a fresh one. If no observer model is configured, `Ctrl+E` opens settings instead. On first run, the settings panel is offered only when the observer has never been configured: no observer section in config, no key file, and no `DUO_OBSERVER*` environment setting. It starts with `http://127.0.0.1:4000/v1` and model `exec`; edit the fields directly, then press `Enter` to save or `Esc` (**Later**) to save `observer: {"enabled": false}` in the project config and prevent the prompt from appearing again. You can open settings at any time afterward.
 
-In the settings panel, use `Tab`/`Shift+Tab` to move between fields, `Space` (or `y`/`n`) to toggle Enabled, and `Enter` to save; `Esc` closes without saving. In the first-run prompt, `Esc` saves **Later** instead. `Ctrl+U` clears the current field. Leaving the API key blank keeps the saved key. In the reports panel, `↑`/`↓` scroll and `Esc` closes it.
+In the settings panel, use `Tab`/`Shift+Tab` to move between fields, `Space` (or `y`/`n`) to toggle Enabled, and `Enter` to save; `Esc` closes without saving. In the first-run prompt, `Esc` saves **Later** instead. `Ctrl+U` clears the current field. Leaving the API key blank keeps the saved key. In the reports panel, `R` asks for a fresh report, `↑`/`↓` scroll and `Esc` closes it.
 
 The non-secret settings can be stored in the `observer` section of `~/.duo/config.json` or the repository's `.duo/config.json`. A project `observer` section replaces the global observer section as a whole; its fields are not merged with the global section. For example:
 
@@ -95,12 +95,15 @@ Observer configuration keys are:
 | `model` | Model name sent to the observer API. |
 | `apiKeyEnv` | Optional environment-variable name to read the API key from. |
 | `systemPrompt` | Observer instructions; an empty or omitted value uses Duo's built-in prompt. |
-| `maxEvents` | Maximum events combined into one request; defaults to `20`. |
-| `debounceSeconds` | Quiet period before new events update the running report; defaults to `3` seconds. |
+| `maxEvents` | Maximum recent messages one report reads; defaults to `40`. |
 | `timeoutSeconds` | Request timeout; defaults to `60` seconds. |
 | `maxTokens` | Maximum response tokens; defaults to `800`. |
 
-Observer output appears on Duo's timeline with an `Observer: ` prefix and is also available from the `Ctrl+E` or `/reports` panel. After a three-second quiet period, the observer considers new events together with the previous report; it emits an update only when there is meaningful new information. Every report keeps the same four sections — completed work, what is in progress, the next steps the agents stated, and blockers or decisions for the human — and names a section as empty instead of dropping it, so current and planned work never disappear from the report. Reports follow the interface language, so a Chinese interface asks for Chinese reports and headings. Missing keys, timeouts, and non-2xx responses are recorded in the session log and shown as diagnostics in the reports panel; they do not interrupt coordination. A report cut off by `maxTokens` still appears, with the truncation reported as a diagnostic rather than silently losing its later sections. If the panel has no reports, it explains whether the observer is disabled, missing a key, or has encountered a recent error.
+The observer runs only when you ask for it: it has no timer and writes nothing to the timeline. `Ctrl+E` or `/reports` sends one request built from the last `maxEvents` messages (newest last, bounded to roughly 6,000 characters), a live snapshot of both agents taken when the request runs — busy or idle, the tool each is running with its arguments and elapsed time, the text it is currently writing, the tools it just finished, and its context usage — and the previous report, which is only continuity context.
+
+Each report has three sections, in the interface language: what the agents just finished (at most three bullets, newest first, never an accumulating history), what each agent is doing right now (taken only from the live snapshot, so a finished tool is never described as running, and an idle agent is reported with what it finished last), and the next steps the agents explicitly stated. A final `Needs your decision:` line appears only when a human decision actually blocks them. Reports appear only in the `Ctrl+E` panel, never on the timeline, and the panel keeps the last three. While the model answers, the panel shows the request's elapsed time; `R` asks again.
+
+Missing keys, timeouts, and non-2xx responses are recorded in the session log and shown as diagnostics in the panel; they do not interrupt coordination. A report cut off by `maxTokens` still appears, with the truncation reported as a diagnostic rather than silently losing its later sections. With no report yet, the panel says whether the observer is disabled, missing a key, or simply has not been asked.
 
 ## Resume and delivery
 
