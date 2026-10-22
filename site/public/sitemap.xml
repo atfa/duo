@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">
+  <url>
+    <loc>https://xduo.dev/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://xduo.dev/"/>
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://xduo.dev/zh/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://xduo.dev/"/>
+    <changefreq>monthly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>https://xduo.dev/zh/</loc>
+    <xhtml:link rel="alternate" hreflang="en" href="https://xduo.dev/"/>
+    <xhtml:link rel="alternate" hreflang="zh-Hans" href="https://xduo.dev/zh/"/>
+    <xhtml:link rel="alternate" hreflang="x-default" href="https://xduo.dev/"/>
+    <changefreq>monthly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>

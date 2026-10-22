@@ -1,0 +1,60 @@
+# xduo.dev
+
+The Duo product site: two static pages (English at `/`, Simplified Chinese at
+`/zh/`), shared CSS, and a small progressive-enhancement script. No build step,
+no framework, no external requests.
+
+## Layout
+
+```text
+site/
+  wrangler.jsonc        Cloudflare Workers static assets config
+  public/               served root
+    index.html          English page
+    zh/index.html       Chinese page
+    404.html            not-found page
+    robots.txt
+    sitemap.xml
+    _headers            security + cache headers
+    assets/             css, js, brand images
+```
+
+## Preview locally
+
+```bash
+python3 -m http.server -d site/public 8080
+# http://localhost:8080/      (English)
+# http://localhost:8080/zh/   (Chinese)
+```
+
+`wrangler dev` from `site/` also works and applies `_headers`.
+
+## Deploy
+
+The site uses Cloudflare Workers static assets, so one deploy also attaches the
+custom domain when the `xduo.dev` zone is active in the logged-in account.
+
+```bash
+cd site
+wrangler login          # once
+wrangler deploy --dry-run
+wrangler deploy
+```
+
+First deploy creates the `xduo-dev` Worker and, with the `routes` entry in
+`wrangler.jsonc`, attaches `xduo.dev`. If the zone is not active yet, the
+deploy still succeeds at the `*.workers.dev` URL printed by Wrangler; attach the
+domain from the Cloudflare dashboard afterwards. `www` is not configured.
+
+Local Wrangler state lives in `site/.wrangler/` and is git-ignored.
+
+## Conventions
+
+- Palette comes from `internal/gotui/theme.go`; keep the site in sync with it.
+- Both pages share section order and IDs: `#why #workflows #how #features #start #faq`.
+- Keep copy factual: v0.13.1, MIT, drivers pi/agy/opencode/codex, eight Duo tools,
+  MCP subset, gotui. Do not claim the removed desktop GUI.
+- No inline scripts or styles: `_headers` sets a strict CSP (`script-src 'self'`,
+  `style-src 'self'`). Changing that requires updating the policy too.
+- `site.js` is loaded in `<head>` without `defer`: it swaps `html.no-js` for
+  `html.js` before first paint. Without JavaScript all content remains visible.
