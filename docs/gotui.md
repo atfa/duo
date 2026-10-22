@@ -173,16 +173,16 @@ the text files.
 
 | Frame | What it covers |
 |---|---|
-| [dashboard 120×42](screens/01-dashboard-120x42.txt) | split dashboard, workflow sidebar, agent cards, Duo/Human pane |
-| [timeline 120×42](screens/02-timeline-120x42.txt) | single conversation view and restored history |
-| [slash palette 120×42](screens/03-slash-120x42.txt) | filtered command palette over the conversation pane |
-| [help 120×42](screens/04-help-120x42.txt) | help modal on a cleared backdrop |
-| [details 120×42](screens/05-details-120x42.txt) | session details and diffstat |
-| [models 120×42](screens/06-models-120x42.txt) | model/thinking picker after the async catalog load |
-| [paused 120×42](screens/09-paused-120x42.txt) | PAUSED badge and the paused footer hint |
-| [drivers 120×42](screens/10-drivers-120x42.txt) | driver picker |
-| [confirm 80×24](screens/07-confirm-80x24.txt) | destructive confirmation at a compact size |
-| [narrow 64×22](screens/08-narrow-64x22.txt) | no-sidebar timeline in a small terminal |
+| [dashboard 120×42](gotui/screens/01-dashboard-120x42.txt) | split dashboard, workflow sidebar, agent cards, Duo/Human pane |
+| [timeline 120×42](gotui/screens/02-timeline-120x42.txt) | single conversation view and restored history |
+| [slash palette 120×42](gotui/screens/03-slash-120x42.txt) | filtered command palette over the conversation pane |
+| [help 120×42](gotui/screens/04-help-120x42.txt) | help modal on a cleared backdrop |
+| [details 120×42](gotui/screens/05-details-120x42.txt) | session details and diffstat |
+| [models 120×42](gotui/screens/06-models-120x42.txt) | model/thinking picker after the async catalog load |
+| [paused 120×42](gotui/screens/09-paused-120x42.txt) | PAUSED badge and the paused footer hint |
+| [drivers 120×42](gotui/screens/10-drivers-120x42.txt) | driver picker |
+| [confirm 80×24](gotui/screens/07-confirm-80x24.txt) | destructive confirmation at a compact size |
+| [narrow 64×22](gotui/screens/08-narrow-64x22.txt) | no-sidebar timeline in a small terminal |
 
 Regenerate them with:
 
