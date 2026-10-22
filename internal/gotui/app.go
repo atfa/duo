@@ -16,6 +16,7 @@ import (
 	"github.com/atfa/duo/internal/terminal"
 	"github.com/atfa/duo/internal/workspace"
 	"github.com/gdamore/tcell/v3"
+	rw "github.com/mattn/go-runewidth"
 	ui "github.com/metaspartan/gotui/v5"
 )
 
@@ -311,14 +312,18 @@ func (a *App) footerHint() string {
 	case session.PausePaused:
 		return a.theme.tr("paused · /continue resume · /driver switch driver")
 	}
-	hint := a.theme.tr("Enter send · Ctrl+Enter newline · Ctrl+E observer · Alt+M models · Ctrl+A/T native · F1 help · F2 view · Ctrl+Q quit")
-	if a.layout.width < 100 {
-		hint = a.theme.tr("Enter send · Ctrl+E observer · Alt+M models · F1 help · F2 view · Ctrl+Q quit")
+	hints := []string{
+		"Enter send · Ctrl+Enter newline · Ctrl+E observer · Alt+M models · Ctrl+A/T native · F1 help · F2 view · Ctrl+Q quit",
+		"Enter send · Ctrl+E observer · Alt+M models · F1 help · F2 view · Ctrl+Q quit",
+		"Enter send · Ctrl+E observer · F1 help · F2 view · Ctrl+Q quit",
 	}
-	if a.layout.width < 80 {
-		hint = a.theme.tr("Enter send · Ctrl+E observer · F1 help · F2 view · Ctrl+Q quit")
+	for _, hint := range hints {
+		translated := a.theme.tr(hint)
+		if rw.StringWidth(translated) <= max(0, a.layout.width-2) {
+			return translated
+		}
 	}
-	return hint
+	return a.theme.tr(hints[len(hints)-1])
 }
 
 // pauseProgress names the agent still working, so "pausing" is never a freeze

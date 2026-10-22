@@ -3,6 +3,8 @@ package gotui
 import (
 	"strings"
 	"testing"
+
+	rw "github.com/mattn/go-runewidth"
 )
 
 // helpText renders the /help sections as plain text, the same strings the
@@ -62,10 +64,21 @@ func TestHelpHasChineseTranslations(t *testing.T) {
 
 func TestObserverShortcutIsAlwaysVisibleInFooter(t *testing.T) {
 	app := New(newFakeSession())
-	for _, width := range []int{120, 90, 70} {
-		app.layout.width = width
-		if hint := app.footerHint(); !strings.Contains(hint, "Ctrl+E observer") {
-			t.Errorf("footer at width %d = %q, want Ctrl+E observer hint", width, hint)
+	for _, lang := range []string{"en", "zh"} {
+		*app.theme.Lang = lang
+		for _, width := range []int{120, 117, 110, 105, 100, 90, 70} {
+			app.layout.width = width
+			hint := app.footerHint()
+			shortcut := "Ctrl+E observer"
+			if lang == "zh" {
+				shortcut = "Ctrl+E 观察器"
+			}
+			if !strings.Contains(hint, shortcut) {
+				t.Errorf("footer at width %d, language %s = %q, want %q hint", width, lang, hint, shortcut)
+			}
+			if width >= 100 && rw.StringWidth(hint) > width-2 {
+				t.Errorf("footer hint at width %d, language %s is %d columns and will be truncated: %q", width, lang, rw.StringWidth(hint), hint)
+			}
 		}
 	}
 }
