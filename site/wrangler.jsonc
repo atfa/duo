@@ -1,0 +1,16 @@
+{
+  // Cloudflare Workers static assets for xduo.dev.
+  // Deploy with: cd site && wrangler deploy
+  "name": "xduo-dev",
+  "compatibility_date": "2026-10-22",
+  "assets": {
+    "directory": "./public",
+    "not_found_handling": "404-page"
+  },
+  "routes": [
+    {
+      "pattern": "xduo.dev",
+      "custom_domain": true
+    }
+  ]
+}
