@@ -13,7 +13,7 @@ The core should enforce only what benefits from deterministic coordination:
 - verification, signatures and evidence;
 - Git worktree isolation;
 - stale-verification and stale-signature detection;
-- integration (Goal);
+- integration (Goal and Step `[goal]`);
 - idle/stall recovery;
 - durable checkpointing and crash recovery;
 - a safe, provably-lossless handoff back to the user's repository.
@@ -24,7 +24,7 @@ Everything else should remain flexible enough for the models to collaborate natu
 
 | Area | Owns | Boundary to preserve |
 |---|---|---|
-| `internal/project` | Mode, phase, Plan (Goal), step queue and per-step policy (Step), verification (Fast and Step `[fast]`), signatures and evidence | The authoritative state machine; UI and adapters do not keep competing copies. A runtime mode switch resets the round's plan, queue, phase and signatures. |
+| `internal/project` | Mode, phase, Plan (Goal), step queue and per-step policy (Step), verification (Fast and Step `[fast]`), signatures and evidence | The authoritative state machine; UI and adapters do not keep competing copies. |
 | `internal/coordinator` | Wire requests, gates, phase transitions, peer routing and notices | Apply mode policy once and validate claims against Git evidence. |
 | `internal/transport`, `internal/protocol`, `internal/mcp` | Local bridge messages, stable identities and stdio MCP transport | Transport carries requests; it does not own workflow policy. |
 | `internal/driver`, `plugins/`, `internal/agent` | Plugin contract/discovery, per-agent CLI behavior and process/PTY lifecycle | Core has no driver-name branches; plugins own CLI flags, identity and capabilities. |
@@ -118,9 +118,8 @@ it explicitly; Core has no product-specific driver default. Driver resume state 
 persisted as an opaque per-agent blob. Snapshot schema changes are explicit and
 incompatible versions are rejected rather than migrated.
 `session.Service` owns the composition root, the
-session lock, the agent bridge, the lifecycle observer and the delivery handoff
-that used to live in `cmd/duo`. `cmd/duo` builds `Options` from its flags and then
-only renders.
+session lock, the agent bridge, the lifecycle observer and the delivery handoff.
+`cmd/duo` builds `Options` from its flags and then only renders.
 
 The seam is three things:
 
@@ -129,10 +128,10 @@ slices and the driver manifest are cloned, so a renderer cannot reach back into 
 session through it. It deliberately does not say what the working tree changed —
 that costs a `git` invocation, and a renderer must not run one per frame — so
 `Changes(ctx)` answers that separately and the detail view caches it.
-- **`Do(ctx, Command)`** performs the five human verbs: submit a task, escalate to
-Goal, set a model, cycle thinking, restart an agent. It is bounded on purpose — one
-command in, one result out — so it is safe to call from a UI event loop;
-`SubmitTask` returns when the task is accepted, not when the agent finishes.
+- **`Do(ctx, Command)`** applies a bounded human action: task and workflow controls,
+  pause/resume, model/thinking/driver/language selection, or agent/Duo restart. It is
+  safe to call from a UI event loop; `SubmitTask` returns when the task is accepted,
+  not when the agent finishes.
 - **`Subscribe(buffer)`** returns the current `View` *and then* the event stream, so
 a frontend that connects late renders correct state without a replay protocol.
 
@@ -162,8 +161,9 @@ state must read `History()` and the journal, not the stream.
 
 ## Current constraints
 
-- The topology has two fixed roles, Austin and Tony. Fast can escalate to Goal, but
-  Goal cannot downgrade to Fast.
+- The topology has two fixed roles, Austin and Tony. Fast, Goal and Step can be
+  selected at runtime; switching modes resets the current round's plan, queue,
+  phase and signatures.
 - Session state is local to a machine and repository path. Recovery restores
   coordination state and agent session identities, not model reasoning.
 - Duo never rewrites the user's Git history. Delivery is a checked fast-forward;
