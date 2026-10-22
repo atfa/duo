@@ -98,6 +98,45 @@ func TestSetObserverChangesLiveEndpointAndPersistsWithoutSecret(t *testing.T) {
 	}
 }
 
+func TestSetObserverValidatesSavedAndEffectiveSettings(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("DUO_OBSERVER_API_KEY", "sk-test")
+	t.Setenv("DUO_OBSERVER", "false")
+	t.Setenv("DUO_OBSERVER_ENDPOINT", "")
+	t.Setenv("DUO_OBSERVER_MODEL", "")
+
+	repo := gitRepo(t)
+	opts := headlessOptions(t, repo, t.TempDir(), "127.0.0.1:0")
+	svc := New(opts)
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer svc.Close()
+
+	if err := svc.Do(context.Background(), SetObserver{Enabled: true}); err == nil {
+		t.Fatal("disabling env override allowed invalid enabled settings to be saved")
+	}
+	configPath := filepath.Join(repo, ".duo", "config.json")
+	if data, err := os.ReadFile(configPath); err == nil {
+		var cfg map[string]json.RawMessage
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			t.Fatal(err)
+		}
+		if len(cfg["observer"]) != 0 {
+			t.Fatalf("invalid settings were persisted: %s", data)
+		}
+	} else if !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+
+	// An environment override that enables the observer cannot make an invalid
+	// effective configuration valid either.
+	t.Setenv("DUO_OBSERVER", "true")
+	if err := svc.Do(context.Background(), SetObserver{Enabled: false}); err == nil {
+		t.Fatal("enabling env override allowed an invalid effective configuration")
+	}
+}
+
 func austinObserverTestServer(t *testing.T, reply string, requests *atomic.Int32) *httptest.Server {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

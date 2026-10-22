@@ -585,6 +585,12 @@ func (s *Service) setObserver(c SetObserver) error {
 		chosen.APIKeyEnv = env
 	}
 	chosen = chosen.Normalized()
+	// Validate what will be persisted independently of the process environment.
+	// Otherwise DUO_OBSERVER=false could mask an invalid enabled configuration
+	// until a later launch when the override is absent.
+	if err := chosen.Validate(); err != nil {
+		return err
+	}
 	effective := chosen.WithEnv()
 	if err := effective.Validate(); err != nil {
 		return err
