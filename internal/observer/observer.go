@@ -31,11 +31,11 @@ import (
 const (
 	// Default events kept for one request.
 	DefaultMaxEvents = 20
-	// Default quiet period after the last event before the model is asked.
+	// Default quiet period after the last event before updating a report.
 	DefaultDebounce = 3 * time.Second
 	// Default per-request budget.
 	DefaultTimeout = 60 * time.Second
-	// Default answer length; an observation is a few sentences, not an essay.
+	// Default answer length; progress reports should stay concise.
 	DefaultMaxTokens = 300
 
 	// silentReply is what the default prompt asks for when nothing is worth
@@ -52,14 +52,15 @@ const (
 	maxErrorBody  = 512
 )
 
-// DefaultSystemPrompt is the observer's own instruction. The operator may replace
-// it, but the default asks for the one thing an advisory observer is for: a few
-// concrete sentences, or silence.
-const DefaultSystemPrompt = "You are Duo's observer. Duo is a coding workflow where two AI agents, " +
-	"Austin and Tony, collaborate with a human. You are shown a short excerpt of their session events. " +
-	"Reply with at most three sentences naming a concrete risk, contradiction, unverified claim or scope " +
-	"creep worth the human's attention. Do not issue instructions to the agents and do not repeat what " +
-	"the excerpt already says. If nothing is worth saying, reply exactly: NOTHING"
+// DefaultSystemPrompt asks for an incremental progress report, not an advisory
+// critique. The previous report and only newly observed events are sent each time.
+const DefaultSystemPrompt = "You are Duo's observer. Duo is a coding workflow where Austin and Tony " +
+	"collaborate on a task. Update the running progress report using the previous report and the new " +
+	"events. Return a concise, self-contained report with sections for what Austin and Tony completed, " +
+	"what they are working on now, what they have explicitly said they will do next, and any blockers or " +
+	"decisions the human should know. Preserve relevant previous facts, replace stale status with newer " +
+	"events, and do not invent details or instruct the agents. Only describe future work when the agents " +
+	"explicitly stated it. If the new events do not change the report, reply exactly: NOTHING"
 
 // Config is the resolved observer configuration. It is what the session runs
 // with; Settings is the file-facing shape.
@@ -357,24 +358,30 @@ func (o *Observer) loop(ctx context.Context, in <-chan events.Event) {
 
 	var (
 		pending  []events.Event
+		inFlight bool
+		report   string
 		timer    *time.Timer
 		timerC   <-chan time.Time
-		inFlight bool
 	)
-
 	armTimer := func() {
-		if !timer.Stop() {
-			select {
-			case <-timer.C:
-			default:
+		if timer == nil {
+			timer = time.NewTimer(o.cfg.Debounce)
+		} else {
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
 			}
+			timer.Reset(o.cfg.Debounce)
 		}
-		timer.Reset(o.cfg.Debounce)
 		timerC = timer.C
 	}
-	timer = time.NewTimer(o.cfg.Debounce)
-	timer.Stop()
-	defer timer.Stop()
+	defer func() {
+		if timer != nil {
+			timer.Stop()
+		}
+	}()
 
 	for {
 		select {
@@ -402,15 +409,15 @@ func (o *Observer) loop(ctx context.Context, in <-chan events.Event) {
 			batch := pending
 			pending = nil
 			inFlight = true
-			go func() {
-				o.results <- o.ask(ctx, batch)
-			}()
+			previous := report
+			go func() { o.results <- o.ask(ctx, previous, batch) }()
 		case res := <-o.results:
 			inFlight = false
 			if res.err != nil {
 				o.logf("observer: %v", res.err)
 			}
 			if text := strings.TrimSpace(res.text); text != "" && !strings.EqualFold(text, silentReply) {
+				report = text
 				o.emit(text)
 			}
 			if len(pending) > 0 {
@@ -434,17 +441,21 @@ func observable(event events.Event) bool {
 }
 
 // ask makes one OpenAI-compatible chat completion request for the batch.
-func (o *Observer) ask(ctx context.Context, batch []events.Event) result {
+func (o *Observer) ask(ctx context.Context, previous string, batch []events.Event) result {
 	if o.key == "" {
 		// Already reported by New; staying silent here keeps the log to one line.
 		return result{}
 	}
 
+	userPrompt := "New events since the previous report:\n" + transcript(batch)
+	if strings.TrimSpace(previous) != "" {
+		userPrompt = "Previous running report:\n" + previous + "\n\n" + userPrompt
+	}
 	payload := map[string]any{
 		"model": o.cfg.Model,
 		"messages": []map[string]string{
 			{"role": "system", "content": o.cfg.SystemPrompt},
-			{"role": "user", "content": transcript(batch)},
+			{"role": "user", "content": userPrompt},
 		},
 	}
 	if o.cfg.MaxTokens > 0 {

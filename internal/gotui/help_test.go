@@ -69,9 +69,9 @@ func TestObserverShortcutIsAlwaysVisibleInFooter(t *testing.T) {
 		for _, width := range []int{120, 117, 110, 105, 100, 90, 70} {
 			app.layout.width = width
 			hint := app.footerHint()
-			shortcut := "Ctrl+E observer"
+			shortcut := "Ctrl+E reports"
 			if lang == "zh" {
-				shortcut = "Ctrl+E 观察器"
+				shortcut = "Ctrl+E 观察报告"
 			}
 			if !strings.Contains(hint, shortcut) {
 				t.Errorf("footer at width %d, language %s = %q, want %q hint", width, lang, hint, shortcut)

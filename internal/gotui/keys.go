@@ -70,6 +70,8 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 			a.handleScrollOverlayKey(ev, func(d int) { a.help.Scroll(d) }, max(0, len(a.help.lines)-max(1, a.help.Inner.Dy()-1)))
 		case overlayDetails:
 			a.handleScrollOverlayKey(ev, func(d int) { a.details.Scroll(d) }, max(0, len(a.details.lines)-max(1, a.details.Inner.Dy()-1)))
+		case overlayObserverReports:
+			a.handleScrollOverlayKey(ev, func(d int) { a.observerReports.Scroll(d) }, max(0, len(a.observerReports.lines)-max(1, a.observerReports.Inner.Dy()-1)))
 		}
 		return
 	}
@@ -151,7 +153,7 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 		a.openPicker()
 		return
 	case tcell.KeyCtrlE:
-		a.openObserverConfig()
+		a.openObserverReports()
 		return
 	case tcell.KeyCtrlP:
 		a.sidebar = !a.sidebar
@@ -533,6 +535,8 @@ func (a *App) handleMouse(ev *tcell.EventMouse) {
 				a.help.Scroll(-3)
 			case overlayDetails:
 				a.details.Scroll(-3)
+			case overlayObserverReports:
+				a.observerReports.Scroll(-3)
 			}
 		case btn&tcell.WheelDown != 0:
 			switch a.overlay {
@@ -540,6 +544,8 @@ func (a *App) handleMouse(ev *tcell.EventMouse) {
 				a.help.Scroll(3)
 			case overlayDetails:
 				a.details.Scroll(3)
+			case overlayObserverReports:
+				a.observerReports.Scroll(3)
 			}
 		}
 		return

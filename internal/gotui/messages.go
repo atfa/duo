@@ -65,6 +65,9 @@ func (a *App) route(event events.Event) {
 		// observer owns no workflow state, so the interface must not present its
 		// text as a verdict or a failure.
 		a.addLabeled(protocol.Duo, directionLabel(protocol.Duo, ""), "Observer: "+text, false, false)
+		if a.overlay == overlayObserverReports {
+			a.observerReports.begin(a.entries)
+		}
 	default:
 		if event.Agent == protocol.Austin || event.Agent == protocol.Tony {
 			a.addLabeled(event.Agent, directionLabel(event.Agent, event.Peer), text, false, false)

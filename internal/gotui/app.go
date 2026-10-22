@@ -106,6 +106,7 @@ type App struct {
 	details           *detailOverlay
 	confirm           *confirmOverlay
 	observer          *observerConfigOverlay
+	observerReports   *observerReportOverlay
 	onboarding        bool
 	onboardingChecked bool
 	slash             *slashMenu
@@ -185,6 +186,7 @@ func New(svc Session) *App {
 	a.help = newHelp(t)
 	a.details = newDetails(t)
 	a.observer = newObserverConfig(t)
+	a.observerReports = newObserverReports(t)
 	a.slash = newSlashMenu(t)
 	a.fileMenu = newMentionMenu(t)
 	a.listFiles = gitListFiles
@@ -313,9 +315,9 @@ func (a *App) footerHint() string {
 		return a.theme.tr("paused · /continue resume · /driver switch driver")
 	}
 	hints := []string{
-		"Enter send · Ctrl+Enter newline · Ctrl+E observer · Alt+M models · Ctrl+A/T native · F1 help · F2 view · Ctrl+Q quit",
-		"Enter send · Ctrl+E observer · Alt+M models · F1 help · F2 view · Ctrl+Q quit",
-		"Enter send · Ctrl+E observer · F1 help · F2 view · Ctrl+Q quit",
+		"Enter send · Ctrl+Enter newline · Ctrl+E reports · Alt+M models · Ctrl+A/T native · F1 help · F2 view · Ctrl+Q quit",
+		"Enter send · Ctrl+E reports · Alt+M models · F1 help · F2 view · Ctrl+Q quit",
+		"Enter send · Ctrl+E reports · F1 help · F2 view · Ctrl+Q quit",
 	}
 	for _, hint := range hints {
 		translated := a.theme.tr(hint)
@@ -565,6 +567,8 @@ func (a *App) draw() {
 			items = append(items, a.help)
 		case overlayDetails:
 			items = append(items, a.details)
+		case overlayObserverReports:
+			items = append(items, a.observerReports)
 		case overlayConfirm:
 			items = append(items, a.confirm)
 		case overlayObserver:
@@ -648,6 +652,7 @@ func (a *App) updateWidgets() {
 	a.details.place(l)
 	a.confirm.place(l)
 	a.observer.place(l)
+	a.observerReports.place(l)
 	a.slash.commands = a.matchingCommands()
 	if len(a.slash.commands) == 0 {
 		a.slash.cursor = 0

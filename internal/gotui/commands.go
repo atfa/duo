@@ -84,6 +84,9 @@ func (a *App) runSlash(text string) bool {
 	case "/observer":
 		a.openObserverConfig()
 		return true
+	case "/reports":
+		a.openObserverReports()
+		return true
 	case "/copy":
 		a.copyLatest()
 		return true
@@ -371,6 +374,12 @@ func (a *App) openObserverConfig() {
 	a.refreshView()
 	a.observer.begin(a.live.Observer)
 	a.overlay = overlayObserver
+}
+
+func (a *App) openObserverReports() {
+	a.closeMention()
+	a.observerReports.begin(a.entries)
+	a.overlay = overlayObserverReports
 }
 
 func (a *App) openDetails() {

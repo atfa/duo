@@ -48,14 +48,16 @@ func runObserverSimulation(t *testing.T, fake *fakeSession, onboarding ...bool) 
 func openObserverViaSlash(t *testing.T, sim tcell.SimulationScreen) {
 	t.Helper()
 	typeText(sim, "/observer")
-	waitForText(t, sim, "Configure the advisory observer")
+	waitForText(t, sim, "Configure the observer")
 	injectKey(sim, tcell.KeyEnter, 0, tcell.ModNone)
 	waitForText(t, sim, "OBSERVER SETTINGS")
 }
 
 func openObserverViaShortcut(t *testing.T, sim tcell.SimulationScreen) {
 	t.Helper()
-	injectKey(sim, tcell.KeyCtrlE, 0, tcell.ModNone)
+	typeText(sim, "/observer")
+	waitForText(t, sim, "Configure the observer")
+	injectKey(sim, tcell.KeyEnter, 0, tcell.ModNone)
 	waitForText(t, sim, "OBSERVER SETTINGS")
 }
 
@@ -71,7 +73,7 @@ func TestObserverConfigOpensFromSlashAndCtrlE(t *testing.T) {
 		fn   func(*testing.T, tcell.SimulationScreen)
 	}{
 		{"slash", openObserverViaSlash},
-		{"shortcut", openObserverViaShortcut},
+		{"slash config", openObserverViaShortcut},
 	} {
 		t.Run(open.name, func(t *testing.T) {
 			fake := newFakeSession()
@@ -385,7 +387,7 @@ func TestObserverOnboardingLaterPersistsDismissalAndManualOpenStillWorks(t *test
 	}
 
 	typeText(sim, "/observer")
-	waitForText(t, sim, "Configure the advisory observer")
+	waitForText(t, sim, "Configure the observer")
 	injectKey(sim, tcell.KeyEnter, 0, tcell.ModNone)
 	waitForText(t, sim, "OBSERVER SETTINGS")
 }
@@ -400,7 +402,9 @@ func TestObserverOnboardingSkipsConfiguredEnvironmentSetup(t *testing.T) {
 	if strings.Contains(screenText(sim), "SET UP OBSERVER") {
 		t.Fatal("configured environment observer triggered onboarding")
 	}
-	injectKey(sim, tcell.KeyCtrlE, 0, tcell.ModNone)
+	typeText(sim, "/observer")
+	waitForText(t, sim, "Configure the observer")
+	injectKey(sim, tcell.KeyEnter, 0, tcell.ModNone)
 	waitForText(t, sim, "OBSERVER SETTINGS")
 }
 

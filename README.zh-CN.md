@@ -67,7 +67,7 @@ Agent bridge 提供八个 Duo 工具，用于同伴消息、共享状态、计�
 
 ### 可选观察器
 
-在 gotui 仪表盘中输入 `/observer` 或按 `Ctrl+E` 打开观察器设置。仅当观察器从未配置时（配置中没有 observer 段、没有密钥文件、也没有 `DUO_OBSERVER*` 环境设置），首次运行才会显示同一面板。默认地址为 `http://127.0.0.1:4000/v1`，模型为 `exec`；按 `Esc`（**稍后**）会在项目配置中保存 `observer: {"enabled": false}`，之后不再提示。此后仍可随时打开设置面板。
+在 gotui 仪表盘中输入 `/observer` 打开观察器设置；按 `Ctrl+E` 随时查看观察器的进度报告。仅当观察器从未配置时（配置中没有 observer 段、没有密钥文件、也没有 `DUO_OBSERVER*` 环境设置），首次运行才会显示设置面板。默认地址为 `http://127.0.0.1:4000/v1`，模型为 `exec`；按 `Esc`（**稍后**）会在项目配置中保存 `observer: {"enabled": false}`，之后不再提示。此后仍可随时用 `/observer` 打开设置。
 
 非敏感设置可存放在 `~/.duo/config.json` 或仓库的 `.duo/config.json` 的 `observer` 段中。项目中的 `observer` 段会整体替换全局观察器段，不会与全局段逐字段合并。例如：
 
@@ -94,11 +94,11 @@ Agent bridge 提供八个 Duo 工具，用于同伴消息、共享状态、计�
 | `apiKeyEnv` | 可选的 API key 环境变量名。 |
 | `systemPrompt` | 观察器指令；留空或省略时使用 Duo 内置提示词。 |
 | `maxEvents` | 合并到一次请求中的事件上限；默认 `20`。 |
-| `debounceSeconds` | 发送前等待的静默时间；默认 `3` 秒。此期间到达的事件会合并为一次请求。 |
+| `debounceSeconds` | 新事件后更新进度总结前等待的静默时间；默认 `3` 秒。 |
 | `timeoutSeconds` | 请求超时；默认 `60` 秒。 |
 | `maxTokens` | 响应 token 上限；默认 `300`。 |
 
-观察器输出会带有 `Observer: ` 前缀，显示在 Duo 时间线上。回复 `NOTHING` 时不会显示。缺少密钥、请求超时或 HTTP 状态码非 2xx 时，只会写入 session 日志，不会影响协调流程。
+观察器会在事件静默三秒后汇总新增事件，并结合上一份报告增量更新进度总结。报告会带有 `Observer: ` 前缀，显示在 Duo 时间线上，也可按 `Ctrl+E` 或输入 `/reports` 在报告窗口中查看。缺少密钥、请求超时或 HTTP 状态码非 2xx 时，只会写入 session 日志，不会影响协调流程。
 
 ## 恢复与交付
 

@@ -210,6 +210,60 @@ func TestObserverAsksModelAndEmitsObservation(t *testing.T) {
 	}
 }
 
+func TestObserverCarriesPreviousReportIntoIncrementalUpdate(t *testing.T) {
+	t.Setenv("DUO_OBSERVER_API_KEY", "sk-test")
+	var mu sync.Mutex
+	var prompts []string
+	var request int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Messages []struct {
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		mu.Lock()
+		prompts = append(prompts, payload.Messages[1].Content)
+		request++
+		n := request
+		mu.Unlock()
+		report := "Report one: parser implemented."
+		if n > 1 {
+			report = "Report two: parser implemented; tests now pass."
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"`+report+`"}}]}`)
+	}))
+	defer srv.Close()
+
+	bus := events.NewBus()
+	rec := newRecorder()
+	cfg := testConfig(srv.URL + "/v1")
+	cfg.Debounce = 20 * time.Millisecond
+	obs, err := New(bus, cfg, rec.emit, rec.logf)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	obs.Start(context.Background())
+	defer obs.Close()
+	bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "parser implemented"})
+	if got := waitEmit(t, rec); got != "Report one: parser implemented." {
+		t.Fatalf("first report = %q", got)
+	}
+	bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Tony, Text: "tests now pass"})
+	if got := waitEmit(t, rec); got != "Report two: parser implemented; tests now pass." {
+		t.Fatalf("second report = %q", got)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(prompts) != 2 || !strings.Contains(prompts[1], "Previous running report:\nReport one: parser implemented.") || !strings.Contains(prompts[1], "Tony [assistant]: tests now pass") {
+		t.Fatalf("second incremental prompt = %#v", prompts)
+	}
+}
+
 func TestObserverCoalescesOneRequestPerBurst(t *testing.T) {
 	t.Setenv("DUO_OBSERVER_API_KEY", "sk-test")
 
@@ -287,6 +341,8 @@ func TestObserverKeepsSilentReplyOutOfTimeline(t *testing.T) {
 }
 
 func TestObserverWithoutKeySendsNothing(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("DUO_OBSERVER_API_KEY", "")
 	var requests atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)

@@ -67,7 +67,7 @@ The optional LLM observer is disabled by default and advisory only: it cannot me
 
 ### Optional observer
 
-In the gotui dashboard, use `/observer` or press `Ctrl+E` to open observer settings. On first run, the same panel is offered only when the observer has never been configured: no observer section in config, no key file, and no `DUO_OBSERVER*` environment setting. It starts with `http://127.0.0.1:4000/v1` and model `exec`; press `Esc` (**Later**) to save `observer: {"enabled": false}` in the project config and prevent the prompt from appearing again. You can open the panel at any time afterward.
+In the gotui dashboard, use `/observer` to open observer settings. Press `Ctrl+E` at any time to read the observer's progress reports. On first run, the settings panel is offered only when the observer has never been configured: no observer section in config, no key file, and no `DUO_OBSERVER*` environment setting. It starts with `http://127.0.0.1:4000/v1` and model `exec`; press `Esc` (**Later**) to save `observer: {"enabled": false}` in the project config and prevent the prompt from appearing again. You can open settings at any time afterward.
 
 The non-secret settings can be stored in the `observer` section of `~/.duo/config.json` or the repository's `.duo/config.json`. A project `observer` section replaces the global observer section as a whole; its fields are not merged with the global section. For example:
 
@@ -94,11 +94,11 @@ Observer configuration keys are:
 | `apiKeyEnv` | Optional environment-variable name to read the API key from. |
 | `systemPrompt` | Observer instructions; an empty or omitted value uses Duo's built-in prompt. |
 | `maxEvents` | Maximum events combined into one request; defaults to `20`. |
-| `debounceSeconds` | Quiet period before a batch is sent; defaults to `3` seconds. Events arriving during this period are combined into one request. |
+| `debounceSeconds` | Quiet period before new events update the running report; defaults to `3` seconds. |
 | `timeoutSeconds` | Request timeout; defaults to `60` seconds. |
 | `maxTokens` | Maximum response tokens; defaults to `300`. |
 
-Observer output appears on Duo's timeline with an `Observer: ` prefix. A response of `NOTHING` is suppressed. Missing keys, timeouts, and non-2xx responses are recorded only in the session log and do not interrupt coordination.
+Observer output appears on Duo's timeline with an `Observer: ` prefix and is also available from the `Ctrl+E` or `/reports` panel. After a three-second quiet period, each report summarizes new events together with the previous report, so the view stays current as work progresses. Missing keys, timeouts, and non-2xx responses are recorded only in the session log and do not interrupt coordination.
 
 ## Resume and delivery
 
