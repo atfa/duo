@@ -60,17 +60,23 @@ func fakeAgent(t *testing.T) string {
 	return path
 }
 
-// openSessionStore attaches to the store the session created for repo. The id is
-// derived from the canonical repository root, which Git reports resolved: on
-// macOS t.TempDir lives behind /var -> /private/var, so a raw RepoID(repo) names
-// a directory the session never wrote.
-func openSessionStore(t *testing.T, baseDir, repo, id string) *sessionstore.Store {
+// sessionStoreID names the store the session creates for repo. The id is derived
+// from the canonical repository root, which Git reports resolved: on macOS
+// t.TempDir lives behind /var -> /private/var, so a raw RepoID(repo) names a
+// directory the session never wrote.
+func sessionStoreID(t *testing.T, repo string) string {
 	t.Helper()
 	root, err := workspace.FindRoot(context.Background(), repo)
 	if err != nil {
 		t.Fatal(err)
 	}
-	store, err := sessionstore.Open(baseDir, sessionstore.RepoID(root), id)
+	return sessionstore.RepoID(root)
+}
+
+// openSessionStore attaches to the store the session created for repo.
+func openSessionStore(t *testing.T, baseDir, repo, id string) *sessionstore.Store {
+	t.Helper()
+	store, err := sessionstore.Open(baseDir, sessionStoreID(t, repo), id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -599,7 +605,7 @@ func TestAnUnstartedSessionWithWorkIsKept(t *testing.T) {
 	if _, err := os.Stat(set.Austin.Path); err != nil {
 		t.Errorf("Austin's worktree was removed despite holding work: %v", err)
 	}
-	if _, err := sessionstore.Open(baseDir, sessionstore.RepoID(repo), set.Session); err != nil {
+	if _, err := sessionstore.Open(baseDir, sessionStoreID(t, repo), set.Session); err != nil {
 		t.Errorf("a kept session must stay resumable: %v", err)
 	}
 }
