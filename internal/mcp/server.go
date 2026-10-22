@@ -50,7 +50,7 @@ func DefaultTools() []Tool {
 		},
 		{
 			Name:        "duo_set_status",
-			Description: "In Goal mode, sign the current phase (ready: true) or revoke signature (ready: false). In Fast mode, Austin uses ready: true to request independent verification.",
+			Description: "Sign the current gate (ready: true) or revoke the signature (ready: false). Fast and every Step [fast] item: Austin requests Tony's verification. Goal and Step plans and [goal] items: both agents sign. The final Step also needs both signatures once its verdict or delivery is settled. A new plan or queue version resets signatures.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -68,7 +68,7 @@ func DefaultTools() []Tool {
 		},
 		{
 			Name:        "duo_set_verification",
-			Description: "Fast mode (Tony only): Report verification verdict (passed or issue_found) for Austin's exact commit.",
+			Description: "Tony only: report the verdict (passed or issue_found) for Austin's exact commit in Fast or a Step [fast] item. issue_found requires a note.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -87,7 +87,7 @@ func DefaultTools() []Tool {
 		},
 		{
 			Name:        "duo_set_plan",
-			Description: "Goal mode only: Create or replace the entire shared Plan. Increments plan version and resets signatures.",
+			Description: "Goal and Step: create or replace the entire shared plan. A Step plan carries the design prose. Increments the version and resets signatures.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -101,7 +101,7 @@ func DefaultTools() []Tool {
 		},
 		{
 			Name:        "duo_escalate",
-			Description: "Fast mode only: Dynamically escalate the session to Goal mode on the fly with a shared plan v1.",
+			Description: "Switch the session to Goal mode. A Fast to Goal switch seeds the plan with the reason; other modes start a fresh Goal round.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{

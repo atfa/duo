@@ -149,7 +149,7 @@ performs.
   that never import each other's world — `internal/guiipc` projects a session onto a
   small NDJSON protocol, and the `gpui/` crate (`duo-gpui`) draws it. A parser-level
   test pins that boundary the same way `internal/tui` already pins its own.
-- **[docs/gui-protocol.md](docs/gui-protocol.md) is the frozen contract.** One
+- **The GUI protocol document is the frozen contract.** One
   direction carries a full `View` plus timeline `event`s; the other carries five
   human commands. It deliberately has no gate verb: signing a phase is authorized
   by an agent's live bridge connection, and a graphical frontend is the human, not

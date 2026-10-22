@@ -22,7 +22,7 @@ This guide is the tutorial. Where they disagree, the protocol document wins.
 - [Step 6: test it](#step-6-test-it)
 - [Step 7: install it](#step-7-install-it)
 - [Checklist](#checklist)
-- [The mistakes that have actually shipped](#the-mistakes-that-have-actually-shipped)
+- [Common mistakes](#common-mistakes)
 
 When using an AI coding agent, have it follow this guide in order and verify each
 stage before moving on. In particular, do not skip the capability contract, state
@@ -30,9 +30,10 @@ round-trip, or real-binary checks below.
 
 ## What you are building
 
-Duo runs two agents, Austin and Tony, each in its own worktree, and has them
-collaborate: Austin plans, both build, they review each other, and the agreed result
-is merged and delivered back to your repository.
+Duo runs two agents, Austin and Tony, each in its own worktree, and hands the
+approved result back to your repository. How much they negotiate depends on the
+mode: Fast has Austin implement and Tony verify; Goal has both plan, build,
+cross-review and sign; Step runs a dual-approved queue under either policy.
 
 Duo does not know anything about coding agents. It has no idea what a "model" is
 for your agent, whether your agent can be resumed, or what flags it takes. **Your
@@ -55,13 +56,11 @@ that is your choice, and the most common reason a plugin is worth writing well.
 
 ## Before you start
 
-You need three things, and nothing else:
+You need **your agent's CLI**: how to launch it, how to resume a session, how to
+list models, and how to set a reasoning level. That is the only requirement.
 
-1. **Your agent's CLI.** How to launch it, how to resume a session, how to list
-   models, how to set a reasoning level.
-2. **A way to observe it**, if it has an extension API, a plugin API, a log file, or
-   anything else you can read. This is optional.
-3. **About an hour per feature.**
+**A way to observe it** — an extension API, a plugin API, a log file, or anything
+else you can read — is optional and only buys the richer adapter below.
 
 You do not need Duo's source code. You do need its protocol document, which is the
 first link at the top.
@@ -254,10 +253,10 @@ chase for a day.
 `state` is yours. Duo stores the JSON you return and hands it back verbatim. It never
 reads it, never migrates it, never changes its schema. Put whatever you need in it.
 
-**One compatibility requirement.** Sessions written by Duo 0.9.0 migrate to
-`{"sessionId":"…"}` under the one word every driver shares, because Duo does not know
-your agent's vocabulary. Accept `sessionId` as the identity, in addition to whatever
-spelling you prefer:
+**Legacy-session compatibility.** Your blob stays opaque, but a session recorded
+before the plugin format can be resumed with the saved identity under the one word
+every driver shares: `{"sessionId":"…"}`. Accept `sessionId` as the identity in
+addition to whatever spelling you prefer:
 
 ```go
 type state struct {
@@ -435,9 +434,8 @@ func TestDeclaredCapabilitiesAreImplemented(t *testing.T) {
 ```
 
 **Test the built binary over its real pipes.** This is the only level that can catch a
-disagreement about the wire format, and it is the level at which two of Duo's own
-plugins were found broken. Build the executable, run it, write JSON to its stdin, read
-JSON from its stdout:
+disagreement about the wire format. Build the executable, run it, write JSON to its
+stdin, read JSON from its stdout:
 
 ```go
 func TestBinarySpeaksTheProtocol(t *testing.T) {
@@ -514,7 +512,7 @@ distribution story.
 - [ ] `probe` reports unavailability with a reason instead of erroring
 - [ ] `prepare` returns a shell command line, quoted, preserving `baseCommand`
 - [ ] An unset model or effort adds no flag at all
-- [ ] `prepare` accepts `sessionId` in state, for Duo 0.9 compatibility
+- [ ] `prepare` accepts `sessionId` as an identity spelling in stored state
 - [ ] `resume: server` sends no identity until a real one is known
 - [ ] `resume: server` implements `state` and reports the learned identity
 - [ ] A restart replays the stored state and reattaches
@@ -525,9 +523,9 @@ distribution story.
 - [ ] The built binary has been driven over its real pipes
 - [ ] `duo --agent <name>` starts, resumes, and delivers
 
-## The mistakes that have actually shipped
+## Common mistakes
 
-Every one of these is in Duo's own history, and every one was silent.
+Each one is silent when it happens.
 
 **Declaring a capability whose method is missing.** A method with a subtly different
 signature compiles, passes every unit test, and answers `unsupported` at runtime. The
@@ -543,7 +541,7 @@ launch, with no error anywhere. This is what `resume: server` exists to prevent.
 **Learning an identity with nowhere to put it.** `prepare` runs before the agent
 starts, so a `resume: server` driver that does not implement `state` cannot persist
 the id it learns afterwards. Every launch opens a new conversation, and every other
-check still passes. The contract suite now fails this driver.
+check still passes. The conformance suite fails this driver.
 
 **Matching flags by substring.** `-c` matches `--config`. The agent silently loses
 its configuration, or its session, depending on which flag you were guarding.

@@ -45,11 +45,9 @@ or if the version does not match exactly.
   agent endpoint or issue connect/disconnect events, so it cannot trigger a resume
   wake.
 
-Core answers with a `response`:
-
-```json
-{"version":1,"type":"response","ok":true,"agent":"Austin","sessionId":"…"}
-```
+A valid `hello` is not answered: Core registers the connection and starts
+dispatching. A wrong agent, session id, token or version closes the socket without a
+reply, and the session log records why.
 
 Connect once and keep the socket. Reconnect after a drop, with a short backoff; Core
 treats a reconnect as a new `hello` and does not mind.
@@ -155,10 +153,10 @@ Two optional messages keep Duo's model and thinking displays honest:
 {"version":1,"type":"thinking_state","agent":"Austin","thinking":"high","ok":true}
 ```
 
-Send `model_state` when the agent starts and whenever the model changes — including
-when your agent clamps a requested thinking level to what the current model supports.
-Report what the agent **settled on**, not what was asked for. Duo's whole value here
-is that the picker shows reality.
+Send `model_state` for the model and `thinking_state` for the reasoning level when the
+agent starts and whenever either changes — including when the agent clamps a
+requested level to what the current model supports. Report what the agent **settled
+on**, not what was asked for. Duo's whole value here is that the picker shows reality.
 
 If your agent does not implement a live switch, send neither, and declare
 `liveModelSwitch: false` so Core restarts the process instead of asking.
@@ -166,23 +164,27 @@ If your agent does not implement a live switch, send neither, and declare
 ## Coordination tools
 
 A richer integration can expose Duo's coordination tools to your agent — the shared
-plan, status, verification verdicts, escalation. Those are HTTP-shaped calls over the
-same socket, and `internal/mcp` implements them:
+plan and queue, status, verification verdicts, escalation and safe restart. They are
+request/response calls over the same socket:
 
 | call | purpose |
 |---|---|
-| `duo_set_plan` | publish the shared plan (Goal, or the prose plan in Step) |
-| `duo_status` | read the shared plan, phase and signatures |
-| `duo_set_status` | sign the current gate (Goal/Step) or request verification (Fast) |
-| `duo_set_verification` | publish a Fast-mode or Step `[fast]` verdict |
-| `duo_send` | send a message to the peer or the human |
+| `duo_status` | read mode, phase, plan or queue, signatures and worktrees |
+| `duo_send` | send a message to the peer |
+| `duo_set_plan` | publish the shared plan (Goal, or the design prose in Step) |
+| `duo_set_steps` | publish the Step queue (Step only) |
+| `duo_set_status` | Fast and every Step `[fast]` item: Austin requests Tony's verification. Goal and Step plans and `[goal]` items: both agents sign. The final Step also needs both signatures. |
+| `duo_set_verification` | publish a Fast or Step `[fast]` verdict (Tony only) |
 | `duo_escalate` | switch the session to Goal from any mode |
+| `duo_restart_duo` | request a guarded STEP/EXECUTE restart between steps, optionally installing a new binary |
 
-These six are the whole set today, and they are the same tools Duo exposes over MCP,
-so an adapter can serve them either way.
+These eight are the whole set; availability still follows the session mode. The MCP
+server (`duo mcp-server`) exposes a six-tool subset — everything except
+`duo_set_steps` and `duo_restart_duo` — so an adapter can serve the tools natively or
+over MCP.
 
-Set `mcp` on your manifest only if your adapter really serves these. An agent that
-cannot call them has no coordination tools, and Duo says so plainly.
+Set `mcp` on your manifest only if your launch command really makes these reachable.
+An agent that cannot call them has no coordination tools, and Duo says so plainly.
 
 ## Outside a Duo session
 
