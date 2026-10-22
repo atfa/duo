@@ -122,8 +122,8 @@
       </div>
       <div class="session-gate">
         <span class="gate-label">gate</span>
-        <span class="gate-step ok">verify</span><span class="arrow">→</span>
-        <span class="gate-step ok">sign</span><span class="arrow">→</span>
+        <span class="gate-step ok">verify</span><span class="arrow" aria-hidden="true">→</span>
+        <span class="gate-step ok">sign</span><span class="arrow" aria-hidden="true">→</span>
         <span class="gate-step">deliver</span>
         <span class="gate-state">ready</span>
       </div>
@@ -258,7 +258,7 @@
       <article class="principle card reveal">
         <span class="p-num">04 / DELIVER</span>
         <h3>Move only when it is provably safe.</h3>
-        <p>Delivery is read-only until the final fast-forward. If your repository is dirty or the branch cannot fast-forward, Duo refuses and changes nothing.</p>
+        <p>Delivery is read-only until the final fast-forward. When it needs to move your branch, Duo refuses if the repository is dirty or the move is not a fast-forward — and changes nothing.</p>
         <div class="evidence"><span class="dim">deliver</span> main <span class="ok">← verified HEAD</span>  <span class="dim">(fast-forward only)</span><br><span class="dim">dirty tree → refuse, checkout untouched</span></div>
       </article>
     </div>
@@ -275,7 +275,7 @@
       <article class="feature card reveal">
         <span class="f-icon"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.2"/><path d="M5 5h6M5 8h6M5 11h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span>
         <h3>A deterministic core</h3>
-        <p>Phases, gates, routing and delivery are enforced in Go, not improvised in a prompt. Agents act only through tools the core authorizes.</p>
+        <p>Phases, gates, routing and delivery are enforced in Go, not improvised in a prompt. Agents keep their own tools; the core decides which transitions their evidence authorizes.</p>
         <span class="f-meta">internal/project · internal/coordinator</span>
       </article>
 
@@ -413,7 +413,7 @@
       </details>
       <details class="faq-item">
         <summary class="faq-q">Does Duo rewrite my history?</summary>
-        <div class="faq-a"><p>No. Delivery only fast-forwards the branch you started from. If that is not possible, or your tree has uncommitted changes, Duo refuses and leaves the checkout untouched.</p></div>
+        <div class="faq-a"><p>No. Delivery only fast-forwards the branch you started from. If it cannot be fast-forwarded, or moving it would overwrite uncommitted changes, Duo refuses and leaves the checkout untouched.</p></div>
       </details>
       <details class="faq-item">
         <summary class="faq-q">Does my code leave my machine?</summary>
