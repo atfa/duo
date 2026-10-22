@@ -45,7 +45,7 @@ Agent 以当前用户的权限运行。Git 工作树只隔离它们对仓库的�
 
 ## Agent 工具与 MCP
 
-Agent bridge 提供九个 Duo 工具，用于同伴消息、通知、共享状态、计划与步骤、验证、关卡签字、模式升级（escalate）与安全自重启：`duo_send`、`duo_notice`、`duo_status`、`duo_set_status`、`duo_set_verification`、`duo_set_plan`、`duo_set_steps`、`duo_escalate` 和 `duo_restart_duo`。工具的可用性取决于当前工作流。`duo mcp-server` 通过 JSON-RPC 暴露 MCP 子集：`duo_send`、`duo_status`、`duo_set_status`、`duo_set_verification`、`duo_set_plan` 和 `duo_escalate`。
+Agent bridge 提供八个 Duo 工具，用于同伴消息、共享状态、计划与步骤、验证、关卡签字、模式升级（escalate）与安全自重启：`duo_send`、`duo_status`、`duo_set_status`、`duo_set_verification`、`duo_set_plan`、`duo_set_steps`、`duo_escalate` 和 `duo_restart_duo`。工具的可用性取决于当前工作流。`duo mcp-server` 通过 JSON-RPC 暴露 MCP 子集：`duo_send`、`duo_status`、`duo_set_status`、`duo_set_verification`、`duo_set_plan` 和 `duo_escalate`。
 
 ## 配置
 
