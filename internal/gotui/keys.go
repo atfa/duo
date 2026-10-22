@@ -516,7 +516,7 @@ func (a *App) handleObserverReportKey(ev *tcell.EventKey) {
 		}
 	}
 	a.handleScrollOverlayKey(ev, func(d int) { a.observerReports.Scroll(d) },
-		max(0, len(a.observerReports.lines)-max(1, a.observerReports.Inner.Dy()-1)))
+		a.observerReports.maxOffset())
 }
 
 func (a *App) handleScrollOverlayKey(ev *tcell.EventKey, scroll func(int), maxOffset int) {
