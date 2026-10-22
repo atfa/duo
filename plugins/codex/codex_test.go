@@ -87,6 +87,7 @@ func TestProjectTrustOverrideUsesGitRootForScopedWorkingDirectory(t *testing.T) 
 }
 
 func TestPreparePreservesCommandAndWiresMCPWithoutExposingToken(t *testing.T) {
+	stubCodexCLI(t)
 	repositoryRoot := filepath.Join(t.TempDir(), "repo root")
 	worktree := filepath.Join(t.TempDir(), "worktree root")
 	plan := prepare(t, driver.LaunchRequest{
@@ -115,6 +116,7 @@ func TestPreparePreservesCommandAndWiresMCPWithoutExposingToken(t *testing.T) {
 }
 
 func TestPrepareRespectsOperatorSafetyFlagsAndOmitsEmptyModel(t *testing.T) {
+	stubCodexCLI(t)
 	plan := prepare(t, driver.LaunchRequest{BaseCommand: "codex --yolo --model custom", CWD: t.TempDir()})
 	if strings.Count(plan.Command, "--yolo") != 1 || strings.Contains(plan.Command, "--dangerously-bypass-approvals-and-sandbox") {
 		t.Fatalf("duplicated or replaced explicit YOLO mode: %s", plan.Command)
@@ -191,6 +193,7 @@ func TestPrepareRestoresCodexSessionWithoutInjectingAWorkPrompt(t *testing.T) {
 }
 
 func TestPrepareAddsYOLOFlagOnce(t *testing.T) {
+	stubCodexCLI(t)
 	plan := prepare(t, driver.LaunchRequest{BaseCommand: "codex --profile work", CWD: t.TempDir()})
 	if strings.Count(plan.Command, "--dangerously-bypass-approvals-and-sandbox") != 1 {
 		t.Fatalf("full bypass flag = %s", plan.Command)
@@ -202,6 +205,7 @@ func TestPrepareAddsYOLOFlagOnce(t *testing.T) {
 }
 
 func TestPrepareRejectsConflictingSandboxOrApprovalFlags(t *testing.T) {
+	stubCodexCLI(t)
 	for _, flags := range []string{
 		"--sandbox workspace-write", "-s workspace-write", "--ask-for-approval on-request",
 		"-a on-request", "--full-auto",
