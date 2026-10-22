@@ -2,6 +2,7 @@ package driver
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +11,23 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestLaunchRequestSeparatesRestoringSessionFromWake(t *testing.T) {
+	data, err := json.Marshal(LaunchRequest{ResumeSession: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatal(err)
+	}
+	if fields["resumeSession"] != true {
+		t.Fatalf("resumeSession = %v in %s, want true", fields["resumeSession"], data)
+	}
+	if _, exists := fields["resumeWake"]; exists {
+		t.Fatalf("deprecated resumeWake should be omitted when false: %s", data)
+	}
+}
 
 // buildPlugin compiles one of the repository's plugins into a temp directory. The
 // contract needs real executables: a plugin is a process, and the framing and

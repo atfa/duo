@@ -48,9 +48,10 @@ type View struct {
 	Project   project.Snapshot
 	Worktrees workspace.Set
 
-	Delivery    sessionstore.Delivery
-	TestCommand string
-	Notices     []string
+	Delivery      sessionstore.Delivery
+	ResumePending bool
+	TestCommand   string
+	Notices       []string
 
 	// Restart is non-empty when the session asked to continue on a new Duo binary.
 	// The interface stops and the CLI exits with the upgrade code so a launcher

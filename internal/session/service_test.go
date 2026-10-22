@@ -135,6 +135,82 @@ func TestSessionRunsHeadless(t *testing.T) {
 	}
 }
 
+func TestResumePendingOnlyForStartedWorkAndClearsOnExplicitResume(t *testing.T) {
+	repo, baseDir := gitRepo(t), t.TempDir()
+	first := New(headlessOptions(t, repo, baseDir, "127.0.0.1:0"))
+	if _, err := first.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if err := first.Do(context.Background(), SubmitTask{Text: "start work"}); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	first.Close()
+
+	resumed := New(resumeOptions(t, repo, baseDir, "127.0.0.1:0"))
+	if _, err := resumed.Start(context.Background()); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	defer resumed.Close()
+	if !resumed.View().ResumePending {
+		t.Fatal("started resumed session should expose ResumePending")
+	}
+	if err := resumed.Do(context.Background(), ResumeWork{}); err != nil {
+		t.Fatalf("explicit resume: %v", err)
+	}
+	if resumed.View().ResumePending || resumed.coord.HarnessHeld() {
+		t.Fatal("ResumeWork did not clear ResumePending")
+	}
+	if err := resumed.Do(context.Background(), ResumeWork{}); err == nil || !strings.Contains(err.Error(), "already resumed") {
+		t.Fatalf("duplicate ResumeWork error = %v", err)
+	}
+	resumed.coord.HoldResume()
+	if err := resumed.Do(context.Background(), SubmitTask{Text: "new human task"}); err != nil {
+		t.Fatalf("submit after resume: %v", err)
+	}
+	if resumed.View().ResumePending || resumed.coord.HarnessHeld() {
+		t.Fatal("SubmitTask did not clear pending resume and harness hold")
+	}
+}
+
+func TestUnstartedResumeDoesNotShowResumePending(t *testing.T) {
+	repo, baseDir := gitRepo(t), t.TempDir()
+	first := New(headlessOptions(t, repo, baseDir, "127.0.0.1:0"))
+	if _, err := first.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	id := first.View().SessionID
+	if err := first.Do(context.Background(), SubmitTask{Text: "create resumable snapshot"}); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	first.Close()
+	store, err := sessionstore.Open(baseDir, sessionstore.RepoID(repo), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap.Started = false
+	if err := store.Save(snap); err != nil {
+		t.Fatal(err)
+	}
+
+	opts := resumeOptions(t, repo, baseDir, "127.0.0.1:0")
+	opts.ResumeSession = id
+	resumed := New(opts)
+	if _, err := resumed.Start(context.Background()); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	defer resumed.Close()
+	if resumed.View().ResumePending {
+		t.Fatal("unstarted resumed session must not advertise /resume")
+	}
+	if err := resumed.Do(context.Background(), ResumeWork{}); err == nil || !strings.Contains(err.Error(), "submit a task first") {
+		t.Fatalf("ResumeWork on unstarted session error = %v", err)
+	}
+}
+
 func TestResumeCompletedSessionKeepsDoneUntilFollowUpTask(t *testing.T) {
 	repo, baseDir := gitRepo(t), t.TempDir()
 	listen := "127.0.0.1:0"
@@ -175,6 +251,9 @@ func TestResumeCompletedSessionKeepsDoneUntilFollowUpTask(t *testing.T) {
 	defer resumed.Close()
 	if result.Phase != project.PhaseDone || resumed.View().Project.Phase != project.PhaseDone {
 		t.Fatalf("resumed phase = result:%s view:%s, want DONE until follow-up task", result.Phase, resumed.View().Project.Phase)
+	}
+	if err := resumed.Do(context.Background(), ResumeWork{}); err == nil || !strings.Contains(err.Error(), "DONE") {
+		t.Fatalf("ResumeWork in DONE error = %v", err)
 	}
 	got, err := store.Load()
 	if err != nil {
@@ -226,8 +305,15 @@ func TestPauseCommandsPersistAndRefreshTheSessionView(t *testing.T) {
 	if err := svc.Do(context.Background(), Unpause{}); err == nil {
 		t.Fatal("unpause after completed pause should fail")
 	}
+	svc.coord.HoldResume()
+	if !svc.coord.ResumePending() || !svc.coord.HarnessHeld() {
+		t.Fatal("test setup did not hold resume state")
+	}
 	if err := svc.Do(context.Background(), Continue{}); err != nil {
 		t.Fatalf("continue: %v", err)
+	}
+	if svc.coord.ResumePending() || svc.coord.HarnessHeld() {
+		t.Fatal("Continue did not clear pending resume and harness hold")
 	}
 	if got := svc.View().Pause.State; got != PauseRunning {
 		t.Fatalf("state after Continue = %s", got)
@@ -254,6 +340,9 @@ func TestPausedSessionResumesWithoutDroppingPauseState(t *testing.T) {
 	view := resumed.View()
 	if view.Pause.State != PausePaused || !view.Pause.Paused[protocol.Austin] || !view.Pause.Paused[protocol.Tony] {
 		t.Fatalf("resumed pause view = %+v", view.Pause)
+	}
+	if err := resumed.Do(context.Background(), ResumeWork{}); err == nil || !strings.Contains(err.Error(), "/continue") {
+		t.Fatalf("ResumeWork while paused error = %v", err)
 	}
 }
 

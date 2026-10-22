@@ -25,7 +25,6 @@ import (
 const (
 	Name          = "codex"
 	DriverVersion = "1.0.0"
-	resumePrompt  = "Continue Duo's existing task. First inspect duo_status, then continue the current phase in this worktree without restarting completed work."
 )
 
 var (
@@ -283,12 +282,8 @@ func (p *Plugin) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
 	if !driver.HasFlag(command, "--no-daemon") {
 		command += " --no-daemon"
 	}
-	resumeWithoutSession := prior.SessionID == "" && prior.CWD != "" && !prior.StartedAt.IsZero()
 	if prior.SessionID != "" && !hasSubcommand(command, "resume") {
 		command += " resume " + driver.ShellQuote(prior.SessionID)
-		if req.ResumeWake {
-			command += " " + driver.ShellQuote(resumePrompt)
-		}
 	}
 	command = driver.AppendFlag(command, "--model", driver.BareModelID(req.Model))
 	if effort := strings.TrimSpace(req.Thinking); effort != "" {
@@ -310,10 +305,6 @@ func (p *Plugin) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
 	if !driver.HasFlag(command, "--yolo", "--dangerously-bypass-approvals-and-sandbox") {
 		command += " --dangerously-bypass-approvals-and-sandbox"
 	}
-	if req.ResumeWake && resumeWithoutSession && !hasSubcommand(base, "resume") {
-		command += " " + driver.ShellQuote("This Duo session was resumed, but no prior Codex conversation could be recovered. Do not claim to have that conversation. First inspect duo_status, then continue the current phase and work in this worktree without restarting completed work.")
-	}
-
 	next := prior
 	if next.SessionID == "" {
 		next.CWD = req.CWD

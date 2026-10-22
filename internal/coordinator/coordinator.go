@@ -61,22 +61,24 @@ type Coordinator struct {
 	compose   func(project.Snapshot) sessionstore.Snapshot
 	persistMu sync.Mutex
 
-	resumeWakeMu        sync.Mutex
-	resumeWakeEnabled   bool
-	resumeWakeAttempted map[protocol.AgentID]bool
+	resumeWorkMu        sync.Mutex
+	resumeWorkEnabled   bool
+	resumeWorkAttempted map[protocol.AgentID]bool
 
-	holdMu         sync.Mutex
-	harnessOff     bool
-	pauseMu        sync.Mutex
-	pauseEmitMu    sync.Mutex
-	driverSwitchMu sync.Mutex
-	pauseState     string
-	paused         map[protocol.AgentID]bool
-	settled        map[protocol.AgentID]bool
-	held           []heldMessage
-	pauseChange    func(PauseSnapshot)
-	resumeRepo     string
-	resumeSession  string
+	holdMu             sync.Mutex
+	harnessOff         bool
+	resumePending      bool
+	resumeWorkInFlight bool
+	pauseMu            sync.Mutex
+	pauseEmitMu        sync.Mutex
+	driverSwitchMu     sync.Mutex
+	pauseState         string
+	paused             map[protocol.AgentID]bool
+	settled            map[protocol.AgentID]bool
+	held               []heldMessage
+	pauseChange        func(PauseSnapshot)
+	resumeRepo         string
+	resumeSession      string
 
 	modelMu         sync.RWMutex
 	currentThinking map[protocol.AgentID]string
@@ -315,6 +317,7 @@ func (c *Coordinator) ContinuePause(ctx context.Context) error {
 	c.paused[protocol.Austin], c.paused[protocol.Tony] = false, false
 	state := c.pauseSnapshotLocked()
 	c.pauseMu.Unlock()
+	c.clearResumePending()
 	c.emitPause(state, "continued")
 	var summaries [2][]string
 	for _, item := range held {
@@ -403,6 +406,31 @@ func (c *Coordinator) refreshPause(agent protocol.AgentID, activity protocol.Act
 func (c *Coordinator) holdHarness() {
 	c.holdMu.Lock()
 	c.harnessOff = true
+	c.holdMu.Unlock()
+}
+
+// HoldResume keeps a restored, already-started project quiet until a human
+// explicitly resumes work or submits a new task.
+func (c *Coordinator) HoldResume() {
+	c.holdMu.Lock()
+	c.resumePending = true
+	c.harnessOff = true
+	c.holdMu.Unlock()
+}
+
+// ResumePending reports whether a human has yet to explicitly resume a restored
+// session.
+func (c *Coordinator) ResumePending() bool {
+	c.holdMu.Lock()
+	defer c.holdMu.Unlock()
+	return c.resumePending
+}
+
+func (c *Coordinator) clearResumePending() {
+	c.holdMu.Lock()
+	c.resumePending = false
+	c.resumeWorkInFlight = false
+	c.harnessOff = false
 	c.holdMu.Unlock()
 }
 
@@ -511,33 +539,82 @@ func (c *Coordinator) EnableDurability(d Durability) {
 	c.project.SetPersistence(c.persist)
 }
 
-// EnableResumeWake makes the next bridge connection for each agent receive one
-// runtime-local resume prompt. Fresh sessions deliberately never enable this.
-func (c *Coordinator) EnableResumeWake() {
-	c.resumeWakeMu.Lock()
-	c.resumeWakeEnabled = true
-	c.resumeWakeAttempted = make(map[protocol.AgentID]bool)
-	c.resumeWakeMu.Unlock()
+// RequestResumeWork sends one phase-aware resume prompt to each agent. Agents
+// that are not reachable yet receive it on their first bridge connection.
+func (c *Coordinator) RequestResumeWork(ctx context.Context) error {
+	snap := c.project.Snapshot()
+	if snap.Phase == project.PhaseDone {
+		return errors.New("session is DONE; submit a new task to start another round")
+	}
+	if !snap.Started {
+		return errors.New("no task has started; submit a task first")
+	}
+	c.pauseMu.Lock()
+	paused := c.pauseState != "running"
+	c.pauseMu.Unlock()
+	if paused {
+		return errors.New("session is paused; use /continue")
+	}
+	c.holdMu.Lock()
+	if !c.resumePending {
+		c.holdMu.Unlock()
+		return errors.New("session is already resumed")
+	}
+	if c.resumeWorkInFlight {
+		c.holdMu.Unlock()
+		return errors.New("resume is already in progress")
+	}
+	c.resumeWorkInFlight = true
+	c.holdMu.Unlock()
+
+	c.resumeWorkMu.Lock()
+	if !c.resumeWorkEnabled {
+		c.resumeWorkEnabled = true
+		c.resumeWorkAttempted = make(map[protocol.AgentID]bool)
+	}
+	c.resumeWorkMu.Unlock()
+	var firstErr error
+	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		if !c.IsAgentConnected(id) {
+			continue // onConnect delivers this agent's one prompt later
+		}
+		if err := c.deliverResumeWork(ctx, id); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	c.holdMu.Lock()
+	c.resumeWorkInFlight = false
+	if firstErr == nil {
+		c.resumePending = false
+		c.harnessOff = false
+	}
+	c.holdMu.Unlock()
+	return firstErr
 }
 
-// EnableResumeWakeForAgent schedules one resume prompt for a newly launched
-// driver without resetting the other agent's attempt.
-func (c *Coordinator) EnableResumeWakeForAgent(agent protocol.AgentID) {
-	c.resumeWakeMu.Lock()
-	wasEnabled := c.resumeWakeEnabled
-	c.resumeWakeEnabled = true
-	if c.resumeWakeAttempted == nil {
-		c.resumeWakeAttempted = make(map[protocol.AgentID]bool)
+func (c *Coordinator) deliverResumeWork(ctx context.Context, agent protocol.AgentID) error {
+	c.resumeWorkMu.Lock()
+	if !c.resumeWorkEnabled || c.resumeWorkAttempted[agent] {
+		c.resumeWorkMu.Unlock()
+		return nil
 	}
-	if !wasEnabled {
-		other := protocol.Austin
-		if agent == protocol.Austin {
-			other = protocol.Tony
-		}
-		c.resumeWakeAttempted[other] = true
+	c.resumeWorkAttempted[agent] = true
+	c.resumeWorkMu.Unlock()
+	message := protocol.Message{Version: protocol.Version, Type: protocol.MsgResumePrompt, From: protocol.Duo, To: agent, Text: c.ResumePrompt(agent), Timestamp: time.Now().UnixMilli()}
+	if err := c.sendToAgent(ctx, agent, message); err != nil {
+		c.resumeWorkMu.Lock()
+		delete(c.resumeWorkAttempted, agent)
+		c.resumeWorkMu.Unlock()
+		return err
 	}
-	delete(c.resumeWakeAttempted, agent)
-	c.resumeWakeMu.Unlock()
+	if c.tracker != nil {
+		c.tracker.Touch(agent)
+	}
+	snap := c.project.Snapshot()
+	c.recordEvent("resume_work_sent", map[string]any{"agent": string(agent), "phase": string(snap.Phase), "planVersion": snap.PlanVersion})
+	c.logf("sent resume work prompt to %s (phase=%s planVersion=%d)", agent, snap.Phase, snap.PlanVersion)
+	c.emit(events.KindSystem, protocol.Duo, agent, fmt.Sprintf("sent resume prompt to %s", agent))
+	return nil
 }
 
 // SetIntegration records the integration outcome so it is part of every
@@ -732,7 +809,7 @@ func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 		return c.SwitchMode(ctx, project.ModeGoal, reason)
 	}
 
-	c.releaseHarness()
+	c.clearResumePending()
 	if !c.IsAgentConnected(protocol.Austin) {
 		return fmt.Errorf("Austin is not connected yet")
 	}
@@ -1131,7 +1208,13 @@ func (c *Coordinator) onConnect(ctx context.Context, agent protocol.AgentID) {
 	if !c.announcedOnStart(agent) {
 		c.emit(events.KindSystem, agent, "", fmt.Sprintf("%s connected", agent))
 	}
-	c.wakeResumedAgent(ctx, agent)
+	if err := c.deliverResumeWork(ctx, agent); err != nil {
+		snap := c.project.Snapshot()
+		c.recordEvent("resume_work_failed", map[string]any{"agent": string(agent), "phase": string(snap.Phase), "error": err.Error()})
+		c.logf("resume work for %s failed: %v", agent, err)
+		c.emit(events.KindError, protocol.Duo, agent, fmt.Sprintf("resume work for %s failed: %v", agent, err))
+		return
+	}
 }
 
 // announcedOnStart reports whether Duo already announced this agent when its
@@ -1150,31 +1233,6 @@ func (c *Coordinator) announcedOnStart(agent protocol.AgentID) bool {
 		return false
 	}
 	return !d.Capabilities().SelfReports
-}
-
-func (c *Coordinator) wakeResumedAgent(ctx context.Context, agent protocol.AgentID) {
-	c.resumeWakeMu.Lock()
-	if !c.resumeWakeEnabled || c.resumeWakeAttempted[agent] {
-		c.resumeWakeMu.Unlock()
-		return
-	}
-	c.resumeWakeAttempted[agent] = true
-	c.resumeWakeMu.Unlock()
-
-	snap := c.project.Snapshot()
-	if err := c.sendToAgent(ctx, agent, protocol.Message{
-		Version: protocol.Version, Type: protocol.MsgResumePrompt, From: protocol.Duo, To: agent,
-		Text: c.resumePrompt(agent, snap), Timestamp: time.Now().UnixMilli(),
-	}); err != nil {
-		c.recordEvent("resume_wake_failed", map[string]any{"agent": string(agent), "phase": string(snap.Phase), "planVersion": snap.PlanVersion, "error": err.Error()})
-		c.logf("resume wake for %s failed: %v", agent, err)
-		c.emit(events.KindError, protocol.Duo, agent, fmt.Sprintf("resume wake for %s failed: %v", agent, err))
-		return
-	}
-	c.tracker.Touch(agent)
-	c.recordEvent("resume_wake_sent", map[string]any{"agent": string(agent), "phase": string(snap.Phase), "planVersion": snap.PlanVersion})
-	c.logf("sent resume wake to %s (phase=%s planVersion=%d)", agent, snap.Phase, snap.PlanVersion)
-	c.emit(events.KindSystem, protocol.Duo, agent, fmt.Sprintf("sent resume wake to %s", agent))
 }
 
 func (c *Coordinator) OnDisconnect(client *transport.Client) {

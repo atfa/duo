@@ -135,57 +135,53 @@ func TestPrepareDisablesSharedDaemonForFreshAndResumedCommands(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, base := range []string{"codex", "codex --no-daemon", "codex resume existing-session"} {
-		plan := prepare(t, driver.LaunchRequest{BaseCommand: base, CWD: cwd, State: prior, ResumeWake: true})
+		plan := prepare(t, driver.LaunchRequest{BaseCommand: base, CWD: cwd, State: prior, ResumeSession: true})
 		if strings.Count(plan.Command, "--no-daemon") != 1 {
 			t.Errorf("BaseCommand %q produced %q; want --no-daemon exactly once", base, plan.Command)
 		}
 	}
 }
 
-func TestPreparePromptsCodexToContinueOnlyWhenAddingResume(t *testing.T) {
+func TestPrepareRestoresCodexSessionWithoutInjectingAWorkPrompt(t *testing.T) {
 	stubCodexCLI(t)
 	cwd := t.TempDir()
 	stateBlob, err := json.Marshal(state{SessionID: "prior-session", CWD: cwd})
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := prepare(t, driver.LaunchRequest{BaseCommand: "codex", CWD: cwd, State: stateBlob, ResumeWake: true})
-	quotedPrompt := driver.ShellQuote(resumePrompt)
-	if !strings.Contains(plan.Command, "resume 'prior-session' "+quotedPrompt) {
-		t.Fatalf("resume command missing quoted continuation prompt: %s", plan.Command)
+	plan := prepare(t, driver.LaunchRequest{BaseCommand: "codex", CWD: cwd, State: stateBlob, ResumeSession: true})
+	if !strings.Contains(plan.Command, "resume 'prior-session'") {
+		t.Fatalf("resume command missing prior session ID: %s", plan.Command)
 	}
-	if !strings.Contains(quotedPrompt, `\''`) {
-		t.Fatalf("test prompt no longer exercises shell apostrophe quoting: %s", quotedPrompt)
+	if strings.Contains(plan.Command, "Continue Duo") || strings.Contains(plan.Command, "This Duo session was resumed") {
+		t.Fatalf("resume command injected an unsolicited work prompt: %s", plan.Command)
 	}
 
 	withoutSession, err := json.Marshal(state{CWD: cwd, StartedAt: time.Now()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan = prepare(t, driver.LaunchRequest{BaseCommand: "codex --profile work", CWD: cwd, State: withoutSession, ResumeWake: true})
-	if !strings.Contains(plan.Command, "--profile work --no-daemon") || strings.Contains(plan.Command, " resume ") || !strings.Contains(plan.Command, "This Duo session was resumed, but no prior Codex conversation could be recovered.") {
-		t.Fatalf("resume without Codex session ID did not get a truthful startup prompt: %s", plan.Command)
-	}
-	if !strings.HasSuffix(plan.Command, driver.ShellQuote("This Duo session was resumed, but no prior Codex conversation could be recovered. Do not claim to have that conversation. First inspect duo_status, then continue the current phase and work in this worktree without restarting completed work.")) {
-		t.Fatalf("startup prompt was not appended after Codex options: %s", plan.Command)
+	plan = prepare(t, driver.LaunchRequest{BaseCommand: "codex --profile work", CWD: cwd, State: withoutSession, ResumeSession: true})
+	if !strings.Contains(plan.Command, "--profile work --no-daemon") || strings.Contains(plan.Command, " resume ") || strings.Contains(plan.Command, "This Duo session was resumed") {
+		t.Fatalf("resume without Codex session ID injected an unsolicited prompt: %s", plan.Command)
 	}
 
 	restarted := prepare(t, driver.LaunchRequest{BaseCommand: "codex", CWD: cwd, State: stateBlob})
-	if !strings.Contains(restarted.Command, "resume 'prior-session'") || strings.Contains(restarted.Command, resumePrompt) {
+	if !strings.Contains(restarted.Command, "resume 'prior-session'") || strings.Contains(restarted.Command, "Continue Duo") {
 		t.Fatalf("same-session restart did not preserve Codex conversation without waking it: %s", restarted.Command)
 	}
 	restartedWithoutSession := prepare(t, driver.LaunchRequest{BaseCommand: "codex", CWD: cwd, State: withoutSession})
-	if strings.Contains(restartedWithoutSession.Command, resumePrompt) || strings.Contains(restartedWithoutSession.Command, "This Duo session was resumed") || strings.Contains(restartedWithoutSession.Command, " resume ") {
+	if strings.Contains(restartedWithoutSession.Command, "This Duo session was resumed") || strings.Contains(restartedWithoutSession.Command, " resume ") {
 		t.Fatalf("same-session restart without Codex ID was given an unsolicited prompt: %s", restartedWithoutSession.Command)
 	}
 
 	fresh := prepare(t, driver.LaunchRequest{BaseCommand: "codex", CWD: cwd})
-	if strings.Contains(fresh.Command, resumePrompt) || strings.Contains(fresh.Command, " resume ") {
+	if strings.Contains(fresh.Command, "Continue Duo") || strings.Contains(fresh.Command, " resume ") {
 		t.Fatalf("fresh command unexpectedly contains resume prompt or subcommand: %s", fresh.Command)
 	}
 
 	alreadyResuming := prepare(t, driver.LaunchRequest{BaseCommand: "codex resume other-session", CWD: cwd, State: stateBlob})
-	if strings.Contains(alreadyResuming.Command, resumePrompt) || strings.Count(alreadyResuming.Command, " resume ") != 1 {
+	if strings.Contains(alreadyResuming.Command, "Continue Duo") || strings.Count(alreadyResuming.Command, " resume ") != 1 {
 		t.Fatalf("existing resume command was given a duplicate prompt or subcommand: %s", alreadyResuming.Command)
 	}
 	alreadyResumingWithoutSession := prepare(t, driver.LaunchRequest{BaseCommand: "codex resume other-session", CWD: cwd, State: withoutSession})
@@ -342,7 +338,7 @@ func TestDiscoverFreshRolloutAndResumeAfterRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	restarted := &Plugin{}
-	resume := prepareWith(t, restarted, driver.LaunchRequest{CWD: cwd, State: stateBlob, ResumeWake: true})
+	resume := prepareWith(t, restarted, driver.LaunchRequest{CWD: cwd, State: stateBlob, ResumeSession: true})
 	if !strings.Contains(resume.Command, "resume '"+id+"'") {
 		t.Fatalf("resume command did not use Codex-issued ID: %s", resume.Command)
 	}
@@ -362,7 +358,7 @@ func TestPrepareRecoversUniqueRolloutWhenCheckpointPredatesMetadata(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	plan := prepareWith(t, &Plugin{}, driver.LaunchRequest{CWD: cwd, State: prior, ResumeWake: true})
+	plan := prepareWith(t, &Plugin{}, driver.LaunchRequest{CWD: cwd, State: prior, ResumeSession: true})
 	if plan.SessionIdentity != id || !strings.Contains(plan.Command, "resume '"+id+"'") {
 		t.Fatalf("unique prior rollout not recovered: identity=%q command=%s", plan.SessionIdentity, plan.Command)
 	}

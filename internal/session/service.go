@@ -311,8 +311,9 @@ func (s *Service) launch(ctx context.Context) (Result, error) {
 	if s.pauseState == PausePausing || s.pauseState == PausePaused {
 		coord.RestorePause(coordinator.PauseSnapshot{State: string(s.pauseState), Paused: s.pausedAgents})
 	}
-	if s.resume && s.pauseState != PausePausing && s.pauseState != PausePaused {
-		coord.EnableResumeWake()
+	resumeSnapshot := s.state.Snapshot()
+	if s.resume && resumeSnapshot.Started && resumeSnapshot.Phase != project.PhaseDone && s.pauseState != PausePausing && s.pauseState != PausePaused {
+		coord.HoldResume()
 	}
 	server.SetHandler(coord)
 	s.startObserver()
@@ -379,7 +380,7 @@ func (s *Service) launch(ctx context.Context) (Result, error) {
 			Host:           host,
 			Port:           port,
 			Session:        s.sessionID,
-			ResumeWake:     s.resume && s.pauseState != PausePausing && s.pauseState != PausePaused,
+			ResumeSession:  s.resume,
 			Token:          token,
 			Plugin:         plugin,
 			PluginState:    s.driverState[agentID].State,
@@ -720,6 +721,7 @@ func (s *Service) view() View {
 	}
 	if s.coord != nil {
 		v.Delivery = s.coord.CurrentDelivery()
+		v.ResumePending = s.coord.ResumePending()
 		pause := s.coord.PauseSnapshot()
 		v.Pause = PauseView{State: PauseState(pause.State), Paused: pause.Paused}
 	} else {
@@ -835,6 +837,8 @@ func (s *Service) Do(ctx context.Context, cmd Command) error {
 		return nil
 	case ResumeModeWork:
 		return s.coord.ResumeMode(ctx)
+	case ResumeWork:
+		return s.coord.RequestResumeWork(ctx)
 	case Pause:
 		return s.coord.SetPause()
 	case Unpause:

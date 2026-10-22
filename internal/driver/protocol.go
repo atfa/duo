@@ -228,7 +228,11 @@ type ProbeResult struct {
 // concept.
 type LaunchRequest struct {
 	Agent AgentID `json:"agent"`
-	// ResumeWake is true only for the first launch when Duo resumes a session.
+	// ResumeSession is true only for the first launch of a resumed session. It
+	// lets a driver restore its own conversation; it must not start a work turn.
+	ResumeSession bool `json:"resumeSession,omitempty"`
+	// ResumeWake is deprecated. Core never sends true; drivers must not inject a
+	// user turn because this field is absent or false.
 	ResumeWake     bool   `json:"resumeWake,omitempty"`
 	Mode           string `json:"mode"`
 	CWD            string `json:"cwd"`

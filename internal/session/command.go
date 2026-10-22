@@ -40,6 +40,10 @@ type SwitchMode struct {
 // resume.
 type ResumeModeWork struct{}
 
+// ResumeWork explicitly resumes a restored session after the human has reviewed
+// its history.
+type ResumeWork struct{}
+
 // Pause asks Duo to hold new work after agents reach idle boundaries.
 type Pause struct{}
 
@@ -112,6 +116,7 @@ type RestartDuo struct {
 func (SubmitTask) Kind() string     { return "submit_task" }
 func (SwitchMode) Kind() string     { return "switch_mode" }
 func (ResumeModeWork) Kind() string { return "resume_mode_work" }
+func (ResumeWork) Kind() string     { return "resume_work" }
 func (Pause) Kind() string          { return "pause" }
 func (Unpause) Kind() string        { return "unpause" }
 func (Continue) Kind() string       { return "continue" }
@@ -127,6 +132,7 @@ func (RestartDuo) Kind() string     { return "restart_duo" }
 func (SubmitTask) command()     {}
 func (SwitchMode) command()     {}
 func (ResumeModeWork) command() {}
+func (ResumeWork) command()     {}
 func (Pause) command()          {}
 func (Unpause) command()        {}
 func (Continue) command()       {}

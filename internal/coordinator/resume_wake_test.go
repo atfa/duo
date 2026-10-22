@@ -21,9 +21,11 @@ func startWakeServer(t *testing.T, resume bool) (*transport.Server, *Coordinator
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	server := transport.NewServer("127.0.0.1:0", "wake-test", "wake-token")
-	coord := New(server, project.NewState(), harness.NewTracker(), promptCoordinator().workspace, events.NewBus())
+	state := project.NewState()
+	coord := New(server, state, harness.NewTracker(), promptCoordinator().workspace, events.NewBus())
 	if resume {
-		coord.EnableResumeWake()
+		state.MarkStarted()
+		coord.HoldResume()
 	}
 	server.SetHandler(coord)
 	errCh := make(chan error, 1)
@@ -74,10 +76,13 @@ func readWake(t *testing.T, conn net.Conn) protocol.Message {
 	return message
 }
 
-func TestResumeWakeIsIndependentAndOnlyOnce(t *testing.T) {
+func TestResumeWorkDeliversOnceOnFirstConnection(t *testing.T) {
 	for _, order := range [][]protocol.AgentID{{protocol.Austin, protocol.Tony}, {protocol.Tony, protocol.Austin}} {
 		t.Run(string(order[0])+" first", func(t *testing.T) {
-			server, _, _ := startWakeServer(t, true)
+			server, coord, _ := startWakeServer(t, true)
+			if err := coord.RequestResumeWork(context.Background()); err != nil {
+				t.Fatal(err)
+			}
 			first := connectWakeAgent(t, server, order[0])
 			defer first.Close()
 			if got := readWake(t, first); got.Type != protocol.MsgResumePrompt || got.To != order[0] {
@@ -102,13 +107,39 @@ func TestResumeWakeIsIndependentAndOnlyOnce(t *testing.T) {
 			if netErr, ok := err.(net.Error); !ok || !netErr.Timeout() {
 				t.Fatalf("reconnect unexpectedly received %+v (err=%v)", duplicate, err)
 			}
+			if err := coord.RequestResumeWork(context.Background()); err == nil || err.Error() != "session is already resumed" {
+				t.Fatalf("duplicate resume request error = %v", err)
+			}
+			if !coord.resumeWorkAttempted[order[0]] || !coord.resumeWorkAttempted[order[1]] {
+				t.Fatalf("resume attempts = %v, want exactly one for both agents", coord.resumeWorkAttempted)
+			}
 		})
 	}
 }
 
-func TestNewResumedRuntimeWakesAgain(t *testing.T) {
+func TestHoldResumeDoesNotWakeAgentsUntilRequested(t *testing.T) {
+	server, coord, _ := startWakeServer(t, true)
+	if !coord.HarnessHeld() || !coord.ResumePending() {
+		t.Fatal("HoldResume must hold harness and mark resume pending")
+	}
+	conn := connectWakeAgent(t, server, protocol.Austin)
+	defer conn.Close()
+	if err := conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	var message protocol.Message
+	err := json.NewDecoder(conn).Decode(&message)
+	if netErr, ok := err.(net.Error); !ok || !netErr.Timeout() {
+		t.Fatalf("agent received a message before explicit resume: %+v (err=%v)", message, err)
+	}
+}
+
+func TestResumeWorkOnlyRunsAfterExplicitRequest(t *testing.T) {
 	for run := 0; run < 2; run++ {
-		server, _, _ := startWakeServer(t, true)
+		server, coord, _ := startWakeServer(t, true)
+		if err := coord.RequestResumeWork(context.Background()); err != nil {
+			t.Fatal(err)
+		}
 		tony := connectWakeAgent(t, server, protocol.Tony)
 		if got := readWake(t, tony); got.Type != protocol.MsgResumePrompt {
 			t.Fatalf("resume runtime %d wake = %+v", run, got)
@@ -117,29 +148,7 @@ func TestNewResumedRuntimeWakesAgain(t *testing.T) {
 	}
 }
 
-func TestEnableResumeWakeForAgentPreservesOtherAttempt(t *testing.T) {
-	coord := &Coordinator{
-		resumeWakeEnabled:   true,
-		resumeWakeAttempted: map[protocol.AgentID]bool{protocol.Austin: true, protocol.Tony: true},
-	}
-	coord.EnableResumeWakeForAgent(protocol.Tony)
-	if !coord.resumeWakeAttempted[protocol.Austin] {
-		t.Fatal("switching Tony reset Austin's resume wake attempt")
-	}
-	if coord.resumeWakeAttempted[protocol.Tony] {
-		t.Fatal("switching Tony did not schedule a new resume wake")
-	}
-}
-
-func TestEnableResumeWakeForAgentDoesNotEnablePeerOnFreshRuntime(t *testing.T) {
-	coord := &Coordinator{}
-	coord.EnableResumeWakeForAgent(protocol.Tony)
-	if !coord.resumeWakeEnabled || coord.resumeWakeAttempted[protocol.Tony] || !coord.resumeWakeAttempted[protocol.Austin] {
-		t.Fatalf("targeted wake state = enabled:%t attempts:%v", coord.resumeWakeEnabled, coord.resumeWakeAttempted)
-	}
-}
-
-func TestResumeWakeJournalsEachAgentOnce(t *testing.T) {
+func TestResumeWorkJournalsEachAgentOnce(t *testing.T) {
 	// The journal's directory is claimed before the server that writes into it.
 	// Go runs cleanups last-in-first-out, so this order stops the server before
 	// the directory is deleted; the reverse order lets a connection goroutine
@@ -147,6 +156,9 @@ func TestResumeWakeJournalsEachAgentOnce(t *testing.T) {
 	// "directory not empty" whenever the two overlap.
 	dir := t.TempDir()
 	server, coord, _ := startWakeServer(t, true)
+	if err := coord.RequestResumeWork(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 	store, err := sessionstore.New(dir, "repo", "session")
 	if err != nil {
 		t.Fatal(err)
@@ -162,11 +174,11 @@ func TestResumeWakeJournalsEachAgentOnce(t *testing.T) {
 	var data []byte
 	for deadline := time.Now().Add(time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
 		data, err = os.ReadFile(store.EventsPath())
-		if err == nil && strings.Count(string(data), `"type":"resume_wake_sent"`) == 2 {
+		if err == nil && strings.Count(string(data), `"type":"resume_work_sent"`) == 2 {
 			return
 		}
 	}
-	t.Fatalf("resume wake journal count = %d, want 2:\n%s", strings.Count(string(data), `"type":"resume_wake_sent"`), data)
+	t.Fatalf("resume prompt journal count = %d, want 2:\n%s", strings.Count(string(data), `"type":"resume_work_sent"`), data)
 }
 
 func TestFreshConnectionDoesNotWake(t *testing.T) {

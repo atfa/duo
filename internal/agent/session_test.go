@@ -171,7 +171,7 @@ func TestRestartRunningCarriesForwardLiveDriverState(t *testing.T) {
 		spec.State = []byte(`{"sessionId":"prepared"}`)
 		spec.LiveState = []byte(`{"sessionId":"learned"}`)
 	})
-	s, err := NewSession(context.Background(), Config{Agent: protocol.Austin, Dir: t.TempDir(), Plugin: stub.Caller(), ResumeWake: true})
+	s, err := NewSession(context.Background(), Config{Agent: protocol.Austin, Dir: t.TempDir(), Plugin: stub.Caller(), ResumeSession: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,14 +187,14 @@ func TestRestartRunningCarriesForwardLiveDriverState(t *testing.T) {
 	if len(prepares) != 2 || string(prepares[1].State) != `{"sessionId":"learned"}` {
 		t.Fatalf("restart prepare state = %#v, want live session identity", prepares)
 	}
-	if !prepares[0].ResumeWake || prepares[1].ResumeWake {
-		t.Fatalf("resume wake flags = [%t, %t], want true only on initial launch", prepares[0].ResumeWake, prepares[1].ResumeWake)
+	if !prepares[0].ResumeSession || prepares[1].ResumeSession {
+		t.Fatalf("resume session flags = [%t, %t], want true only on initial launch", prepares[0].ResumeSession, prepares[1].ResumeSession)
 	}
 }
 
-func TestWithDriverUsesRequestedResumeWake(t *testing.T) {
+func TestWithDriverUsesRequestedResumeSession(t *testing.T) {
 	stub := agenttest.New("stub")
-	previous, err := NewSession(context.Background(), Config{Agent: protocol.Austin, Dir: t.TempDir(), Plugin: stub.Caller(), ResumeWake: true})
+	previous, err := NewSession(context.Background(), Config{Agent: protocol.Austin, Dir: t.TempDir(), Plugin: stub.Caller(), ResumeSession: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestWithDriverUsesRequestedResumeWake(t *testing.T) {
 		t.Fatal(err)
 	}
 	prepares := stub.Prepares()
-	if len(prepares) != 1 || prepares[0].ResumeWake {
-		t.Fatalf("replacement prepare = %#v, want ResumeWake=false", prepares)
+	if len(prepares) != 1 || prepares[0].ResumeSession {
+		t.Fatalf("replacement prepare = %#v, want ResumeSession=false", prepares)
 	}
 }

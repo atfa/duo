@@ -123,8 +123,9 @@ type Config struct {
 	Host, Port     string
 	Session        string
 	Token          string
-	// ResumeWake asks the plugin to continue work on the first launch only.
-	ResumeWake bool
+	// ResumeSession asks the plugin to restore its own conversation on the first
+	// launch only. It must not inject a work prompt.
+	ResumeSession bool
 
 	// Plugin is the driver that owns this agent. Everything agent-specific is
 	// asked of it.
@@ -380,13 +381,13 @@ func (s *Session) SetOnExit(fn func(ExitEvent)) {
 
 // WithDriver creates an unstarted replacement with this agent's existing Duo
 // launch context. Driver-specific state and model/effort are intentionally reset.
-func (s *Session) WithDriver(ctx context.Context, plugin driver.Caller, baseCommand, model, effort string, resumeWake bool) (*Session, error) {
+func (s *Session) WithDriver(ctx context.Context, plugin driver.Caller, baseCommand, model, effort string, resumeSession bool) (*Session, error) {
 	s.mu.RLock()
 	cfg := s.cfg
 	s.mu.RUnlock()
 	cfg.Plugin = plugin
 	cfg.PluginState = nil
-	cfg.ResumeWake = resumeWake
+	cfg.ResumeSession = resumeSession
 	cfg.BaseCommand = baseCommand
 	cfg.Model = model
 	cfg.Thinking = effort
@@ -414,7 +415,7 @@ func (s *Session) Preflight(ctx context.Context) error {
 func (s *Session) prepareLocked(ctx context.Context) (*driver.LaunchPlan, error) {
 	plan, err := s.cfg.Plugin.Prepare(ctx, driver.LaunchRequest{
 		Agent:          driver.AgentID(s.cfg.Agent),
-		ResumeWake:     s.cfg.ResumeWake,
+		ResumeSession:  s.cfg.ResumeSession,
 		Mode:           modeEnv(s.cfg.Mode),
 		CWD:            s.cfg.Dir,
 		RepositoryRoot: s.cfg.RepositoryRoot,
@@ -504,7 +505,7 @@ func (s *Session) Start(ctx context.Context) error {
 	s.cmd = cmd
 	s.ptmx = ptmx
 	s.started = true
-	s.cfg.ResumeWake = false
+	s.cfg.ResumeSession = false
 	s.stopping = false
 	s.state = ProcessRunning
 	s.waitErr = nil
