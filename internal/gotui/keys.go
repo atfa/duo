@@ -71,7 +71,7 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 		case overlayDetails:
 			a.handleScrollOverlayKey(ev, func(d int) { a.details.Scroll(d) }, max(0, len(a.details.lines)-max(1, a.details.Inner.Dy()-1)))
 		case overlayObserverReports:
-			a.handleScrollOverlayKey(ev, func(d int) { a.observerReports.Scroll(d) }, max(0, len(a.observerReports.lines)-max(1, a.observerReports.Inner.Dy()-1)))
+			a.handleObserverReportKey(ev)
 		}
 		return
 	}
@@ -503,6 +503,20 @@ func (a *App) handlePickerKey(ev *tcell.EventKey) {
 		}
 		return
 	}
+}
+
+// handleObserverReportKey scrolls the report panel and re-asks the observer on R.
+// The panel is the only place observer output lives, so asking again is one key.
+func (a *App) handleObserverReportKey(ev *tcell.EventKey) {
+	if ev.Key() == tcell.KeyRune {
+		switch strings.ToLower(ev.Str()) {
+		case "r":
+			a.requestObserverReport()
+			return
+		}
+	}
+	a.handleScrollOverlayKey(ev, func(d int) { a.observerReports.Scroll(d) },
+		max(0, len(a.observerReports.lines)-max(1, a.observerReports.Inner.Dy()-1)))
 }
 
 func (a *App) handleScrollOverlayKey(ev *tcell.EventKey, scroll func(int), maxOffset int) {

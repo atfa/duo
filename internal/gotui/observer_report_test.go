@@ -5,38 +5,54 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atfa/duo/internal/events"
-	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/session"
 	"github.com/gdamore/tcell/v3"
 )
 
-func TestCtrlEOpensObserverReportInsteadOfSettings(t *testing.T) {
+// panelText renders a report overlay's lines as one string.
+func panelText(overlay *observerReportOverlay) string {
+	var text strings.Builder
+	for _, line := range overlay.lines {
+		text.WriteString(line.text())
+	}
+	return text.String()
+}
+
+// normalizeText drops spacing so a test can match wrapped panel text.
+func normalizeText(text string) string {
+	return strings.NewReplacer(" ", "", "\n", "", "·", "").Replace(text)
+}
+
+func reportView(text string) session.ObserverView {
+	return session.ObserverView{
+		Enabled: true, Model: "exec", HasKey: true, Configured: true,
+		Reports: []session.ObserverReport{{
+			At:   time.Date(2026, 10, 22, 13, 5, 0, 0, time.Local),
+			Text: text,
+		}},
+	}
+}
+
+// Ctrl+E is the human asking "what are they doing now", so it opens the panel and
+// asks the observer for a fresh report.
+func TestCtrlEOpensReportsAndAsksForAFreshOne(t *testing.T) {
 	fake := newFakeSession()
-	fake.view.Observer.Model = "exec"
-	fake.view.Observer.Enabled = true
-	fake.view.Observer.HasKey = true
+	fake.view.Observer = reportView("**Doing now**\n- Austin is running go test ./...")
 	app := New(fake)
-	app.route(events.Event{
-		Time: time.Date(2026, 10, 22, 13, 5, 0, 0, time.Local), Kind: events.KindObserver,
-		Agent: protocol.Duo, Text: "Austin completed the parser; tests are still running.",
-	})
+
 	app.handleKey(tcell.NewEventKey(tcell.KeyCtrlE, "", tcell.ModNone))
+
 	if app.overlay != overlayObserverReports {
 		t.Fatalf("Ctrl+E overlay = %v, want observer reports", app.overlay)
 	}
+	if got := fake.snapshotReportRequests(); got != 1 {
+		t.Fatalf("Ctrl+E asked for %d reports, want 1", got)
+	}
 	if !app.observerReports.hasReports() {
-		t.Fatal("observer report panel did not include the existing report")
+		t.Fatal("the panel did not show the report already in the view")
 	}
-	if app.observer != nil && app.overlay == overlayObserver {
-		t.Fatal("Ctrl+E opened observer settings instead of reports")
-	}
-	var report strings.Builder
-	for _, line := range app.observerReports.lines {
-		report.WriteString(line.text())
-	}
-	if !strings.Contains(strings.ReplaceAll(report.String(), " ", ""), "Austincompletedtheparser") {
-		t.Fatalf("report panel content = %q", report.String())
+	if got := normalizeText(panelText(app.observerReports)); !strings.Contains(got, "Austinisrunninggotest") {
+		t.Fatalf("report panel content = %q", got)
 	}
 }
 
@@ -48,9 +64,11 @@ func TestCtrlEOpensObserverSettingsWhenModelIsMissing(t *testing.T) {
 	}
 }
 
-func TestReportsSlashCommandOpensReportPanel(t *testing.T) {
+func TestReportsSlashCommandAsksForAFreshReport(t *testing.T) {
 	fake := newFakeSession()
 	fake.view.Observer.Model = "exec"
+	fake.view.Observer.Enabled = true
+	fake.view.Observer.HasKey = true
 	app := New(fake)
 	if !app.runSlash("/reports") {
 		t.Fatal("/reports was not recognized")
@@ -58,61 +76,98 @@ func TestReportsSlashCommandOpensReportPanel(t *testing.T) {
 	if app.overlay != overlayObserverReports {
 		t.Fatalf("/reports overlay = %v, want observer reports", app.overlay)
 	}
+	if got := fake.snapshotReportRequests(); got != 1 {
+		t.Fatalf("/reports asked for %d reports, want 1", got)
+	}
 }
 
-func TestObserverReportEmptyStateExplainsWhyReportsAreMissing(t *testing.T) {
+func TestRReanalyzesInsideTheReportPanel(t *testing.T) {
+	fake := newFakeSession()
+	fake.view.Observer = reportView("report")
+	app := New(fake)
+	app.handleKey(tcell.NewEventKey(tcell.KeyCtrlE, "", tcell.ModNone))
+	app.handleKey(tcell.NewEventKey(tcell.KeyRune, "r", tcell.ModNone))
+	if got := fake.snapshotReportRequests(); got != 2 {
+		t.Fatalf("R produced %d report requests, want 2 (open plus re-analyze)", got)
+	}
+	if app.overlay != overlayObserverReports {
+		t.Fatalf("R closed the panel: overlay = %v", app.overlay)
+	}
+}
+
+// A disabled observer or a missing key must explain itself instead of asking for
+// a report nobody can produce.
+func TestObserverReportEmptyStateExplainsWhy(t *testing.T) {
 	tests := []struct {
 		name     string
 		observer session.ObserverView
 		want     string
 	}{
-		{
-			name: "disabled keeps existing guidance",
-			want: "Enable the observer and reports will appear",
-		},
-		{
-			name:     "enabled without key",
-			observer: session.ObserverView{Enabled: true},
-			want:     "no API key",
-		},
-		{
-			name:     "enabled with no recent report",
-			observer: session.ObserverView{Enabled: true, HasKey: true},
-			want:     "no new report is available yet",
-		},
-		{
-			name:     "enabled with diagnostic",
-			observer: session.ObserverView{Enabled: true, HasKey: true, LastNotice: "model rejected"},
-			want:     "model rejected",
-		},
+		{name: "disabled", want: "Enable it with /observer"},
+		{name: "enabled without key", observer: session.ObserverView{Enabled: true}, want: "no API key"},
+		{name: "enabled with a key and no report", observer: session.ObserverView{Enabled: true, HasKey: true}, want: "Press R"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			overlay := newObserverReports(newTheme())
-			overlay.begin(nil, tt.observer)
-			var text strings.Builder
-			for _, line := range overlay.lines {
-				text.WriteString(line.text())
-			}
-			normalized := strings.ReplaceAll(strings.ToLower(text.String()), " ", "")
-			if !strings.Contains(normalized, strings.ReplaceAll(strings.ToLower(tt.want), " ", "")) {
-				t.Fatalf("empty report panel = %q, want %q", text.String(), tt.want)
+			overlay.begin(tt.observer)
+			got := normalizeText(panelText(overlay))
+			if !strings.Contains(got, normalizeText(tt.want)) {
+				t.Fatalf("empty report panel = %q, want %q", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestObserverReportPanelShowsDiagnosticAlongsideExistingReports(t *testing.T) {
+func TestObserverReportPanelShowsDiagnosticAlongsideExistingReport(t *testing.T) {
 	overlay := newObserverReports(newTheme())
-	overlay.begin([]entry{{text: "Observer: earlier report"}}, session.ObserverView{
-		Enabled: true, HasKey: true, LastNotice: "latest request failed",
-	})
-	var text strings.Builder
-	for _, line := range overlay.lines {
-		text.WriteString(line.text())
+	view := reportView("earlier report")
+	view.LastNotice = "latest request failed"
+	view.LastNoticeAt = time.Date(2026, 10, 22, 13, 6, 0, 0, time.Local)
+	overlay.begin(view)
+	got := normalizeText(panelText(overlay))
+	if !strings.Contains(got, "latestrequestfailed") || !strings.Contains(got, "earlierreport") {
+		t.Fatalf("report panel = %q, want both latest diagnostic and report", got)
 	}
-	normalized := strings.ReplaceAll(text.String(), " ", "")
-	if !strings.Contains(normalized, "latestrequestfailed") || !strings.Contains(normalized, "earlierreport") {
-		t.Fatalf("report panel = %q, want both latest diagnostic and report", text.String())
+}
+
+// A request can take as long as the model timeout, so the panel has to show that
+// something is happening, and keep counting.
+func TestObserverReportShowsAnalyzingWithElapsedTime(t *testing.T) {
+	overlay := newObserverReports(newTheme())
+	view := session.ObserverView{
+		Enabled: true, HasKey: true, Analyzing: true,
+		RequestedAt: time.Now().Add(-3 * time.Second),
+	}
+	overlay.begin(view)
+	got := normalizeText(panelText(overlay))
+	if !strings.Contains(got, "Askingtheobserver") {
+		t.Fatalf("analyzing panel = %q", got)
+	}
+	if !strings.Contains(got, "3s") {
+		t.Fatalf("analyzing panel lost the elapsed time: %q", got)
+	}
+
+	// The elapsed row must keep redrawing even though the view value is equal.
+	overlay.updateObserver(view)
+	if !strings.Contains(normalizeText(panelText(overlay)), "Askingtheobserver") {
+		t.Fatal("an unchanged analyzing view stopped redrawing")
+	}
+}
+
+// The human asked for observer output in the Ctrl+E panel only.
+func TestObserverReportNeverBecomesATimelineEntry(t *testing.T) {
+	fake := newFakeSession()
+	fake.view.Observer = reportView("**Doing now**\n- Tony is running bun test")
+	app := New(fake)
+	before := len(app.entries)
+
+	app.handleKey(tcell.NewEventKey(tcell.KeyCtrlE, "", tcell.ModNone))
+
+	if len(app.entries) != before {
+		t.Fatalf("the report panel added %d Timeline entries: %+v", len(app.entries)-before, app.entries[before:])
+	}
+	if recorded := fake.snapshotRecorded(); len(recorded) != 0 {
+		t.Fatalf("the report was journaled as session history: %+v", recorded)
 	}
 }

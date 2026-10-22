@@ -97,7 +97,7 @@ func TestRequestedReportReachesTheViewAndNotTheTimeline(t *testing.T) {
 	for {
 		select {
 		case event := <-sub.Events:
-			if event.Kind == events.KindObserver {
+			if string(event.Kind) == "observer" {
 				t.Fatalf("observer text reached the session bus: %+v", event)
 			}
 		case <-deadline:

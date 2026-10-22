@@ -20,7 +20,7 @@ var slashCommands = []slashCommand{
 	{name: "/mode", args: "[fast|goal|step]", desc: "Switch the session mode", needsArg: true},
 	{name: "/model", desc: "Model & thinking picker (Ctrl+M)"},
 	{name: "/observer", desc: "Configure the observer"},
-	{name: "/reports", desc: "Show the observer's latest progress report (Ctrl+E)"},
+	{name: "/reports", desc: "Show the observer's status report (Ctrl+E)"},
 	{name: "/pause", desc: "Pause after the current turns finish"},
 	{name: "/unpause", desc: "Cancel a pending pause (use /continue once paused)"},
 	{name: "/continue", desc: "Resume work after a full pause"},

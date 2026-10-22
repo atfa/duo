@@ -10,8 +10,12 @@ import (
 	ui "github.com/metaspartan/gotui/v5"
 )
 
-// observerReportOverlay presents the observer's saved-in-session progress
-// reports without mixing them up with observer configuration.
+// observerReportOverlay shows the observer's status reports and nothing else.
+//
+// The observer runs only when a human asks for one, so this panel is where its
+// output belongs: a report is never a Timeline entry. Opening the panel asks for
+// a fresh report, R asks again, and an in-flight request shows its elapsed time
+// instead of looking frozen.
 type observerReportOverlay struct {
 	*ui.Block
 	theme    theme
@@ -19,7 +23,6 @@ type observerReportOverlay struct {
 	width    int
 	offset   int
 	lines    []renderLine
-	reports  []entry
 	observer session.ObserverView
 }
 
@@ -27,28 +30,24 @@ func newObserverReports(t theme) *observerReportOverlay {
 	return &observerReportOverlay{Block: newModalBlock(t), theme: t, width: -1}
 }
 
-func (o *observerReportOverlay) begin(entries []entry, observer session.ObserverView) {
+func (o *observerReportOverlay) begin(observer session.ObserverView) {
 	o.offset = 0
-	var reports []entry
-	for _, e := range entries {
-		if strings.HasPrefix(e.text, "Observer: ") {
-			reports = append(reports, e)
-		}
-	}
-	o.reports = reports
 	o.observer = observer
 	o.reflow()
 }
 
+// updateObserver redraws when the view changes, and keeps redrawing while a
+// request is in flight so the elapsed row keeps counting. A value comparison
+// alone would freeze that row, because only the clock changes.
 func (o *observerReportOverlay) updateObserver(observer session.ObserverView) {
-	if observerSame(o.observer, observer) {
+	if !observer.Analyzing && observerSame(o.observer, observer) {
 		return
 	}
 	o.observer = observer
 	o.reflow()
 }
 
-func (o *observerReportOverlay) hasReports() bool { return len(o.reports) > 0 }
+func (o *observerReportOverlay) hasReports() bool { return len(o.observer.Reports) > 0 }
 
 // observerSame reports whether a re-render would draw the same panel. The view
 // carries a slice now, so it can no longer be compared as a value.
@@ -68,38 +67,49 @@ func observerSame(a, b session.ObserverView) bool {
 func (o *observerReportOverlay) reflow() {
 	o.lines = nil
 	width := max(1, o.Inner.Dx())
-	if !o.hasReports() {
-		message := "No observer reports yet. Enable the observer and reports will appear here as work progresses."
-		switch {
-		case !o.observer.Enabled:
-			// Keep the disabled state distinct from an enabled observer that has
-			// not produced a report yet.
-		case !o.observer.HasKey:
-			message = "The observer has no API key. Set DUO_OBSERVER_API_KEY, the configured key environment variable, or save a key in observer settings."
-		case o.observer.LastNotice != "":
-			message = o.theme.tr("Latest observer notice") + observerNoticeTimestamp(o.observer.LastNoticeAt) + ": " + observerNoticeText(o.observer.LastNotice)
-		default:
-			message = "The observer is enabled; no new report is available yet. Reports appear as work progresses."
-		}
-		if o.observer.Enabled && o.observer.HasKey && o.observer.LastNotice != "" {
-			o.lines = wrapText(message, o.theme.BodyMuted, width)
-		} else {
-			o.lines = wrapText(o.theme.tr(message), o.theme.BodyMuted, width)
-		}
-		return
-	}
 	if o.observer.LastNotice != "" {
 		message := o.theme.tr("Latest observer notice") + observerNoticeTimestamp(o.observer.LastNoticeAt) + ": " + observerNoticeText(o.observer.LastNotice)
 		o.lines = append(o.lines, wrapText(message, o.theme.BodyMuted, width)...)
 		o.lines = append(o.lines, makeLine("", o.theme.BodyMuted, 0))
 	}
-	for i := len(o.reports) - 1; i >= 0; i-- {
-		e := o.reports[i]
-		stamp := e.at.Format("15:04")
-		o.lines = append(o.lines, makeLine(stamp, ui.Style{Fg: o.theme.Accent, Bg: o.theme.Panel, Modifier: ui.ModifierBold}, 0))
-		o.lines = append(o.lines, wrapText(strings.TrimPrefix(e.text, "Observer: "), o.theme.BodyMuted, width)...)
+	if o.observer.Analyzing {
+		o.lines = append(o.lines, wrapText(o.analyzingLine(), o.theme.BodyMuted, width)...)
 		o.lines = append(o.lines, makeLine("", o.theme.BodyMuted, 0))
 	}
+	if !o.hasReports() {
+		o.lines = append(o.lines, wrapText(o.emptyMessage(), o.theme.BodyMuted, width)...)
+		return
+	}
+	for _, report := range o.observer.Reports {
+		o.lines = append(o.lines, makeLine(report.At.Format("15:04"),
+			ui.Style{Fg: o.theme.Accent, Bg: o.theme.Panel, Modifier: ui.ModifierBold}, 0))
+		o.lines = append(o.lines, wrapText(strings.TrimSpace(report.Text), o.theme.BodyMuted, width)...)
+		o.lines = append(o.lines, makeLine("", o.theme.BodyMuted, 0))
+	}
+}
+
+// analyzingLine names the elapsed time, which is the only evidence a slow model
+// is still working.
+func (o *observerReportOverlay) analyzingLine() string {
+	line := o.theme.tr("Asking the observer what the agents are doing right now…")
+	if o.observer.RequestedAt.IsZero() {
+		return line
+	}
+	elapsed := time.Since(o.observer.RequestedAt)
+	if elapsed < 0 {
+		return line
+	}
+	return line + " " + elapsed.Round(time.Second).String()
+}
+
+func (o *observerReportOverlay) emptyMessage() string {
+	switch {
+	case !o.observer.Enabled:
+		return o.theme.tr("The observer is disabled. Enable it with /observer, then press Ctrl+E again.")
+	case !o.observer.HasKey:
+		return o.theme.tr("The observer has no API key. Set DUO_OBSERVER_API_KEY, the configured key environment variable, or save a key in observer settings.")
+	}
+	return o.theme.tr("No report yet. Press R to ask the observer what the agents are doing right now.")
 }
 
 func observerNoticeTimestamp(at time.Time) string {
@@ -138,7 +148,7 @@ func (o *observerReportOverlay) Draw(buf *ui.Buffer) {
 			x += rw.StringWidth(run.text)
 		}
 	}
-	hint := o.theme.tr("↑/↓ scroll  ·  Esc close")
+	hint := o.theme.tr("R re-analyze  ·  ↑/↓ scroll  ·  Esc close")
 	if o.Inner.Dy() > 0 {
 		buf.SetString(fitText(hint, o.Inner.Dx()), o.theme.Timestamp, image.Pt(o.Inner.Min.X, o.Inner.Max.Y-1))
 	}

@@ -59,16 +59,6 @@ func (a *App) route(event events.Event) {
 		} else {
 			a.addLabeled(protocol.Duo, directionLabel(protocol.Duo, ""), text, false, true)
 		}
-	case events.KindObserver:
-		// An observation is advice for the human, addressed to Duo's pane like a
-		// harness line. It is deliberately neither an error nor a warning: the
-		// observer owns no workflow state, so the interface must not present its
-		// text as a verdict or a failure.
-		a.addLabeled(protocol.Duo, directionLabel(protocol.Duo, ""), "Observer: "+text, false, false)
-		if a.overlay == overlayObserverReports {
-			a.refreshView()
-			a.observerReports.begin(a.entries, a.live.Observer)
-		}
 	default:
 		if event.Agent == protocol.Austin || event.Agent == protocol.Tony {
 			a.addLabeled(event.Agent, directionLabel(event.Agent, event.Peer), text, false, false)

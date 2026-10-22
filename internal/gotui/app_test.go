@@ -36,6 +36,8 @@ type fakeSession struct {
 	cols     int
 	rows     int
 	doErr    error
+
+	reportRequests int
 }
 
 func newFakeSession() *fakeSession {
@@ -201,6 +203,18 @@ func (f *fakeSession) snapshotCommands() []session.Command {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return append([]session.Command(nil), f.commands...)
+}
+
+func (f *fakeSession) RequestObserverReport() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.reportRequests++
+}
+
+func (f *fakeSession) snapshotReportRequests() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.reportRequests
 }
 
 func (f *fakeSession) snapshotRecorded() []sessionstore.TUIEntry {

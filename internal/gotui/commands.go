@@ -404,8 +404,22 @@ func (a *App) openObserverReports() {
 		a.openObserverConfig()
 		return
 	}
-	a.observerReports.begin(a.entries, a.live.Observer)
+	a.observerReports.begin(a.live.Observer)
 	a.overlay = overlayObserverReports
+	a.requestObserverReport()
+}
+
+// requestObserverReport asks the session for a fresh status report. The session
+// returns immediately and the panel redraws from the view, so a slow model never
+// blocks the interface.
+func (a *App) requestObserverReport() {
+	if a.svc == nil {
+		return
+	}
+	if !a.live.Observer.Enabled || !a.live.Observer.HasKey {
+		return
+	}
+	a.svc.RequestObserverReport()
 }
 
 func (a *App) openDetails() {
