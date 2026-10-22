@@ -412,3 +412,36 @@ func TestObserverViewTreatsAnEmptyKeyFileAsConfigured(t *testing.T) {
 		t.Fatalf("an empty key file must not count as a usable key: %+v", view)
 	}
 }
+
+// A run-time environment that disables the observer must not let the interface
+// save settings that are invalid on their own: the next launch, without that
+// variable, would refuse to start.
+func TestSetObserverRejectsInvalidSavedSettingsUnderADisablingOverride(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("DUO_OBSERVER_API_KEY", "sk-test")
+	t.Setenv("DUO_OBSERVER", "false")
+
+	repo := gitRepo(t)
+	opts := headlessOptions(t, repo, t.TempDir(), "127.0.0.1:0")
+	svc := New(opts)
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer svc.Close()
+
+	if err := svc.Do(context.Background(), SetObserver{Enabled: true}); err == nil {
+		t.Fatal("an enabled observer without endpoint or model was persisted")
+	}
+	if section := projectObserverSection(t, repo); section != nil {
+		if enabled, _ := section["enabled"].(bool); enabled {
+			t.Fatalf("invalid settings were persisted: %v", section)
+		}
+	}
+
+	// The same save is refused from the other side too: an environment override
+	// that enables the observer cannot make an empty endpoint runnable.
+	t.Setenv("DUO_OBSERVER", "true")
+	if err := svc.Do(context.Background(), SetObserver{Enabled: false}); err == nil {
+		t.Fatal("an effective configuration without endpoint or model was accepted")
+	}
+}

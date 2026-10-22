@@ -598,9 +598,17 @@ func (s *Service) setObserver(c SetObserver) error {
 	}
 	chosen = chosen.Normalized()
 
+	// The persisted settings have to be valid on their own: an environment that
+	// disables the observer for this run must not let an unusable configuration
+	// be saved for the next run, which would fail at startup once the variable is
+	// gone.
+	if err := chosen.Validate(); err != nil {
+		return err
+	}
 	// The environment is the operator's last word, so a live save must not
 	// quietly defeat a DUO_OBSERVER* override. Persist what the human chose and
-	// run what the environment makes of it.
+	// run what the environment makes of it — validated separately, because an
+	// environment override can enable a configuration the human left off.
 	effective := chosen.WithEnv()
 	if err := effective.Validate(); err != nil {
 		return err
