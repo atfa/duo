@@ -138,12 +138,25 @@ func (h *helpOverlay) place(l layout) {
 	}
 }
 
-func (h *helpOverlay) rebuild() {
-	type section struct {
-		title string
-		lines []string
+// helpSection is one titled block of the /help guide. Lines are translated by
+// their exact text, so the Chinese table has to cover every one of them.
+type helpSection struct {
+	title string
+	lines []string
+}
+
+// helpSections is the /help content. The slash list is generated from
+// slashCommands so the guide cannot omit a command the prompt accepts.
+func helpSections() []helpSection {
+	commands := make([]string, 0, len(slashCommands))
+	for _, cmd := range slashCommands {
+		line := cmd.name
+		if cmd.args != "" {
+			line += " " + cmd.args
+		}
+		commands = append(commands, line)
 	}
-	sections := []section{
+	return []helpSection{
 		{"WORKFLOW", []string{
 			"FAST: RUNNING → VERIFY → DONE. Austin implements, Tony verifies, Duo lands the diff.",
 			"GOAL: PLAN → EXECUTE → REVIEW → INTEGRATE → DONE. Both agents agree on the plan first.",
@@ -151,13 +164,14 @@ func (h *helpOverlay) rebuild() {
 		}},
 		{"KEYS", []string{
 			"Enter send  ·  Ctrl+Enter / Shift+Enter / Alt+Enter / Ctrl+J newline",
-			"Ctrl+M / Alt+M model & thinking picker  ·  F2 split / timeline  ·  F1 help",
+			"Ctrl+M / Alt+M model & thinking picker  ·  F1 / Ctrl+/ / Alt+H help  ·  F2 split / timeline",
 			"In picker: Tab switches Agent  ·  Shift+Tab cycles thinking  ·  Space selects model",
-			"Ctrl+A/T attach  ·  Ctrl+V image path  ·  Ctrl+] or Ctrl+\\ detach",
-			"Ctrl+R restart Austin  ·  Ctrl+Y restart Tony  ·  Ctrl+/ help",
-			"Ctrl+O details & changes  ·  Ctrl+X copy Austin's latest  ·  Ctrl+P sidebar",
-			"Ctrl+G timestamps  ·  PgUp/PgDn scroll  ·  Ctrl+Q / Ctrl+D quit",
-			"@ completes a tracked file  ·  Tab autocompletes slash commands or files  ·  Esc closes dialogs  ·  ↑/↓ recalls history",
+			"Ctrl+A / Alt+A attach Austin  ·  Ctrl+T / Alt+T attach Tony  ·  Ctrl+V image path  ·  Ctrl+] or Ctrl+\\ detach",
+			"Ctrl+R restart Austin  ·  Ctrl+Y restart Tony  ·  Ctrl+O / Alt+O details & changes",
+			"Ctrl+X copy Austin's latest  ·  Ctrl+P sidebar  ·  Ctrl+G timestamps  ·  Ctrl+L redraw",
+			"Ctrl+K / Ctrl+U / Ctrl+W delete to end / to start / word  ·  ↑/↓ history  ·  PgUp/PgDn scroll  ·  Ctrl+Q / Ctrl+D quit",
+			"←/→ cursor  ·  Alt+←/→ by word  ·  Home/End line start/end  ·  Backspace/Delete remove before/after cursor",
+			"@ completes a tracked file  ·  Tab autocompletes slash commands or files  ·  Esc closes dialogs",
 		}},
 		{"PAUSE & DRIVERS", []string{
 			"/pause waits for both agents to finish their current turn, then holds new work.",
@@ -165,11 +179,9 @@ func (h *helpOverlay) rebuild() {
 			"Use /driver before the first task, while fully paused, or after DONE. The new",
 			"driver starts idle; /continue resumes a paused session.",
 		}},
-		{"SLASH COMMANDS", []string{
-			"/help · /overview · /model · /copy · /preview · /timestamps",
-			"/status · /language [zh|en] · /mode [fast|goal|step] · /escalate [reason] · /quit",
-			"/pause · /unpause · /continue · /driver (before first task, paused, or after DONE)",
-		}},
+		{"SLASH COMMANDS", append([]string{
+			"Type / to see commands and descriptions; Tab completes the selected command.",
+		}, chunkJoin(commands, 3)...)},
 		{"NATIVE TERMINALS", []string{
 			"Attach suspends the dashboard and hands the real PTY to the agent. The",
 			"terminal is restored on detach; paste images directly there when Ctrl+V",
@@ -177,11 +189,24 @@ func (h *helpOverlay) rebuild() {
 		}},
 		{"SESSION", []string{
 			"Every visible message is recorded through the session journal, so resume",
-			"restores the same conversation in either frontend.",
+			"restores the same conversation when the session resumes.",
 		}},
 	}
+}
+
+// chunkJoin packs items into lines of at most perLine, joined by the separator
+// the help guide uses between entries.
+func chunkJoin(items []string, perLine int) []string {
+	lines := make([]string, 0, (len(items)+perLine-1)/perLine)
+	for i := 0; i < len(items); i += perLine {
+		lines = append(lines, strings.Join(items[i:min(i+perLine, len(items))], " · "))
+	}
+	return lines
+}
+
+func (h *helpOverlay) rebuild() {
 	var lines []renderLine
-	for _, s := range sections {
+	for _, s := range helpSections() {
 		lines = append(lines, makeLine("", h.theme.Body, 0))
 		lines = append(lines, makeLine(h.theme.tr(s.title), ui.Style{Fg: h.theme.Accent, Bg: h.theme.Panel, Modifier: ui.ModifierBold}, 0))
 		for _, text := range s.lines {

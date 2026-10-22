@@ -32,6 +32,7 @@ var slashCommands = []slashCommand{
 	{name: "/status", desc: "Show session status"},
 	{name: "/clear", desc: "Redraw the screen"},
 	{name: "/quit", desc: "Quit and preserve this session (Ctrl+Q)"},
+	{name: "/exit", desc: "Alias for /quit"},
 }
 
 type slashMenu struct {
