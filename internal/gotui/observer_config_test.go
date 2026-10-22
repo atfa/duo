@@ -116,6 +116,21 @@ func TestObserverConfigArrowKeysDoNotCorruptValues(t *testing.T) {
 	}
 }
 
+func TestObserverConfigDisplayCursorDoesNotMutateField(t *testing.T) {
+	o := &observerConfigOverlay{active: observerEndpointField}
+	// Match the spare capacity left by insert(), with the cursor inside the
+	// value. Rendering the cursor must not shift the underlying field contents.
+	o.endpoint = append([]rune("abc"), 'x')[:3]
+	o.cursor = 1
+
+	if got := o.displayValue(observerEndpointField); got != "a│bc" {
+		t.Fatalf("displayValue() = %q, want %q", got, "a│bc")
+	}
+	if got := string(o.endpoint); got != "abc" {
+		t.Fatalf("displayValue mutated endpoint to %q, want %q", got, "abc")
+	}
+}
+
 func TestObserverConfigSaveMasksKeyAndAppliesSettings(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
