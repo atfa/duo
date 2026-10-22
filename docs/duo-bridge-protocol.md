@@ -173,7 +173,7 @@ request/response calls over the same socket:
 | `duo_send` | send a message to the peer |
 | `duo_set_plan` | publish the shared plan (Goal, or the design prose in Step) |
 | `duo_set_steps` | publish the Step queue (Step only) |
-| `duo_set_status` | Fast: Austin requests verification. Goal and Step plans, `[goal]` items and the final step: both agents sign the gate. |
+| `duo_set_status` | Fast and every Step `[fast]` item: Austin requests Tony's verification. Goal and Step plans and `[goal]` items: both agents sign. The final Step also needs both signatures. |
 | `duo_set_verification` | publish a Fast or Step `[fast]` verdict (Tony only) |
 | `duo_escalate` | switch the session to Goal from any mode |
 | `duo_restart_duo` | request a guarded STEP/EXECUTE restart between steps, optionally installing a new binary |
