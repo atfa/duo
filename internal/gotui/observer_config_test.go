@@ -145,7 +145,7 @@ func TestObserverConfigLeftArrowRendersAdjacentValue(t *testing.T) {
 	}
 }
 
-func TestObserverConfigSaveMasksKeyAndAppliesSettings(t *testing.T) {
+func TestObserverConfigSavesPlaintextKeyAndAppliesSettings(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("DUO_OBSERVER", "")
@@ -166,10 +166,31 @@ func TestObserverConfigSaveMasksKeyAndAppliesSettings(t *testing.T) {
 	typeText(sim, "new-model")
 	injectKey(sim, tcell.KeyTab, 0, tcell.ModNone)
 	typeText(sim, "sk-ui-secret")
+	waitForText(t, sim, "sk-ui-secret")
+	if text := screenText(sim); !strings.Contains(text, "sk-ui-secret") {
+		t.Fatalf("API key was not rendered in plaintext:\n%s", text)
+	}
+	beforeX, beforeY, visible := sim.GetCursor()
+	if !visible {
+		t.Fatal("API key field cursor is hidden")
+	}
+	injectKey(sim, tcell.KeyLeft, 0, tcell.ModNone)
+	afterX, afterY, visible := beforeX, beforeY, true
+	deadline := time.Now().Add(time.Second)
+	for {
+		afterX, afterY, visible = sim.GetCursor()
+		if visible && afterX == beforeX-1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("API key cursor = (%d,%d, visible=%t), want (%d,%d)", afterX, afterY, visible, beforeX-1, beforeY)
+		}
+		time.Sleep(time.Millisecond)
+	}
 	injectKey(sim, tcell.KeyTab, 0, tcell.ModNone)
 	injectKey(sim, tcell.KeyRune, ' ', tcell.ModNone)
-	if text := screenText(sim); strings.Contains(text, "sk-ui-secret") {
-		t.Fatalf("API key was rendered in the screen:\n%s", text)
+	if text := screenText(sim); strings.Contains(text, "••••") {
+		t.Fatalf("API key is still masked in the screen:\n%s", text)
 	}
 	injectKey(sim, tcell.KeyEnter, 0, tcell.ModNone)
 	waitGone(t, sim, "OBSERVER SETTINGS")

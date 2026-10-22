@@ -84,7 +84,7 @@ Agent bridge 提供八个 Duo 工具，用于同伴消息、共享状态、计�
 }
 ```
 
-设置面板输入的新 API key 只会以**明文**保存到 `~/.duo/observer.key`（不会加密，也不使用系统密钥链）；新建的 `~/.duo` 目录权限为 `0700`，密钥文件权限为 `0600`。密钥留空会保留已保存的值。不要将 API key 写入配置文件；配置中可以保存 `apiKeyEnv` 环境变量名，但绝不保存 key 本身。密钥查找优先级为 `DUO_OBSERVER_API_KEY`、`observer.apiKeyEnv` 指定的环境变量、密钥文件。`DUO_OBSERVER`、`DUO_OBSERVER_ENDPOINT`、`DUO_OBSERVER_MODEL` 分别覆盖已保存的启用状态、端点和模型；设置面板会标明受环境变量控制的值。
+设置面板输入的新 API key 只会以**明文**保存到 `~/.duo/observer.key`（不会加密，也不使用系统密钥链）；新建的 `~/.duo` 目录权限为 `0700`，密钥文件权限为 `0600`。密钥留空会保留已保存的值。密钥输入框会明文显示你正在输入的字符，以便发现输错；已保存的密钥不会回填到该输入框。不要将 API key 写入配置文件；配置中可以保存 `apiKeyEnv` 环境变量名，但绝不保存 key 本身。密钥查找优先级为 `DUO_OBSERVER_API_KEY`、`observer.apiKeyEnv` 指定的环境变量、密钥文件。`DUO_OBSERVER`、`DUO_OBSERVER_ENDPOINT`、`DUO_OBSERVER_MODEL` 分别覆盖已保存的启用状态、端点和模型；设置面板会标明受环境变量控制的值。
 
 观察器配置键如下：
 
@@ -100,7 +100,7 @@ Agent bridge 提供八个 Duo 工具，用于同伴消息、共享状态、计�
 | `timeoutSeconds` | 请求超时；默认 `60` 秒。 |
 | `maxTokens` | 响应 token 上限；默认 `300`。 |
 
-观察器会在事件静默三秒后结合上一份报告检查新增事件；仅当有值得展示的新信息时才会发出更新。报告带有 `Observer: ` 前缀，显示在 Duo 时间线上，也可按 `Ctrl+E` 或输入 `/reports` 在报告窗口中查看。缺少密钥、请求超时或 HTTP 状态码非 2xx 时，只会写入 session 日志，不会影响协调流程。
+观察器会在事件静默三秒后结合上一份报告检查新增事件；仅当有值得展示的新信息时才会发出更新。报告带有 `Observer: ` 前缀，显示在 Duo 时间线上，也可按 `Ctrl+E` 或输入 `/reports` 在报告窗口中查看。报告语言跟随界面语言：界面为中文时观察器会用中文撰写报告。缺少密钥、请求超时或 HTTP 状态码非 2xx 时，只会写入 session 日志，不会影响协调流程。
 
 ## 恢复与交付
 
