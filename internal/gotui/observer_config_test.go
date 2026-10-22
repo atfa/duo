@@ -316,7 +316,7 @@ func TestObserverOnboardingSavesAndDoesNotRepeat(t *testing.T) {
 	sim, _ := runObserverSimulation(t, fake, true)
 	waitForText(t, sim, "SET UP OBSERVER")
 	text := screenText(sim)
-	for _, want := range []string{"http://127.0.0.1:4000/v1", "exec", "Esc Later"} {
+	for _, want := range []string{"http://127.0.0.1:4000/v1", "exec", "Enter save", "Esc Later"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("onboarding missing %q:\n%s", want, text)
 		}

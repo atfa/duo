@@ -63,11 +63,13 @@ Agent bridge 提供八个 Duo 工具，用于同伴消息、共享状态、计�
 | `DUO_OBSERVER_ENDPOINT` / `DUO_OBSERVER_MODEL` | 观察者的 API 端点与模型。 |
 | `DUO_OBSERVER_API_KEY` | 观察者 API key；key 只放在环境里，不要写进配置。 |
 
-可选的 LLM 观察者默认关闭且仅作建议：它不能给 Agent 发消息、不能签署关卡，也不能改变工作流状态。观察器设置见下文；CLI 选项见 `duo --help` 与 `duo mcp-server --help`。
+可选的 LLM 观察者默认关闭且仅作建议：它不能给 Agent 发消息、不能签署关卡，也不能改变工作流状态。它会调用兼容 OpenAI Chat Completions 的 API。观察器设置见下文；CLI 选项见 `duo --help` 与 `duo mcp-server --help`。
 
 ### 可选观察器
 
-在 gotui 仪表盘中输入 `/observer` 打开观察器设置；按 `Ctrl+E` 随时查看观察器的进度报告。如果还没有配置观察器模型，按 `Ctrl+E` 会自动打开设置。仅当观察器从未配置时（配置中没有 observer 段、没有密钥文件、也没有 `DUO_OBSERVER*` 环境设置），首次运行才会显示设置面板。默认地址为 `http://127.0.0.1:4000/v1`，模型为 `exec`；按 `Esc`（**稍后**）会在项目配置中保存 `observer: {"enabled": false}`，之后不再提示。此后仍可随时用 `/observer` 打开设置。
+在 gotui 仪表盘中输入 `/observer` 打开观察器设置；按 `Ctrl+E` 随时查看观察器的进度报告。如果还没有配置观察器模型，按 `Ctrl+E` 会自动打开设置。仅当观察器从未配置时（配置中没有 observer 段、没有密钥文件、也没有 `DUO_OBSERVER*` 环境设置），首次运行才会显示设置面板。默认地址为 `http://127.0.0.1:4000/v1`，模型为 `exec`；可直接编辑字段，按 `Enter` 保存，或按 `Esc`（**稍后**）将 `observer: {"enabled": false}` 保存到项目配置中，以后不再提示。此后仍可随时用 `/observer` 打开设置。
+
+在设置面板中，按 `Tab`/`Shift+Tab` 切换字段，按 `Space`（或 `y`/`n`）切换启用状态，按 `Enter` 保存；按 `Esc` 取消且不保存。按 `Ctrl+U` 清空当前字段。API key 留空会保留已保存的密钥。在报告面板中，按 `↑`/`↓` 滚动，按 `Esc` 关闭。
 
 非敏感设置可存放在 `~/.duo/config.json` 或仓库的 `.duo/config.json` 的 `observer` 段中。项目中的 `observer` 段会整体替换全局观察器段，不会与全局段逐字段合并。例如：
 
@@ -89,7 +91,7 @@ Agent bridge 提供八个 Duo 工具，用于同伴消息、共享状态、计�
 | 配置键 | 含义 |
 |---|---|
 | `enabled` | 是否启用观察器请求；默认 `false`。 |
-| `endpoint` | HTTP(S) API 基础地址，例如 `http://127.0.0.1:4000/v1`；Duo 会自动追加 `/chat/completions`。 |
+| `endpoint` | 兼容 OpenAI Chat Completions 的 HTTP(S) API 基础地址，例如 `http://127.0.0.1:4000/v1`；Duo 会自动追加 `/chat/completions`，配置 URL 时不要包含此路径。 |
 | `model` | 发送给观察器 API 的模型名。 |
 | `apiKeyEnv` | 可选的 API key 环境变量名。 |
 | `systemPrompt` | 观察器指令；留空或省略时使用 Duo 内置提示词。 |
@@ -98,7 +100,7 @@ Agent bridge 提供八个 Duo 工具，用于同伴消息、共享状态、计�
 | `timeoutSeconds` | 请求超时；默认 `60` 秒。 |
 | `maxTokens` | 响应 token 上限；默认 `300`。 |
 
-观察器会在事件静默三秒后汇总新增事件，并结合上一份报告增量更新进度总结。报告会带有 `Observer: ` 前缀，显示在 Duo 时间线上，也可按 `Ctrl+E` 或输入 `/reports` 在报告窗口中查看。缺少密钥、请求超时或 HTTP 状态码非 2xx 时，只会写入 session 日志，不会影响协调流程。
+观察器会在事件静默三秒后结合上一份报告检查新增事件；仅当有值得展示的新信息时才会发出更新。报告带有 `Observer: ` 前缀，显示在 Duo 时间线上，也可按 `Ctrl+E` 或输入 `/reports` 在报告窗口中查看。缺少密钥、请求超时或 HTTP 状态码非 2xx 时，只会写入 session 日志，不会影响协调流程。
 
 ## 恢复与交付
 

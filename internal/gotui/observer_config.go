@@ -257,7 +257,7 @@ func (o *observerConfigOverlay) Draw(buf *ui.Buffer) {
 	}
 	hint := o.theme.tr("Tab/Shift+Tab move · Space toggles Enabled · Enter save · Esc cancel")
 	if o.onboarding {
-		hint = o.theme.tr("Enter configure · Esc Later")
+		hint = o.theme.tr("Enter save · Esc Later")
 	}
 	buf.SetString(fitText(hint, o.Inner.Dx()), o.theme.Timestamp, image.Pt(o.Inner.Min.X, o.Inner.Max.Y-1))
 }

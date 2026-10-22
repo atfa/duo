@@ -136,7 +136,7 @@ var zhUI = map[string]string{
 	"configured":                      "已配置",
 	"DUO_OBSERVER* environment values take precedence.":                    "DUO_OBSERVER* 环境变量具有优先权。",
 	"Tab/Shift+Tab move · Space toggles Enabled · Enter save · Esc cancel": "Tab/Shift+Tab 切换字段 · 空格切换启用状态 · Enter 保存 · Esc 取消",
-	"Enter configure · Esc Later":                                          "Enter 配置 · Esc 稍后",
+	"Enter save · Esc Later":                                               "Enter 保存 · Esc 稍后",
 	"could not save observer API key":                                      "无法保存观察器 API 密钥",
 	"observer settings saved":                                              "观察器设置已保存",
 	"observer setup deferred":                                              "已将观察器配置推迟到以后",

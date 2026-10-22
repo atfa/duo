@@ -63,11 +63,13 @@ Settings can be stored globally in `~/.duo/config.json` or per repository in `.d
 | `DUO_OBSERVER_ENDPOINT` / `DUO_OBSERVER_MODEL` | Observer API endpoint and model. |
 | `DUO_OBSERVER_API_KEY` | Observer API key; keep the value in the environment, not config. |
 
-The optional LLM observer is disabled by default and advisory only: it cannot message agents, sign gates, or change workflow state. Observer settings are described below; for CLI options, see `duo --help` and `duo mcp-server --help`.
+The optional LLM observer is disabled by default and advisory only: it cannot message agents, sign gates, or change workflow state. It calls an OpenAI-compatible Chat Completions API. Observer settings are described below; for CLI options, see `duo --help` and `duo mcp-server --help`.
 
 ### Optional observer
 
-In the gotui dashboard, use `/observer` to open observer settings. Press `Ctrl+E` at any time to read the observer's progress reports; if no observer model is configured, it opens settings instead. On first run, the settings panel is offered only when the observer has never been configured: no observer section in config, no key file, and no `DUO_OBSERVER*` environment setting. It starts with `http://127.0.0.1:4000/v1` and model `exec`; press `Esc` (**Later**) to save `observer: {"enabled": false}` in the project config and prevent the prompt from appearing again. You can open settings at any time afterward.
+In the gotui dashboard, use `/observer` to open observer settings. Press `Ctrl+E` at any time to read the observer's progress reports; if no observer model is configured, it opens settings instead. On first run, the settings panel is offered only when the observer has never been configured: no observer section in config, no key file, and no `DUO_OBSERVER*` environment setting. It starts with `http://127.0.0.1:4000/v1` and model `exec`; edit the fields directly, then press `Enter` to save or `Esc` (**Later**) to save `observer: {"enabled": false}` in the project config and prevent the prompt from appearing again. You can open settings at any time afterward.
+
+In the settings panel, use `Tab`/`Shift+Tab` to move between fields, `Space` (or `y`/`n`) to toggle Enabled, and `Enter` to save; `Esc` cancels without saving. `Ctrl+U` clears the current field. Leaving the API key blank keeps the saved key. In the reports panel, `↑`/`↓` scroll and `Esc` closes it.
 
 The non-secret settings can be stored in the `observer` section of `~/.duo/config.json` or the repository's `.duo/config.json`. A project `observer` section replaces the global observer section as a whole; its fields are not merged with the global section. For example:
 
@@ -89,7 +91,7 @@ Observer configuration keys are:
 | Key | Meaning |
 |---|---|
 | `enabled` | Enable observer requests; defaults to `false`. |
-| `endpoint` | HTTP(S) API base URL, for example `http://127.0.0.1:4000/v1`. Duo appends `/chat/completions`. |
+| `endpoint` | HTTP(S) base URL for an OpenAI-compatible Chat Completions API, for example `http://127.0.0.1:4000/v1`. Duo appends `/chat/completions`; do not include that path in the configured URL. |
 | `model` | Model name sent to the observer API. |
 | `apiKeyEnv` | Optional environment-variable name to read the API key from. |
 | `systemPrompt` | Observer instructions; an empty or omitted value uses Duo's built-in prompt. |
@@ -98,7 +100,7 @@ Observer configuration keys are:
 | `timeoutSeconds` | Request timeout; defaults to `60` seconds. |
 | `maxTokens` | Maximum response tokens; defaults to `300`. |
 
-Observer output appears on Duo's timeline with an `Observer: ` prefix and is also available from the `Ctrl+E` or `/reports` panel. After a three-second quiet period, each report summarizes new events together with the previous report, so the view stays current as work progresses. Missing keys, timeouts, and non-2xx responses are recorded only in the session log and do not interrupt coordination.
+Observer output appears on Duo's timeline with an `Observer: ` prefix and is also available from the `Ctrl+E` or `/reports` panel. After a three-second quiet period, the observer considers new events together with the previous report; it emits an update only when there is meaningful new information. Missing keys, timeouts, and non-2xx responses are recorded only in the session log and do not interrupt coordination.
 
 ## Resume and delivery
 
