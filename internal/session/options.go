@@ -49,6 +49,10 @@ type Options struct {
 	HarnessEnabled bool
 	Harness        harness.Config
 	Observer       observer.Config
+	// ObserverConfigured reports that a config file carried an observer section,
+	// so the interface knows the operator has seen the setting before even if the
+	// observer is off or only a key file exists.
+	ObserverConfigured bool
 
 	// Drivers. Every map is keyed by agent. Missing agent entries use the
 	// frontend-selected default; Core does not choose a driver name.

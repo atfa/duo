@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/atfa/duo/internal/observer"
 	"github.com/atfa/duo/internal/protocol"
 )
 
@@ -205,6 +206,106 @@ func SaveProjectTUIView(repoRoot, view string) error {
 	data = append(data, '\n')
 	tmpFile := configPath + ".tmp"
 	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmpFile, configPath)
+}
+
+// SaveProjectObserver records the observer section in .duo/config.json while
+// preserving every other key, including the ones Duo writes for drivers and
+// models.
+//
+// The section is written as a whole, matching how the file is read: a project
+// observer section replaces the global one rather than merging field by field.
+// Only the keys Duo manages are rewritten: an advanced or future key already in
+// the project's observer section survives a save from the interface, and a value
+// that is back at its default is removed rather than left stale. enabled is
+// always present so an explicit opt-out survives.
+func SaveProjectObserver(repoRoot string, settings observer.Settings) error {
+	return updateProjectConfig(repoRoot, func(config map[string]json.RawMessage) error {
+		section := make(map[string]json.RawMessage)
+		if raw := config["observer"]; len(raw) > 0 {
+			if err := json.Unmarshal(raw, &section); err != nil {
+				return fmt.Errorf("read Duo project observer config: %w", err)
+			}
+			// A hand-written or generated `"observer": null` unmarshals to a nil
+			// map; writing to it would panic, so start a real section instead.
+			if section == nil {
+				section = make(map[string]json.RawMessage)
+			}
+		}
+		for _, key := range []string{
+			"enabled", "endpoint", "model", "apiKeyEnv", "systemPrompt",
+			"maxEvents", "debounceSeconds", "timeoutSeconds", "maxTokens",
+		} {
+			delete(section, key)
+		}
+		section["enabled"], _ = json.Marshal(settings.Enabled)
+		setString := func(key, value string) {
+			if value = strings.TrimSpace(value); value != "" {
+				section[key], _ = json.Marshal(value)
+			}
+		}
+		setInt := func(key string, value int) {
+			if value > 0 {
+				section[key], _ = json.Marshal(value)
+			}
+		}
+		setString("endpoint", settings.Endpoint)
+		setString("model", settings.Model)
+		setString("apiKeyEnv", settings.APIKeyEnv)
+		setString("systemPrompt", settings.SystemPrompt)
+		setInt("maxEvents", settings.MaxEvents)
+		setInt("debounceSeconds", settings.DebounceSeconds)
+		setInt("timeoutSeconds", settings.TimeoutSeconds)
+		setInt("maxTokens", settings.MaxTokens)
+
+		raw, err := json.Marshal(section)
+		if err != nil {
+			return err
+		}
+		config["observer"] = raw
+		return nil
+	})
+}
+
+// updateProjectConfig rewrites .duo/config.json in repoRoot through update,
+// preserving keys the caller does not touch. An empty repository root is a
+// no-op, which is what a session without a project wants.
+func updateProjectConfig(repoRoot string, update func(map[string]json.RawMessage) error) error {
+	repoRoot = strings.TrimSpace(repoRoot)
+	if repoRoot == "" {
+		return nil
+	}
+	duoDir := filepath.Join(repoRoot, ".duo")
+	if err := os.MkdirAll(duoDir, 0755); err != nil {
+		return err
+	}
+	_ = EnsureGitIgnore(repoRoot)
+
+	configPath := filepath.Join(duoDir, "config.json")
+	config := make(map[string]json.RawMessage)
+	data, err := os.ReadFile(configPath)
+	if err == nil {
+		if err := json.Unmarshal(data, &config); err != nil || config == nil {
+			if err == nil {
+				err = fmt.Errorf("expected a JSON object")
+			}
+			return fmt.Errorf("read Duo project config: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("read Duo project config: %w", err)
+	}
+	if err := update(config); err != nil {
+		return err
+	}
+	data, err = json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	tmpFile := configPath + ".tmp"
+	if err := os.WriteFile(tmpFile, data, 0o644); err != nil {
 		return err
 	}
 	return os.Rename(tmpFile, configPath)

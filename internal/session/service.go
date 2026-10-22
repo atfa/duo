@@ -516,10 +516,7 @@ func (s *Service) closeLocked(ctx context.Context) Result {
 		}
 		s.agents.CloseAll()
 	}
-	if s.observer != nil {
-		s.observer.Close()
-		s.observer = nil
-	}
+	s.stopObserver()
 	if s.state != nil && s.journal != nil {
 		s.journal.Record("session_stop", map[string]any{"phase": string(res.Phase)})
 	}
@@ -553,15 +550,104 @@ func (s *Service) startObserver() {
 	if !s.opts.Observer.Enabled {
 		return
 	}
+	logf := s.logf()
 	obs, err := observer.New(s.bus, s.opts.Observer, func(text string) {
 		s.bus.Emit(events.Event{Time: time.Now(), Kind: events.KindObserver, Agent: protocol.Duo, Text: text})
-	}, s.logger.Printf)
+	}, logf)
 	if err != nil {
-		s.logger.Printf("observer disabled: %v", err)
+		logf("observer disabled: %v", err)
 		return
 	}
 	s.observer = obs
 	s.observer.Start(s.ctx)
+}
+
+// stopObserver closes the live observer, if any. Close is idempotent, and this
+// guard keeps a disabled or failed observer from replacing state twice.
+func (s *Service) stopObserver() {
+	if s.observer == nil {
+		return
+	}
+	s.observer.Close()
+	s.observer = nil
+}
+
+// logf is the session logger, or a no-op sink for a service that has none.
+func (s *Service) logf() func(string, ...any) {
+	if s.logger == nil {
+		return func(string, ...any) {}
+	}
+	return s.logger.Printf
+}
+
+// setObserver applies a human's observer settings: validate, persist the
+// non-secret ones, then swap the live observer.
+//
+// The write happens before the swap, so a repository that cannot be written
+// leaves the running observer exactly as it was rather than desynchronising what
+// the interface shows from what runs. A key is never part of this path: the
+// interface saves it in the owner-only file, and the rebuilt observer reads it
+// from there.
+func (s *Service) setObserver(c SetObserver) error {
+	chosen := s.opts.Observer
+	chosen.Enabled = c.Enabled
+	chosen.Endpoint = c.Endpoint
+	chosen.Model = c.Model
+	if env := strings.TrimSpace(c.APIKeyEnv); env != "" {
+		chosen.APIKeyEnv = env
+	}
+	chosen = chosen.Normalized()
+
+	// The persisted settings have to be valid on their own: an environment that
+	// disables the observer for this run must not let an unusable configuration
+	// be saved for the next run, which would fail at startup once the variable is
+	// gone.
+	if err := chosen.Validate(); err != nil {
+		return err
+	}
+	// The environment is the operator's last word, so a live save must not
+	// quietly defeat a DUO_OBSERVER* override. Persist what the human chose and
+	// run what the environment makes of it — validated separately, because an
+	// environment override can enable a configuration the human left off.
+	effective := chosen.WithEnv()
+	if err := effective.Validate(); err != nil {
+		return err
+	}
+	repo := ""
+	if s.ws != nil {
+		repo = s.ws.Set().Repository
+	}
+	if err := workspace.SaveProjectObserver(repo, chosen.FileSettings()); err != nil {
+		return err
+	}
+	s.opts.Observer = effective
+	s.opts.ObserverConfigured = true
+	s.stopObserver()
+	s.startObserver()
+	return nil
+}
+
+// observerView projects the observer configuration a frontend may render. The
+// key itself is not part of the projection; HasKey only says one resolves.
+func (s *Service) observerView() ObserverView {
+	hasKey := s.opts.Observer.APIKey() != ""
+	keyFile := observer.KeyFileExists()
+	enabledOverride, endpointOverride, modelOverride := observer.EnvOverrides()
+	return ObserverView{
+		Enabled:             s.opts.Observer.Enabled,
+		Endpoint:            s.opts.Observer.Endpoint,
+		Model:               s.opts.Observer.Model,
+		APIKeyEnv:           s.opts.Observer.APIKeyEnv,
+		HasKey:              hasKey,
+		KeyFile:             keyFile,
+		EnvOverride:         enabledOverride,
+		EnvOverrideEndpoint: endpointOverride,
+		EnvOverrideModel:    modelOverride,
+		// A key file counts as configured even when it is empty or unreadable:
+		// the operator has already set the observer up, so onboarding must not
+		// reappear. HasKey alone answers whether a usable key resolves.
+		Configured: s.opts.ObserverConfigured || hasKey || keyFile || enabledOverride || endpointOverride || modelOverride,
+	}
 }
 
 // View reports the session's current state as a value.
@@ -599,6 +685,7 @@ func (s *Service) view() View {
 	if v.Pause.State == "" {
 		v.Pause.State = PauseRunning
 	}
+	v.Observer = s.observerView()
 	v.Agents = make(map[protocol.AgentID]AgentView, 2)
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
 		v.Agents[id] = s.agentView(id)
@@ -731,6 +818,8 @@ func (s *Service) Do(ctx context.Context, cmd Command) error {
 		return s.setDriver(ctx, c)
 	case SetLanguage:
 		return s.setLanguage(c)
+	case SetObserver:
+		return s.setObserver(c)
 	case RestartDuo:
 		return s.requestRestart(c)
 	default:
