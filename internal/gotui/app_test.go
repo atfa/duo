@@ -283,7 +283,7 @@ func TestSimulationDashboardCommandsAndOverlays(t *testing.T) {
 	// Help and details are independent scrollable overlays. The guide is longer
 	// than one page, so page down until the terminal section comes into view.
 	injectKey(sim, tcell.KeyF1, 0, tcell.ModNone)
-	waitForText(t, sim, "PAUSE & DRIVERS")
+	waitForText(t, sim, "Enter send")
 	for page := 0; page < 4 && !strings.Contains(screenText(sim), "NATIVE TERMINALS"); page++ {
 		injectKey(sim, tcell.KeyPgDn, 0, tcell.ModNone)
 		time.Sleep(20 * time.Millisecond)

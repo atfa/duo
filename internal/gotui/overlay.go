@@ -170,6 +170,7 @@ func helpSections() []helpSection {
 			"Ctrl+R restart Austin  ·  Ctrl+Y restart Tony  ·  Ctrl+O / Alt+O details & changes",
 			"Ctrl+X copy Austin's latest  ·  Ctrl+P sidebar  ·  Ctrl+G timestamps  ·  Ctrl+L redraw",
 			"Ctrl+K / Ctrl+U / Ctrl+W delete to end / to start / word  ·  ↑/↓ history  ·  PgUp/PgDn scroll  ·  Ctrl+Q / Ctrl+D quit",
+			"←/→ cursor  ·  Alt+←/→ by word  ·  Home/End line start/end  ·  Backspace/Delete remove before/after cursor",
 			"@ completes a tracked file  ·  Tab autocompletes slash commands or files  ·  Esc closes dialogs",
 		}},
 		{"PAUSE & DRIVERS", []string{

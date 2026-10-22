@@ -123,6 +123,7 @@ var zhUI = map[string]string{
 	"Ctrl+R restart Austin  ·  Ctrl+Y restart Tony  ·  Ctrl+O / Alt+O details & changes":                                                       "Ctrl+R 重启 Austin  ·  Ctrl+Y 重启 Tony  ·  Ctrl+O / Alt+O 详情与变更",
 	"Ctrl+X copy Austin's latest  ·  Ctrl+P sidebar  ·  Ctrl+G timestamps  ·  Ctrl+L redraw":                                                   "Ctrl+X 复制 Austin 最新消息  ·  Ctrl+P 侧边栏  ·  Ctrl+G 时间戳  ·  Ctrl+L 重绘",
 	"Ctrl+K / Ctrl+U / Ctrl+W delete to end / to start / word  ·  ↑/↓ history  ·  PgUp/PgDn scroll  ·  Ctrl+Q / Ctrl+D quit":                   "Ctrl+K / Ctrl+U / Ctrl+W 删除到行尾 / 行首 / 一个词  ·  ↑/↓ 历史  ·  PgUp/PgDn 滚动  ·  Ctrl+Q / Ctrl+D 退出",
+	"←/→ cursor  ·  Alt+←/→ by word  ·  Home/End line start/end  ·  Backspace/Delete remove before/after cursor":                               "←/→ 移动光标  ·  Alt+←/→ 按词移动  ·  Home/End 行首/行尾  ·  Backspace/Delete 删除光标前/后",
 	"@ completes a tracked file  ·  Tab autocompletes slash commands or files  ·  Esc closes dialogs":                                          "补全仓库中的已跟踪文件  ·  Tab 补全斜杠命令或文件  ·  Esc 关闭弹窗",
 	"Type / to see commands and descriptions; Tab completes the selected command.":                                                             "输入 / 查看命令及说明；Tab 补全选中的命令。",
 	"Attach suspends the dashboard and hands the real PTY to the agent. The":                                                                   "进入 Agent 会话会暂停仪表盘并把真实 PTY 交给 Agent。",
