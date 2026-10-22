@@ -18,6 +18,7 @@ import (
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/sessionstore"
+	"github.com/atfa/duo/internal/workspace"
 )
 
 func runGit(t *testing.T, dir string, args ...string) {
@@ -46,15 +47,34 @@ func gitRepo(t *testing.T) string {
 }
 
 // fakeAgent is a stand-in for a coding agent: it holds the process open so the
-// session has something to start, and does nothing else. This test is about the
-// session lifecycle, not about what an agent does with a prompt.
+// session has something to start, and drains its terminal so a prompt reaches it.
+// It must read stdin: a real agent does, and a prompt larger than the PTY input
+// buffer (1024 bytes on macOS, and Duo's resume prompt is already ~1.1 KB) would
+// otherwise block the writer until the process exits.
 func fakeAgent(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "fake-agent.sh")
-	if err := os.WriteFile(path, []byte("#!/bin/sh\nsleep 60\n"), 0o755); err != nil {
+	if err := os.WriteFile(path, []byte("#!/bin/sh\nexec cat >/dev/null\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	return path
+}
+
+// openSessionStore attaches to the store the session created for repo. The id is
+// derived from the canonical repository root, which Git reports resolved: on
+// macOS t.TempDir lives behind /var -> /private/var, so a raw RepoID(repo) names
+// a directory the session never wrote.
+func openSessionStore(t *testing.T, baseDir, repo, id string) *sessionstore.Store {
+	t.Helper()
+	root, err := workspace.FindRoot(context.Background(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := sessionstore.Open(baseDir, sessionstore.RepoID(root), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return store
 }
 
 // freeAddr reserves a port and gives the address back, so a test can hand the
@@ -183,10 +203,7 @@ func TestUnstartedResumeDoesNotShowResumePending(t *testing.T) {
 		t.Fatalf("submit: %v", err)
 	}
 	first.Close()
-	store, err := sessionstore.Open(baseDir, sessionstore.RepoID(repo), id)
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := openSessionStore(t, baseDir, repo, id)
 	snap, err := store.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -224,10 +241,7 @@ func TestResumeCompletedSessionKeepsDoneUntilFollowUpTask(t *testing.T) {
 	}
 	started.Close()
 
-	store, err := sessionstore.Open(baseDir, sessionstore.RepoID(repo), sessionID)
-	if err != nil {
-		t.Fatal(err)
-	}
+	store := openSessionStore(t, baseDir, repo, sessionID)
 	snap, err := store.Load()
 	if err != nil {
 		t.Fatal(err)
@@ -587,6 +601,35 @@ func TestAnUnstartedSessionWithWorkIsKept(t *testing.T) {
 	}
 	if _, err := sessionstore.Open(baseDir, sessionstore.RepoID(repo), set.Session); err != nil {
 		t.Errorf("a kept session must stay resumable: %v", err)
+	}
+}
+
+// The session names its store after the canonical repository root. A launch
+// directory reached through a symlink (macOS /var -> /private/var, or any linked
+// checkout) must still find that store instead of reporting an unknown session.
+func TestSessionStoreFollowsASymlinkedRepositoryPath(t *testing.T) {
+	repo := gitRepo(t)
+	link := filepath.Join(t.TempDir(), "linked-repo")
+	if err := os.Symlink(repo, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	baseDir := t.TempDir()
+	svc := New(headlessOptions(t, link, baseDir, "127.0.0.1:0"))
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	set := svc.set
+	if err := svc.Do(context.Background(), SubmitTask{Text: "create resumable snapshot"}); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if ended := svc.Close(); ended.Discarded {
+		t.Fatal("a session with work was discarded")
+	}
+	if _, err := sessionstore.Open(baseDir, sessionstore.RepoID(link), set.Session); err == nil {
+		t.Fatal("the raw launch path named a store, so this test cannot catch the symlink mismatch")
+	}
+	if _, err := openSessionStore(t, baseDir, link, set.Session).Load(); err != nil {
+		t.Fatalf("a symlinked checkout must stay resumable: %v", err)
 	}
 }
 
