@@ -14,6 +14,7 @@ const (
 	overlayNone overlayKind = iota
 	overlayPicker
 	overlayDrivers
+	overlayModePicker
 	overlayHelp
 	overlayDetails
 	overlayConfirm
@@ -166,8 +167,8 @@ func helpSections() []helpSection {
 		}},
 		{"KEYS", []string{
 			"Enter send  ·  Ctrl+Enter / Shift+Enter / Alt+Enter / Ctrl+J newline",
-			"Ctrl+M / Alt+M model & thinking picker  ·  F1 / Ctrl+/ / Alt+H help  ·  F2 split / timeline",
-			"Ctrl+E observer status report  ·  /observer opens observer settings",
+			"Ctrl+S / Alt+S mode picker  ·  click the header mode badge  ·  Ctrl+M / Alt+M model & thinking picker",
+			"F1 / Ctrl+/ / Alt+H help  ·  F2 split / timeline  ·  Ctrl+E observer status report",
 			"In picker: Tab switches Agent  ·  Shift+Tab cycles thinking  ·  Space selects model",
 			"Ctrl+A / Alt+A attach Austin  ·  Ctrl+T / Alt+T attach Tony  ·  Ctrl+V image path  ·  Ctrl+] or Ctrl+\\ detach",
 			"Ctrl+R restart Austin  ·  Ctrl+Y restart Tony  ·  Ctrl+O / Alt+O details & changes",

@@ -34,10 +34,13 @@ workflow state or makes project transitions:
 - **Language.** `/language zh|en` changes Duo-authored messages and the dashboard
   chrome immediately, and the choice is persisted in `.duo/config.json` for the
   next launch. Protocol names such as FAST/GOAL/STEP stay canonical.
-- **Mode switching.** `/mode fast|goal|step` and `/escalate` apply the new mode
-  immediately, then ask whether to resume Austin and Tony. The safe default is
-  **Not now**, which leaves both agents idle until the human submits the next
-  task; it also holds harness nudges so the watchdog cannot start work by itself.
+- **Mode switching.** `Ctrl+S` or `Alt+S` opens a FAST/GOAL/STEP panel with
+  the current mode marked; `/mode` without an argument opens the same panel and
+  `/mode fast|goal|step` still switches directly. The mode badge in the header
+  is clickable. A choice applies immediately, then asks whether to resume Austin
+  and Tony. The safe default is **Not now**, which leaves both agents idle until
+  the human submits the next task; it also holds harness nudges so the watchdog
+  cannot start work by itself.
 - **Pause and drivers.** `/pause` waits for a turn boundary and shows
   `PAUSING`/`PAUSED` in the header, with the footer naming who is still working.
   `/unpause` cancels an incomplete request; `/continue` resumes a full pause.
@@ -85,6 +88,7 @@ variables. The dashboard adds:
 | `F1` / `Ctrl+/` / `Alt+H` | Open help |
 | `Ctrl+O` / `Alt+O` | Open session details and the Git diffstat |
 | `Ctrl+M` / `Alt+M` | Open the model and thinking picker |
+| `Ctrl+S` / `Alt+S` | Open the FAST/GOAL/STEP mode picker |
 | `Ctrl+G` | Toggle message timestamps |
 | `Ctrl+A` / `Alt+A` | Attach to Austin |
 | `Ctrl+T` / `Alt+T` | Attach to Tony |
@@ -95,6 +99,7 @@ variables. The dashboard adds:
 | Click a URL | Open it in the default browser |
 | Click an existing file path | Open its containing folder in the default file manager |
 | Click `Split` / `Timeline` | Switch view; the labels sit at the right of the second header row |
+| Click the header mode badge | Open the mode picker |
 | Click a sidebar panel | Expand workflow, Austin or Tony; click again to restore |
 
 Modal choices are keyboard-driven (`←` / `→`, `Enter`, `Esc`). The model picker

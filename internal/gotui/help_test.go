@@ -83,6 +83,30 @@ func TestObserverShortcutIsAlwaysVisibleInFooter(t *testing.T) {
 	}
 }
 
+// TestFooterMentionsModePicker keeps the new shortcut discoverable wherever the
+// footer still has room for it; narrower widths may drop it rather than clip
+// the observer hint.
+func TestFooterMentionsModePicker(t *testing.T) {
+	app := New(newFakeSession())
+	for _, lang := range []string{"en", "zh"} {
+		*app.theme.Lang = lang
+		want := "Ctrl+S mode"
+		if lang == "zh" {
+			want = "Ctrl+S 模式"
+		}
+		for _, width := range []int{140, 120, 110, 100, 90, 84} {
+			app.layout.width = width
+			hint := app.footerHint()
+			if !strings.Contains(hint, want) {
+				t.Errorf("footer at width %d, language %s = %q, want %q", width, lang, hint, want)
+			}
+			if rw.StringWidth(hint) > width-2 {
+				t.Errorf("footer hint at width %d, language %s is %d columns: %q", width, lang, rw.StringWidth(hint), hint)
+			}
+		}
+	}
+}
+
 // TestSlashDescriptionsHaveChineseTranslations covers the palette: every
 // command description is rendered through zhUI, so a missing entry leaves
 // English text in the /language zh palette.

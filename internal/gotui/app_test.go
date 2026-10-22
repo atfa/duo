@@ -634,7 +634,7 @@ func TestLanguageCommandTranslatesDashboard(t *testing.T) {
 
 	typeText(sim, "/")
 	waitForText(t, sim, "命令")
-	waitForText(t, sim, "切换会话模式")
+	waitForText(t, sim, "模式选择器")
 }
 
 // Selecting Austin or Tony in the picker must also choose the target that

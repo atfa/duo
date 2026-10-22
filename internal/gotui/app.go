@@ -102,6 +102,7 @@ type App struct {
 	overlay           overlayKind
 	picker            *modelPicker
 	drivers           *driverPicker
+	modePicker        *modePicker
 	help              *helpOverlay
 	details           *detailOverlay
 	confirm           *confirmOverlay
@@ -184,6 +185,7 @@ func New(svc Session) *App {
 	a.footer = newFooter(t)
 	a.picker = newModelPicker(t)
 	a.drivers = newDriverPicker(t)
+	a.modePicker = newModePicker(t)
 	a.help = newHelp(t)
 	a.details = newDetails(t)
 	a.observer = newObserverConfig(t)
@@ -316,8 +318,9 @@ func (a *App) footerHint() string {
 		return a.theme.tr("paused · /continue resume · /driver switch driver")
 	}
 	hints := []string{
-		"Enter send · Ctrl+Enter newline · Ctrl+E reports · Alt+M models · Ctrl+A/T native · F1 help · F2 view · Ctrl+Q quit",
-		"Enter send · Ctrl+E reports · Alt+M models · F1 help · F2 view · Ctrl+Q quit",
+		"Enter send · Ctrl+Enter newline · Ctrl+E reports · Ctrl+S mode · Alt+M models · Ctrl+A/T native · F1 help · F2 view · Ctrl+Q quit",
+		"Enter send · Ctrl+E reports · Ctrl+S mode · Alt+M models · F1 help · F2 view · Ctrl+Q quit",
+		"Enter send · Ctrl+E reports · Ctrl+S mode · F1 help · F2 view · Ctrl+Q quit",
 		"Enter send · Ctrl+E reports · F1 help · F2 view · Ctrl+Q quit",
 	}
 	for _, hint := range hints {
@@ -568,6 +571,8 @@ func (a *App) draw() {
 			items = append(items, a.picker)
 		case overlayDrivers:
 			items = append(items, a.drivers)
+		case overlayModePicker:
+			items = append(items, a.modePicker)
 		case overlayHelp:
 			items = append(items, a.help)
 		case overlayDetails:
@@ -653,6 +658,7 @@ func (a *App) updateWidgets() {
 	}
 	a.picker.place(l)
 	a.drivers.place(l)
+	a.modePicker.place(l)
 	a.help.place(l)
 	a.details.place(l)
 	a.confirm.place(l)

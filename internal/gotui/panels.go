@@ -64,6 +64,11 @@ type headerBar struct {
 	pause                 session.PauseState
 	online, total         int
 	view                  viewMode
+
+	// modeBadge is the rectangle drawn for the mode/phase badge this frame. The
+	// mouse handler reads it, so a click always matches what the human sees even
+	// after the badge grows (PAUSED) or the terminal resizes.
+	modeBadge image.Rectangle
 }
 
 func newHeader(t theme) *headerBar {
@@ -75,6 +80,7 @@ func newHeader(t theme) *headerBar {
 
 func (h *headerBar) Draw(buf *ui.Buffer) {
 	fillBlock(buf, h.GetRect(), ui.Style{Fg: h.theme.Fg, Bg: h.theme.Panel})
+	h.modeBadge = image.Rectangle{}
 	y := h.Min.Y
 	x := h.Min.X + 1
 	width := h.Dx()
@@ -110,7 +116,9 @@ func (h *headerBar) Draw(buf *ui.Buffer) {
 		badgeStyle = ui.Style{Fg: h.theme.OK, Bg: h.theme.Panel, Modifier: ui.ModifierBold}
 	}
 	if width >= 40 {
-		buf.SetString(badge, badgeStyle, image.Pt(max(h.Min.X+1, h.Max.X-rw.StringWidth(badge)-2), y))
+		badgeX := max(h.Min.X+1, h.Max.X-rw.StringWidth(badge)-2)
+		buf.SetString(badge, badgeStyle, image.Pt(badgeX, y))
+		h.modeBadge = image.Rect(badgeX, y, badgeX+rw.StringWidth(badge), y+1)
 	}
 	y++
 	if y < h.Max.Y {

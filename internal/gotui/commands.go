@@ -162,8 +162,7 @@ func (a *App) runSlash(text string) bool {
 		return true
 	case "/mode":
 		if len(fields) == 1 {
-			mode := a.live.EffectiveMode().Display()
-			a.setStatus(fmt.Sprintf("current mode: %s (switch with /mode fast|goal|step)", mode), false)
+			a.openModePicker()
 			return true
 		}
 		if len(fields) != 2 {
@@ -450,6 +449,17 @@ func (a *App) copyLatest() {
 		return
 	}
 	a.showCopiedToast(len([]rune(text)))
+}
+
+// openModePicker shows the FAST/GOAL/STEP panel. It is the keyboard, slash and
+// header-badge entry point; every path applies through switchModeFromComposer.
+func (a *App) openModePicker() {
+	if a.svc == nil {
+		return
+	}
+	a.closeMention()
+	a.modePicker.begin(a.live.EffectiveMode())
+	a.overlay = overlayModePicker
 }
 
 func (a *App) openPicker() {

@@ -66,6 +66,8 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 			a.handlePickerKey(ev)
 		case overlayDrivers:
 			a.handleDriverPickerKey(ev)
+		case overlayModePicker:
+			a.handleModePickerKey(ev)
 		case overlayHelp:
 			a.handleScrollOverlayKey(ev, func(d int) { a.help.Scroll(d) }, max(0, len(a.help.lines)-max(1, a.help.Inner.Dy()-1)))
 		case overlayDetails:
@@ -151,6 +153,9 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 		return
 	case tcell.KeyCtrlM:
 		a.openPicker()
+		return
+	case tcell.KeyCtrlS:
+		a.openModePicker()
 		return
 	case tcell.KeyCtrlE:
 		a.openObserverReports()
@@ -286,6 +291,8 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 			switch strings.ToLower(str) {
 			case "m":
 				a.openPicker()
+			case "s":
+				a.openModePicker()
 			case "a":
 				a.enterNative(protocol.Austin)
 			case "t":
@@ -417,6 +424,28 @@ func (a *App) handleDriverPickerKey(ev *tcell.EventKey) {
 			p.addFilter(r)
 		}
 		return
+	}
+}
+
+func (a *App) handleModePickerKey(ev *tcell.EventKey) {
+	p := a.modePicker
+	switch ev.Key() {
+	case tcell.KeyEsc, tcell.KeyCtrlS:
+		a.closeOverlay()
+	case tcell.KeyUp:
+		p.move(-1)
+	case tcell.KeyDown:
+		p.move(1)
+	case tcell.KeyHome:
+		p.cursor = 0
+	case tcell.KeyEnd:
+		p.cursor = len(pickerModes) - 1
+	case tcell.KeyEnter:
+		target := p.selected()
+		// Close first: switchModeFromComposer may open the resume prompt, which
+		// must replace this panel instead of being hidden behind it.
+		a.closeOverlay()
+		a.switchModeFromComposer(target, "")
 	}
 }
 
@@ -589,6 +618,10 @@ func (a *App) handleMouse(ev *tcell.EventMouse) {
 			} else {
 				a.setViewMode(viewTimeline)
 			}
+			return
+		}
+		if point.In(a.header.modeBadge) {
+			a.openModePicker()
 			return
 		}
 		if panel := a.sidebarPanelAt(x, y); panel != panelNone {
