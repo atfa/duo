@@ -515,7 +515,13 @@ func (a *App) draw() {
 	// it during Show(), so updating it afterwards leaves the terminal one frame
 	// behind the text.
 	x, y := a.composer.prepare()
-	if a.overlay == overlayNone {
+	if a.overlay == overlayObserver {
+		if observerX, observerY, ok := a.observer.cursorPosition(); ok {
+			a.screen.ShowCursor(observerX, observerY)
+		} else {
+			a.screen.HideCursor()
+		}
+	} else if a.overlay == overlayNone {
 		a.screen.ShowCursor(x, y)
 	} else {
 		a.screen.HideCursor()

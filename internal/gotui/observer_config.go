@@ -8,6 +8,7 @@ import (
 	"github.com/atfa/duo/internal/observer"
 	"github.com/atfa/duo/internal/session"
 	"github.com/gdamore/tcell/v3"
+	rw "github.com/mattn/go-runewidth"
 	ui "github.com/metaspartan/gotui/v5"
 )
 
@@ -148,18 +149,31 @@ func (o *observerConfigOverlay) displayValue(field int) string {
 	if field != o.active {
 		return string(value)
 	}
-	if o.cursor < 0 || o.cursor > len(value) {
-		o.cursor = len(value)
-	}
-	// Insert the visible cursor into a copy. Appending directly to a field slice
-	// can reuse its backing array, corrupting the configured value as it is drawn.
-	value = append([]rune(nil), value...)
-	value = append(value, 0)
-	copy(value[o.cursor+1:], value[o.cursor:len(value)-1])
-	// Use an ASCII marker: the box-drawing vertical line is East Asian
-	// ambiguous-width and occupies two cells in CJK terminals.
-	value[o.cursor] = '|'
 	return string(value)
+}
+
+func (o *observerConfigOverlay) cursorPosition() (int, int, bool) {
+	if o.active < observerEndpointField || o.active > observerAPIKeyField || o.Inner.Dx() < 24 || o.Inner.Dy() < 8 {
+		return 0, 0, false
+	}
+	labels := [...]string{"Base URL", "Model", "API key (blank keeps saved key)"}
+	field := o.field()
+	if field == nil {
+		return 0, 0, false
+	}
+	cursor := max(0, min(o.cursor, len(*field)))
+	x := o.Inner.Min.X + rw.StringWidth(o.theme.tr(labels[o.active])+": ")
+	prefix := string((*field)[:cursor])
+	if o.active == observerAPIKeyField {
+		prefix = strings.Repeat("•", cursor)
+	}
+	x += rw.StringWidth(prefix)
+	if x >= o.Inner.Max.X {
+		x = o.Inner.Max.X - 1
+	}
+	// The description occupies one row plus the spacer before the fields.
+	y := o.Inner.Min.Y + 2 + o.active
+	return x, y, true
 }
 
 func (o *observerConfigOverlay) Draw(buf *ui.Buffer) {

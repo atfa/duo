@@ -123,8 +123,8 @@ func TestObserverConfigDisplayCursorDoesNotMutateField(t *testing.T) {
 	o.endpoint = append([]rune("abc"), 'x')[:3]
 	o.cursor = 1
 
-	if got := o.displayValue(observerEndpointField); got != "a|bc" {
-		t.Fatalf("displayValue() = %q, want %q", got, "a|bc")
+	if got := o.displayValue(observerEndpointField); got != "abc" {
+		t.Fatalf("displayValue() = %q, want unchanged value %q", got, "abc")
 	}
 	if got := string(o.endpoint); got != "abc" {
 		t.Fatalf("displayValue mutated endpoint to %q, want %q", got, "abc")
@@ -141,12 +141,23 @@ func TestObserverConfigLeftArrowRendersAdjacentValue(t *testing.T) {
 	fake.view.Observer = session.ObserverView{Endpoint: "http://127.0.0.1:4000/v1", Model: "exec"}
 	sim, _ := runObserverSimulation(t, fake)
 	openObserverViaShortcut(t, sim)
+	startX, startY, visible := sim.GetCursor()
+	if !visible {
+		t.Fatal("observer field cursor is hidden")
+	}
 	for range len("://127.0.0.1:4000/v1") {
 		injectKey(sim, tcell.KeyLeft, 0, tcell.ModNone)
+		time.Sleep(time.Millisecond)
 	}
-	waitForText(t, sim, "Base URL: http|://")
-	if text := screenText(sim); !strings.Contains(text, "Base URL: http|://") {
-		t.Fatalf("left-arrow field rendering has a gap:\n%s", text)
+	waitForText(t, sim, "Base URL: http://")
+	text := screenText(sim)
+	if !strings.Contains(text, "Base URL: http://127.0.0.1:4000/v1") {
+		t.Fatalf("left-arrow field rendering changed the value:\n%s", text)
+	}
+	x, y, visible := sim.GetCursor()
+	wantX := startX - len("://127.0.0.1:4000/v1")
+	if !visible || x != wantX || y != startY {
+		t.Fatalf("screen cursor = (%d,%d, visible=%t), want (%d,%d)", x, y, visible, wantX, startY)
 	}
 }
 
