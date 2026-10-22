@@ -60,6 +60,20 @@ func TestHelpHasChineseTranslations(t *testing.T) {
 	}
 }
 
+// TestSlashDescriptionsHaveChineseTranslations covers the palette: every
+// command description is rendered through zhUI, so a missing entry leaves
+// English text in the /language zh palette.
+func TestSlashDescriptionsHaveChineseTranslations(t *testing.T) {
+	for _, command := range slashCommands {
+		if command.desc == "" {
+			continue
+		}
+		if zhUI[command.desc] == "" {
+			t.Errorf("no zh translation for %s description %q", command.name, command.desc)
+		}
+	}
+}
+
 // TestChunkJoinWrapsCommandList pins the packing used by the generated slash
 // section.
 func TestChunkJoinWrapsCommandList(t *testing.T) {

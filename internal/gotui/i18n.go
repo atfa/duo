@@ -45,6 +45,7 @@ var zhUI = map[string]string{
 	"Show session status":                                          "显示会话状态",
 	"Redraw the screen":                                            "重绘屏幕",
 	"Quit and preserve this session (Ctrl+Q)":                      "退出并保留当前会话（Ctrl+Q）",
+	"Alias for /quit":                                              "「/quit」的别名",
 	"↑/↓ choose  ·  Tab complete  ·  Enter select  ·  Esc dismiss": "↑/↓ 选择  ·  Tab 补全  ·  Enter 确认  ·  Esc 关闭",
 	"↑/↓ choose  ·  Tab/Enter insert  ·  Esc dismiss":              "↑/↓ 选择  ·  Tab/Enter 插入  ·  Esc 关闭",
 	"no files found":                                               "未找到文件",
