@@ -13,9 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/observer"
-	"github.com/atfa/duo/internal/protocol"
 )
 
 func TestSetObserverChangesLiveEndpointAndPersistsWithoutSecret(t *testing.T) {
@@ -30,20 +28,19 @@ func TestSetObserverChangesLiveEndpointAndPersistsWithoutSecret(t *testing.T) {
 	second := austinObserverTestServer(t, "from second", &secondRequests)
 	repo := gitRepo(t)
 	opts := headlessOptions(t, repo, t.TempDir(), "127.0.0.1:0")
-	opts.Observer = observer.Config{Debounce: 15 * time.Millisecond, Timeout: time.Second, MaxEvents: 4, MaxTokens: 32}
+	opts.Observer = observer.Config{Timeout: time.Second, MaxEvents: 4, MaxTokens: 32}
 	svc := New(opts)
 	if _, err := svc.Start(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	defer svc.Close()
-	sub, unsubscribe := svc.Subscribe(64)
-	defer unsubscribe()
 
 	if err := svc.Do(context.Background(), SetObserver{Enabled: true, Endpoint: first.URL + "/v1", Model: "exec"}); err != nil {
 		t.Fatal(err)
 	}
-	svc.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "first burst"})
-	waitAustinObserverText(t, sub, "from first")
+	if got := requestObserver(t, svc); got.Reports[0].Text != "from first" {
+		t.Fatalf("report from the first endpoint = %+v", got.Reports)
+	}
 	if got := firstRequests.Load(); got != 1 {
 		t.Fatalf("first endpoint requests = %d", got)
 	}
@@ -51,8 +48,9 @@ func TestSetObserverChangesLiveEndpointAndPersistsWithoutSecret(t *testing.T) {
 	if err := svc.Do(context.Background(), SetObserver{Enabled: true, Endpoint: second.URL + "/v1", Model: "exec"}); err != nil {
 		t.Fatal(err)
 	}
-	svc.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "second burst"})
-	waitAustinObserverText(t, sub, "from second")
+	if got := requestObserver(t, svc); got.Reports[0].Text != "from second" {
+		t.Fatalf("report from the second endpoint = %+v", got.Reports)
+	}
 	if got := firstRequests.Load(); got != 1 {
 		t.Fatalf("old endpoint still active: %d requests", got)
 	}
@@ -91,7 +89,7 @@ func TestSetObserverChangesLiveEndpointAndPersistsWithoutSecret(t *testing.T) {
 	if err := svc.Do(context.Background(), SetObserver{Enabled: false, Endpoint: second.URL + "/v1", Model: "exec"}); err != nil {
 		t.Fatal(err)
 	}
-	svc.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "after disable"})
+	svc.RequestObserverReport()
 	time.Sleep(100 * time.Millisecond)
 	if got := secondRequests.Load(); got != 1 {
 		t.Fatalf("disabled observer made another request: %d", got)
@@ -146,20 +144,4 @@ func austinObserverTestServer(t *testing.T, reply string, requests *atomic.Int32
 	}))
 	t.Cleanup(server.Close)
 	return server
-}
-
-func waitAustinObserverText(t *testing.T, sub Subscription, want string) {
-	t.Helper()
-	timer := time.NewTimer(3 * time.Second)
-	defer timer.Stop()
-	for {
-		select {
-		case event := <-sub.Events:
-			if event.Kind == events.KindObserver && event.Text == want {
-				return
-			}
-		case <-timer.C:
-			t.Fatalf("timed out waiting for observer text %q", want)
-		}
-	}
 }

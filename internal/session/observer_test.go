@@ -3,12 +3,14 @@ package session
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -47,27 +49,26 @@ func TestObserverDisabledLeavesEventsAloneAndMakesNoRequest(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("ordinary session event was not delivered")
 	}
+	svc.RequestObserverReport()
 	time.Sleep(100 * time.Millisecond)
 	if got := requests.Load(); got != 0 {
 		t.Fatalf("disabled observer made %d model requests, want 0", got)
 	}
+	if reports, analyzing, _ := svc.observerReportSnapshot(); len(reports) != 0 || analyzing {
+		t.Fatalf("disabled observer reported state: %v %v", reports, analyzing)
+	}
 }
 
-func TestEnabledObserverPublishesObservationOnSessionBus(t *testing.T) {
+func TestRequestedReportReachesTheViewAndNotTheTimeline(t *testing.T) {
 	t.Setenv("DUO_OBSERVER_API_KEY", "sk-test")
 	var requests atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		requests.Add(1)
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"Check the unverified test claim."}}]}`)
-	}))
-	defer server.Close()
+	server := newObserverTestServer(t, "**Doing now**\\n- Austin is running go test", &requests)
 
 	repo := gitRepo(t)
 	opts := headlessOptions(t, repo, t.TempDir(), "127.0.0.1:0")
 	opts.Observer = observer.Config{
 		Enabled: true, Endpoint: server.URL + "/v1", Model: "exec",
-		MaxEvents: 4, Debounce: 10 * time.Millisecond, Timeout: time.Second,
+		MaxEvents: 4, Timeout: time.Second,
 	}
 	svc := New(opts)
 	if _, err := svc.Start(context.Background()); err != nil {
@@ -78,22 +79,178 @@ func TestEnabledObserverPublishesObservationOnSessionBus(t *testing.T) {
 	sub, unsubscribe := svc.Subscribe(32)
 	defer unsubscribe()
 	svc.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "implementation done"})
-	deadline := time.After(2 * time.Second)
+
+	view := requestObserver(t, svc)
+	if len(view.Reports) != 1 || view.Reports[0].Text != "**Doing now**\n- Austin is running go test" || view.Reports[0].At.IsZero() {
+		t.Fatalf("view reports = %+v", view.Reports)
+	}
+	if view.Analyzing {
+		t.Fatalf("a finished request left the panel analyzing: %+v", view)
+	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("model requests = %d, want 1", got)
+	}
+
+	// The report is panel state. A Timeline entry would bury it among the work
+	// the human is actually reading, which is what this change removed.
+	deadline := time.After(200 * time.Millisecond)
 	for {
 		select {
 		case event := <-sub.Events:
 			if event.Kind == events.KindObserver {
-				if event.Agent != protocol.Duo || event.Text != "Check the unverified test claim." {
-					t.Fatalf("observer event = %+v", event)
-				}
-				if got := requests.Load(); got != 1 {
-					t.Fatalf("model requests = %d, want 1", got)
-				}
-				return
+				t.Fatalf("observer text reached the session bus: %+v", event)
 			}
 		case <-deadline:
-			t.Fatalf("no observer event; model requests = %d", requests.Load())
+			return
 		}
+	}
+}
+
+// A queued request must describe the work in progress when it runs, not when the
+// human pressed the key.
+func TestRequestedReportCarriesLiveActivity(t *testing.T) {
+	t.Setenv("DUO_OBSERVER_API_KEY", "sk-test")
+
+	var (
+		mu     sync.Mutex
+		prompt string
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Messages []struct {
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		mu.Lock()
+		prompt = payload.Messages[1].Content
+		mu.Unlock()
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"report"}}]}`)
+	}))
+	defer server.Close()
+
+	repo := gitRepo(t)
+	opts := headlessOptions(t, repo, t.TempDir(), "127.0.0.1:0")
+	opts.Observer = observer.Config{
+		Enabled: true, Endpoint: server.URL + "/v1", Model: "exec",
+		MaxEvents: 4, Timeout: time.Second,
+	}
+	svc := New(opts)
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer svc.Close()
+
+	svc.tracker.Handle(protocol.Austin, protocol.ActivityToolStart)
+	svc.tracker.Note(protocol.Austin, protocol.ActivityToolStart, "bash", "go test ./...")
+	svc.tracker.Note(protocol.Austin, protocol.ActivityStream, "", "the observer needs the live block")
+
+	requestObserver(t, svc)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if !strings.Contains(prompt, "Current state") {
+		t.Fatalf("prompt has no live block:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Austin: busy running tool bash(go test ./...)") {
+		t.Fatalf("live block lost the running tool:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "currently writing: the observer needs the live block") {
+		t.Fatalf("live block lost the in-progress text:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Tony: idle") {
+		t.Fatalf("live block did not describe the idle agent:\n%s", prompt)
+	}
+}
+
+func TestRequestedReportKeepsANewestFirstHistoryOfThree(t *testing.T) {
+	t.Setenv("DUO_OBSERVER_API_KEY", "sk-test")
+	var (
+		mu    sync.Mutex
+		count int
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		count++
+		n := count
+		mu.Unlock()
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"report `+fmt.Sprint(n)+`"}}]}`)
+	}))
+	defer server.Close()
+
+	repo := gitRepo(t)
+	opts := headlessOptions(t, repo, t.TempDir(), "127.0.0.1:0")
+	opts.Observer = observer.Config{
+		Enabled: true, Endpoint: server.URL + "/v1", Model: "exec",
+		MaxEvents: 4, Timeout: time.Second,
+	}
+	svc := New(opts)
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer svc.Close()
+
+	for i := 1; i <= 4; i++ {
+		want := fmt.Sprintf("report %d", i)
+		svc.RequestObserverReport()
+		waitFor(t, 3*time.Second, func() bool {
+			reports, analyzing, _ := svc.observerReportSnapshot()
+			return !analyzing && len(reports) > 0 && reports[0].Text == want
+		})
+	}
+	reports, _, _ := svc.observerReportSnapshot()
+	if len(reports) != observerReportsKept {
+		t.Fatalf("kept %d reports, want %d", len(reports), observerReportsKept)
+	}
+	if reports[0].Text != "report 4" || reports[1].Text != "report 3" || reports[2].Text != "report 2" {
+		t.Fatalf("reports are not newest first: %+v", reports)
+	}
+}
+
+// Pressing the key while a request is in flight may queue one re-run, never a
+// burst of model calls.
+func TestRepeatedRequestsCollapseToOneQueuedRerun(t *testing.T) {
+	t.Setenv("DUO_OBSERVER_API_KEY", "sk-test")
+	release := make(chan struct{})
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		<-release
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"report"}}]}`)
+	}))
+	defer server.Close()
+	defer func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	}()
+
+	repo := gitRepo(t)
+	opts := headlessOptions(t, repo, t.TempDir(), "127.0.0.1:0")
+	opts.Observer = observer.Config{
+		Enabled: true, Endpoint: server.URL + "/v1", Model: "exec",
+		MaxEvents: 4, Timeout: 5 * time.Second,
+	}
+	svc := New(opts)
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer svc.Close()
+
+	svc.RequestObserverReport()
+	waitFor(t, time.Second, func() bool { return svc.View().Observer.Analyzing })
+	for i := 0; i < 5; i++ {
+		svc.RequestObserverReport()
+	}
+	close(release)
+	waitFor(t, 2*time.Second, func() bool {
+		reports, analyzing, _ := svc.observerReportSnapshot()
+		return !analyzing && len(reports) == 2
+	})
+	if got := requests.Load(); got != 2 {
+		t.Fatalf("model requests = %d, want 2 (one in flight plus one queued re-run)", got)
 	}
 }
 
@@ -112,7 +269,7 @@ func TestObserverNoticeReachesViewAndClearsOnReconfigureAndReport(t *testing.T) 
 	opts := headlessOptions(t, repo, t.TempDir(), "127.0.0.1:0")
 	opts.Observer = observer.Config{
 		Enabled: true, Endpoint: badEndpoint.URL + "/v1", Model: "wrong-model",
-		MaxEvents: 4, Debounce: 10 * time.Millisecond, Timeout: time.Second,
+		MaxEvents: 4, Timeout: time.Second,
 	}
 	svc := New(opts)
 	if _, err := svc.Start(context.Background()); err != nil {
@@ -120,11 +277,14 @@ func TestObserverNoticeReachesViewAndClearsOnReconfigureAndReport(t *testing.T) 
 	}
 	defer svc.Close()
 
-	svc.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "first event"})
+	svc.RequestObserverReport()
 	waitFor(t, time.Second, func() bool { return svc.View().Observer.LastNotice != "" })
 	failed := svc.View().Observer
 	if !strings.Contains(failed.LastNotice, "invalid model name") || failed.LastNoticeAt.IsZero() {
 		t.Fatalf("observer diagnostic = %+v", failed)
+	}
+	if failed.Analyzing {
+		t.Fatalf("a failed request left the panel analyzing: %+v", failed)
 	}
 
 	if err := svc.Do(context.Background(), SetObserver{Enabled: true, Endpoint: goodEndpoint.URL + "/v1", Model: "exec"}); err != nil {
@@ -134,11 +294,8 @@ func TestObserverNoticeReachesViewAndClearsOnReconfigureAndReport(t *testing.T) 
 		t.Fatalf("diagnostic remained after reconfiguration: %+v", got)
 	}
 
-	sub, unsubscribe := svc.Subscribe(32)
-	defer unsubscribe()
-	svc.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "second event"})
-	waitObserverText(t, sub, "useful progress report")
-	if got := svc.View().Observer; got.LastNotice != "" || !got.LastNoticeAt.IsZero() {
+	view := requestObserver(t, svc)
+	if got := view.LastNotice; got != "" || !view.LastNoticeAt.IsZero() {
 		t.Fatalf("diagnostic remained after successful report: %+v", got)
 	}
 	if failures.Load() != 1 || successes.Load() != 1 {
@@ -150,7 +307,7 @@ func TestTruncatedObserverReportRemainsVisibleWithDiagnostic(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("DUO_OBSERVER_API_KEY", "sk-test")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"**已完成**\n- partial"},"finish_reason":"length"}]}`)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"**Just finished**\n- partial"},"finish_reason":"length"}]}`)
 	}))
 	defer server.Close()
 
@@ -158,17 +315,18 @@ func TestTruncatedObserverReportRemainsVisibleWithDiagnostic(t *testing.T) {
 	opts := headlessOptions(t, repo, t.TempDir(), "127.0.0.1:0")
 	opts.Observer = observer.Config{
 		Enabled: true, Endpoint: server.URL + "/v1", Model: "exec",
-		MaxEvents: 4, Debounce: 10 * time.Millisecond, Timeout: time.Second,
+		MaxEvents: 4, Timeout: time.Second,
 	}
 	svc := New(opts)
 	if _, err := svc.Start(context.Background()); err != nil {
 		t.Fatalf("start: %v", err)
 	}
 	defer svc.Close()
-	sub, unsubscribe := svc.Subscribe(32)
-	defer unsubscribe()
-	svc.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "first event"})
-	waitObserverText(t, sub, "**已完成**\n- partial")
+
+	view := requestObserver(t, svc)
+	if view.Reports[0].Text != "**Just finished**\n- partial" {
+		t.Fatalf("truncated report = %+v", view.Reports)
+	}
 	waitFor(t, time.Second, func() bool {
 		return strings.Contains(svc.View().Observer.LastNotice, "report truncated at maxTokens")
 	})
@@ -187,6 +345,23 @@ func waitFor(t *testing.T, timeout time.Duration, condition func() bool) {
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatal("condition did not become true before timeout")
+}
+
+// requestObserver asks for one report and waits for it to reach the view.
+func requestObserver(t *testing.T, svc *Service) ObserverView {
+	t.Helper()
+	before := len(svc.View().Observer.Reports)
+	svc.RequestObserverReport()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		view := svc.View().Observer
+		if len(view.Reports) > before && !view.Analyzing {
+			return view
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("no observer report arrived; notice=%q", svc.View().Observer.LastNotice)
+	return ObserverView{}
 }
 
 func TestInvalidDirectObserverConfigDoesNotPreventSessionStart(t *testing.T) {
@@ -214,22 +389,6 @@ func newObserverTestServer(t *testing.T, text string, requests *atomic.Int32) *h
 	}))
 	t.Cleanup(server.Close)
 	return server
-}
-
-// waitObserverText waits for an observer event carrying text.
-func waitObserverText(t *testing.T, sub Subscription, text string) {
-	t.Helper()
-	deadline := time.After(3 * time.Second)
-	for {
-		select {
-		case event := <-sub.Events:
-			if event.Kind == events.KindObserver && event.Text == text {
-				return
-			}
-		case <-deadline:
-			t.Fatalf("no observation %q arrived", text)
-		}
-	}
 }
 
 func projectObserverSection(t *testing.T, repo string) map[string]any {
@@ -260,15 +419,12 @@ func TestSetObserverSwitchesTheLiveObserver(t *testing.T) {
 
 	repo := gitRepo(t)
 	opts := headlessOptions(t, repo, t.TempDir(), "127.0.0.1:0")
-	opts.Observer = observer.Config{Debounce: 20 * time.Millisecond, Timeout: 2 * time.Second, MaxEvents: 4, MaxTokens: 32}
+	opts.Observer = observer.Config{Timeout: 2 * time.Second, MaxEvents: 4, MaxTokens: 32}
 	svc := New(opts)
 	if _, err := svc.Start(context.Background()); err != nil {
 		t.Fatalf("start: %v", err)
 	}
 	defer svc.Close()
-
-	sub, unsubscribe := svc.Subscribe(64)
-	defer unsubscribe()
 
 	// The key is in the environment for this test, so the view already counts as
 	// configured; only Enabled is a setting here.
@@ -279,8 +435,9 @@ func TestSetObserverSwitchesTheLiveObserver(t *testing.T) {
 	if err := svc.Do(context.Background(), SetObserver{Enabled: true, Endpoint: endpointA.URL + "/v1", Model: "exec"}); err != nil {
 		t.Fatalf("enable observer: %v", err)
 	}
-	svc.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "first event"})
-	waitObserverText(t, sub, "observed by A")
+	if view := requestObserver(t, svc); view.Reports[0].Text != "observed by A" {
+		t.Fatalf("report from A = %+v", view.Reports)
+	}
 	if got := first.Load(); got != 1 {
 		t.Fatalf("endpoint A requests = %d, want 1", got)
 	}
@@ -288,8 +445,9 @@ func TestSetObserverSwitchesTheLiveObserver(t *testing.T) {
 	if err := svc.Do(context.Background(), SetObserver{Enabled: true, Endpoint: endpointB.URL + "/v1", Model: "exec"}); err != nil {
 		t.Fatalf("switch observer endpoint: %v", err)
 	}
-	svc.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "second event"})
-	waitObserverText(t, sub, "observed by B")
+	if view := requestObserver(t, svc); view.Reports[0].Text != "observed by B" {
+		t.Fatalf("report from B = %+v", view.Reports)
+	}
 	if got := first.Load(); got != 1 {
 		t.Fatalf("the old observer is still running: endpoint A requests = %d", got)
 	}
@@ -305,7 +463,7 @@ func TestSetObserverSwitchesTheLiveObserver(t *testing.T) {
 	if err := svc.Do(context.Background(), SetObserver{Enabled: false, Endpoint: endpointB.URL + "/v1", Model: "exec"}); err != nil {
 		t.Fatalf("disable observer: %v", err)
 	}
-	svc.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "third event"})
+	svc.RequestObserverReport()
 	time.Sleep(150 * time.Millisecond)
 	if got := second.Load(); got != 1 {
 		t.Fatalf("disabled observer still requested the model: endpoint B requests = %d", got)
@@ -326,15 +484,13 @@ func TestSetObserverFailureKeepsTheRunningObserver(t *testing.T) {
 
 	repo := gitRepo(t)
 	opts := headlessOptions(t, repo, t.TempDir(), "127.0.0.1:0")
-	opts.Observer = observer.Config{Debounce: 20 * time.Millisecond, Timeout: 2 * time.Second, MaxEvents: 4, MaxTokens: 32}
+	opts.Observer = observer.Config{Timeout: 2 * time.Second, MaxEvents: 4, MaxTokens: 32}
 	svc := New(opts)
 	if _, err := svc.Start(context.Background()); err != nil {
 		t.Fatalf("start: %v", err)
 	}
 	defer svc.Close()
 
-	sub, unsubscribe := svc.Subscribe(64)
-	defer unsubscribe()
 	if err := svc.Do(context.Background(), SetObserver{Enabled: true, Endpoint: endpoint.URL + "/v1", Model: "exec"}); err != nil {
 		t.Fatalf("enable observer: %v", err)
 	}
@@ -342,8 +498,9 @@ func TestSetObserverFailureKeepsTheRunningObserver(t *testing.T) {
 	if err := svc.Do(context.Background(), SetObserver{Enabled: true, Endpoint: "", Model: "exec"}); err == nil {
 		t.Fatal("expected an invalid endpoint to be rejected")
 	}
-	svc.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "after invalid attempt"})
-	waitObserverText(t, sub, "still observing")
+	if view := requestObserver(t, svc); view.Reports[0].Text != "still observing" {
+		t.Fatalf("report after an invalid attempt = %+v", view.Reports)
+	}
 
 	// Make the project config unwritable so the next change fails at the write.
 	configPath := filepath.Join(repo, ".duo", "config.json")
@@ -356,11 +513,7 @@ func TestSetObserverFailureKeepsTheRunningObserver(t *testing.T) {
 	if err := svc.Do(context.Background(), SetObserver{Enabled: true, Endpoint: endpoint.URL + "/v2", Model: "exec"}); err == nil {
 		t.Fatal("expected an unwritable project config to be reported")
 	}
-	svc.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "after write failure"})
-	deadline := time.Now().Add(2 * time.Second)
-	for requests.Load() < 2 && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
+	requestObserver(t, svc)
 	if requests.Load() != 2 {
 		t.Fatalf("running observer request count = %d, want 2", requests.Load())
 	}
@@ -438,15 +591,13 @@ func TestSetObserverKeepsEnvironmentOverrides(t *testing.T) {
 
 	repo := gitRepo(t)
 	opts := headlessOptions(t, repo, t.TempDir(), "127.0.0.1:0")
-	opts.Observer = observer.Config{Debounce: 20 * time.Millisecond, Timeout: 2 * time.Second, MaxEvents: 4, MaxTokens: 32}
+	opts.Observer = observer.Config{Timeout: 2 * time.Second, MaxEvents: 4, MaxTokens: 32}
 	svc := New(opts)
 	if _, err := svc.Start(context.Background()); err != nil {
 		t.Fatalf("start: %v", err)
 	}
 	defer svc.Close()
 
-	sub, unsubscribe := svc.Subscribe(64)
-	defer unsubscribe()
 	if err := svc.Do(context.Background(), SetObserver{Enabled: false, Endpoint: chosen.URL + "/v1", Model: "saved-model"}); err != nil {
 		t.Fatalf("save observer settings: %v", err)
 	}
@@ -467,8 +618,9 @@ func TestSetObserverKeepsEnvironmentOverrides(t *testing.T) {
 		t.Fatalf("view reports the saved values instead of the environment's: %+v", view)
 	}
 
-	svc.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "override event"})
-	waitObserverText(t, sub, "from the environment endpoint")
+	if got := requestObserver(t, svc); got.Reports[0].Text != "from the environment endpoint" {
+		t.Fatalf("report came from the wrong endpoint: %+v", got.Reports)
+	}
 	if got := chosenRequests.Load(); got != 0 {
 		t.Fatalf("the saved endpoint was used despite the override: %d requests", got)
 	}
@@ -578,7 +730,7 @@ func TestObserverPromptFollowsSessionLanguage(t *testing.T) {
 	opts.Language = "zh"
 	opts.Observer = observer.Config{
 		Enabled: true, Endpoint: server.URL + "/v1", Model: "exec",
-		MaxEvents: 4, Debounce: 10 * time.Millisecond, Timeout: time.Second,
+		MaxEvents: 4, Timeout: time.Second,
 	}
 	svc := New(opts)
 	if _, err := svc.Start(context.Background()); err != nil {
@@ -586,20 +738,15 @@ func TestObserverPromptFollowsSessionLanguage(t *testing.T) {
 	}
 	defer svc.Close()
 
-	sub, unsubscribe := svc.Subscribe(32)
-	defer unsubscribe()
-
-	svc.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "first event"})
-	waitObserverText(t, sub, "report")
-	if got := nextObserverPrompt(t, prompts); !strings.Contains(got, "Simplified Chinese") || !strings.Contains(got, "已完成、正在进行、下一步计划、阻塞/决策") {
+	requestObserver(t, svc)
+	if got := nextObserverPrompt(t, prompts); !strings.Contains(got, "Simplified Chinese") || !strings.Contains(got, "刚完成、现在正在做、接下来、需要你决定") {
 		t.Fatalf("zh system prompt = %q, want Simplified Chinese headings", got)
 	}
 
 	if err := svc.Do(context.Background(), SetLanguage{Language: "en"}); err != nil {
 		t.Fatalf("switch language: %v", err)
 	}
-	svc.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "second event"})
-	waitObserverText(t, sub, "report")
+	requestObserver(t, svc)
 	if got := nextObserverPrompt(t, prompts); strings.Contains(got, "Simplified Chinese") {
 		t.Fatalf("en system prompt kept the Chinese instruction: %q", got)
 	}
@@ -614,8 +761,7 @@ func TestObserverPromptFollowsSessionLanguage(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("reconfigure observer: %v", err)
 	}
-	svc.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "third event"})
-	waitObserverText(t, sub, "report")
+	requestObserver(t, svc)
 	if got := nextObserverPrompt(t, prompts); strings.Count(got, "Simplified Chinese") != 1 {
 		t.Fatalf("rebuilt zh system prompt = %q, want one Chinese instruction", got)
 	}

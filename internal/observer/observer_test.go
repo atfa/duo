@@ -17,57 +17,22 @@ import (
 	"github.com/atfa/duo/internal/protocol"
 )
 
-// recorder collects what an observer emits and logs, from any goroutine.
-type recorder struct {
-	mu      sync.Mutex
-	emits   []string
-	logs    []string
-	emitted chan struct{}
+// logRecorder collects the diagnostics an observer reports.
+type logRecorder struct {
+	mu   sync.Mutex
+	logs []string
 }
 
-func newRecorder() *recorder {
-	return &recorder{emitted: make(chan struct{}, 8)}
-}
-
-func (r *recorder) emit(text string) {
-	r.mu.Lock()
-	r.emits = append(r.emits, text)
-	r.mu.Unlock()
-	select {
-	case r.emitted <- struct{}{}:
-	default:
-	}
-}
-
-func (r *recorder) logf(format string, args ...any) {
+func (r *logRecorder) logf(format string, args ...any) {
 	r.mu.Lock()
 	r.logs = append(r.logs, fmt.Sprintf(format, args...))
 	r.mu.Unlock()
 }
 
-func (r *recorder) emittedText() []string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return append([]string(nil), r.emits...)
-}
-
-func (r *recorder) logged() string {
+func (r *logRecorder) logged() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return strings.Join(r.logs, "\n")
-}
-
-// waitEmit fails the test unless an observation arrives before the deadline.
-func waitEmit(t *testing.T, r *recorder) string {
-	t.Helper()
-	select {
-	case <-r.emitted:
-		texts := r.emittedText()
-		return texts[len(texts)-1]
-	case <-time.After(2 * time.Second):
-		t.Fatalf("no observation emitted; logs:\n%s", r.logged())
-		return ""
-	}
 }
 
 // DefaultSettings is the empty file shape: every value at its built-in default.
@@ -79,24 +44,72 @@ func testConfig(endpoint string) Config {
 		Endpoint:     endpoint,
 		Model:        "exec",
 		MaxEvents:    5,
-		Debounce:     20 * time.Millisecond,
 		Timeout:      2 * time.Second,
 		MaxTokens:    50,
 		SystemPrompt: "observe briefly",
 	}
 }
 
+// newTestObserver returns an observer wired to a bus and a fixed live block.
+func newTestObserver(t *testing.T, cfg Config, live string) (*Observer, *logRecorder) {
+	t.Helper()
+	rec := &logRecorder{}
+	obs, err := New(events.NewBus(), cfg, func() string { return live }, rec.logf)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return obs, rec
+}
+
+// waitWindow blocks until the collector holds at least want events, so a test
+// never races the bus subscription.
+func waitWindow(t *testing.T, o *Observer, want int) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		o.mu.Lock()
+		n := len(o.window)
+		o.mu.Unlock()
+		if n >= want {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("recent log never held %d events", want)
+}
+
+// waitNewest blocks until the collector's newest event contains want.
+func waitNewest(t *testing.T, o *Observer, want string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		o.mu.Lock()
+		var newest string
+		if n := len(o.window); n > 0 {
+			newest = o.window[n-1].Text
+		}
+		o.mu.Unlock()
+		if strings.Contains(newest, want) {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("the recent log never reached %q", want)
+}
+
 func TestSettingsDefaults(t *testing.T) {
+	// debounceSeconds is no longer an observer setting. An old file that still
+	// carries it must load without failing rather than break a working setup.
 	raw := []byte(`{"enabled":true,"endpoint":"http://127.0.0.1:4000/v1","model":"exec","debounceSeconds":2,"timeoutSeconds":5,"maxEvents":7}`)
 	var settings Settings
 	if err := json.Unmarshal(raw, &settings); err != nil {
 		t.Fatalf("decode settings: %v", err)
 	}
 	cfg := settings.Config()
-	if cfg.Debounce != 2*time.Second || cfg.Timeout != 5*time.Second || cfg.MaxEvents != 7 {
-		t.Fatalf("explicit settings not applied: %+v", cfg)
+	if !cfg.Enabled || cfg.Endpoint != "http://127.0.0.1:4000/v1" || cfg.Model != "exec" {
+		t.Fatalf("explicit values lost: %+v", cfg)
 	}
-	if cfg.SystemPrompt != DefaultSystemPrompt || cfg.MaxTokens != DefaultMaxTokens {
+	if cfg.MaxEvents != 7 || cfg.Timeout != 5*time.Second {
 		t.Fatalf("defaults not applied: %+v", cfg)
 	}
 	if cfg.APIKeyEnv != "" {
@@ -104,8 +117,7 @@ func TestSettingsDefaults(t *testing.T) {
 	}
 
 	zero := Settings{}.Config()
-	if zero.MaxEvents != DefaultMaxEvents || zero.Debounce != DefaultDebounce ||
-		zero.Timeout != DefaultTimeout || zero.MaxTokens != DefaultMaxTokens {
+	if zero.MaxEvents != DefaultMaxEvents || zero.Timeout != DefaultTimeout || zero.MaxTokens != DefaultMaxTokens {
 		t.Fatalf("zero settings did not take defaults: %+v", zero)
 	}
 	if err := zero.Validate(); err != nil {
@@ -113,11 +125,12 @@ func TestSettingsDefaults(t *testing.T) {
 	}
 }
 
-func TestDefaultReportPromptRequiresBoundedFourSectionReport(t *testing.T) {
+func TestDefaultReportPromptRequiresBoundedThreeSectionReport(t *testing.T) {
 	for _, want := range []string{
-		"exactly four sections", "what is in progress", "next steps explicitly stated by the agents",
-		"blockers or decisions", "Always include all four sections", "at most 12 short bullets",
-		"at most the five newest completed items", "Do not use fixed English headings",
+		"exactly three sections", "Just finished", "Doing now",
+		"derived ONLY from the Current state block", "Never describe a finished tool as running",
+		"only what the agents explicitly stated they will do", "Needs your decision:",
+		"at most twelve short lines", "including the section headings",
 	} {
 		if !strings.Contains(DefaultSystemPrompt, want) {
 			t.Errorf("DefaultSystemPrompt missing %q", want)
@@ -128,134 +141,42 @@ func TestDefaultReportPromptRequiresBoundedFourSectionReport(t *testing.T) {
 	}
 }
 
-func TestAskPreservesTruncatedTextAndReportsDiagnostic(t *testing.T) {
-	const body = `{"choices":[{"message":{"content":"partial four-section report"},"finish_reason":"length"}]}`
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		_, _ = io.WriteString(w, body)
-	}))
-	defer srv.Close()
-	o := &Observer{cfg: Config{Endpoint: srv.URL, Model: "exec", MaxTokens: 800}, key: "test", client: srv.Client()}
-	got := o.ask(context.Background(), "", []events.Event{{Kind: events.KindAssistant, Text: "update"}})
-	if got.text != "partial four-section report" {
-		t.Fatalf("truncated text = %q", got.text)
-	}
-	if got.err == nil || !strings.Contains(got.err.Error(), "report truncated at maxTokens") {
-		t.Fatalf("truncation diagnostic = %v", got.err)
-	}
-}
-
-func TestObserverEmitsTruncatedTextAndSuppressesDuplicateReports(t *testing.T) {
-	t.Setenv("DUO_OBSERVER_API_KEY", "sk-test")
-	var requests atomic.Int32
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		requests.Add(1)
-		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"**已完成**\n- parser"},"finish_reason":"length"}]}`)
-	}))
-	defer srv.Close()
-
-	bus := events.NewBus()
-	rec := newRecorder()
-	cfg := testConfig(srv.URL + "/v1")
-	obs, err := New(bus, cfg, rec.emit, rec.logf)
-	if err != nil {
-		t.Fatal(err)
-	}
-	obs.Start(context.Background())
-	defer obs.Close()
-	bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "parser implemented"})
-	if got := waitEmit(t, rec); got != "**已完成**\n- parser" {
-		t.Fatalf("truncated report = %q", got)
-	}
-	waitForObserver(t, func() bool { return strings.Contains(rec.logged(), "report truncated at maxTokens") })
-
-	bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Tony, Text: "tests passed"})
-	waitForObserver(t, func() bool { return strings.Count(rec.logged(), "report truncated at maxTokens") == 2 })
-	if got := rec.emittedText(); len(got) != 1 {
-		t.Fatalf("emits = %#v, want identical second report suppressed", got)
-	}
-}
-
-func waitForObserver(t *testing.T, ready func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if ready() {
-			return
-		}
-		time.Sleep(time.Millisecond)
-	}
-	t.Fatal("observer condition did not become true")
-}
-
-func TestValidateRejectsUnusableConfig(t *testing.T) {
-	cases := map[string]Config{
-		"no endpoint": {Enabled: true, Model: "exec"},
-		"no model":    {Enabled: true, Endpoint: "http://127.0.0.1:4000/v1"},
-		"bad scheme":  {Enabled: true, Endpoint: "ftp://127.0.0.1/v1", Model: "exec"},
-		"bad url":     {Enabled: true, Endpoint: "://", Model: "exec"},
-	}
-	for name, cfg := range cases {
-		cfg.MaxEvents, cfg.Debounce, cfg.Timeout = 1, time.Second, time.Second
-		if err := cfg.Validate(); err == nil {
-			t.Errorf("%s: expected a validation error", name)
-		}
-	}
-
-	enabled := testConfig("http://127.0.0.1:4000/v1")
-	if err := enabled.Validate(); err != nil {
-		t.Fatalf("valid config rejected: %v", err)
-	}
-	if _, err := New(events.NewBus(), enabled, func(string) {}, nil); err != nil {
-		t.Fatalf("New rejected a valid config: %v", err)
-	}
-	disabled := enabled
-	disabled.Enabled = false
-	if _, err := New(events.NewBus(), disabled, func(string) {}, nil); err == nil {
-		t.Fatal("New must not produce an observer for a disabled configuration")
-	}
-}
-
-func TestObserverAsksModelAndEmitsObservation(t *testing.T) {
+func TestReportSendsLiveContextAndRecentLog(t *testing.T) {
 	t.Setenv("DUO_OBSERVER_API_KEY", "sk-test")
 
 	var (
-		mu      sync.Mutex
-		path    string
-		auth    string
-		body    string
-		request int
+		mu   sync.Mutex
+		path string
+		auth string
+		body string
 	)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		data, _ := io.ReadAll(r.Body)
 		mu.Lock()
 		path, auth, body = r.URL.Path, r.Header.Get("Authorization"), string(data)
-		request++
 		mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, `{"choices":[{"message":{"content":"Austin claims success without running the test."}}]}`)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"**Doing now**\n- Austin is running go test"}}]}`)
 	}))
 	defer srv.Close()
 
-	bus := events.NewBus()
-	rec := newRecorder()
-	obs, err := New(bus, testConfig(srv.URL+"/v1"), rec.emit, rec.logf)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	obs, _ := newTestObserver(t, testConfig(srv.URL+"/v1"), "Austin: busy running tool bash(go test ./...) for 12s")
 	obs.Start(context.Background())
 	defer obs.Close()
+	obs.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "implementation done"})
+	obs.bus.Emit(events.Event{Kind: events.KindActivity, Agent: protocol.Austin})
+	waitNewest(t, obs, "implementation done")
 
-	bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "implementation done"})
-	text := waitEmit(t, rec)
-	if text != "Austin claims success without running the test." {
-		t.Fatalf("observation = %q", text)
+	text, err := obs.Report(context.Background())
+	if err != nil {
+		t.Fatalf("Report: %v", err)
+	}
+	if text != "**Doing now**\n- Austin is running go test" {
+		t.Fatalf("report = %q", text)
 	}
 
 	mu.Lock()
 	defer mu.Unlock()
-	if request != 1 {
-		t.Fatalf("requests = %d, want 1", request)
-	}
 	if path != "/v1/chat/completions" {
 		t.Fatalf("path = %q, want /v1/chat/completions (endpoint is the base URL)", path)
 	}
@@ -279,173 +200,243 @@ func TestObserverAsksModelAndEmitsObservation(t *testing.T) {
 	if len(sent.Messages) != 2 || sent.Messages[0].Role != "system" || sent.Messages[1].Role != "user" {
 		t.Fatalf("unexpected message shape: %+v", sent.Messages)
 	}
-	if !strings.Contains(sent.Messages[1].Content, "Austin [assistant]: implementation done") {
-		t.Fatalf("transcript does not identify the speaker and kind: %q", sent.Messages[1].Content)
+	prompt := sent.Messages[1].Content
+	if !strings.Contains(prompt, "Current state") || !strings.Contains(prompt, "running tool bash(go test ./...)") {
+		t.Fatalf("prompt does not carry the live block:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "Austin [assistant]: implementation done") {
+		t.Fatalf("prompt does not identify the speaker and kind:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "[activity]") {
+		t.Fatalf("an empty activity event reached the log:\n%s", prompt)
 	}
 }
 
-func TestObserverCarriesPreviousReportIntoIncrementalUpdate(t *testing.T) {
+func TestReportSamplesLiveContextAtRequestTime(t *testing.T) {
 	t.Setenv("DUO_OBSERVER_API_KEY", "sk-test")
-	var mu sync.Mutex
-	var prompts []string
-	var request int
+
+	var (
+		mu      sync.Mutex
+		prompts []string
+	)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var payload struct {
 			Messages []struct {
 				Content string `json:"content"`
 			} `json:"messages"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-			t.Errorf("decode request: %v", err)
-		}
+		_ = json.NewDecoder(r.Body).Decode(&payload)
 		mu.Lock()
 		prompts = append(prompts, payload.Messages[1].Content)
-		request++
-		n := request
+		mu.Unlock()
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"report"}}]}`)
+	}))
+	defer srv.Close()
+
+	var samples atomic.Int32
+	rec := &logRecorder{}
+	obs, err := New(events.NewBus(), testConfig(srv.URL+"/v1"), func() string {
+		return fmt.Sprintf("Austin: busy running tool bash(step %d)", samples.Add(1))
+	}, rec.logf)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := obs.Report(context.Background()); err != nil {
+			t.Fatalf("Report %d: %v", i, err)
+		}
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(prompts) != 2 {
+		t.Fatalf("prompts = %d, want 2", len(prompts))
+	}
+	if !strings.Contains(prompts[0], "step 1") || !strings.Contains(prompts[1], "step 2") {
+		t.Fatalf("the live block was not sampled per request: %#v", prompts)
+	}
+}
+
+func TestReportCarriesPreviousReportAsContinuityOnly(t *testing.T) {
+	t.Setenv("DUO_OBSERVER_API_KEY", "sk-test")
+
+	var (
+		mu      sync.Mutex
+		prompts []string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Messages []struct {
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		mu.Lock()
+		prompts = append(prompts, payload.Messages[1].Content)
+		n := len(prompts)
 		mu.Unlock()
 		report := "Report one: parser implemented."
 		if n > 1 {
-			report = "Report two: parser implemented; tests now pass."
+			report = "Report two: tests now pass."
 		}
-		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"`+report+`"}}]}`)
 	}))
 	defer srv.Close()
 
-	bus := events.NewBus()
-	rec := newRecorder()
-	cfg := testConfig(srv.URL + "/v1")
-	cfg.Debounce = 20 * time.Millisecond
-	obs, err := New(bus, cfg, rec.emit, rec.logf)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	obs, _ := newTestObserver(t, testConfig(srv.URL+"/v1"), "Austin: idle")
 	obs.Start(context.Background())
 	defer obs.Close()
-	bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "parser implemented"})
-	if got := waitEmit(t, rec); got != "Report one: parser implemented." {
-		t.Fatalf("first report = %q", got)
+
+	obs.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "parser implemented"})
+	waitNewest(t, obs, "parser implemented")
+	if got, err := obs.Report(context.Background()); err != nil || got != "Report one: parser implemented." {
+		t.Fatalf("first report = %q, %v", got, err)
 	}
-	bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Tony, Text: "tests now pass"})
-	if got := waitEmit(t, rec); got != "Report two: parser implemented; tests now pass." {
-		t.Fatalf("second report = %q", got)
+	obs.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Tony, Text: "tests now pass"})
+	waitNewest(t, obs, "tests now pass")
+	if got, err := obs.Report(context.Background()); err != nil || got != "Report two: tests now pass." {
+		t.Fatalf("second report = %q, %v", got, err)
 	}
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(prompts) != 2 || !strings.Contains(prompts[1], "Previous running report:\nReport one: parser implemented.") || !strings.Contains(prompts[1], "Tony [assistant]: tests now pass") {
-		t.Fatalf("second incremental prompt = %#v", prompts)
+	if len(prompts) != 2 {
+		t.Fatalf("prompts = %d, want 2", len(prompts))
+	}
+	if strings.Contains(prompts[0], "Previous report") {
+		t.Fatalf("the first request must not claim a previous report:\n%s", prompts[0])
+	}
+	second := prompts[1]
+	if !strings.Contains(second, "Previous report (continuity only; do not repeat its finished bullets):\nReport one: parser implemented.") {
+		t.Fatalf("second prompt lost the previous report:\n%s", second)
+	}
+	if !strings.Contains(second, "Tony [assistant]: tests now pass") {
+		t.Fatalf("second prompt lost the newest event:\n%s", second)
 	}
 }
 
-func TestObserverCoalescesOneRequestPerBurst(t *testing.T) {
+func TestReportKeepsTheRecentLogBounded(t *testing.T) {
 	t.Setenv("DUO_OBSERVER_API_KEY", "sk-test")
 
 	var (
-		mu       sync.Mutex
-		requests []string
+		mu     sync.Mutex
+		prompt string
 	)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		data, _ := io.ReadAll(r.Body)
-		mu.Lock()
-		requests = append(requests, string(data))
-		n := len(requests)
-		mu.Unlock()
-		content := "noted first"
-		if n > 1 {
-			content = "noted second"
+		var payload struct {
+			Messages []struct {
+				Content string `json:"content"`
+			} `json:"messages"`
 		}
-		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"`+content+`"}}]}`)
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		mu.Lock()
+		prompt = payload.Messages[1].Content
+		mu.Unlock()
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"report"}}]}`)
 	}))
 	defer srv.Close()
 
-	bus := events.NewBus()
-	rec := newRecorder()
-	obs, err := New(bus, testConfig(srv.URL+"/v1"), rec.emit, rec.logf)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	cfg := testConfig(srv.URL + "/v1")
+	cfg.MaxEvents = 3
+	obs, _ := newTestObserver(t, cfg, "Austin: idle")
 	obs.Start(context.Background())
 	defer obs.Close()
 
-	for _, text := range []string{"first", "second", "third"} {
-		bus.Emit(events.Event{Kind: events.KindPeer, Agent: protocol.Austin, Peer: protocol.Tony, Text: text})
-		time.Sleep(2 * time.Millisecond)
+	// A long log must lose its oldest events to both the count and the rune
+	// budget, so one request cannot grow without limit.
+	bulk := strings.Repeat("x", 3000)
+	for i := 0; i < 6; i++ {
+		obs.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: fmt.Sprintf("event-%d %s", i, bulk)})
 	}
-	waitEmit(t, rec)
-
-	bus.Emit(events.Event{Kind: events.KindUser, Agent: protocol.Duo, Text: "fourth"})
-	waitEmit(t, rec)
+	waitNewest(t, obs, "event-5 ")
+	if _, err := obs.Report(context.Background()); err != nil {
+		t.Fatalf("Report: %v", err)
+	}
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(requests) != 2 {
-		t.Fatalf("requests = %d, want 2 (one per burst): %v", len(requests), requests)
+	if strings.Contains(prompt, "event-0 ") || strings.Contains(prompt, "event-2 ") {
+		t.Fatalf("the window kept events beyond its budget:\n%.400s", prompt)
 	}
-	for _, text := range []string{"first", "second", "third"} {
-		if !strings.Contains(requests[0], text) {
-			t.Fatalf("first request lost %q:\n%s", text, requests[0])
-		}
+	if !strings.Contains(prompt, "event-5 ") {
+		t.Fatalf("the window dropped the newest event:\n%.400s", prompt)
 	}
-	if strings.Contains(requests[0], "fourth") {
-		t.Fatal("second burst leaked into the first request")
-	}
-	if !strings.Contains(requests[1], "fourth") {
-		t.Fatalf("second request missing the new event:\n%s", requests[1])
+	if runes := len([]rune(prompt)); runes > maxTranscriptRunes+4000 {
+		t.Fatalf("prompt grew to %d runes, beyond the transcript budget", runes)
 	}
 }
 
-func TestObserverKeepsSilentReplyOutOfTimeline(t *testing.T) {
-	t.Setenv("DUO_OBSERVER_API_KEY", "sk-test")
-
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		io.WriteString(w, `{"choices":[{"message":{"content":"NOTHING"}}]}`)
+func TestReportPreservesTruncatedTextAndReportsDiagnostic(t *testing.T) {
+	const body = `{"choices":[{"message":{"content":"partial three-section report"},"finish_reason":"length"}]}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, body)
 	}))
 	defer srv.Close()
-
-	bus := events.NewBus()
-	rec := newRecorder()
-	obs, err := New(bus, testConfig(srv.URL+"/v1"), rec.emit, rec.logf)
-	if err != nil {
-		t.Fatalf("New: %v", err)
+	obs := &Observer{cfg: Config{Endpoint: srv.URL, Model: "exec", MaxTokens: 800}, key: "test", client: srv.Client(), live: func() string { return "" }}
+	got, err := obs.Report(context.Background())
+	if got != "partial three-section report" {
+		t.Fatalf("truncated text = %q", got)
 	}
-	obs.Start(context.Background())
-	defer obs.Close()
-
-	bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Tony, Text: "ok"})
-	time.Sleep(150 * time.Millisecond)
-	if got := rec.emittedText(); len(got) != 0 {
-		t.Fatalf("NOTHING must not be shown, got %q", got)
+	if err == nil || !strings.Contains(err.Error(), "report truncated at maxTokens") {
+		t.Fatalf("truncation diagnostic = %v", err)
 	}
 }
 
-func TestObserverWithoutKeySendsNothing(t *testing.T) {
+func TestReportRejectsAnEmptyAnswer(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"   "}}]}`)
+	}))
+	defer srv.Close()
+	obs := &Observer{cfg: Config{Endpoint: srv.URL, Model: "exec"}, key: "test", client: srv.Client(), live: func() string { return "" }}
+	if _, err := obs.Report(context.Background()); err == nil || !strings.Contains(err.Error(), "empty report") {
+		t.Fatalf("empty answer error = %v", err)
+	}
+}
+
+func TestValidateRejectsUnusableConfig(t *testing.T) {
+	cases := map[string]Config{
+		"no endpoint": {Enabled: true, Model: "exec"},
+		"no model":    {Enabled: true, Endpoint: "http://127.0.0.1:4000/v1"},
+		"bad scheme":  {Enabled: true, Endpoint: "ftp://127.0.0.1/v1", Model: "exec"},
+		"bad url":     {Enabled: true, Endpoint: "://", Model: "exec"},
+	}
+	for name, cfg := range cases {
+		cfg.MaxEvents, cfg.Timeout = 1, time.Second
+		if err := cfg.Validate(); err == nil {
+			t.Errorf("%s: expected a validation error", name)
+		}
+	}
+
+	enabled := testConfig("http://127.0.0.1:4000/v1")
+	if err := enabled.Validate(); err != nil {
+		t.Fatalf("valid config rejected: %v", err)
+	}
+	if _, err := New(events.NewBus(), enabled, func() string { return "" }, nil); err != nil {
+		t.Fatalf("New rejected a valid config: %v", err)
+	}
+	disabled := enabled
+	disabled.Enabled = false
+	if _, err := New(events.NewBus(), disabled, func() string { return "" }, nil); err == nil {
+		t.Fatal("New must not produce an observer for a disabled configuration")
+	}
+}
+
+func TestReportWithoutKeySendsNothing(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("DUO_OBSERVER_API_KEY", "")
 	var requests atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
-		io.WriteString(w, `{"choices":[{"message":{"content":"should not happen"}}]}`)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"should not happen"}}]}`)
 	}))
 	defer srv.Close()
 
-	bus := events.NewBus()
-	rec := newRecorder()
-	obs, err := New(bus, testConfig(srv.URL+"/v1"), rec.emit, rec.logf)
-	if err != nil {
-		t.Fatalf("New: %v", err)
+	obs, rec := newTestObserver(t, testConfig(srv.URL+"/v1"), "")
+	if _, err := obs.Report(context.Background()); err == nil || !strings.Contains(err.Error(), "no API key") {
+		t.Fatalf("missing-key error = %v", err)
 	}
-	obs.Start(context.Background())
-	defer obs.Close()
-
-	bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "no key here"})
-	time.Sleep(150 * time.Millisecond)
-
 	if got := requests.Load(); got != 0 {
 		t.Fatalf("requests = %d without a key, want 0", got)
-	}
-	if got := rec.emittedText(); len(got) != 0 {
-		t.Fatalf("unexpected observation without a key: %q", got)
 	}
 	if !strings.Contains(rec.logged(), "no API key") {
 		t.Fatalf("missing one-line diagnostic, logs:\n%s", rec.logged())
@@ -471,7 +462,7 @@ func TestAPIKeyPrecedence(t *testing.T) {
 	}
 }
 
-func TestObserverIsolatesModelFailures(t *testing.T) {
+func TestReportIsolatesModelFailures(t *testing.T) {
 	t.Setenv("DUO_OBSERVER_API_KEY", "sk-test")
 
 	var fail atomic.Bool
@@ -481,84 +472,41 @@ func TestObserverIsolatesModelFailures(t *testing.T) {
 			http.Error(w, "upstream exploded", http.StatusInternalServerError)
 			return
 		}
-		io.WriteString(w, `{"choices":[{"message":{"content":"recovered"}}]}`)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"recovered"}}]}`)
 	}))
 	defer srv.Close()
 
-	bus := events.NewBus()
-	rec := newRecorder()
-	obs, err := New(bus, testConfig(srv.URL+"/v1"), rec.emit, rec.logf)
-	if err != nil {
-		t.Fatalf("New: %v", err)
+	obs, _ := newTestObserver(t, testConfig(srv.URL+"/v1"), "Austin: idle")
+	if _, err := obs.Report(context.Background()); err == nil || !strings.Contains(err.Error(), "500") {
+		t.Fatalf("failure error = %v", err)
 	}
-	obs.Start(context.Background())
-	defer obs.Close()
-
-	bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "doomed request"})
-	deadline := time.Now().Add(2 * time.Second)
-	for !strings.Contains(rec.logged(), "500") {
-		if time.Now().After(deadline) {
-			t.Fatalf("failure was not logged: %q", rec.logged())
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	if got := rec.emittedText(); len(got) != 0 {
-		t.Fatalf("a failed request must not emit: %q", got)
-	}
-
 	fail.Store(false)
-	bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Tony, Text: "after the failure"})
-	if got := waitEmit(t, rec); got != "recovered" {
-		t.Fatalf("observer did not recover after a failure: %q", got)
+	if got, err := obs.Report(context.Background()); err != nil || got != "recovered" {
+		t.Fatalf("observer did not recover after a failure: %q, %v", got, err)
 	}
 }
 
-func TestObserverTimesOutWithoutBlockingTheBus(t *testing.T) {
+func TestReportTimesOutInsteadOfHanging(t *testing.T) {
 	t.Setenv("DUO_OBSERVER_API_KEY", "sk-test")
 
 	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-release
-		io.WriteString(w, `{"choices":[{"message":{"content":"too late"}}]}`)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"too late"}}]}`)
 	}))
 	defer srv.Close()
 	defer close(release)
 
-	bus := events.NewBus()
-	rec := newRecorder()
 	cfg := testConfig(srv.URL + "/v1")
 	cfg.Timeout = 40 * time.Millisecond
-	obs, err := New(bus, cfg, rec.emit, rec.logf)
-	if err != nil {
-		t.Fatalf("New: %v", err)
+	obs, _ := newTestObserver(t, cfg, "Austin: idle")
+	start := time.Now()
+	text, err := obs.Report(context.Background())
+	if err == nil {
+		t.Fatalf("a stalled request must fail, got report %q", text)
 	}
-	obs.Start(context.Background())
-	defer obs.Close()
-
-	// A full bus subscriber buffer must never make Emit block, so a thousand
-	// events during a stalled request are dropped rather than queued forever.
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for i := 0; i < 1000; i++ {
-			bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "burst"})
-		}
-	}()
-	select {
-	case <-done:
-	case <-time.After(time.Second):
-		t.Fatal("Emit blocked while the observer's request was stalled")
-	}
-
-	deadline := time.Now().Add(2 * time.Second)
-	for !strings.Contains(rec.logged(), "deadline exceeded") && !strings.Contains(rec.logged(), "timeout") {
-		if time.Now().After(deadline) {
-			t.Fatalf("timeout was not logged: %q", rec.logged())
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	if got := rec.emittedText(); len(got) != 0 {
-		t.Fatalf("a timed-out request must not emit: %q", got)
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("a timed-out request took %s", elapsed)
 	}
 }
 
@@ -568,16 +516,11 @@ func TestObserverCloseIsIdempotent(t *testing.T) {
 	var requests atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
-		io.WriteString(w, `{"choices":[{"message":{"content":"late"}}]}`)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"late"}}]}`)
 	}))
 	defer srv.Close()
 
-	bus := events.NewBus()
-	rec := newRecorder()
-	obs, err := New(bus, testConfig(srv.URL+"/v1"), rec.emit, rec.logf)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	obs, _ := newTestObserver(t, testConfig(srv.URL+"/v1"), "")
 	// Closing an observer that never started is a no-op.
 	obs.Close()
 
@@ -590,66 +533,8 @@ func TestObserverCloseIsIdempotent(t *testing.T) {
 	obs.Start(context.Background())
 	obs.Close()
 
-	bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "after close"})
-	time.Sleep(150 * time.Millisecond)
 	if got := requests.Load(); got != 0 {
 		t.Fatalf("requests after Close = %d, want 0", got)
-	}
-	if got := rec.emittedText(); len(got) != 0 {
-		t.Fatalf("observation after Close: %q", got)
-	}
-}
-
-func TestObserverIgnoresItsOwnOutput(t *testing.T) {
-	t.Setenv("DUO_OBSERVER_API_KEY", "sk-test")
-
-	var (
-		mu     sync.Mutex
-		bodies []string
-	)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		data, _ := io.ReadAll(r.Body)
-		mu.Lock()
-		bodies = append(bodies, string(data))
-		mu.Unlock()
-		io.WriteString(w, `{"choices":[{"message":{"content":"observed"}}]}`)
-	}))
-	defer srv.Close()
-
-	bus := events.NewBus()
-	rec := newRecorder()
-	obs, err := New(bus, testConfig(srv.URL+"/v1"), rec.emit, rec.logf)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	obs.Start(context.Background())
-	defer obs.Close()
-
-	// An observation is published on the same bus the observer reads. Feeding it
-	// back would make the observer answer itself forever.
-	bus.Emit(events.Event{Kind: events.KindObserver, Agent: protocol.Duo, Text: "an earlier observation"})
-	time.Sleep(120 * time.Millisecond)
-	mu.Lock()
-	got := len(bodies)
-	mu.Unlock()
-	if got != 0 {
-		t.Fatalf("the observer asked the model about its own output (%d requests)", got)
-	}
-	if got := rec.emittedText(); len(got) != 0 {
-		t.Fatalf("the observer re-emitted its own output: %q", got)
-	}
-
-	bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "real work"})
-	if got := waitEmit(t, rec); got != "observed" {
-		t.Fatalf("observation = %q", got)
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	if len(bodies) != 1 {
-		t.Fatalf("requests = %d, want 1", len(bodies))
-	}
-	if strings.Contains(bodies[0], "an earlier observation") {
-		t.Fatalf("observer output reached the prompt:\n%s", bodies[0])
 	}
 }
 
@@ -665,15 +550,15 @@ func TestFileSettingsKeepsCustomValuesAndDropsDefaults(t *testing.T) {
 	custom := Config{
 		Enabled: true, Endpoint: "http://127.0.0.1:4000/v1", Model: "exec",
 		APIKeyEnv: "MY_KEY", SystemPrompt: "be terse", MaxEvents: 9,
-		Debounce: 2 * time.Second, Timeout: 30 * time.Second, MaxTokens: 120,
+		Timeout: 30 * time.Second, MaxTokens: 120,
 	}
 	settings := custom.FileSettings()
 	if settings.SystemPrompt != "be terse" || settings.MaxEvents != 9 ||
-		settings.DebounceSeconds != 2 || settings.TimeoutSeconds != 30 || settings.MaxTokens != 120 {
+		settings.TimeoutSeconds != 30 || settings.MaxTokens != 120 {
 		t.Fatalf("custom settings lost: %+v", settings)
 	}
 	roundTrip := settings.Config()
-	if roundTrip.SystemPrompt != "be terse" || roundTrip.MaxEvents != 9 || roundTrip.Debounce != 2*time.Second ||
+	if roundTrip.SystemPrompt != "be terse" || roundTrip.MaxEvents != 9 ||
 		roundTrip.Timeout != 30*time.Second || roundTrip.MaxTokens != 120 {
 		t.Fatalf("round trip changed the configuration: %+v", roundTrip)
 	}

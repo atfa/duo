@@ -236,7 +236,7 @@ func SaveProjectObserver(repoRoot string, settings observer.Settings) error {
 		}
 		for _, key := range []string{
 			"enabled", "endpoint", "model", "apiKeyEnv", "systemPrompt",
-			"maxEvents", "debounceSeconds", "timeoutSeconds", "maxTokens",
+			"maxEvents", "timeoutSeconds", "maxTokens",
 		} {
 			delete(section, key)
 		}
@@ -256,7 +256,6 @@ func SaveProjectObserver(repoRoot string, settings observer.Settings) error {
 		setString("apiKeyEnv", settings.APIKeyEnv)
 		setString("systemPrompt", settings.SystemPrompt)
 		setInt("maxEvents", settings.MaxEvents)
-		setInt("debounceSeconds", settings.DebounceSeconds)
 		setInt("timeoutSeconds", settings.TimeoutSeconds)
 		setInt("maxTokens", settings.MaxTokens)
 

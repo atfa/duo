@@ -94,6 +94,22 @@ type ObserverView struct {
 	// Configured reports that the observer was set up at least once, so a
 	// frontend does not offer first-run onboarding again.
 	Configured bool
+	// Reports are the status reports the observer produced for this session,
+	// newest first. The observer runs only when a human asks for one, so this is
+	// a short history rather than a growing log, and it is view state only: a
+	// report is never a Timeline entry and never part of the transcript.
+	Reports []ObserverReport
+	// Analyzing reports that a request is in flight, so a panel can say so
+	// instead of looking frozen while a slow model answers.
+	Analyzing bool
+	// RequestedAt is when the in-flight request started.
+	RequestedAt time.Time
+}
+
+// ObserverReport is one status report and when it was produced.
+type ObserverReport struct {
+	At   time.Time
+	Text string
 }
 
 type PauseState string

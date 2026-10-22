@@ -41,7 +41,7 @@ func (o *observerReportOverlay) begin(entries []entry, observer session.Observer
 }
 
 func (o *observerReportOverlay) updateObserver(observer session.ObserverView) {
-	if o.observer == observer {
+	if observerSame(o.observer, observer) {
 		return
 	}
 	o.observer = observer
@@ -49,6 +49,21 @@ func (o *observerReportOverlay) updateObserver(observer session.ObserverView) {
 }
 
 func (o *observerReportOverlay) hasReports() bool { return len(o.reports) > 0 }
+
+// observerSame reports whether a re-render would draw the same panel. The view
+// carries a slice now, so it can no longer be compared as a value.
+func observerSame(a, b session.ObserverView) bool {
+	if a.Enabled != b.Enabled || a.HasKey != b.HasKey || a.LastNotice != b.LastNotice ||
+		a.Analyzing != b.Analyzing || len(a.Reports) != len(b.Reports) {
+		return false
+	}
+	for i := range a.Reports {
+		if a.Reports[i] != b.Reports[i] {
+			return false
+		}
+	}
+	return true
+}
 
 func (o *observerReportOverlay) reflow() {
 	o.lines = nil

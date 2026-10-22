@@ -112,6 +112,15 @@ type Service struct {
 	observerNotice   string
 	observerNoticeAt time.Time
 
+	// observerReportMu guards the report panel state: the observer runs only when
+	// a human asks, so its output is view state rather than session history.
+	observerReportMu    sync.RWMutex
+	observerReports     []ObserverReport
+	observerAnalyzing   bool
+	observerRequestedAt time.Time
+	observerTrigger     chan struct{}
+	observerCancel      context.CancelFunc
+
 	driverState  map[protocol.AgentID]sessionstore.DriverState
 	pauseState   PauseState
 	pausedAgents map[protocol.AgentID]bool
@@ -548,9 +557,9 @@ func (s *Service) closeLocked(ctx context.Context) Result {
 }
 
 // startObserver starts the optional advisory observer before any agent process
-// starts, so it cannot miss the first session events. An invalid direct-session
-// configuration is isolated to a log message; the CLI validates it earlier for
-// a user-facing error.
+// starts, so its recent log already holds the first session events. An invalid
+// direct-session configuration is isolated to a log message; the CLI validates
+// it earlier for a user-facing error.
 func (s *Service) startObserver() {
 	if !s.opts.Observer.Enabled {
 		return
@@ -560,32 +569,28 @@ func (s *Service) startObserver() {
 	cfg := s.opts.Observer
 	if effectiveLanguage(s.opts.Language) == "zh" {
 		cfg.SystemPrompt = strings.TrimSpace(cfg.SystemPrompt) +
-			"\n\nAlways write the report in Simplified Chinese, including its section headings (始终用简体中文撰写报告，包括小节标题：已完成、正在进行、下一步计划、阻塞/决策)."
+			"\n\nAlways write the report in Simplified Chinese, including its section headings (始终用简体中文撰写报告，包括小节标题：刚完成、现在正在做、接下来、需要你决定)."
 	}
-	logf := func(format string, args ...any) {
-		message := fmt.Sprintf(format, args...)
-		// Missing-key state has a dedicated, actionable rendering in ObserverView;
-		// do not expose the raw logger template (which can contain an empty "or").
-		if !strings.Contains(message, "no API key in DUO_OBSERVER_API_KEY") {
-			s.setObserverNotice(message)
-		}
-		s.logf()("%s", message)
-	}
-	obs, err := observer.New(s.bus, cfg, func(text string) {
-		s.clearObserverNotice()
-		s.bus.Emit(events.Event{Time: time.Now(), Kind: events.KindObserver, Agent: protocol.Duo, Text: text})
-	}, logf)
+	obs, err := observer.New(s.bus, cfg, s.observerLiveContext, s.observerLogf())
 	if err != nil {
-		logf("observer disabled: %v", err)
+		s.observerLogf()("observer disabled: %v", err)
 		return
 	}
 	s.observer = obs
-	s.observer.Start(s.ctx)
+	obs.Start(s.ctx)
+	s.startObserverWorker()
 }
 
 // stopObserver closes the live observer, if any. Close is idempotent, and this
 // guard keeps a disabled or failed observer from replacing state twice.
 func (s *Service) stopObserver() {
+	if s.observerCancel != nil {
+		s.observerCancel()
+		s.observerCancel = nil
+	}
+	s.observerReportMu.Lock()
+	s.observerTrigger = nil
+	s.observerReportMu.Unlock()
 	if s.observer == nil {
 		return
 	}
@@ -674,6 +679,7 @@ func (s *Service) setObserver(c SetObserver) error {
 func (s *Service) observerView() ObserverView {
 	hasKey := s.opts.Observer.APIKey() != ""
 	lastNotice, lastNoticeAt := s.observerNoticeSnapshot()
+	reports, analyzing, requestedAt := s.observerReportSnapshot()
 	keyFile := observer.KeyFileExists()
 	enabledOverride, endpointOverride, modelOverride := observer.EnvOverrides()
 	return ObserverView{
@@ -683,6 +689,9 @@ func (s *Service) observerView() ObserverView {
 		APIKeyEnv:           s.opts.Observer.APIKeyEnv,
 		LastNotice:          lastNotice,
 		LastNoticeAt:        lastNoticeAt,
+		Reports:             reports,
+		Analyzing:           analyzing,
+		RequestedAt:         requestedAt,
 		HasKey:              hasKey,
 		KeyFile:             keyFile,
 		EnvOverride:         enabledOverride,
