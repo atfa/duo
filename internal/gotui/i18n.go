@@ -51,9 +51,9 @@ var zhUI = map[string]string{
 	"↑/↓ choose  ·  Tab/Enter insert  ·  Esc dismiss":              "↑/↓ 选择  ·  Tab/Enter 插入  ·  Esc 关闭",
 	"no files found":                                               "未找到文件",
 
-	"Enter send · Ctrl+Enter newline · Alt+M models · Ctrl+A/T native · F1 help · F2 view · Ctrl+Q quit": "Enter 发送 · Ctrl+Enter 换行 · Alt+M 模型 · Ctrl+A/T 原生会话 · F1 帮助 · F2 视图 · Ctrl+Q 退出",
-	"Enter send · Alt+M models · F1 help · F2 view · Ctrl+Q quit":                                        "Enter 发送 · Alt+M 模型 · F1 帮助 · F2 视图 · Ctrl+Q 退出",
-	"Enter send · F1 help · F2 view · Ctrl+Q quit":                                                       "Enter 发送 · F1 帮助 · F2 视图 · Ctrl+Q 退出",
+	"Enter send · Ctrl+Enter newline · Ctrl+E observer · Alt+M models · Ctrl+A/T native · F1 help · F2 view · Ctrl+Q quit": "Enter 发送 · Ctrl+Enter 换行 · Ctrl+E 观察器 · Alt+M 模型 · Ctrl+A/T 原生会话 · F1 帮助 · F2 视图 · Ctrl+Q 退出",
+	"Enter send · Ctrl+E observer · Alt+M models · F1 help · F2 view · Ctrl+Q quit":                                        "Enter 发送 · Ctrl+E 观察器 · Alt+M 模型 · F1 帮助 · F2 视图 · Ctrl+Q 退出",
+	"Enter send · Ctrl+E observer · F1 help · F2 view · Ctrl+Q quit":                                                       "Enter 发送 · Ctrl+E 观察器 · F1 帮助 · F2 视图 · Ctrl+Q 退出",
 
 	"verify": "验证", "delivery": "交付", "ready": "就绪", "worktrees": "工作树",
 	"note": "备注", "delivery note": "交付备注", "plan": "计划", "steps": "步骤",

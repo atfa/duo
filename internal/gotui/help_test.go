@@ -60,6 +60,16 @@ func TestHelpHasChineseTranslations(t *testing.T) {
 	}
 }
 
+func TestObserverShortcutIsAlwaysVisibleInFooter(t *testing.T) {
+	app := New(newFakeSession())
+	for _, width := range []int{120, 90, 70} {
+		app.layout.width = width
+		if hint := app.footerHint(); !strings.Contains(hint, "Ctrl+E observer") {
+			t.Errorf("footer at width %d = %q, want Ctrl+E observer hint", width, hint)
+		}
+	}
+}
+
 // TestSlashDescriptionsHaveChineseTranslations covers the palette: every
 // command description is rendered through zhUI, so a missing entry leaves
 // English text in the /language zh palette.
