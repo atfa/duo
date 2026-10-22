@@ -158,7 +158,7 @@ Request:
 ```json
 {
   "agent": "Austin",
-  "resumeWake": true,
+  "resumeSession": true,
   "mode": "step",
   "cwd": "/path/to/worktree",
   "repositoryRoot": "/path/to/repo",
@@ -177,7 +177,7 @@ Request:
 | field | meaning |
 |---|---|
 | `agent` | `Austin` or `Tony`. The two agents are always separate. |
-| `resumeWake` | true only for the first launch of a resumed Duo session; use it to wake the agent to continue existing work. |
+| `resumeSession` | true only for the first launch of a resumed Duo session. Use it to restore the agent's own conversation state. It is **not** a wake signal: never send a prompt, type a message, or start work because of it. |
 | `mode` | `fast`, `goal` or `step`. The session's workflow. |
 | `cwd` | the agent's own worktree. **Your agent runs here.** |
 | `repositoryRoot`, `scopePath` | the repository and the subdirectory the human scoped this session to. |
@@ -187,6 +187,12 @@ Request:
 | `baseCommand` | the operator's own command for this agent, possibly empty, possibly with arguments. **Preserve it.** |
 | `model`, `thinking` | the current selections, empty when unset. |
 | `state` | the blob you returned from the previous `prepare`. Absent on a first run. |
+
+`resumeWake` (protocol v1) is deprecated and is no longer sent by Core: a
+missing key means `false`. A plugin must never inject a prompt or start work
+because of it. Resuming is silent on purpose — the human reads the record first
+and wakes the agents explicitly, which Core delivers as a `resume_prompt` over
+the bridge or the terminal, never through the launch request.
 
 Response:
 
@@ -482,7 +488,7 @@ From which follows the rule Core applies to every message it sends:
 
 | message | gated on | if false |
 |---|---|---|
-| prompt, peer message, steer, harness nudge, resume wake | `liveSteering` | written to the agent's terminal |
+| prompt, peer message, steer, harness nudge, resume prompt (explicit human `/resume` only) | `liveSteering` | written to the agent's terminal |
 | `set_model` | `liveModelSwitch` | recorded locally; Core restarts the agent |
 | `cycle_thinking` | `liveThinkingSwitch` | recorded locally; Core restarts the agent |
 

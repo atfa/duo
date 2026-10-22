@@ -56,8 +56,12 @@ workflow state or makes project transitions:
   dashboard. This is also the reliable way to paste a real image when `Ctrl+V`
   cannot reach a clipboard-image tool: the agent's own terminal receives the
   pixels directly.
-- **Resume.** Restored history is rendered immediately. A startup banner is only
-  added to a new session, so a resumed Duo pane starts with the human's request.
+- **Resume.** Restored history is rendered immediately and nothing is sent to
+  the agents: they start idle, and harness nudges stay quiet until the human acts.
+  A one-time notice explains how to continue; `/resume` sends each agent its
+  phase-appropriate resume prompt, and submitting a task wakes them too. A
+  startup banner is only added to a new session, so a resumed Duo pane starts
+  with the human's request.
 
 Long lines wrap at cell boundaries, including wide CJK runes; Markdown headings,
 lists, quotes, fenced code, tables, inline emphasis and links are rendered in the
