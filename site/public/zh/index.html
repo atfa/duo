@@ -259,7 +259,7 @@
       <article class="principle card reveal">
         <span class="p-num">04 / DELIVER</span>
         <h3>只在可证明安全时移动。</h3>
-        <p>在最后的 fast-forward 之前，交付全程只读。当需要移动你的分支时，如果仓库有未提交改动，或无法 fast-forward，Duo 会拒绝并且不做任何修改。</p>
+        <p>在最后的 fast-forward 之前，交付全程只读。当需要移动你的分支时，如果仓库有未提交改动，或移动不是 fast-forward，Duo 会拒绝并且不做任何修改。</p>
         <div class="evidence"><span class="dim">deliver</span> main <span class="ok">← verified HEAD</span>  <span class="dim">(fast-forward only)</span><br><span class="dim">有未提交改动 → 拒绝，检出保持不变</span></div>
       </article>
     </div>
@@ -414,7 +414,7 @@
       </details>
       <details class="faq-item">
         <summary class="faq-q">Duo 会改写我的历史吗？</summary>
-        <div class="faq-a"><p>不会。交付只会 fast-forward 你启动时所在的分支。如果无法做到，或工作树有未提交改动，Duo 会拒绝并保持检出不变。</p></div>
+        <div class="faq-a"><p>不会。交付只会 fast-forward 你启动时所在的分支。如果无法 fast-forward，或移动会覆盖未提交的改动，Duo 会拒绝并保持检出不变。</p></div>
       </details>
       <details class="faq-item">
         <summary class="faq-q">我的代码会离开本机吗？</summary>
