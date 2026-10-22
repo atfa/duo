@@ -63,7 +63,42 @@ Agent bridge 提供八个 Duo 工具，用于同伴消息、共享状态、计�
 | `DUO_OBSERVER_ENDPOINT` / `DUO_OBSERVER_MODEL` | 观察者的 API 端点与模型。 |
 | `DUO_OBSERVER_API_KEY` | 观察者 API key；key 只放在环境里，不要写进配置。 |
 
-可选的 LLM 观察者默认关闭且仅作建议：它不能给 Agent 发消息、不能签署关卡，也不能改变工作流状态。全部选项见 `duo --help` 与 `duo mcp-server --help`。
+可选的 LLM 观察者默认关闭且仅作建议：它不能给 Agent 发消息、不能签署关卡，也不能改变工作流状态。观察器设置见下文；CLI 选项见 `duo --help` 与 `duo mcp-server --help`。
+
+### 可选观察器
+
+在 gotui 仪表盘中输入 `/observer` 或按 `Ctrl+E` 打开观察器设置。仅当观察器从未配置时（配置中没有 observer 段、没有密钥文件、也没有 `DUO_OBSERVER*` 环境设置），首次运行才会显示同一面板。默认地址为 `http://127.0.0.1:4000/v1`，模型为 `exec`；按 `Esc`（**稍后**）会在项目配置中保存 `observer: {"enabled": false}`，之后不再提示。此后仍可随时打开设置面板。
+
+非敏感设置可存放在 `~/.duo/config.json` 或仓库的 `.duo/config.json` 的 `observer` 段中。项目中的 `observer` 段会整体替换全局观察器段，不会与全局段逐字段合并。例如：
+
+```json
+{
+  "observer": {
+    "enabled": true,
+    "endpoint": "http://127.0.0.1:4000/v1",
+    "model": "exec",
+    "apiKeyEnv": "MY_LLM_API_KEY"
+  }
+}
+```
+
+设置面板输入的新 API key 只会以**明文**保存到 `~/.duo/observer.key`（不会加密，也不使用系统密钥链）；新建的 `~/.duo` 目录权限为 `0700`，密钥文件权限为 `0600`。密钥留空会保留已保存的值。不要将 API key 写入配置文件；配置中可以保存 `apiKeyEnv` 环境变量名，但绝不保存 key 本身。密钥查找优先级为 `DUO_OBSERVER_API_KEY`、`observer.apiKeyEnv` 指定的环境变量、密钥文件。`DUO_OBSERVER`、`DUO_OBSERVER_ENDPOINT`、`DUO_OBSERVER_MODEL` 分别覆盖已保存的启用状态、端点和模型；设置面板会标明受环境变量控制的值。
+
+观察器配置键如下：
+
+| 配置键 | 含义 |
+|---|---|
+| `enabled` | 是否启用观察器请求；默认 `false`。 |
+| `endpoint` | HTTP(S) API 基础地址，例如 `http://127.0.0.1:4000/v1`；Duo 会自动追加 `/chat/completions`。 |
+| `model` | 发送给观察器 API 的模型名。 |
+| `apiKeyEnv` | 可选的 API key 环境变量名。 |
+| `systemPrompt` | 观察器指令；留空或省略时使用 Duo 内置提示词。 |
+| `maxEvents` | 合并到一次请求中的事件上限；默认 `20`。 |
+| `debounceSeconds` | 发送前等待的静默时间；默认 `3` 秒。此期间到达的事件会合并为一次请求。 |
+| `timeoutSeconds` | 请求超时；默认 `60` 秒。 |
+| `maxTokens` | 响应 token 上限；默认 `300`。 |
+
+观察器输出会带有 `Observer: ` 前缀，显示在 Duo 时间线上。回复 `NOTHING` 时不会显示。缺少密钥、请求超时或 HTTP 状态码非 2xx 时，只会写入 session 日志，不会影响协调流程。
 
 ## 恢复与交付
 

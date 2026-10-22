@@ -63,7 +63,42 @@ Settings can be stored globally in `~/.duo/config.json` or per repository in `.d
 | `DUO_OBSERVER_ENDPOINT` / `DUO_OBSERVER_MODEL` | Observer API endpoint and model. |
 | `DUO_OBSERVER_API_KEY` | Observer API key; keep the value in the environment, not config. |
 
-The optional LLM observer is disabled by default and advisory only: it cannot message agents, sign gates, or change workflow state. See `duo --help` and `duo mcp-server --help` for all options.
+The optional LLM observer is disabled by default and advisory only: it cannot message agents, sign gates, or change workflow state. Observer settings are described below; for CLI options, see `duo --help` and `duo mcp-server --help`.
+
+### Optional observer
+
+In the gotui dashboard, use `/observer` or press `Ctrl+E` to open observer settings. On first run, the same panel is offered only when the observer has never been configured: no observer section in config, no key file, and no `DUO_OBSERVER*` environment setting. It starts with `http://127.0.0.1:4000/v1` and model `exec`; press `Esc` (**Later**) to save `observer: {"enabled": false}` in the project config and prevent the prompt from appearing again. You can open the panel at any time afterward.
+
+The non-secret settings can be stored in the `observer` section of `~/.duo/config.json` or the repository's `.duo/config.json`. A project `observer` section replaces the global observer section as a whole; its fields are not merged with the global section. For example:
+
+```json
+{
+  "observer": {
+    "enabled": true,
+    "endpoint": "http://127.0.0.1:4000/v1",
+    "model": "exec",
+    "apiKeyEnv": "MY_LLM_API_KEY"
+  }
+}
+```
+
+The settings panel stores a newly entered API key only in `~/.duo/observer.key` as **plaintext** (the key file is not encrypted or stored in a keychain); a newly created `~/.duo` directory uses mode `0700`, and the key file uses mode `0600`. A blank key leaves the saved key unchanged. Keep API keys out of config files; config may contain the environment-variable name in `apiKeyEnv`, never the key itself. Key lookup precedence is `DUO_OBSERVER_API_KEY`, then the environment variable named by `observer.apiKeyEnv`, then the key file. `DUO_OBSERVER`, `DUO_OBSERVER_ENDPOINT`, and `DUO_OBSERVER_MODEL` override the saved enabled, endpoint, and model values, respectively; the settings panel identifies environment-controlled values.
+
+Observer configuration keys are:
+
+| Key | Meaning |
+|---|---|
+| `enabled` | Enable observer requests; defaults to `false`. |
+| `endpoint` | HTTP(S) API base URL, for example `http://127.0.0.1:4000/v1`. Duo appends `/chat/completions`. |
+| `model` | Model name sent to the observer API. |
+| `apiKeyEnv` | Optional environment-variable name to read the API key from. |
+| `systemPrompt` | Observer instructions; an empty or omitted value uses Duo's built-in prompt. |
+| `maxEvents` | Maximum events combined into one request; defaults to `20`. |
+| `debounceSeconds` | Quiet period before a batch is sent; defaults to `3` seconds. Events arriving during this period are combined into one request. |
+| `timeoutSeconds` | Request timeout; defaults to `60` seconds. |
+| `maxTokens` | Maximum response tokens; defaults to `300`. |
+
+Observer output appears on Duo's timeline with an `Observer: ` prefix. A response of `NOTHING` is suppressed. Missing keys, timeouts, and non-2xx responses are recorded only in the session log and do not interrupt coordination.
 
 ## Resume and delivery
 
