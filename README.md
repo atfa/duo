@@ -103,7 +103,7 @@ The observer runs only when you ask for it: it has no timer and writes nothing t
 
 Each report has three sections, in the interface language: what the agents just finished (at most three bullets, newest first, never an accumulating history), what each agent is doing right now (taken only from the live snapshot, so a finished tool is never described as running, and an idle agent is reported with what it finished last), and the next steps the agents explicitly stated. A final `Needs your decision:` line appears only when a human decision actually blocks them. Reports appear only in the `Ctrl+E` panel, never on the timeline, and the panel keeps the last three. While the model answers, the panel shows the request's elapsed time; `R` asks again.
 
-Missing keys, timeouts, and non-2xx responses are recorded in the session log and shown as diagnostics in the panel; they do not interrupt coordination. A report cut off by `maxTokens` still appears, with the truncation reported as a diagnostic rather than silently losing its later sections. With no report yet, the panel says whether the observer is disabled, missing a key, or simply has not been asked.
+A missing key is explained by the panel itself; timeouts, empty answers, and non-2xx responses are recorded in the session log and shown as diagnostics in the panel, and none of them interrupt coordination. A report cut off by `maxTokens` still appears, with the truncation reported as a diagnostic rather than silently losing its later sections. With no report yet, the panel says whether the observer is disabled, missing a key, or simply has not been asked.
 
 ## Resume and delivery
 
