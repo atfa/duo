@@ -146,6 +146,37 @@ func TestObserverNoticeReachesViewAndClearsOnReconfigureAndReport(t *testing.T) 
 	}
 }
 
+func TestTruncatedObserverReportRemainsVisibleWithDiagnostic(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("DUO_OBSERVER_API_KEY", "sk-test")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"**已完成**\n- partial"},"finish_reason":"length"}]}`)
+	}))
+	defer server.Close()
+
+	repo := gitRepo(t)
+	opts := headlessOptions(t, repo, t.TempDir(), "127.0.0.1:0")
+	opts.Observer = observer.Config{
+		Enabled: true, Endpoint: server.URL + "/v1", Model: "exec",
+		MaxEvents: 4, Debounce: 10 * time.Millisecond, Timeout: time.Second,
+	}
+	svc := New(opts)
+	if _, err := svc.Start(context.Background()); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	defer svc.Close()
+	sub, unsubscribe := svc.Subscribe(32)
+	defer unsubscribe()
+	svc.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "first event"})
+	waitObserverText(t, sub, "**已完成**\n- partial")
+	waitFor(t, time.Second, func() bool {
+		return strings.Contains(svc.View().Observer.LastNotice, "report truncated at maxTokens")
+	})
+	if got := svc.View().Observer.LastNotice; !strings.Contains(got, "raise observer.maxTokens") {
+		t.Fatalf("truncation diagnostic = %q", got)
+	}
+}
+
 func waitFor(t *testing.T, timeout time.Duration, condition func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -326,7 +357,13 @@ func TestSetObserverFailureKeepsTheRunningObserver(t *testing.T) {
 		t.Fatal("expected an unwritable project config to be reported")
 	}
 	svc.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "after write failure"})
-	waitObserverText(t, sub, "still observing")
+	deadline := time.Now().Add(2 * time.Second)
+	for requests.Load() < 2 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if requests.Load() != 2 {
+		t.Fatalf("running observer request count = %d, want 2", requests.Load())
+	}
 	if view := svc.View().Observer; view.Endpoint != endpoint.URL+"/v1" {
 		t.Fatalf("a failed write changed the live configuration: %+v", view)
 	}
@@ -554,8 +591,8 @@ func TestObserverPromptFollowsSessionLanguage(t *testing.T) {
 
 	svc.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "first event"})
 	waitObserverText(t, sub, "report")
-	if got := nextObserverPrompt(t, prompts); !strings.Contains(got, "Simplified Chinese") {
-		t.Fatalf("zh system prompt = %q, want a Simplified Chinese instruction", got)
+	if got := nextObserverPrompt(t, prompts); !strings.Contains(got, "Simplified Chinese") || !strings.Contains(got, "已完成、正在进行、下一步计划、阻塞/决策") {
+		t.Fatalf("zh system prompt = %q, want Simplified Chinese headings", got)
 	}
 
 	if err := svc.Do(context.Background(), SetLanguage{Language: "en"}); err != nil {

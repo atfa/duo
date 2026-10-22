@@ -35,8 +35,8 @@ const (
 	DefaultDebounce = 3 * time.Second
 	// Default per-request budget.
 	DefaultTimeout = 60 * time.Second
-	// Default answer length; progress reports should stay concise.
-	DefaultMaxTokens = 300
+	// Default answer length; progress reports have four required sections.
+	DefaultMaxTokens = 800
 
 	// silentReply is what the default prompt asks for when nothing is worth
 	// reporting, so a quiet session produces no noise in the timeline.
@@ -56,11 +56,14 @@ const (
 // critique. The previous report and only newly observed events are sent each time.
 const DefaultSystemPrompt = "You are Duo's observer. Duo is a coding workflow where Austin and Tony " +
 	"collaborate on a task. Update the running progress report using the previous report and the new " +
-	"events. Return a concise, self-contained report with sections for what Austin and Tony completed, " +
-	"what they are working on now, what they have explicitly said they will do next, and any blockers or " +
-	"decisions the human should know. Preserve relevant previous facts, replace stale status with newer " +
-	"events, and do not invent details or instruct the agents. Only describe future work when the agents " +
-	"explicitly stated it. If the new events do not change the report, reply exactly: NOTHING"
+	"events. Return exactly four sections, in the human's language: completed work; what is in progress; " +
+	"next steps explicitly stated by the agents; and blockers or decisions for the human. Always include " +
+	"all four sections; when a section has no supported facts, write a brief equivalent of 'None stated'. " +
+	"Do not use fixed English headings when the human uses another language. Keep the entire report to at " +
+	"most 12 short bullets, with at most the five newest completed items. Merge or remove old completed " +
+	"items instead of preserving an ever-growing history. Preserve only relevant facts, replace stale " +
+	"status with newer events, and do not invent details or instruct the agents. Only describe future work " +
+	"when the agents explicitly stated it. If the new events do not change the report, reply exactly: NOTHING"
 
 // Config is the resolved observer configuration. It is what the session runs
 // with; Settings is the file-facing shape.
@@ -360,6 +363,7 @@ func (o *Observer) loop(ctx context.Context, in <-chan events.Event) {
 		pending  []events.Event
 		inFlight bool
 		report   string
+		lastEmit string
 		timer    *time.Timer
 		timerC   <-chan time.Time
 	)
@@ -413,12 +417,22 @@ func (o *Observer) loop(ctx context.Context, in <-chan events.Event) {
 			go func() { o.results <- o.ask(ctx, previous, batch) }()
 		case res := <-o.results:
 			inFlight = false
+			if text := strings.TrimSpace(res.text); text != "" && !strings.EqualFold(text, silentReply) {
+				if text != lastEmit {
+					lastEmit = text
+					o.emit(text)
+				}
+				// Do not feed a known-truncated report back as the complete prior
+				// report on the next incremental request.
+				if res.err == nil {
+					report = text
+				}
+			}
+			// A truncated response carries both useful text and a diagnostic. Emit
+			// first because a successful report clears a stale notice; then leave
+			// the current truncation notice visible to the frontend.
 			if res.err != nil {
 				o.logf("observer: %v", res.err)
-			}
-			if text := strings.TrimSpace(res.text); text != "" && !strings.EqualFold(text, silentReply) {
-				report = text
-				o.emit(text)
 			}
 			if len(pending) > 0 {
 				armTimer()
@@ -493,6 +507,7 @@ func (o *Observer) ask(ctx context.Context, previous string, batch []events.Even
 			Message struct {
 				Content string `json:"content"`
 			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(data, &answer); err != nil {
@@ -501,7 +516,11 @@ func (o *Observer) ask(ctx context.Context, previous string, batch []events.Even
 	if len(answer.Choices) == 0 {
 		return result{err: errors.New("model returned no choices")}
 	}
-	return result{text: strings.TrimSpace(answer.Choices[0].Message.Content)}
+	text := strings.TrimSpace(answer.Choices[0].Message.Content)
+	if answer.Choices[0].FinishReason == "length" {
+		return result{text: text, err: errors.New("report truncated at maxTokens; raise observer.maxTokens")}
+	}
+	return result{text: text}
 }
 
 // transcript renders a batch the way the model reads it: one line per event,

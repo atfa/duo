@@ -113,6 +113,80 @@ func TestSettingsDefaults(t *testing.T) {
 	}
 }
 
+func TestDefaultReportPromptRequiresBoundedFourSectionReport(t *testing.T) {
+	for _, want := range []string{
+		"exactly four sections", "what is in progress", "next steps explicitly stated by the agents",
+		"blockers or decisions", "Always include all four sections", "at most 12 short bullets",
+		"at most the five newest completed items", "Do not use fixed English headings",
+	} {
+		if !strings.Contains(DefaultSystemPrompt, want) {
+			t.Errorf("DefaultSystemPrompt missing %q", want)
+		}
+	}
+	if DefaultMaxTokens != 800 {
+		t.Fatalf("DefaultMaxTokens = %d, want 800", DefaultMaxTokens)
+	}
+}
+
+func TestAskPreservesTruncatedTextAndReportsDiagnostic(t *testing.T) {
+	const body = `{"choices":[{"message":{"content":"partial four-section report"},"finish_reason":"length"}]}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, body)
+	}))
+	defer srv.Close()
+	o := &Observer{cfg: Config{Endpoint: srv.URL, Model: "exec", MaxTokens: 800}, key: "test", client: srv.Client()}
+	got := o.ask(context.Background(), "", []events.Event{{Kind: events.KindAssistant, Text: "update"}})
+	if got.text != "partial four-section report" {
+		t.Fatalf("truncated text = %q", got.text)
+	}
+	if got.err == nil || !strings.Contains(got.err.Error(), "report truncated at maxTokens") {
+		t.Fatalf("truncation diagnostic = %v", got.err)
+	}
+}
+
+func TestObserverEmitsTruncatedTextAndSuppressesDuplicateReports(t *testing.T) {
+	t.Setenv("DUO_OBSERVER_API_KEY", "sk-test")
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"**已完成**\n- parser"},"finish_reason":"length"}]}`)
+	}))
+	defer srv.Close()
+
+	bus := events.NewBus()
+	rec := newRecorder()
+	cfg := testConfig(srv.URL + "/v1")
+	obs, err := New(bus, cfg, rec.emit, rec.logf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	obs.Start(context.Background())
+	defer obs.Close()
+	bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "parser implemented"})
+	if got := waitEmit(t, rec); got != "**已完成**\n- parser" {
+		t.Fatalf("truncated report = %q", got)
+	}
+	waitForObserver(t, func() bool { return strings.Contains(rec.logged(), "report truncated at maxTokens") })
+
+	bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Tony, Text: "tests passed"})
+	waitForObserver(t, func() bool { return strings.Count(rec.logged(), "report truncated at maxTokens") == 2 })
+	if got := rec.emittedText(); len(got) != 1 {
+		t.Fatalf("emits = %#v, want identical second report suppressed", got)
+	}
+}
+
+func waitForObserver(t *testing.T, ready func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if ready() {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("observer condition did not become true")
+}
+
 func TestValidateRejectsUnusableConfig(t *testing.T) {
 	cases := map[string]Config{
 		"no endpoint": {Enabled: true, Model: "exec"},
@@ -275,8 +349,13 @@ func TestObserverCoalescesOneRequestPerBurst(t *testing.T) {
 		data, _ := io.ReadAll(r.Body)
 		mu.Lock()
 		requests = append(requests, string(data))
+		n := len(requests)
 		mu.Unlock()
-		io.WriteString(w, `{"choices":[{"message":{"content":"noted"}}]}`)
+		content := "noted first"
+		if n > 1 {
+			content = "noted second"
+		}
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"`+content+`"}}]}`)
 	}))
 	defer srv.Close()
 

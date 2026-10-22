@@ -560,7 +560,7 @@ func (s *Service) startObserver() {
 	cfg := s.opts.Observer
 	if effectiveLanguage(s.opts.Language) == "zh" {
 		cfg.SystemPrompt = strings.TrimSpace(cfg.SystemPrompt) +
-			"\n\nAlways write the report in Simplified Chinese (始终用简体中文撰写报告)."
+			"\n\nAlways write the report in Simplified Chinese, including its section headings (始终用简体中文撰写报告，包括小节标题：已完成、正在进行、下一步计划、阻塞/决策)."
 	}
 	logf := func(format string, args ...any) {
 		message := fmt.Sprintf(format, args...)
