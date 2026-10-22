@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/atfa/duo/internal/observer"
 	"github.com/atfa/duo/internal/protocol"
 )
 
@@ -208,6 +209,88 @@ func SaveProjectTUIView(repoRoot, view string) error {
 		return err
 	}
 	return os.Rename(tmpFile, configPath)
+}
+
+// SaveProjectObserver stores observer settings in the project config, preserving
+// all unrelated project keys and any advanced/future observer fields.
+func SaveProjectObserver(repoRoot string, settings observer.Settings) error {
+	return updateProjectConfig(repoRoot, func(config map[string]json.RawMessage) error {
+		section := make(map[string]json.RawMessage)
+		if raw := config["observer"]; len(raw) > 0 {
+			if err := json.Unmarshal(raw, &section); err != nil {
+				return fmt.Errorf("read Duo project observer config: %w", err)
+			}
+			if section == nil {
+				section = make(map[string]json.RawMessage)
+			}
+		}
+		for _, key := range []string{"enabled", "endpoint", "model", "apiKeyEnv", "systemPrompt", "maxEvents", "debounceSeconds", "timeoutSeconds", "maxTokens"} {
+			delete(section, key)
+		}
+		section["enabled"], _ = json.Marshal(settings.Enabled)
+		setString := func(key, value string) {
+			if value = strings.TrimSpace(value); value != "" {
+				section[key], _ = json.Marshal(value)
+			}
+		}
+		setInt := func(key string, value int) {
+			if value > 0 {
+				section[key], _ = json.Marshal(value)
+			}
+		}
+		setString("endpoint", settings.Endpoint)
+		setString("model", settings.Model)
+		setString("apiKeyEnv", settings.APIKeyEnv)
+		setString("systemPrompt", settings.SystemPrompt)
+		setInt("maxEvents", settings.MaxEvents)
+		setInt("debounceSeconds", settings.DebounceSeconds)
+		setInt("timeoutSeconds", settings.TimeoutSeconds)
+		setInt("maxTokens", settings.MaxTokens)
+		raw, err := json.Marshal(section)
+		if err != nil {
+			return err
+		}
+		config["observer"] = raw
+		return nil
+	})
+}
+
+func updateProjectConfig(repoRoot string, update func(map[string]json.RawMessage) error) error {
+	repoRoot = strings.TrimSpace(repoRoot)
+	if repoRoot == "" {
+		return nil
+	}
+	duoDir := filepath.Join(repoRoot, ".duo")
+	if err := os.MkdirAll(duoDir, 0755); err != nil {
+		return err
+	}
+	_ = EnsureGitIgnore(repoRoot)
+	configPath := filepath.Join(duoDir, "config.json")
+	config := make(map[string]json.RawMessage)
+	data, err := os.ReadFile(configPath)
+	if err == nil {
+		if err := json.Unmarshal(data, &config); err != nil || config == nil {
+			if err == nil {
+				err = fmt.Errorf("expected a JSON object")
+			}
+			return fmt.Errorf("read Duo project config: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("read Duo project config: %w", err)
+	}
+	if err := update(config); err != nil {
+		return err
+	}
+	data, err = json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	tmp := configPath + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, configPath)
 }
 
 // SaveProjectThinking records one agent's reasoning effort in .duo/config.json,

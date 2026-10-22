@@ -284,6 +284,8 @@ func TestObserverKeepsSilentReplyOutOfTimeline(t *testing.T) {
 }
 
 func TestObserverWithoutKeySendsNothing(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("DUO_OBSERVER_API_KEY", "")
 	var requests atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
@@ -315,6 +317,7 @@ func TestObserverWithoutKeySendsNothing(t *testing.T) {
 }
 
 func TestAPIKeyPrecedence(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
 	cfg := Config{APIKeyEnv: "OBSERVER_TEST_KEY"}
 	t.Setenv("OBSERVER_TEST_KEY", "from-name")
 	if got := cfg.APIKey(); got != "from-name" {

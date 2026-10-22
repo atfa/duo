@@ -46,9 +46,10 @@ type Options struct {
 	Listen string
 
 	// Harness.
-	HarnessEnabled bool
-	Harness        harness.Config
-	Observer       observer.Config
+	HarnessEnabled     bool
+	Harness            harness.Config
+	Observer           observer.Config
+	ObserverConfigured bool
 
 	// Drivers. Every map is keyed by agent. Missing agent entries use the
 	// frontend-selected default; Core does not choose a driver name.

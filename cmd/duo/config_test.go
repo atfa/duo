@@ -1051,6 +1051,19 @@ func loadConfigFor(t *testing.T, configJSON string) config {
 	return cfg
 }
 
+func TestObserverConfiguredComesFromMergedConfigSection(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("DUO_OBSERVER", "")
+	t.Setenv("DUO_OBSERVER_ENDPOINT", "")
+	t.Setenv("DUO_OBSERVER_MODEL", "")
+	if got := loadConfigFor(t, `{"language":"en"}`).sessionOptions().ObserverConfigured; got {
+		t.Fatal("missing observer section reported configured")
+	}
+	if got := loadConfigFor(t, `{"observer":{"enabled":false}}`).sessionOptions().ObserverConfigured; !got {
+		t.Fatal("explicit observer section not reported configured")
+	}
+}
+
 // TestMirrorCarriesTheIdentityALiveDriverReported pins the downgrade guarantee at the
 // only link that can break it. Every other test seeds the mirror by hand; this one
 // lets a session report an identity the way a resume: server driver does after

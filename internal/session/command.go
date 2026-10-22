@@ -85,6 +85,14 @@ type SetLanguage struct {
 	Language string `json:"language"`
 }
 
+// SetObserver changes the advisory observer without carrying its API key.
+type SetObserver struct {
+	Enabled   bool   `json:"enabled"`
+	Endpoint  string `json:"endpoint"`
+	Model     string `json:"model"`
+	APIKeyEnv string `json:"apiKeyEnv,omitempty"`
+}
+
 // RestartDuo asks Duo to stop so the session can continue on a new Duo binary.
 // It is the STEP-mode self-upgrade hook: the agent that asks for it is a child of
 // the Duo it is upgrading, so it cannot do the relaunch itself.
@@ -107,6 +115,7 @@ func (CycleThinking) Kind() string  { return "cycle_thinking" }
 func (RestartAgent) Kind() string   { return "restart_agent" }
 func (SetDriver) Kind() string      { return "set_driver" }
 func (SetLanguage) Kind() string    { return "set_language" }
+func (SetObserver) Kind() string    { return "set_observer" }
 func (RestartDuo) Kind() string     { return "restart_duo" }
 
 func (SubmitTask) command()     {}
@@ -121,4 +130,5 @@ func (CycleThinking) command()  {}
 func (RestartAgent) command()   {}
 func (SetDriver) command()      {}
 func (SetLanguage) command()    {}
+func (SetObserver) command()    {}
 func (RestartDuo) command()     {}

@@ -22,10 +22,11 @@ import (
 )
 
 type config struct {
-	listen         string
-	harnessEnabled bool
-	harness        harness.Config
-	observer       observer.Config
+	listen             string
+	harnessEnabled     bool
+	harness            harness.Config
+	observer           observer.Config
+	observerConfigured bool
 
 	repository          string
 	launchDir           string
@@ -135,6 +136,7 @@ func (c config) sessionOptions() session.Options {
 		HarnessEnabled:      c.harnessEnabled,
 		Harness:             c.harness,
 		Observer:            c.observer,
+		ObserverConfigured:  c.observerConfigured,
 		AgentCommands:       c.agentCommands,
 		AgentCommandDefault: c.agentCommandDefault,
 		DefaultAgentDriver:  defaultDriver,
@@ -512,6 +514,7 @@ func loadConfigCommand(args []string, resume bool) (config, error) {
 		harnessEnabled:      harnessEnabled,
 		harness:             harnessConfig,
 		observer:            observerConfig,
+		observerConfigured:  fileCfg.Observer != nil,
 		repository:          launch,
 		launchDir:           launch,
 		worktreeRoot:        strings.TrimSpace(os.Getenv("DUO_WORKTREE_ROOT")),
@@ -555,11 +558,7 @@ func resolveObserverConfig(settings *observer.Settings) observer.Config {
 	if settings != nil {
 		fileSettings = *settings
 	}
-	cfg := fileSettings.Config()
-	cfg.Enabled = envBool("DUO_OBSERVER", cfg.Enabled)
-	cfg.Endpoint = envString("DUO_OBSERVER_ENDPOINT", cfg.Endpoint)
-	cfg.Model = envString("DUO_OBSERVER_MODEL", cfg.Model)
-	return cfg
+	return fileSettings.Config().WithEnv()
 }
 
 func loadConfigFile(path string) (configFile, error) {

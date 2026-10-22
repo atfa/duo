@@ -55,8 +55,23 @@ type View struct {
 	// outside Duo can install and resume.
 	Restart RestartRequest
 
-	Agents map[protocol.AgentID]AgentView
-	Pause  PauseView
+	Agents   map[protocol.AgentID]AgentView
+	Pause    PauseView
+	Observer ObserverView
+}
+
+// ObserverView exposes observer setup state without ever exposing the key.
+type ObserverView struct {
+	Enabled             bool
+	Endpoint            string
+	Model               string
+	APIKeyEnv           string
+	HasKey              bool
+	KeyFile             bool
+	Configured          bool
+	EnvOverride         bool
+	EnvOverrideEndpoint bool
+	EnvOverrideModel    bool
 }
 
 type PauseState string

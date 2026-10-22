@@ -516,10 +516,7 @@ func (s *Service) closeLocked(ctx context.Context) Result {
 		}
 		s.agents.CloseAll()
 	}
-	if s.observer != nil {
-		s.observer.Close()
-		s.observer = nil
-	}
+	s.stopObserver()
 	if s.state != nil && s.journal != nil {
 		s.journal.Record("session_stop", map[string]any{"phase": string(res.Phase)})
 	}
@@ -553,15 +550,70 @@ func (s *Service) startObserver() {
 	if !s.opts.Observer.Enabled {
 		return
 	}
+	logf := s.observerLogf()
 	obs, err := observer.New(s.bus, s.opts.Observer, func(text string) {
 		s.bus.Emit(events.Event{Time: time.Now(), Kind: events.KindObserver, Agent: protocol.Duo, Text: text})
-	}, s.logger.Printf)
+	}, logf)
 	if err != nil {
-		s.logger.Printf("observer disabled: %v", err)
+		logf("observer disabled: %v", err)
 		return
 	}
 	s.observer = obs
 	s.observer.Start(s.ctx)
+}
+
+func (s *Service) observerLogf() func(string, ...any) {
+	if s.logger == nil {
+		return func(string, ...any) {}
+	}
+	return s.logger.Printf
+}
+
+func (s *Service) stopObserver() {
+	if s.observer != nil {
+		s.observer.Close()
+		s.observer = nil
+	}
+}
+
+func (s *Service) setObserver(c SetObserver) error {
+	chosen := s.opts.Observer
+	chosen.Enabled = c.Enabled
+	chosen.Endpoint = c.Endpoint
+	chosen.Model = c.Model
+	if env := strings.TrimSpace(c.APIKeyEnv); env != "" {
+		chosen.APIKeyEnv = env
+	}
+	chosen = chosen.Normalized()
+	effective := chosen.WithEnv()
+	if err := effective.Validate(); err != nil {
+		return err
+	}
+	repo := ""
+	if s.ws != nil {
+		repo = s.ws.Set().Repository
+	}
+	if err := workspace.SaveProjectObserver(repo, chosen.FileSettings()); err != nil {
+		return err
+	}
+	s.opts.Observer = effective
+	s.opts.ObserverConfigured = true
+	s.stopObserver()
+	s.startObserver()
+	return nil
+}
+
+func (s *Service) observerView() ObserverView {
+	enabledOverride, endpointOverride, modelOverride := observer.EnvOverrides()
+	hasKey := s.opts.Observer.APIKey() != ""
+	keyFile := observer.KeyFileExists()
+	return ObserverView{
+		Enabled: s.opts.Observer.Enabled, Endpoint: s.opts.Observer.Endpoint,
+		Model: s.opts.Observer.Model, APIKeyEnv: s.opts.Observer.APIKeyEnv,
+		HasKey: hasKey, KeyFile: keyFile,
+		Configured:  s.opts.ObserverConfigured || hasKey || keyFile || enabledOverride || endpointOverride || modelOverride,
+		EnvOverride: enabledOverride, EnvOverrideEndpoint: endpointOverride, EnvOverrideModel: modelOverride,
+	}
 }
 
 // View reports the session's current state as a value.
@@ -599,6 +651,7 @@ func (s *Service) view() View {
 	if v.Pause.State == "" {
 		v.Pause.State = PauseRunning
 	}
+	v.Observer = s.observerView()
 	v.Agents = make(map[protocol.AgentID]AgentView, 2)
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
 		v.Agents[id] = s.agentView(id)
@@ -731,6 +784,8 @@ func (s *Service) Do(ctx context.Context, cmd Command) error {
 		return s.setDriver(ctx, c)
 	case SetLanguage:
 		return s.setLanguage(c)
+	case SetObserver:
+		return s.setObserver(c)
 	case RestartDuo:
 		return s.requestRestart(c)
 	default:
