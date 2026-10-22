@@ -550,7 +550,7 @@ func (s *Service) startObserver() {
 	if !s.opts.Observer.Enabled {
 		return
 	}
-	logf := s.observerLogf()
+	logf := s.logf()
 	obs, err := observer.New(s.bus, s.opts.Observer, func(text string) {
 		s.bus.Emit(events.Event{Time: time.Now(), Kind: events.KindObserver, Agent: protocol.Duo, Text: text})
 	}, logf)
@@ -562,20 +562,32 @@ func (s *Service) startObserver() {
 	s.observer.Start(s.ctx)
 }
 
-func (s *Service) observerLogf() func(string, ...any) {
+// stopObserver closes the live observer, if any. Close is idempotent, and this
+// guard keeps a disabled or failed observer from replacing state twice.
+func (s *Service) stopObserver() {
+	if s.observer == nil {
+		return
+	}
+	s.observer.Close()
+	s.observer = nil
+}
+
+// logf is the session logger, or a no-op sink for a service that has none.
+func (s *Service) logf() func(string, ...any) {
 	if s.logger == nil {
 		return func(string, ...any) {}
 	}
 	return s.logger.Printf
 }
 
-func (s *Service) stopObserver() {
-	if s.observer != nil {
-		s.observer.Close()
-		s.observer = nil
-	}
-}
-
+// setObserver applies a human's observer settings: validate, persist the
+// non-secret ones, then swap the live observer.
+//
+// The write happens before the swap, so a repository that cannot be written
+// leaves the running observer exactly as it was rather than desynchronising what
+// the interface shows from what runs. A key is never part of this path: the
+// interface saves it in the owner-only file, and the rebuilt observer reads it
+// from there.
 func (s *Service) setObserver(c SetObserver) error {
 	chosen := s.opts.Observer
 	chosen.Enabled = c.Enabled
@@ -585,12 +597,18 @@ func (s *Service) setObserver(c SetObserver) error {
 		chosen.APIKeyEnv = env
 	}
 	chosen = chosen.Normalized()
-	// Validate what will be persisted independently of the process environment.
-	// Otherwise DUO_OBSERVER=false could mask an invalid enabled configuration
-	// until a later launch when the override is absent.
+
+	// The persisted settings have to be valid on their own: an environment that
+	// disables the observer for this run must not let an unusable configuration
+	// be saved for the next run, which would fail at startup once the variable is
+	// gone.
 	if err := chosen.Validate(); err != nil {
 		return err
 	}
+	// The environment is the operator's last word, so a live save must not
+	// quietly defeat a DUO_OBSERVER* override. Persist what the human chose and
+	// run what the environment makes of it — validated separately, because an
+	// environment override can enable a configuration the human left off.
 	effective := chosen.WithEnv()
 	if err := effective.Validate(); err != nil {
 		return err
@@ -609,16 +627,26 @@ func (s *Service) setObserver(c SetObserver) error {
 	return nil
 }
 
+// observerView projects the observer configuration a frontend may render. The
+// key itself is not part of the projection; HasKey only says one resolves.
 func (s *Service) observerView() ObserverView {
-	enabledOverride, endpointOverride, modelOverride := observer.EnvOverrides()
 	hasKey := s.opts.Observer.APIKey() != ""
 	keyFile := observer.KeyFileExists()
+	enabledOverride, endpointOverride, modelOverride := observer.EnvOverrides()
 	return ObserverView{
-		Enabled: s.opts.Observer.Enabled, Endpoint: s.opts.Observer.Endpoint,
-		Model: s.opts.Observer.Model, APIKeyEnv: s.opts.Observer.APIKeyEnv,
-		HasKey: hasKey, KeyFile: keyFile,
-		Configured:  s.opts.ObserverConfigured || hasKey || keyFile || enabledOverride || endpointOverride || modelOverride,
-		EnvOverride: enabledOverride, EnvOverrideEndpoint: endpointOverride, EnvOverrideModel: modelOverride,
+		Enabled:             s.opts.Observer.Enabled,
+		Endpoint:            s.opts.Observer.Endpoint,
+		Model:               s.opts.Observer.Model,
+		APIKeyEnv:           s.opts.Observer.APIKeyEnv,
+		HasKey:              hasKey,
+		KeyFile:             keyFile,
+		EnvOverride:         enabledOverride,
+		EnvOverrideEndpoint: endpointOverride,
+		EnvOverrideModel:    modelOverride,
+		// A key file counts as configured even when it is empty or unreadable:
+		// the operator has already set the observer up, so onboarding must not
+		// reappear. HasKey alone answers whether a usable key resolves.
+		Configured: s.opts.ObserverConfigured || hasKey || keyFile || enabledOverride || endpointOverride || modelOverride,
 	}
 }
 

@@ -85,7 +85,13 @@ type SetLanguage struct {
 	Language string `json:"language"`
 }
 
-// SetObserver changes the advisory observer without carrying its API key.
+// SetObserver applies the human's advisory-observer settings and makes them
+// live.
+//
+// The API key is deliberately absent: a frontend with a key saves it in the
+// owner-only key file first, and the rebuilt observer reads it from there, so a
+// secret never travels through this seam or a session log. A blank APIKeyEnv
+// keeps the configured variable name.
 type SetObserver struct {
 	Enabled   bool   `json:"enabled"`
 	Endpoint  string `json:"endpoint"`

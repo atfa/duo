@@ -1072,3 +1072,40 @@ func TestObserverConfiguredComesFromMergedConfigSection(t *testing.T) {
 // A driver whose learned identity never reached the mirror looks fine everywhere
 // else: its own resume works, DriverStates is authoritative, and the only visible
 // symptom is that downgrading forks every conversation.
+
+// A config file that carries an observer section marks the feature as seen, so
+// the interface offers onboarding once rather than on every launch, while an
+// untouched installation stays unconfigured.
+func TestObserverConfiguredReflectsTheConfigSection(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("DUO_OBSERVER", "")
+	t.Setenv("DUO_OBSERVER_ENDPOINT", "")
+	t.Setenv("DUO_OBSERVER_MODEL", "")
+	projectDir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(projectDir, ".duo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := loadConfig([]string{projectDir})
+	if err != nil {
+		t.Fatalf("load untouched config: %v", err)
+	}
+	if cfg.sessionOptions().ObserverConfigured {
+		t.Fatal("an untouched installation must not look configured")
+	}
+
+	if err := os.WriteFile(filepath.Join(projectDir, ".duo", "config.json"),
+		[]byte(`{"observer":{"enabled":false}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = loadConfig([]string{projectDir})
+	if err != nil {
+		t.Fatalf("load opted-out config: %v", err)
+	}
+	if !cfg.sessionOptions().ObserverConfigured {
+		t.Fatal("an explicit observer section must count as configured")
+	}
+	if cfg.sessionOptions().Observer.Enabled {
+		t.Fatal("an explicit enabled:false must stay disabled")
+	}
+}

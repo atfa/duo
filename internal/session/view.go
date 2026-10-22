@@ -60,18 +60,33 @@ type View struct {
 	Observer ObserverView
 }
 
-// ObserverView exposes observer setup state without ever exposing the key.
+// ObserverView is the advisory observer's configuration as a frontend may see
+// it.
+//
+// It has no key field by construction: a secret never enters a View, so a
+// frontend that renders this struct cannot leak one. HasKey reports only that a
+// key resolves; the frontends use it to say "saved on this machine" without ever
+// reading the value.
 type ObserverView struct {
-	Enabled             bool
-	Endpoint            string
-	Model               string
-	APIKeyEnv           string
-	HasKey              bool
-	KeyFile             bool
-	Configured          bool
-	EnvOverride         bool
+	Enabled   bool
+	Endpoint  string
+	Model     string
+	APIKeyEnv string
+	// HasKey reports that a key resolves from the environment, the apiKeyEnv
+	// variable, or the owner-only key file.
+	HasKey bool
+	// KeyFile reports that ~/.duo/observer.key exists.
+	KeyFile bool
+	// EnvOverride reports that DUO_OBSERVER decides Enabled, so the environment
+	// wins over what a config file or the interface saved.
+	EnvOverride bool
+	// EnvOverrideEndpoint and EnvOverrideModel are the same for the endpoint and
+	// model, so an interface can say which field its save cannot change.
 	EnvOverrideEndpoint bool
 	EnvOverrideModel    bool
+	// Configured reports that the observer was set up at least once, so a
+	// frontend does not offer first-run onboarding again.
+	Configured bool
 }
 
 type PauseState string

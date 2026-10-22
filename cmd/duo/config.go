@@ -22,10 +22,12 @@ import (
 )
 
 type config struct {
-	listen             string
-	harnessEnabled     bool
-	harness            harness.Config
-	observer           observer.Config
+	listen         string
+	harnessEnabled bool
+	harness        harness.Config
+	observer       observer.Config
+	// observerConfigured reports that a config file carried an observer section,
+	// so the session can tell "never set up" from "set up and switched off".
 	observerConfigured bool
 
 	repository          string

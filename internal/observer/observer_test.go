@@ -70,6 +70,9 @@ func waitEmit(t *testing.T, r *recorder) string {
 	}
 }
 
+// DefaultSettings is the empty file shape: every value at its built-in default.
+func DefaultSettings() Settings { return Settings{} }
+
 func testConfig(endpoint string) Config {
 	return Config{
 		Enabled:      true,
@@ -284,8 +287,6 @@ func TestObserverKeepsSilentReplyOutOfTimeline(t *testing.T) {
 }
 
 func TestObserverWithoutKeySendsNothing(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("DUO_OBSERVER_API_KEY", "")
 	var requests atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests.Add(1)
@@ -317,6 +318,7 @@ func TestObserverWithoutKeySendsNothing(t *testing.T) {
 }
 
 func TestAPIKeyPrecedence(t *testing.T) {
+	// Keep a real ~/.duo/observer.key on the operator's machine out of this test.
 	t.Setenv("HOME", t.TempDir())
 	cfg := Config{APIKeyEnv: "OBSERVER_TEST_KEY"}
 	t.Setenv("OBSERVER_TEST_KEY", "from-name")
@@ -513,5 +515,31 @@ func TestObserverIgnoresItsOwnOutput(t *testing.T) {
 	}
 	if strings.Contains(bodies[0], "an earlier observation") {
 		t.Fatalf("observer output reached the prompt:\n%s", bodies[0])
+	}
+}
+
+// A save from the four-field interface must persist the tuning that is in force
+// without materialising defaults, so a restart runs what the session ran and a
+// config file does not grow a copy of the built-in prompt.
+func TestFileSettingsKeepsCustomValuesAndDropsDefaults(t *testing.T) {
+	stock := DefaultSettings()
+	if got := stock.Config().FileSettings(); got != (Settings{}) {
+		t.Fatalf("stock configuration persisted values it did not choose: %+v", got)
+	}
+
+	custom := Config{
+		Enabled: true, Endpoint: "http://127.0.0.1:4000/v1", Model: "exec",
+		APIKeyEnv: "MY_KEY", SystemPrompt: "be terse", MaxEvents: 9,
+		Debounce: 2 * time.Second, Timeout: 30 * time.Second, MaxTokens: 120,
+	}
+	settings := custom.FileSettings()
+	if settings.SystemPrompt != "be terse" || settings.MaxEvents != 9 ||
+		settings.DebounceSeconds != 2 || settings.TimeoutSeconds != 30 || settings.MaxTokens != 120 {
+		t.Fatalf("custom settings lost: %+v", settings)
+	}
+	roundTrip := settings.Config()
+	if roundTrip.SystemPrompt != "be terse" || roundTrip.MaxEvents != 9 || roundTrip.Debounce != 2*time.Second ||
+		roundTrip.Timeout != 30*time.Second || roundTrip.MaxTokens != 120 {
+		t.Fatalf("round trip changed the configuration: %+v", roundTrip)
 	}
 }

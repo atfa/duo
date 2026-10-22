@@ -107,8 +107,13 @@ func (s Settings) Config() Config {
 	}.Normalized()
 }
 
-// Normalized trims string settings and fills tuning defaults, while preserving
-// an empty endpoint/model so validation can explain a missing value.
+// Normalized fills in every unspecified tuning field with its default.
+//
+// It deliberately leaves Enabled, Endpoint, Model and APIKeyEnv alone: those are
+// the operator's choices, and silently replacing an empty endpoint with a default
+// would hide a misconfiguration. A configuration that arrives from anywhere other
+// than a file (a live switch from the interface, for example) is normalized first
+// so the observer never runs with a zero debounce or a missing prompt.
 func (c Config) Normalized() Config {
 	c.Endpoint = strings.TrimSpace(c.Endpoint)
 	c.Model = strings.TrimSpace(c.Model)
@@ -157,10 +162,85 @@ func (c Config) Validate() error {
 	return nil
 }
 
+// FileSettings converts a runtime configuration back into the file shape.
+//
+// Fields that equal the built-in defaults are left zero so a save from the
+// interface neither materialises a long prompt into a config file nor pins
+// defaults the operator never chose. A customised value survives a round trip.
+func (c Config) FileSettings() Settings {
+	settings := Settings{
+		Enabled:   c.Enabled,
+		Endpoint:  strings.TrimSpace(c.Endpoint),
+		Model:     strings.TrimSpace(c.Model),
+		APIKeyEnv: strings.TrimSpace(c.APIKeyEnv),
+	}
+	if prompt := strings.TrimSpace(c.SystemPrompt); prompt != "" && prompt != DefaultSystemPrompt {
+		settings.SystemPrompt = prompt
+	}
+	if c.MaxEvents > 0 && c.MaxEvents != DefaultMaxEvents {
+		settings.MaxEvents = c.MaxEvents
+	}
+	if c.Debounce > 0 && c.Debounce != DefaultDebounce {
+		settings.DebounceSeconds = int(c.Debounce / time.Second)
+	}
+	if c.Timeout > 0 && c.Timeout != DefaultTimeout {
+		settings.TimeoutSeconds = int(c.Timeout / time.Second)
+	}
+	if c.MaxTokens > 0 && c.MaxTokens != DefaultMaxTokens {
+		settings.MaxTokens = c.MaxTokens
+	}
+	return settings
+}
+
+// WithEnv applies the observer environment overrides to a configuration.
+//
+// The environment is the operator's last word for one run, so it has to be
+// applied after anything a config file or the interface supplied — including a
+// live save from the interface. Unset or unparsable values leave the
+// configuration alone rather than resetting it.
+func (c Config) WithEnv() Config {
+	if raw, ok := os.LookupEnv("DUO_OBSERVER"); ok {
+		if enabled, ok := parseEnvBool(raw); ok {
+			c.Enabled = enabled
+		}
+	}
+	if value := strings.TrimSpace(os.Getenv("DUO_OBSERVER_ENDPOINT")); value != "" {
+		c.Endpoint = value
+	}
+	if value := strings.TrimSpace(os.Getenv("DUO_OBSERVER_MODEL")); value != "" {
+		c.Model = value
+	}
+	return c
+}
+
+// EnvOverrides reports which settings the environment currently decides.
+func EnvOverrides() (enabled, endpoint, model bool) {
+	if raw, ok := os.LookupEnv("DUO_OBSERVER"); ok {
+		_, enabled = parseEnvBool(raw)
+	}
+	return enabled,
+		strings.TrimSpace(os.Getenv("DUO_OBSERVER_ENDPOINT")) != "",
+		strings.TrimSpace(os.Getenv("DUO_OBSERVER_MODEL")) != ""
+}
+
+// parseEnvBool reads the truthy spellings Duo accepts everywhere else.
+func parseEnvBool(raw string) (bool, bool) {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "1", "true", "yes", "on":
+		return true, true
+	case "0", "false", "no", "off":
+		return false, true
+	default:
+		return false, false
+	}
+}
+
 // APIKey resolves the key to send, or empty when none is configured.
 //
-// The raw DUO_OBSERVER_API_KEY wins over the named environment variable, which
-// wins over the owner-only key file.
+// The raw DUO_OBSERVER_API_KEY in the process environment wins over the variable
+// APIKeyEnv names, and both win over the owner-only key file the interface saves.
+// That order lets a one-off run override a remembered key without editing
+// anything, and keeps the file a convenience rather than the authority.
 func (c Config) APIKey() string {
 	if key := strings.TrimSpace(os.Getenv("DUO_OBSERVER_API_KEY")); key != "" {
 		return key
@@ -171,63 +251,6 @@ func (c Config) APIKey() string {
 		}
 	}
 	return readKeyFile()
-}
-
-// FileSettings converts the runtime settings to the persisted non-secret shape.
-// Built-in defaults are omitted to keep the project file concise.
-func (c Config) FileSettings() Settings {
-	s := Settings{Enabled: c.Enabled, Endpoint: strings.TrimSpace(c.Endpoint), Model: strings.TrimSpace(c.Model), APIKeyEnv: strings.TrimSpace(c.APIKeyEnv)}
-	if c.SystemPrompt != "" && c.SystemPrompt != DefaultSystemPrompt {
-		s.SystemPrompt = c.SystemPrompt
-	}
-	if c.MaxEvents > 0 && c.MaxEvents != DefaultMaxEvents {
-		s.MaxEvents = c.MaxEvents
-	}
-	if c.Debounce > 0 && c.Debounce != DefaultDebounce {
-		s.DebounceSeconds = int(c.Debounce / time.Second)
-	}
-	if c.Timeout > 0 && c.Timeout != DefaultTimeout {
-		s.TimeoutSeconds = int(c.Timeout / time.Second)
-	}
-	if c.MaxTokens > 0 && c.MaxTokens != DefaultMaxTokens {
-		s.MaxTokens = c.MaxTokens
-	}
-	return s
-}
-
-// WithEnv applies explicit process overrides after file or UI settings.
-func (c Config) WithEnv() Config {
-	if raw, ok := os.LookupEnv("DUO_OBSERVER"); ok {
-		if enabled, valid := parseEnvBool(raw); valid {
-			c.Enabled = enabled
-		}
-	}
-	if v := strings.TrimSpace(os.Getenv("DUO_OBSERVER_ENDPOINT")); v != "" {
-		c.Endpoint = v
-	}
-	if v := strings.TrimSpace(os.Getenv("DUO_OBSERVER_MODEL")); v != "" {
-		c.Model = v
-	}
-	return c
-}
-
-// EnvOverrides reports whether valid environment values control observer settings.
-func EnvOverrides() (enabled, endpoint, model bool) {
-	if raw, ok := os.LookupEnv("DUO_OBSERVER"); ok {
-		_, enabled = parseEnvBool(raw)
-	}
-	return enabled, strings.TrimSpace(os.Getenv("DUO_OBSERVER_ENDPOINT")) != "", strings.TrimSpace(os.Getenv("DUO_OBSERVER_MODEL")) != ""
-}
-
-func parseEnvBool(raw string) (bool, bool) {
-	switch strings.ToLower(strings.TrimSpace(raw)) {
-	case "1", "true", "yes", "on":
-		return true, true
-	case "0", "false", "no", "off":
-		return false, true
-	default:
-		return false, false
-	}
 }
 
 // Observer turns a burst of session events into at most one model request per

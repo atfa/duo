@@ -211,8 +211,16 @@ func SaveProjectTUIView(repoRoot, view string) error {
 	return os.Rename(tmpFile, configPath)
 }
 
-// SaveProjectObserver stores observer settings in the project config, preserving
-// all unrelated project keys and any advanced/future observer fields.
+// SaveProjectObserver records the observer section in .duo/config.json while
+// preserving every other key, including the ones Duo writes for drivers and
+// models.
+//
+// The section is written as a whole, matching how the file is read: a project
+// observer section replaces the global one rather than merging field by field.
+// Only the keys Duo manages are rewritten: an advanced or future key already in
+// the project's observer section survives a save from the interface, and a value
+// that is back at its default is removed rather than left stale. enabled is
+// always present so an explicit opt-out survives.
 func SaveProjectObserver(repoRoot string, settings observer.Settings) error {
 	return updateProjectConfig(repoRoot, func(config map[string]json.RawMessage) error {
 		section := make(map[string]json.RawMessage)
@@ -220,11 +228,16 @@ func SaveProjectObserver(repoRoot string, settings observer.Settings) error {
 			if err := json.Unmarshal(raw, &section); err != nil {
 				return fmt.Errorf("read Duo project observer config: %w", err)
 			}
+			// A hand-written or generated `"observer": null` unmarshals to a nil
+			// map; writing to it would panic, so start a real section instead.
 			if section == nil {
 				section = make(map[string]json.RawMessage)
 			}
 		}
-		for _, key := range []string{"enabled", "endpoint", "model", "apiKeyEnv", "systemPrompt", "maxEvents", "debounceSeconds", "timeoutSeconds", "maxTokens"} {
+		for _, key := range []string{
+			"enabled", "endpoint", "model", "apiKeyEnv", "systemPrompt",
+			"maxEvents", "debounceSeconds", "timeoutSeconds", "maxTokens",
+		} {
 			delete(section, key)
 		}
 		section["enabled"], _ = json.Marshal(settings.Enabled)
@@ -246,6 +259,7 @@ func SaveProjectObserver(repoRoot string, settings observer.Settings) error {
 		setInt("debounceSeconds", settings.DebounceSeconds)
 		setInt("timeoutSeconds", settings.TimeoutSeconds)
 		setInt("maxTokens", settings.MaxTokens)
+
 		raw, err := json.Marshal(section)
 		if err != nil {
 			return err
@@ -255,6 +269,9 @@ func SaveProjectObserver(repoRoot string, settings observer.Settings) error {
 	})
 }
 
+// updateProjectConfig rewrites .duo/config.json in repoRoot through update,
+// preserving keys the caller does not touch. An empty repository root is a
+// no-op, which is what a session without a project wants.
 func updateProjectConfig(repoRoot string, update func(map[string]json.RawMessage) error) error {
 	repoRoot = strings.TrimSpace(repoRoot)
 	if repoRoot == "" {
@@ -265,6 +282,7 @@ func updateProjectConfig(repoRoot string, update func(map[string]json.RawMessage
 		return err
 	}
 	_ = EnsureGitIgnore(repoRoot)
+
 	configPath := filepath.Join(duoDir, "config.json")
 	config := make(map[string]json.RawMessage)
 	data, err := os.ReadFile(configPath)
@@ -286,11 +304,11 @@ func updateProjectConfig(repoRoot string, update func(map[string]json.RawMessage
 		return err
 	}
 	data = append(data, '\n')
-	tmp := configPath + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	tmpFile := configPath + ".tmp"
+	if err := os.WriteFile(tmpFile, data, 0o644); err != nil {
 		return err
 	}
-	return os.Rename(tmp, configPath)
+	return os.Rename(tmpFile, configPath)
 }
 
 // SaveProjectThinking records one agent's reasoning effort in .duo/config.json,

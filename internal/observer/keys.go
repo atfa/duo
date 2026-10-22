@@ -14,9 +14,13 @@ const (
 	keyDirMode  = 0o700
 )
 
-// KeyFilePath returns the owner-only plaintext file used for a saved observer key.
-// The file is not encrypted; callers should prefer environment variables where
-// persistent plaintext storage is not acceptable.
+// KeyFilePath names the owner-only file a key saved from Duo's own interface
+// lives in.
+//
+// It is plain text protected by file permissions, not an encrypted keychain:
+// anything running as the same user can read it. An operator who does not want a
+// file at all can use DUO_OBSERVER_API_KEY or the variable APIKeyEnv names
+// instead; both take precedence over this file.
 func KeyFilePath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -25,7 +29,7 @@ func KeyFilePath() (string, error) {
 	return filepath.Join(home, ".duo", keyFileName), nil
 }
 
-// KeyFileExists reports whether a saved key file exists.
+// KeyFileExists reports whether a saved key exists, without reading it.
 func KeyFileExists() bool {
 	path, err := KeyFilePath()
 	if err != nil {
@@ -35,9 +39,12 @@ func KeyFileExists() bool {
 	return err == nil && info.Mode().IsRegular()
 }
 
-// SaveAPIKey atomically replaces the saved key. A new ~/.duo directory is
-// owner-only; an existing directory is left untouched because it also contains
-// session data.
+// SaveAPIKey stores key for later sessions, replacing any previous value
+// atomically.
+//
+// The file is created 0600. Directories are created 0700 when missing; an
+// existing ~/.duo keeps its permissions, because Duo shares that directory with
+// session records.
 func SaveAPIKey(key string) (string, error) {
 	key = strings.TrimSpace(key)
 	if key == "" {
@@ -49,14 +56,16 @@ func SaveAPIKey(key string) (string, error) {
 	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, keyDirMode); err != nil {
-		return "", fmt.Errorf("create observer key directory: %w", err)
+		return "", fmt.Errorf("create %s: %w", dir, err)
 	}
+
 	tmp, err := os.CreateTemp(dir, keyFileName+".tmp-*")
 	if err != nil {
 		return "", fmt.Errorf("create observer key: %w", err)
 	}
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
+
 	if err := tmp.Chmod(keyFileMode); err != nil {
 		_ = tmp.Close()
 		return "", fmt.Errorf("protect observer key: %w", err)
@@ -78,6 +87,7 @@ func SaveAPIKey(key string) (string, error) {
 	return path, nil
 }
 
+// readKeyFile returns the saved key, or empty when there is none.
 func readKeyFile() string {
 	path, err := KeyFilePath()
 	if err != nil {
