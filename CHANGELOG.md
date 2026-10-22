@@ -2,6 +2,27 @@
 
 All notable project milestones are documented here.
 
+## v0.13.2 — 2026-10-22
+
+### Product site
+
+- xduo.dev ships: English and Simplified Chinese pages share one design system,
+  brand assets, sitemap and a strict CSP applied by `_headers` on Cloudflare
+  Workers static assets.
+- The local preview command resolves `site/public` from the repository root, so
+  the documented command no longer answers 404 when run inside `site/`.
+
+### On-demand observer report
+
+- `Ctrl+E` and `/reports` ask the observer for one fresh report built from the
+  recent messages plus a live snapshot of both agents; `R` asks again.
+- Reports render only in the report panel, in three sections (just finished,
+  doing now, next) and the last three are kept, so they no longer bury the
+  timeline. The panel clamps its viewport when a shorter report arrives, and
+  explains a disabled observer, a missing key or an empty history.
+- `observer.maxEvents` (default 40) replaces the removed `debounceSeconds`; the
+  observer still has no timer and writes nothing to the timeline.
+
 ## v0.13.1 — 2026-10-22
 
 - Updated the release version and corrected the interactive help so its commands,

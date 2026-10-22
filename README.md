@@ -23,7 +23,7 @@ Duo runs on macOS and Linux and requires Git plus at least one supported agent C
 
 ## Install
 
-**Release v0.13.1** (macOS/Linux, amd64/arm64):
+**Release v0.13.2** (macOS/Linux, amd64/arm64):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash
