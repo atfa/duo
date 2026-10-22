@@ -98,9 +98,9 @@ Observer configuration keys are:
 | `maxEvents` | Maximum events combined into one request; defaults to `20`. |
 | `debounceSeconds` | Quiet period before new events update the running report; defaults to `3` seconds. |
 | `timeoutSeconds` | Request timeout; defaults to `60` seconds. |
-| `maxTokens` | Maximum response tokens; defaults to `300`. |
+| `maxTokens` | Maximum response tokens; defaults to `800`. |
 
-Observer output appears on Duo's timeline with an `Observer: ` prefix and is also available from the `Ctrl+E` or `/reports` panel. After a three-second quiet period, the observer considers new events together with the previous report; it emits an update only when there is meaningful new information. Reports follow the interface language, so a Chinese interface asks the observer for Chinese reports. Missing keys, timeouts, and non-2xx responses are recorded in the session log and shown as diagnostics in the reports panel; they do not interrupt coordination. If the panel has no reports, it explains whether the observer is disabled, missing a key, or has encountered a recent error.
+Observer output appears on Duo's timeline with an `Observer: ` prefix and is also available from the `Ctrl+E` or `/reports` panel. After a three-second quiet period, the observer considers new events together with the previous report; it emits an update only when there is meaningful new information. Every report keeps the same four sections — completed work, what is in progress, the next steps the agents stated, and blockers or decisions for the human — and names a section as empty instead of dropping it, so current and planned work never disappear from the report. Reports follow the interface language, so a Chinese interface asks for Chinese reports and headings. Missing keys, timeouts, and non-2xx responses are recorded in the session log and shown as diagnostics in the reports panel; they do not interrupt coordination. A report cut off by `maxTokens` still appears, with the truncation reported as a diagnostic rather than silently losing its later sections. If the panel has no reports, it explains whether the observer is disabled, missing a key, or has encountered a recent error.
 
 ## Resume and delivery
 
