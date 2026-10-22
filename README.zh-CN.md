@@ -38,7 +38,7 @@ duo --mode step     # 复杂任务：先列队列，再逐步落地
 
 ## 安装
 
-**发布版二进制（v0.13.0）**（macOS/Linux，amd64/arm64；安装 `~/.local/bin/duo`、每个 driver 对应的一个启动 shim 与插件可执行文件，以及 Agent 侧 bridge）：
+**发布版二进制（v0.13.1）**（macOS/Linux，amd64/arm64；安装 `~/.local/bin/duo`、每个 driver 对应的一个启动 shim 与插件可执行文件，以及 Agent 侧 bridge）：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash

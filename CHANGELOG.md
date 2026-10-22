@@ -2,6 +2,11 @@
 
 All notable project milestones are documented here.
 
+## v0.13.1 — 2026-10-22
+
+- Updated the release version and corrected the interactive help so its commands,
+  keyboard shortcuts and workflow guidance match the current gotui behavior.
+
 ## v0.13.0 — 2026-10-22
 
 ### Cooperative pause and driver switching
