@@ -35,6 +35,7 @@ type fakeSession struct {
 	detached []protocol.AgentID
 	cols     int
 	rows     int
+	doErr    error
 }
 
 func newFakeSession() *fakeSession {
@@ -117,6 +118,12 @@ func (f *fakeSession) Do(ctx context.Context, cmd session.Command) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.commands = append(f.commands, cmd)
+	if f.doErr != nil {
+		return f.doErr
+	}
+	if _, ok := cmd.(session.ResumeWork); ok {
+		f.view.ResumePending = false
+	}
 	if set, ok := cmd.(session.SetLanguage); ok {
 		f.view.Language = strings.ToLower(set.Language)
 	}

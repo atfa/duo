@@ -24,6 +24,7 @@ var slashCommands = []slashCommand{
 	{name: "/pause", desc: "Pause after the current turns finish"},
 	{name: "/unpause", desc: "Cancel a pending pause (use /continue once paused)"},
 	{name: "/continue", desc: "Resume work after a full pause"},
+	{name: "/resume", desc: "Continue a restored session (wake the agents)"},
 	{name: "/driver", desc: "Driver picker (before the first task, while paused, or after DONE)"},
 	{name: "/language", args: "[zh|en]", desc: "Set Duo's language and save it", needsArg: true},
 	{name: "/copy", desc: "Copy Austin's latest message (Ctrl+X)"},
