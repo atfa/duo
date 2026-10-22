@@ -68,6 +68,8 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 			a.handleDriverPickerKey(ev)
 		case overlayModePicker:
 			a.handleModePickerKey(ev)
+		case overlayPlan:
+			a.handleScrollOverlayKey(ev, func(d int) { a.plan.Scroll(d) }, a.plan.maxOffset())
 		case overlayHelp:
 			a.handleScrollOverlayKey(ev, func(d int) { a.help.Scroll(d) }, max(0, len(a.help.lines)-max(1, a.help.Inner.Dy()-1)))
 		case overlayDetails:
@@ -180,6 +182,9 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 		return
 	case tcell.KeyF2:
 		a.toggleView()
+		return
+	case tcell.KeyF3:
+		a.openPlan()
 		return
 	case tcell.KeyPgUp:
 		a.activeTranscript().Scroll(-max(3, a.activeTranscript().Inner.Dy()-2))
@@ -576,6 +581,8 @@ func (a *App) handleMouse(ev *tcell.EventMouse) {
 				a.help.Scroll(-3)
 			case overlayDetails:
 				a.details.Scroll(-3)
+			case overlayPlan:
+				a.plan.Scroll(-3)
 			case overlayObserverReports:
 				a.observerReports.Scroll(-3)
 			}
@@ -585,6 +592,8 @@ func (a *App) handleMouse(ev *tcell.EventMouse) {
 				a.help.Scroll(3)
 			case overlayDetails:
 				a.details.Scroll(3)
+			case overlayPlan:
+				a.plan.Scroll(3)
 			case overlayObserverReports:
 				a.observerReports.Scroll(3)
 			}

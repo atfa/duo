@@ -19,6 +19,7 @@ var slashCommands = []slashCommand{
 	{name: "/escalate", args: "[reason]", desc: "Switch to Goal mode", needsArg: true},
 	{name: "/mode", args: "[fast|goal|step]", desc: "Mode picker, or switch directly (Ctrl+S)"},
 	{name: "/model", desc: "Model & thinking picker (Ctrl+M)"},
+	{name: "/plan", desc: "Read the shared plan and step queue (F3)"},
 	{name: "/observer", desc: "Configure the observer"},
 	{name: "/reports", desc: "Show the observer's status report (Ctrl+E)"},
 	{name: "/pause", desc: "Pause after the current turns finish"},

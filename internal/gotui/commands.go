@@ -78,6 +78,9 @@ func (a *App) runSlash(text string) bool {
 	case "/overview":
 		a.openDetails()
 		return true
+	case "/plan":
+		a.openPlan()
+		return true
 	case "/model":
 		a.openPicker()
 		return true
@@ -485,6 +488,14 @@ func (a *App) requestObserverReport() {
 		return
 	}
 	a.svc.RequestObserverReport()
+}
+
+// openPlan shows the read-only plan and Step queue overlay. It reads the live
+// snapshot once when opened and refreshes lazily while the overlay is visible.
+func (a *App) openPlan() {
+	a.closeMention()
+	a.plan.begin(a.live)
+	a.overlay = overlayPlan
 }
 
 func (a *App) openDetails() {

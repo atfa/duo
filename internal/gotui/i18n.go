@@ -41,6 +41,7 @@ var zhUI = map[string]string{
 	"Dual-approved queue; each step runs FAST or GOAL":             "双方批准的队列，每步按 FAST 或 GOAL 执行",
 	"↑/↓ choose · Enter switch · Esc cancel":                       "↑/↓ 选择 · Enter 切换 · Esc 取消",
 	"Model & thinking picker (Ctrl+M)":                             "模型与思考选择器（Ctrl+M）",
+	"Read the shared plan and step queue (F3)":                     "查看共享计划与步骤队列（F3）",
 	"Configure the observer":                                       "配置观察器",
 	"Show the observer's status report (Ctrl+E)":                   "查看观察器的状态报告（Ctrl+E）",
 	"Set Duo's language and save it":                               "设置 Duo 语言并保存",
@@ -161,7 +162,8 @@ var zhUI = map[string]string{
 	"STEP: plan a dual-approved queue, then run each step as FAST (Austin implements, Tony verifies) or GOAL (both implement and cross-sign).": "STEP：先制定双方批准的队列，再按 FAST（Austin 实现、Tony 验证）或 GOAL（双方实现并交叉签字）执行每一步。",
 	"Enter send  ·  Ctrl+Enter / Shift+Enter / Alt+Enter / Ctrl+J newline":                                                                     "Enter 发送  ·  Ctrl+Enter / Shift+Enter / Alt+Enter / Ctrl+J 换行",
 	"Ctrl+S / Alt+S mode picker  ·  click the header mode badge  ·  Ctrl+M / Alt+M model & thinking picker":                                    "Ctrl+S / Alt+S 模式选择器  ·  点击顶部模式徽标  ·  Ctrl+M / Alt+M 模型与思考选择器",
-	"F1 / Ctrl+/ / Alt+H help  ·  F2 split / timeline  ·  Ctrl+E observer status report":                                                       "F1 / Ctrl+/ / Alt+H 帮助  ·  F2 分栏 / 时间线  ·  Ctrl+E 观察报告",
+	"F3 /plan read the shared plan & step queue  ·  F1 / Ctrl+/ / Alt+H help  ·  F2 split / timeline":                                          "F3 /plan 查看共享计划与步骤队列  ·  F1 / Ctrl+/ / Alt+H 帮助  ·  F2 分栏 / 时间线",
+	"Ctrl+E observer status report  ·  Ctrl+O / Alt+O details & changes":                                                                       "Ctrl+E 观察报告  ·  Ctrl+O / Alt+O 详情与变更",
 	"In picker: Tab switches Agent  ·  Shift+Tab cycles thinking  ·  Space selects model":                                                      "选择器中：Tab 切换 Agent  ·  Shift+Tab 调整思考强度  ·  Space 选择模型",
 	"Ctrl+A / Alt+A attach Austin  ·  Ctrl+T / Alt+T attach Tony  ·  Ctrl+V image path  ·  Ctrl+] or Ctrl+\\ detach":                           "Ctrl+A / Alt+A 进入 Austin  ·  Ctrl+T / Alt+T 进入 Tony  ·  Ctrl+V 图片路径  ·  Ctrl+] 或 Ctrl+\\ 返回",
 	"Ctrl+R restart Austin  ·  Ctrl+Y restart Tony  ·  Ctrl+O / Alt+O details & changes":                                                       "Ctrl+R 重启 Austin  ·  Ctrl+Y 重启 Tony  ·  Ctrl+O / Alt+O 详情与变更",
@@ -208,6 +210,24 @@ var zhUI = map[string]string{
 	"could not read TUI view preference: %s":      "无法读取 TUI 视图偏好：%s",
 	"could not save TUI view preference: %s":      "无法保存 TUI 视图偏好：%s",
 	"Austin and Tony resumed in %s mode":          "已在 %s 模式恢复 Austin 和 Tony 的工作",
+
+	// Plan & steps overlay. Queue markers are built in the frontend from Step
+	// fields; the agent-facing project.Steps.Render text is never shown here.
+	"PLAN & STEPS":             "计划与步骤",
+	"PHASE":                    "阶段",
+	"PLAN":                     "计划",
+	"STEPS":                    "步骤",
+	"submitted":                "已提交",
+	"todo":                     "待办",
+	"No step queue yet.":       "还没有步骤队列。",
+	"FAST has no shared plan.": "FAST 模式没有共享计划。",
+	"Austin implements, Tony verifies and Duo lands the diff.":                             "Austin 实现，Tony 验证，Duo 落地改动。",
+	"This round has no shared plan yet.":                                                   "本轮还没有共享计划。",
+	"GOAL starts in PLAN: both agents publish the plan and approve it before work begins.": "GOAL 从 PLAN 开始：双方先发布计划并批准，再开始工作。",
+	"This round has no plan or step queue yet.":                                            "本轮还没有计划或步骤队列。",
+	"STEP starts in PLAN: both agents publish the plan and the queue before work begins.":  "STEP 从 PLAN 开始：双方先发布计划和队列，再开始工作。",
+	"This round is DONE; its plan was cleared.":                                            "本轮已完成，计划已清空。",
+	"Ctrl+O opens session details.":                                                        "Ctrl+O 打开会话详情。",
 
 	// Destructive mode-switch confirmation. The loss list is built from the
 	// project snapshot and each item is translated before it is joined.

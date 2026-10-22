@@ -38,19 +38,25 @@ workflow state or makes project transitions:
   the current mode marked; `/mode` without an argument opens the same panel and
   `/mode fast|goal|step` still switches directly. The mode badge in the header
   is clickable. A choice applies immediately, then asks whether to resume Austin
-  and Tony. The safe default is **Not now**, which leaves both agents idle until
-  the human submits the next task; it also holds harness nudges so the watchdog
-  cannot start work by itself.
+  and Tony. When the switch would reset the current round, a first dialog names
+  exactly what is discarded (plan version, Step queue, signatures, Fast
+  verification) and keeps the current mode by default. The safe resume default
+  is **Not now**, which leaves both agents idle until the human submits the next
+  task; it also holds harness nudges so the watchdog cannot start work by itself.
+- **Plan & steps.** `F3` or `/plan` opens a read-only overlay with the shared
+  plan rendered as Markdown, the mode, phase and plan version, and the full Step
+  queue with landed/current/pending markers. It scrolls with the same keys as
+  help and details and closes with `Esc`.
 - **Pause and drivers.** `/pause` waits for a turn boundary and shows
   `PAUSING`/`PAUSED` in the header, with the footer naming who is still working.
   `/unpause` cancels an incomplete request; `/continue` resumes a full pause.
   `/driver` is available before the first task, while fully paused, or after
   `DONE`: agent tabs, typing filter, a marker on the current driver, and no
   resume when a choice is applied.
-- **Overlays.** Help, session details, model picker, driver picker and
-  destructive confirmations are centered modals with a cleared content backdrop.
-  The slash palette occupies the conversation pane so no text or border fragments
-  show through it.
+- **Overlays.** Help, session details, the plan & steps view, model picker,
+  driver picker and destructive confirmations are centered modals with a cleared
+  content backdrop. The slash palette occupies the conversation pane so no text
+  or border fragments show through it.
 - **Copy feedback.** Copying a transcript selection or Austin's latest message
   briefly overlays a `COPIED` panel in the top-right; it dismisses itself after
   two seconds and does not consume layout space.
@@ -86,6 +92,7 @@ variables. The dashboard adds:
 | `F2` or the `Split` / `Timeline` tabs | Toggle the dashboard view |
 | `Ctrl+P` | Show or hide the workflow sidebar |
 | `F1` / `Ctrl+/` / `Alt+H` | Open help |
+| `F3` / `/plan` | Read the shared plan and Step queue |
 | `Ctrl+O` / `Alt+O` | Open session details and the Git diffstat |
 | `Ctrl+M` / `Alt+M` | Open the model and thinking picker |
 | `Ctrl+S` / `Alt+S` | Open the FAST/GOAL/STEP mode picker |
@@ -94,7 +101,7 @@ variables. The dashboard adds:
 | `Ctrl+T` / `Alt+T` | Attach to Tony |
 | `Ctrl+]` / `Ctrl+\` / `Ctrl+】` | Detach from an attached agent |
 | `Ctrl+Q` / `Ctrl+D` | Quit and preserve the session |
-| Mouse wheel | Scroll the transcript or an open help/details modal |
+| Mouse wheel | Scroll the transcript or an open help/details/plan modal |
 | Mouse drag | Select transcript text and copy it; a short-lived `COPIED` toast appears in the top-right |
 | Click a URL | Open it in the default browser |
 | Click an existing file path | Open its containing folder in the default file manager |

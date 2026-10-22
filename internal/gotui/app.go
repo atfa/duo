@@ -103,6 +103,7 @@ type App struct {
 	picker            *modelPicker
 	drivers           *driverPicker
 	modePicker        *modePicker
+	plan              *planOverlay
 	help              *helpOverlay
 	details           *detailOverlay
 	confirm           *confirmOverlay
@@ -186,6 +187,7 @@ func New(svc Session) *App {
 	a.picker = newModelPicker(t)
 	a.drivers = newDriverPicker(t)
 	a.modePicker = newModePicker(t)
+	a.plan = newPlan(t)
 	a.help = newHelp(t)
 	a.details = newDetails(t)
 	a.observer = newObserverConfig(t)
@@ -574,6 +576,8 @@ func (a *App) draw() {
 			items = append(items, a.drivers)
 		case overlayModePicker:
 			items = append(items, a.modePicker)
+		case overlayPlan:
+			items = append(items, a.plan)
 		case overlayHelp:
 			items = append(items, a.help)
 		case overlayDetails:
@@ -660,6 +664,7 @@ func (a *App) updateWidgets() {
 	a.picker.place(l)
 	a.drivers.place(l)
 	a.modePicker.place(l)
+	a.plan.place(l, a.live, a.overlay == overlayPlan)
 	a.help.place(l)
 	a.details.place(l)
 	a.confirm.place(l)
