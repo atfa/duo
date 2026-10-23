@@ -21,7 +21,7 @@ func TestFinalSummaryCarriesTheCostLedger(t *testing.T) {
 
 	snap := project.NewStateFor(project.ModeGoal).Snapshot()
 	prompt := coord.finalSummaryPrompt(snap)
-	if !strings.Contains(prompt, "Session cost: $0.25 · 6250 tokens · 2 turns") {
+	if !strings.Contains(prompt, "Session cost: $0.25 · 6.2k tokens · 2 turns") {
 		t.Fatalf("the summary prompt is missing the cost line:\n%s", prompt)
 	}
 	if !strings.Contains(prompt, "Reproduce this line at the top of your report") {
@@ -31,7 +31,7 @@ func TestFinalSummaryCarriesTheCostLedger(t *testing.T) {
 	zh := promptCoordinator()
 	zh.tracker = tracker
 	zh.language = "zh"
-	if got := zh.finalSummaryPrompt(snap); !strings.Contains(got, "会话成本：$0.25 · 6250 tokens · 2 轮") {
+	if got := zh.finalSummaryPrompt(snap); !strings.Contains(got, "会话成本：$0.25 · 6.2k tokens · 2 轮") {
 		t.Fatalf("the zh summary prompt is missing the cost line:\n%s", got)
 	}
 }

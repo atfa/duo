@@ -7,6 +7,7 @@ import (
 
 	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/protocol"
+	"github.com/atfa/duo/internal/sessionstore"
 )
 
 // contextWarnPercent is the context occupancy at which Duo tells an agent its
@@ -57,12 +58,12 @@ func (c *Coordinator) checkContextPressure(agent protocol.AgentID) {
 
 	text := fmt.Sprintf(
 		"Your context is at %.0f%% of its %s-token window. Wrap up what you are doing: finish the file you are in, record your state, and reach a clean point before the window forces a compaction.",
-		percent, humanTokens(rt.ContextWindow),
+		percent, sessionstore.HumanTokens(rt.ContextWindow),
 	)
 	if c.language == "zh" {
 		text = fmt.Sprintf(
 			"你的上下文已用到窗口的 %.0f%%（窗口 %s token）。请开始收尾：把手上的文件写完、记录当前状态，在窗口强制压缩前到达一个干净的点。",
-			percent, humanTokens(rt.ContextWindow),
+			percent, sessionstore.HumanTokens(rt.ContextWindow),
 		)
 	}
 	c.emit(events.KindSystem, protocol.Duo, agent,
@@ -84,11 +85,6 @@ func (c *Coordinator) checkContextPressure(agent protocol.AgentID) {
 	}
 }
 
-// humanTokens renders a token count the way the interface does, so the number in
-// the agent's notice matches the number on the screen.
-func humanTokens(n int) string {
-	if n >= 1000 {
-		return fmt.Sprintf("%.1fk", float64(n)/1000)
-	}
-	return fmt.Sprintf("%d", n)
-}
+// humanTokens is the interface's rendering of a token count, shared with the cost
+// sentence so a number an agent reads matches the number on the human's screen.
+var humanTokens = sessionstore.HumanTokens

@@ -103,3 +103,19 @@ func TestUsageLedgerOfAnOldSnapshotLoads(t *testing.T) {
 		t.Fatal("Total of a missing ledger must be the zero value, not a panic")
 	}
 }
+
+// TestCostLineIsOneSentenceForEveryView: the cost panel, the overview and the final
+// summary quote this sentence, so a human reads one phrasing of one number rather
+// than three that have to be reconciled by hand.
+func TestCostLineIsOneSentenceForEveryView(t *testing.T) {
+	total := UsageTotals{Turns: 15, TotalTokens: 20000, CostUSD: 0.55}
+	if got := total.CostLine(false); got != "Session cost: $0.55 · 20k tokens · 15 turns" {
+		t.Errorf("en cost line = %q", got)
+	}
+	if got := total.CostLine(true); got != "会话成本：$0.55 · 20k tokens · 15 轮" {
+		t.Errorf("zh cost line = %q", got)
+	}
+	if got := (UsageTotals{TotalTokens: 950}).CostLine(false); !strings.Contains(got, "950 tokens") {
+		t.Errorf("a small token count must stay plain: %q", got)
+	}
+}
