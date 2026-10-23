@@ -36,7 +36,7 @@ var slashCommands = []slashCommand{
 	{name: "/help", desc: "Help and workflow guide (F1)"},
 	{name: "/status", desc: "Show session status"},
 	{name: "/clear", desc: "Redraw the screen"},
-	{name: "/new", desc: "Quit and start a fresh session (Ctrl+Q, then run duo again)"},
+	{name: "/new", desc: "Start a fresh session; this one is preserved"},
 	{name: "/quit", desc: "Quit and preserve this session (Ctrl+Q)"},
 	{name: "/exit", desc: "Alias for /quit"},
 }

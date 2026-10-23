@@ -1,11 +1,11 @@
 package gotui
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/session"
-	"github.com/gdamore/tcell/v3"
 )
 
 func newSessionCommands(fake *fakeSession) []session.NewSession {
@@ -18,63 +18,33 @@ func newSessionCommands(fake *fakeSession) []session.NewSession {
 	return out
 }
 
-// TestNewSessionCommandQuitsThenRelaunches is the /new flow: an unfinished
-// session confirms, and confirming sends NewSession (which the CLI answers by
-// re-running duo) and stops the app so the close path runs.
-func TestNewSessionCommandQuitsThenRelaunches(t *testing.T) {
-	fake, app := newModeSwitchApp(t, project.Snapshot{
-		Mode:    project.ModeFast,
-		Phase:   project.PhaseExecute,
-		Started: true,
-	})
+// /new is Ctrl+Q plus a fresh session with nothing at stake — the old session
+// is preserved — so it acts at once: no dialog, one NewSession, app stops so
+// the CLI can start the next session. It behaves the same mid-work and at DONE.
+func TestNewSessionActsWithoutConfirmation(t *testing.T) {
+	for _, phase := range []project.Phase{project.PhaseExecute, project.PhaseDone} {
+		fake, app := newModeSwitchApp(t, project.Snapshot{Mode: project.ModeFast, Phase: phase, Started: true})
 
-	app.runSlash("/new")
-	if app.overlay != overlayConfirm {
-		t.Fatalf("overlay = %v, want the new-session confirmation", app.overlay)
-	}
-	if app.confirm.choice1 != "Confirm" || app.confirm.choice2 != "Cancel" {
-		t.Fatalf("buttons = %q / %q, want Confirm / Cancel", app.confirm.choice1, app.confirm.choice2)
-	}
-
-	// Esc cancels: no command, the app keeps running.
-	app.handleConfirmKey(tcell.NewEventKey(tcell.KeyEsc, "", tcell.ModNone))
-	if got := len(newSessionCommands(fake)); got != 0 {
-		t.Fatalf("Esc sent %d NewSession command(s), want 0", got)
-	}
-	if app.isStopped() {
-		t.Fatal("a cancelled /new must not stop the app")
-	}
-
-	// Confirming sends exactly one NewSession and stops the app.
-	app.runSlash("/new")
-	app.handleConfirmKey(tcell.NewEventKey(tcell.KeyRight, "", tcell.ModNone))
-	app.handleConfirmKey(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))
-	commands := newSessionCommands(fake)
-	if len(commands) != 1 {
-		t.Fatalf("confirmed /new sent %d NewSession command(s), want 1", len(commands))
-	}
-	if !app.isStopped() {
-		t.Fatal("a confirmed /new must stop the app so the CLI can re-run duo")
+		app.runSlash("/new")
+		if app.overlay != overlayNone {
+			t.Fatalf("%s: /new opened an overlay (%v), want none", phase, app.overlay)
+		}
+		if got := len(newSessionCommands(fake)); got != 1 {
+			t.Fatalf("%s: /new sent %d NewSession command(s), want 1", phase, got)
+		}
+		if !app.isStopped() {
+			t.Fatalf("%s: /new must stop the app so the CLI can start the next session", phase)
+		}
 	}
 }
 
-// A finished session has nothing to preserve, so /new acts without a dialog —
-// the same rule /quit follows.
-func TestNewSessionAtDoneNeedsNoConfirmation(t *testing.T) {
-	fake, app := newModeSwitchApp(t, project.Snapshot{
-		Mode:    project.ModeFast,
-		Phase:   project.PhaseDone,
-		Started: true,
-	})
+// A refused request must not stop the app: the session is still the live one.
+func TestNewSessionFailureKeepsTheSession(t *testing.T) {
+	fake, app := newModeSwitchApp(t, project.Snapshot{Mode: project.ModeFast, Phase: project.PhaseExecute, Started: true})
+	fake.doErr = errors.New("boom")
 
 	app.runSlash("/new")
-	if app.overlay != overlayNone {
-		t.Fatalf("overlay = %v, want none at DONE", app.overlay)
-	}
-	if got := len(newSessionCommands(fake)); got != 1 {
-		t.Fatalf("DONE /new sent %d NewSession command(s), want 1", got)
-	}
-	if !app.isStopped() {
-		t.Fatal("a confirmed /new must stop the app")
+	if app.isStopped() {
+		t.Fatal("a failed /new must not stop the app")
 	}
 }

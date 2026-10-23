@@ -6,10 +6,9 @@ All notable project milestones are documented here.
 
 ### New session
 
-- `/new` quits the current session the way Ctrl+Q does — preserved, resumable —
-  and re-runs duo in place, so starting over is one action instead of two. A
-  session launched with `duo resume <id>` re-runs as a plain `duo`, never
-  reopening the session it just preserved.
+- `/new` starts a fresh session in the same process, with no dialog: the current
+  session is preserved exactly as Ctrl+Q preserves it (resumable with `duo resume`)
+  and the terminal stays open while the new session takes over.
 
 ### Cost and context pressure
 
