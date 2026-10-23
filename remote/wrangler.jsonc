@@ -1,0 +1,35 @@
+{
+  // Duo remote relay: one Worker, two Durable Object classes, static page.
+  // Deploy with: cd remote && wrangler deploy
+  "name": "duo-remote",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-22",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    // /p/<room> is a room-independent page: the room is in the path and the
+    // pairing key is in the fragment, so the SPA fallback is enough.
+    "not_found_handling": "single-page-application",
+    // Only these paths need the Worker. Everything else is a static asset, so
+    // a page view costs no Worker request.
+    "run_worker_first": ["/ws", "/api/*", "/healthz"]
+  },
+  "durable_objects": {
+    "bindings": [
+      { "name": "ROOMS", "class_name": "RelayRoom" },
+      { "name": "REGISTRAR", "class_name": "Registrar" }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["RelayRoom", "Registrar"]
+    }
+  ],
+  "routes": [
+    { "pattern": "remote.xduo.dev", "custom_domain": true }
+  ],
+  "observability": {
+    "enabled": true
+  }
+}

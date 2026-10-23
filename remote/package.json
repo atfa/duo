@@ -1,0 +1,16 @@
+{
+  "name": "duo-remote",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Duo remote relay: a content-blind Cloudflare Worker pairing a phone with a local Duo session.",
+  "scripts": {
+    "test": "node --test",
+    "check": "node --test && node --check src/index.js && node --check src/room.js && node --check src/registrar.js",
+    "dry-run": "wrangler deploy --dry-run --outdir /tmp/duo-remote-build",
+    "deploy": "wrangler deploy"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

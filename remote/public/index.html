@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <meta name="robots" content="noindex, nofollow">
+  <title>DUO remote</title>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <script type="module" src="/app.js"></script>
+</head>
+<body>
+  <main class="shell">
+    <header class="masthead">
+      <span class="mark" aria-hidden="true">DUO</span>
+      <span id="status" class="status status-wait" role="status" aria-live="polite">starting</span>
+    </header>
+
+    <section class="card" aria-labelledby="room-title">
+      <h1 id="room-title">Remote pairing</h1>
+      <dl class="facts">
+        <dt>Room</dt><dd id="room" class="mono">—</dd>
+        <dt>Expires</dt><dd id="expiry">—</dd>
+        <dt>Agent host</dt><dd id="host">—</dd>
+      </dl>
+      <p id="message" class="message">Waiting for the pairing key in the link.</p>
+    </section>
+
+    <footer class="foot">
+      <p>Everything runs on your computer. This relay only forwards encrypted frames.</p>
+    </footer>
+  </main>
+</body>
+</html>
