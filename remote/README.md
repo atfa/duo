@@ -79,6 +79,14 @@ wrangler deploy         # attaches remote.xduo.dev from wrangler.jsonc
 curl -fsS https://remote.xduo.dev/healthz   # -> ok
 ```
 
+Status: deployed from this repository to `https://remote.xduo.dev`; `curl
+-fsS https://remote.xduo.dev/healthz` returns `ok`. Re-running `wrangler deploy`
+publishes the current tree, so a deploy is part of landing a change here, not a
+separate chore. `scripts/remote-e2e.sh` with `DUO_RELAY_BASE=https://remote.xduo.dev`
+checks a live deployment; it needs outbound WebSocket from the machine running
+it, and reports `ETIMEDOUT` where that is blocked (the hermetic `node --test`
+suite and `wrangler dev --local` do not).
+
 `wrangler.jsonc` routes the custom domain `remote.xduo.dev`; that requires the
 `xduo.dev` zone in the same Cloudflare account. Without it, change the `routes`
 entry (or remove it and use the `*.workers.dev` URL) and point Duo at the new
