@@ -81,6 +81,10 @@ func (a *App) runSlash(text string) bool {
 	case "/plan":
 		a.openPlan()
 		return true
+	case "/cost":
+		a.cost.begin(a.live)
+		a.overlay = overlayCost
+		return true
 	case "/model":
 		a.openPicker()
 		return true
@@ -511,7 +515,7 @@ func (a *App) openDetails() {
 		defer cancel()
 		status := a.svc.StatusText(ctx)
 		changes := a.svc.Changes(ctx)
-		a.addAsync(asyncResult{kind: "details", payload: detailPayload{status: status, changes: changes}})
+		a.addAsync(asyncResult{kind: "details", payload: detailPayload{status: status, changes: changes, usage: a.live.Usage}})
 	}()
 }
 

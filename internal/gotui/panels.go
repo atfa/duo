@@ -433,7 +433,14 @@ func (a *agentCard) Draw(buf *ui.Buffer) {
 	rt := a.av.Runtime
 	if rt.ContextWindow > 0 {
 		pct := float64(rt.ContextTokens) / float64(rt.ContextWindow) * 100
-		line(fmt.Sprintf("%s  %s / %s  %.0f%%", a.theme.tr("context"), humanTokens(rt.ContextTokens), humanTokens(rt.ContextWindow), pct), a.theme.Subtle)
+		// The coordinator owns the pressure judgement (ContextWarned is set when
+		// the occupancy crosses the configured threshold and cleared when it falls
+		// back); the card only colours the figure it already shows.
+		contextStyle := a.theme.Subtle
+		if rt.ContextWarned {
+			contextStyle = a.theme.Error
+		}
+		line(fmt.Sprintf("%s  %s / %s  %.0f%%", a.theme.tr("context"), humanTokens(rt.ContextTokens), humanTokens(rt.ContextWindow), pct), contextStyle)
 	} else {
 		line(a.theme.tr("context")+"  "+a.theme.tr("not reported"), a.theme.Subtle)
 	}
