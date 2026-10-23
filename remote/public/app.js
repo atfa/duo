@@ -1,46 +1,132 @@
-// The STEP 1 page: it proves the pairing end to end. It completes the relay
-// handshake, authenticates envelopes with the QR secret, and shows room, expiry
-// and whether the computer's Duo host is reachable. The full mobile console
-// (state, commands, New Session, observer) arrives in STEP 2.
+// The mobile console. It renders the host's state, sends the three commands a
+// phone is allowed to send, and keeps working across reconnects: the sequence
+// epoch, the pending command and the replay the relay offers are all handled
+// here, so a phone that drops its Wi-Fi catches up on its own.
 
 import { LinkError, decryptEnvelope, deriveKeys, parsePairingKey, parseRoom } from "./crypto.js";
+import { applyEvent, buildCommand, viewModel } from "./console.js";
 
 const RECONNECT_MIN_MS = 500;
 const RECONNECT_MAX_MS = 15000;
 const PING_MS = 25000;
 
 const els = {
+  title: document.getElementById("title"),
   status: document.getElementById("status"),
+  banner: document.getElementById("banner"),
   room: document.getElementById("room"),
+  mode: document.getElementById("mode"),
+  phase: document.getElementById("phase"),
+  step: document.getElementById("step"),
   expiry: document.getElementById("expiry"),
-  host: document.getElementById("host"),
-  message: document.getElementById("message"),
+  plan: document.getElementById("plan"),
+  agents: document.getElementById("agents"),
+  activity: document.getElementById("activity"),
+  observer: document.getElementById("observer"),
+  refresh: document.getElementById("refresh"),
+  composer: document.getElementById("composer"),
+  task: document.getElementById("task"),
+  send: document.getElementById("send"),
+  newsess: document.getElementById("newsess"),
+  sent: document.getElementById("sent"),
 };
 
 let room = null;
 let keys = null;
+let model = null;
 let socket = null;
 let lastSeq = 0;
 let expiresAt = 0;
 let attempts = 0;
 let hostPresent = false;
 let fatal = false;
-let authRetries = 0;
 let retryTimer = 0;
 let pingTimer = 0;
 let expiryTimer = 0;
+// One command in flight. Its id is reused on a retry, so a command that was
+// already forwarded is dropped by the relay and by the host rather than run
+// twice.
+let pending = null;
 
 function setStatus(text, kind) {
   els.status.textContent = text;
   els.status.className = `status status-${kind}`;
 }
 
-function setMessage(text) {
-  els.message.textContent = text;
+function setBanner(text) {
+  els.banner.textContent = text ?? "";
+  els.banner.hidden = !text;
 }
 
-function renderHost() {
-  els.host.textContent = hostPresent ? "connected" : "offline";
+function setSent(text) {
+  els.sent.textContent = text ?? "";
+}
+
+function dotClass(agent) {
+  if (agent.running) return "dot-run";
+  if (agent.connected) return "dot-on";
+  return "dot-off";
+}
+
+function render() {
+  els.title.textContent = model ? model.project : "Duo";
+  els.mode.textContent = model?.mode || "—";
+  els.phase.textContent = model?.phase || "—";
+  els.step.textContent = model?.step ? `${model.step.index}/${model.step.total} · ${model.step.policy} · ${model.step.title}` : "—";
+  els.plan.textContent = model?.plan || "";
+
+  const agents = model?.agents.length
+    ? model.agents
+    : [{ id: "—", connected: false, running: false, model: "", thinking: "", activity: "no agent state" }];
+  els.agents.replaceChildren(
+    ...agents.map((agent) => {
+      const li = document.createElement("li");
+      const dot = document.createElement("span");
+      dot.className = `dot ${dotClass(agent)}`;
+      const body = document.createElement("div");
+      const name = document.createElement("div");
+      name.textContent = agent.id;
+      const meta = document.createElement("div");
+      meta.className = "agent-meta";
+      meta.textContent = [agent.model, agent.thinking].filter(Boolean).join(" · ");
+      const activity = document.createElement("div");
+      activity.className = "agent-activity";
+      activity.textContent = agent.activity || (agent.running ? "working" : "");
+      body.append(name, meta, activity);
+      li.append(dot, body);
+      return li;
+    }),
+  );
+
+  const activity = model?.activity.length
+    ? model.activity
+    : [{ at: "", agent: "", text: "No activity yet.", muted: true }];
+  els.activity.replaceChildren(
+    ...activity.map((entry) => {
+      const li = document.createElement("li");
+      const when = document.createElement("span");
+      when.className = "when";
+      when.textContent = entry.at;
+      const who = document.createElement("span");
+      who.className = "who";
+      who.textContent = entry.agent;
+      const text = document.createElement("span");
+      text.className = entry.muted ? "text muted" : "text";
+      text.textContent = entry.text;
+      li.append(when, who, text);
+      return li;
+    }),
+  );
+
+  els.observer.textContent = model?.observer.analyzing
+    ? "Analyzing…"
+    : model?.observer.report || "No report yet.";
+  els.observer.className = model?.observer.report || model?.observer.analyzing ? "observer" : "observer muted";
+
+  const ready = Boolean(model) && hostPresent && !fatal;
+  els.send.disabled = !ready || Boolean(pending);
+  els.newsess.disabled = !ready || Boolean(pending);
+  els.refresh.disabled = !ready || Boolean(pending);
 }
 
 function send(frame) {
@@ -79,7 +165,7 @@ function startExpiry() {
 function fail(status, message) {
   fatal = true;
   setStatus(status, "bad");
-  if (message) setMessage(message);
+  setBanner(message);
   stopPing();
   try {
     if (socket) socket.close(1000, status);
@@ -87,17 +173,17 @@ function fail(status, message) {
     // already closed
   }
   socket = null;
+  render();
 }
 
 function handleError(code) {
   switch (code) {
     case "auth":
-      // A scan can land in the moment between the computer minting the room and
-      // registering it on the relay. Give that a few short retries before
-      // calling the key rejected; a rotated key still ends as fatal.
+      // A scan can land in the moment before the computer registers the room.
+      // Retry briefly; a rotated key still ends as fatal.
       if (authRetries < 5) {
         authRetries += 1;
-        setMessage("Waiting for the computer to register this pairing…");
+        setBanner("Waiting for the computer to register this pairing…");
         scheduleReconnect();
         break;
       }
@@ -107,19 +193,19 @@ function handleError(code) {
       fail("expired", "This pairing expired. Run /qrcode in Duo to create a new one.");
       break;
     case "room_full":
-      setMessage("The relay is at its connection limit for this room. Retrying shortly.");
+      setBanner("The relay is at its connection limit for this room. Retrying shortly.");
       break;
     case "offline":
-      setMessage("Duo is not connected right now. This will retry automatically.");
+      setBanner("Duo is not connected right now. The command will be sent again when it returns.");
       break;
     case "rate_limited":
-      setMessage("Too many commands in a minute. The relay is protecting itself; your computer is unaffected.");
+      setSent("Too many commands in a minute. The relay is protecting itself; your computer is unaffected.");
       break;
     case "bad_frame":
-      setMessage("The relay rejected a malformed frame.");
+      setSent("The relay rejected a frame.");
       break;
     default:
-      setMessage(`Relay error: ${code}`);
+      setBanner(`Relay error: ${code}`);
   }
 }
 
@@ -135,37 +221,37 @@ function handleBye(code) {
       fail("paused", "The free relay budget for this room is spent. Duo itself keeps running on the computer.");
       break;
     case "replaced":
-      setMessage("Another device replaced this session. Reconnecting…");
+      setBanner("Another device replaced this session. Reconnecting…");
       break;
     default:
-      setMessage(`Relay closed the connection: ${code}`);
+      setBanner(`Relay closed the connection: ${code}`);
   }
 }
 
 async function handleEnvelope(frame) {
   if (!Number.isSafeInteger(frame.seq) || !frame.kind || typeof frame.iv !== "string" || typeof frame.ct !== "string") return;
-  if (frame.seq <= lastSeq) lastSeq = 0; // a recreated room restarts its sequence
+  // A recreated room restarts its sequence: a non-increasing seq is a new epoch.
+  if (frame.seq <= lastSeq) lastSeq = 0;
   lastSeq = Math.max(lastSeq, frame.seq);
   try {
     const plain = await decryptEnvelope(keys.encKey, room, frame);
-    renderState(plain);
+    if (frame.kind === "state") {
+      model = viewModel(plain);
+      // The host publishes a state after it applies a command, so a state is
+      // the acknowledgement that a command landed.
+      if (pending) {
+        pending = null;
+        setSent("Sent.");
+      }
+    } else if (frame.kind === "event") {
+      model = applyEvent(model, plain);
+    }
     send({ t: "ack", seq: frame.seq });
   } catch (error) {
     const reason = error instanceof LinkError ? error.message : "unreadable frame";
-    setMessage(`Could not verify a frame from the computer (${reason}). Ignored.`);
+    setSent(`Could not verify a frame from the computer (${reason}). Ignored.`);
   }
-}
-
-// renderState follows docs/remote-protocol.md: a state carries the project,
-// session id, mode and phase as top-level strings. It stays defensive because a
-// newer host may add fields, never because it trusts them.
-function renderState(plain) {
-  const parts = [];
-  if (plain && typeof plain.project === "string" && plain.project) parts.push(plain.project);
-  if (plain && typeof plain.session === "string" && plain.session) parts.push(`session ${plain.session}`);
-  if (plain && typeof plain.mode === "string" && plain.mode) parts.push(`mode ${plain.mode}`);
-  if (plain && typeof plain.phase === "string" && plain.phase) parts.push(`phase ${plain.phase}`);
-  setMessage(parts.length > 0 ? `Paired with ${parts.join(" · ")}` : "Paired with Duo.");
+  render();
 }
 
 function handleFrame(text) {
@@ -180,17 +266,18 @@ function handleFrame(text) {
     case "ready":
       authRetries = 0;
       expiresAt = Number(frame.expiresAt) || 0;
+      if (Number.isSafeInteger(frame.seq) && frame.seq <= lastSeq) lastSeq = 0;
       startExpiry();
       setStatus("paired", "ok");
-      if (!hostPresent) setMessage("Paired. Waiting for your computer to publish its state.");
       break;
     case "msg":
       void handleEnvelope(frame);
       break;
     case "presence":
       hostPresent = Boolean(frame.host);
-      renderHost();
+      setBanner(hostPresent ? "" : "Duo is offline on the computer. Reopen Duo to continue.");
       if (hostPresent) setStatus("paired", "ok");
+      render();
       break;
     case "error":
       handleError(String(frame.code ?? ""));
@@ -231,20 +318,59 @@ function connect() {
     attempts = 0;
     send({ t: "hello", v: 1, role: "guest", room, proof: keys.proof, since: lastSeq });
     startPing();
+    // A command that never reached the host is retried with the same id, so a
+    // duplicate is dropped rather than run twice.
+    if (pending) send(pending.frame);
   };
   next.onmessage = (event) => handleFrame(event.data);
   next.onclose = () => {
     stopPing();
     hostPresent = false;
-    renderHost();
     if (fatal) return;
     if (socket === next) socket = null;
+    render();
     scheduleReconnect();
   };
   next.onerror = () => {
     // The close handler owns reconnection; browsers report failures there too.
   };
 }
+
+async function command(kind, text) {
+  if (!model || !hostPresent) {
+    setSent("Duo is not connected right now.");
+    return;
+  }
+  if (kind === "task" && !String(text).trim()) {
+    setSent("Type a task first.");
+    return;
+  }
+  const id = crypto.randomUUID();
+  try {
+    const frame = await buildCommand({
+      room,
+      encKey: keys.encKey,
+      macKey: keys.macKey,
+      kind,
+      text: String(text).trim(),
+      nonce: model.nonce,
+      id,
+    });
+    pending = { id, frame };
+    setSent(kind === "task" ? "Sending…" : "Sending command…");
+    if (!send(frame)) {
+      pending = { id, frame };
+      setSent("Queued: Duo will receive it on reconnect.");
+      scheduleReconnect();
+    }
+  } catch (error) {
+    pending = null;
+    setSent(`Could not send the command: ${error.message}`);
+  }
+  render();
+}
+
+let authRetries = 0;
 
 async function boot() {
   room = parseRoom(location.pathname);
@@ -262,7 +388,7 @@ async function boot() {
   }
   if (!pairingKey) {
     setStatus("no key", "wait");
-    setMessage("Open this page from the QR code Duo shows: the key lives in the link fragment and never reaches the relay.");
+    setBanner("Open this page from the QR code Duo shows: the key lives in the link fragment and never reaches the relay.");
     return;
   }
   try {
@@ -271,8 +397,22 @@ async function boot() {
     fail("invalid key", "Could not derive the pairing keys on this device.");
     return;
   }
+  render();
   connect();
 }
+
+els.composer.addEventListener("submit", (event) => {
+  event.preventDefault();
+  void command("task", els.task.value);
+});
+els.task.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+    event.preventDefault();
+    els.composer.requestSubmit();
+  }
+});
+els.newsess.addEventListener("click", () => void command("new_session", ""));
+els.refresh.addEventListener("click", () => void command("observer_report", ""));
 
 window.addEventListener("online", () => {
   if (!fatal && (!socket || socket.readyState === WebSocket.CLOSED)) connect();

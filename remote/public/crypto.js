@@ -84,6 +84,19 @@ export async function commandMac(macKey, id, kind, nonce, text) {
   return b64uEncode(await hmac(macKey, `${id}|${kind}|${Number(nonce)}|${text}`));
 }
 
+// sealCommand encrypts one command. Its additional data binds the relay's frame
+// id, so the relay cannot swap the id of a signed command.
+export async function sealCommand(encKey, room, id, plaintext, randomBytes) {
+  const iv = randomBytes ? randomBytes(12) : crypto.getRandomValues(new Uint8Array(12));
+  const aad = encoder.encode(`${room}|cmd|${id}`);
+  const data = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv, additionalData: aad },
+    encKey,
+    encoder.encode(plaintext),
+  );
+  return { iv: b64uEncode(new Uint8Array(iv)), ct: b64uEncode(new Uint8Array(data)) };
+}
+
 export async function decryptEnvelope(encKey, room, frame) {
   const iv = b64uDecode(frame.iv);
   const ciphertext = b64uDecode(frame.ct);

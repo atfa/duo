@@ -14,17 +14,51 @@
   <main class="shell">
     <header class="masthead">
       <span class="mark" aria-hidden="true">DUO</span>
-      <span id="status" class="status status-wait" role="status" aria-live="polite">starting</span>
+      <span id="title" class="title">Duo</span>
+      <span id="status" class="status status-wait" role="status" aria-live="polite">connecting</span>
     </header>
 
-    <section class="card" aria-labelledby="room-title">
-      <h1 id="room-title">Remote pairing</h1>
+    <p id="banner" class="banner" hidden></p>
+
+    <section class="card" aria-labelledby="head-facts">
+      <h1 id="head-facts">Session</h1>
       <dl class="facts">
         <dt>Room</dt><dd id="room" class="mono">—</dd>
+        <dt>Mode</dt><dd id="mode">—</dd>
+        <dt>Phase</dt><dd id="phase">—</dd>
+        <dt>Step</dt><dd id="step">—</dd>
         <dt>Expires</dt><dd id="expiry">—</dd>
-        <dt>Agent host</dt><dd id="host">—</dd>
       </dl>
-      <p id="message" class="message">Waiting for the pairing key in the link.</p>
+      <p id="plan" class="plan"></p>
+    </section>
+
+    <section class="card" aria-labelledby="head-agents">
+      <h1 id="head-agents">Agents</h1>
+      <ul id="agents" class="agents"></ul>
+    </section>
+
+    <section class="card" aria-labelledby="head-activity">
+      <h1 id="head-activity">Recent activity</h1>
+      <ul id="activity" class="activity"><li class="muted">No activity yet.</li></ul>
+    </section>
+
+    <section class="card" aria-labelledby="head-observer">
+      <h1 id="head-observer">Observer</h1>
+      <p id="observer" class="observer muted">No report yet.</p>
+      <button id="refresh" type="button" class="ghost">Refresh report</button>
+    </section>
+
+    <section class="card" aria-labelledby="head-command">
+      <h1 id="head-command">Send a command</h1>
+      <form id="composer" class="composer">
+        <label class="sr-only" for="task">Task for Duo</label>
+        <textarea id="task" rows="3" placeholder="Tell Duo what to do…" autocomplete="off"></textarea>
+        <div class="actions">
+          <button id="send" type="submit">Send</button>
+          <button id="newsess" type="button" class="ghost">New session</button>
+        </div>
+      </form>
+      <p id="sent" class="sent" role="status" aria-live="polite"></p>
     </section>
 
     <footer class="foot">
