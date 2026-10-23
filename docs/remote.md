@@ -47,6 +47,12 @@ access for one run. A cleartext URL is accepted only for a local relay
 Self-hosting means deploying `remote/` with Wrangler and pointing `remote.url`
 at your own worker. See [remote/README.md](../remote/README.md).
 
+The default relay is deployed and live: `https://remote.xduo.dev/healthz`
+answers `ok`. A live end-to-end check against it is opt-in
+(`DUO_RELAY_BASE=https://remote.xduo.dev scripts/remote-e2e.sh`) and can time
+out from a network that blocks outbound WebSocket; the hermetic suites and
+`wrangler dev --local` are the gate, never a deployed relay.
+
 ## Security in one paragraph
 
 The relay stores ciphertext envelopes and a keyed proof of the pairing secret.
