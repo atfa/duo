@@ -124,12 +124,50 @@ export function usageReport(message: any): DuoUsage | null {
   };
 }
 
+// turnUsage accumulates the measured cost of one agent turn. Pi fires
+// message_end once per provider round-trip, and a turn that uses tools has many
+// of them, so the extension sums the round-trips and reports the turn once, at
+// agent_settled — the same boundary Duo counts a turn at. The ledger's turn
+// count then matches the turns in the dashboard timeline.
+type TurnUsage = {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+  costUSD: number;
+  measured: boolean;
+};
+
+function newTurnUsage(): TurnUsage {
+  return {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    totalTokens: 0,
+    costUSD: 0,
+    measured: false,
+  };
+}
+
+function accumulateTurn(turn: TurnUsage, report: DuoUsage): void {
+  turn.inputTokens += report.inputTokens ?? 0;
+  turn.outputTokens += report.outputTokens ?? 0;
+  turn.cacheReadTokens += report.cacheReadTokens ?? 0;
+  turn.cacheWriteTokens += report.cacheWriteTokens ?? 0;
+  turn.totalTokens += report.totalTokens ?? 0;
+  turn.costUSD += report.costUSD ?? 0;
+  turn.measured = true;
+}
+
 export function installLifecycle(
   pi: any,
   transport: DuoTransport,
   agent: AgentName,
 ) {
   let lastAssistantText: string | null = null;
+  let turnUsage = newTurnUsage();
   let lastStreamActivityAt = 0;
   let speedSamples: Array<{ at: number; chars: number }> = [];
 
@@ -177,6 +215,7 @@ export function installLifecycle(
 
   pi.on("agent_start", async () => {
     lastAssistantText = null;
+    turnUsage = newTurnUsage();
     transport.sendActivity("agent_start");
   });
 
@@ -254,15 +293,7 @@ export function installLifecycle(
     const text = extractAssistantText(message);
     if (text) lastAssistantText = text;
     const usage = usageReport(message);
-    if (usage) {
-      transport.send({
-        version: 1,
-        type: "usage",
-        agent,
-        usage,
-        timestamp: Date.now(),
-      });
-    }
+    if (usage) accumulateTurn(turnUsage, usage);
   });
 
   pi.on("agent_settled", async () => {
@@ -276,6 +307,24 @@ export function installLifecycle(
       });
       lastAssistantText = null;
     }
+    if (turnUsage.measured) {
+      transport.send({
+        version: 1,
+        type: "usage",
+        agent,
+        usage: {
+          turns: 1,
+          inputTokens: turnUsage.inputTokens,
+          outputTokens: turnUsage.outputTokens,
+          cacheReadTokens: turnUsage.cacheReadTokens,
+          cacheWriteTokens: turnUsage.cacheWriteTokens,
+          ...(turnUsage.totalTokens > 0 ? { totalTokens: turnUsage.totalTokens } : {}),
+          costUSD: turnUsage.costUSD,
+        },
+        timestamp: Date.now(),
+      });
+    }
+    turnUsage = newTurnUsage();
     speedSamples = [];
     transport.sendActivity("agent_settled");
   });
