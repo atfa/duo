@@ -245,8 +245,8 @@ var zhUI = map[string]string{
 	// Human-attention desktop notifications (T8). The reason text is the
 	// coordinator's projection; the dashboard only translates it.
 	"Duo needs you": "Duo 需要你",
-	"Integration hit a merge conflict; the session is waiting for you.":   "集成遇到合并冲突；会话正在等你处理。",
-	"Delivery was rejected; the finished work is waiting for you.":        "交付被拒绝；已完成的工作正在等你处理。",
+	"Integration hit a merge conflict; the session is waiting for you.":      "集成遇到合并冲突；会话正在等你处理。",
+	"Delivery was rejected; the finished work is waiting for you.":           "交付被拒绝；已完成的工作正在等你处理。",
 	"A Fast verification is waiting; the session is paused in VERIFICATION.": "FAST 验证正在等待；会话已暂停在 VERIFICATION 阶段。",
-	"The final summary is ready; the session is waiting for you.":         "最终摘要已就绪；会话正在等你查看。",
+	"The final summary is ready; the session is waiting for you.":            "最终摘要已就绪；会话正在等你查看。",
 }
