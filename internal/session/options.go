@@ -60,6 +60,11 @@ type Options struct {
 	// that waits for hours with nobody watching.
 	Notify *bool
 
+	// ContextWarnPercent is the context occupancy at which Duo tells an agent its
+	// window is nearly full. The CLI resolves the default (85) so the number lives in
+	// one place; 0 turns the warning off.
+	ContextWarnPercent int
+
 	// Drivers. Every map is keyed by agent. Missing agent entries use the
 	// frontend-selected default; Core does not choose a driver name.
 	AgentCommands       map[protocol.AgentID]string

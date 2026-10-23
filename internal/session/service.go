@@ -323,6 +323,7 @@ func (s *Service) launch(ctx context.Context) (Result, error) {
 	coord.SetResumeContext(s.set.Repository, s.sessionID)
 	coord.SetPauseObserver(s.pauseChanged)
 	coord.RestoreUsage(s.usage)
+	coord.SetContextWarnPercent(s.opts.ContextWarnPercent)
 	if s.pauseState == PausePausing || s.pauseState == PausePaused {
 		coord.RestorePause(coordinator.PauseSnapshot{State: string(s.pauseState), Paused: s.pausedAgents})
 	}
@@ -728,6 +729,7 @@ func (s *Service) view() View {
 		Restart:     s.restart,
 		Notify:      s.opts.Notify == nil || *s.opts.Notify,
 	}
+	v.ContextWarnPercent = s.opts.ContextWarnPercent
 	// The cost ledger is read from the coordinator, which owns the live totals. A
 	// session built before launch has none, and says so by showing nothing.
 	if s.coord != nil {

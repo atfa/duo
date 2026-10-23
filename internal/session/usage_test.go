@@ -29,6 +29,19 @@ func TestUsageLedgerReachesTheView(t *testing.T) {
 	}
 }
 
+// TestViewCarriesTheContextThresholdSoTheInterfaceDrawsTheNumberCoreJudged: the
+// threshold is resolved once, in configuration, and reaches the frontend as a
+// number. A sidebar that guessed its own constant would mark red at a point the
+// agent was never warned at.
+func TestViewCarriesTheContextThreshold(t *testing.T) {
+	if got := (&Service{opts: Options{}}).view().ContextWarnPercent; got != 0 {
+		t.Fatalf("an option set that says nothing must not invent a threshold, got %d", got)
+	}
+	if got := (&Service{opts: Options{ContextWarnPercent: 85}}).view().ContextWarnPercent; got != 85 {
+		t.Fatalf("View.ContextWarnPercent = %d, want 85", got)
+	}
+}
+
 // TestViewHasNoUsageBeforeAnythingIsMeasured: no measurement is not a cost of zero.
 func TestViewHasNoUsageBeforeAnythingIsMeasured(t *testing.T) {
 	coord := coordinator.New(nil, project.NewStateFor(project.ModeGoal), harness.NewTracker(), nil, nil)

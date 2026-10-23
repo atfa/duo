@@ -82,8 +82,25 @@ func (c *Coordinator) unclaimFinalSummary() {
 // whether having two agents improved anything at all, forces the three answers
 // the human actually wants and gives the last one a shape — yes or no, first —
 // that cannot be satisfied by narrating the review.
+// costLine renders the session's measured cost for the final report, in the shape
+// the interface uses so the number in the report matches the number on screen. A
+// session whose drivers measured nothing gets no line: the report then says nothing
+// about cost rather than claiming it cost nothing.
+func (c *Coordinator) costLine() string {
+	ledger := c.UsageLedger()
+	if ledger == nil {
+		return ""
+	}
+	total := ledger.Total()
+	if c.language == "zh" {
+		return fmt.Sprintf("会话成本：$%.2f · %d tokens · %d 轮", total.CostUSD, total.TotalTokens, total.Turns)
+	}
+	return fmt.Sprintf("Session cost: $%.2f · %d tokens · %d turns", total.CostUSD, total.TotalTokens, total.Turns)
+}
+
 func (c *Coordinator) finalSummaryPrompt(snap project.Snapshot) string {
 	d := c.CurrentDelivery()
+	cost := c.costLine()
 	set := c.workspace.Set()
 	branch := strings.TrimSpace(d.TargetBranch)
 	if branch == "" {
@@ -94,10 +111,16 @@ func (c *Coordinator) finalSummaryPrompt(snap project.Snapshot) string {
 		applied = shortSHA(d.FinalHead)
 	}
 	if c.language == "zh" {
-		return fmt.Sprintf("[Duo final summary request]\n本次会话已在 %s 模式下完成：最终产物已交付到 %s 的 %s 分支，HEAD 为 %s。\n\n按顺序回答三个问题。每个问题先给结论，再给依据。\n\n1. 结果。仓库现在有哪些是它原来没有的：哪些行为变了，由哪些文件承载。一段话加一个文件清单，别的不要写。\n\n2. 你和 Tony 达成一致的地方，以及没有达成一致的地方。先列出双方共同的结论；再逐条列出分歧：每条都要写明是谁持什么立场、什么证据判定了胜负、证据支持哪一方。如果你驳回了 Tony，直接写明并给出理由；如果你采纳了 Tony 的纠正，指出是哪一条。\n\n3. 两个 agent 有没有真的提高工作质量。第一句必须是「是」或「不是」，然后说明因为有两个 agent 而具体变好了什么：本来会漏发的发现、事后被证明量错的测量、被评审改掉的决定。如果这次协作没有产生价值，就直接说没有，不要硬凑。\n\n第 1 和第 3 问各自控制在几句话内。第 2 问可以长一些，但只能长到这条分歧真正需要的程度。\n\n开头必须画一个标题框：上下两行各是 67 个 `=`，中间一行的首尾各一个 `|`。接口按这条上边框识别这份总结并高亮它，所以不要改写或省略上边框。\n\n%s\n\n不要复述会话过程——human 已经在时间线里读过了。\n\n在正常 assistant 回复中回答；Duo 会显示为 `Austin → Human`。不要使用 duo_send：该消息会发给 Tony，而不是用户。\n\n产物已经交付：不要编辑文件、提交或开始新工作。用户可随时提交后续任务，届时会以新一轮重新打开会话。", snap.EffectiveMode().Display(), set.Repository, branch, applied, protocol.SummaryRuleLine())
+		if cost != "" {
+			cost = cost + "\n\n把这一行原样放在报告开头。"
+		}
+		return fmt.Sprintf("[Duo final summary request]\n本次会话已在 %s 模式下完成：最终产物已交付到 %s 的 %s 分支，HEAD 为 %s。\n\n%s\n\n按顺序回答三个问题。每个问题先给结论，再给依据。\n\n1. 结果。仓库现在有哪些是它原来没有的：哪些行为变了，由哪些文件承载。一段话加一个文件清单，别的不要写。\n\n2. 你和 Tony 达成一致的地方，以及没有达成一致的地方。先列出双方共同的结论；再逐条列出分歧：每条都要写明是谁持什么立场、什么证据判定了胜负、证据支持哪一方。如果你驳回了 Tony，直接写明并给出理由；如果你采纳了 Tony 的纠正，指出是哪一条。\n\n3. 两个 agent 有没有真的提高工作质量。第一句必须是「是」或「不是」，然后说明因为有两个 agent 而具体变好了什么：本来会漏发的发现、事后被证明量错的测量、被评审改掉的决定。如果这次协作没有产生价值，就直接说没有，不要硬凑。\n\n第 1 和第 3 问各自控制在几句话内。第 2 问可以长一些，但只能长到这条分歧真正需要的程度。\n\n开头必须画一个标题框：上下两行各是 67 个 `=`，中间一行的首尾各一个 `|`。接口按这条上边框识别这份总结并高亮它，所以不要改写或省略上边框。\n\n%s\n\n不要复述会话过程——human 已经在时间线里读过了。\n\n在正常 assistant 回复中回答；Duo 会显示为 `Austin → Human`。不要使用 duo_send：该消息会发给 Tony，而不是用户。\n\n产物已经交付：不要编辑文件、提交或开始新工作。用户可随时提交后续任务，届时会以新一轮重新打开会话。", snap.EffectiveMode().Display(), set.Repository, branch, applied, cost, protocol.SummaryRuleLine())
+	}
+	if cost != "" {
+		cost = cost + "\n\nReproduce this line at the top of your report."
 	}
 	return fmt.Sprintf(
-		"[Duo final summary request]\nThis session is DONE in %s mode: the final artifact was delivered to %s on %s as %s.\n\nAnswer three questions, in this order. Lead each answer with its conclusion, not its evidence.\n\n1. Result. What the repository now has that it did not have before: the behaviour that changed, and the files that carry it. One paragraph and a file list, nothing else.\n\n2. Where you and Tony agreed, and where you did not. Name the conclusions you both reached. Then list every point of disagreement: for each one say which of you held which position, what evidence settled it, and which side that evidence supports. If you overruled Tony, say so plainly and give the reason. If you accepted a correction from Tony, name which one.\n\n3. Whether having two agents improved the work. Answer yes or no in the first sentence, then name what specifically got better because there were two: findings that would otherwise have shipped, measurements that turned out to be wrong, decisions that changed on review. If the collaboration produced nothing, say that rather than inventing value.\n\nKeep answers 1 and 3 to a few sentences each. Answer 2 may run longer, but only to the length a disagreement actually needs.\n\nOpen the report with a title box: a top rule of exactly 67 `=` characters, then a line beginning and ending with `|`, then the same rule again. The interface recognises the report by its top rule and marks it for the human, so reproduce that rule exactly.\n\n%s\n\nDo not narrate the session — the human has already read the timeline.\n\nReport in your normal assistant reply; Duo shows it as `Austin → Human`. Do not use duo_send: that message reaches Tony, not the human.\n\nThe artifact is already delivered: do not edit files, do not commit, and do not start new work. The human can submit a follow-up task at any time, which reopens the session as a fresh round.",
-		snap.EffectiveMode().Display(), set.Repository, branch, applied, protocol.SummaryRuleLine(),
+		"[Duo final summary request]\nThis session is DONE in %s mode: the final artifact was delivered to %s on %s as %s.\n\n%s\n\nAnswer three questions, in this order. Lead each answer with its conclusion, not its evidence.\n\n1. Result. What the repository now has that it did not have before: the behaviour that changed, and the files that carry it. One paragraph and a file list, nothing else.\n\n2. Where you and Tony agreed, and where you did not. Name the conclusions you both reached. Then list every point of disagreement: for each one say which of you held which position, what evidence settled it, and which side that evidence supports. If you overruled Tony, say so plainly and give the reason. If you accepted a correction from Tony, name which one.\n\n3. Whether having two agents improved the work. Answer yes or no in the first sentence, then name what specifically got better because there were two: findings that would otherwise have shipped, measurements that turned out to be wrong, decisions that changed on review. If the collaboration produced nothing, say that rather than inventing value.\n\nKeep answers 1 and 3 to a few sentences each. Answer 2 may run longer, but only to the length a disagreement actually needs.\n\nOpen the report with a title box: a top rule of exactly 67 `=` characters, then a line beginning and ending with `|`, then the same rule again. The interface recognises the report by its top rule and marks it for the human, so reproduce that rule exactly.\n\n%s\n\nDo not narrate the session — the human has already read the timeline.\n\nReport in your normal assistant reply; Duo shows it as `Austin → Human`. Do not use duo_send: that message reaches Tony, not the human.\n\nThe artifact is already delivered: do not edit files, do not commit, and do not start new work. The human can submit a follow-up task at any time, which reopens the session as a fresh round.",
+		snap.EffectiveMode().Display(), set.Repository, branch, applied, cost, protocol.SummaryRuleLine(),
 	)
 }

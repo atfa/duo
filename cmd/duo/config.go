@@ -67,6 +67,10 @@ type config struct {
 	// need a human. It defaults to true: the failure it prevents is a session that
 	// waits silently for hours.
 	notify bool
+
+	// contextWarnPercent is the context occupancy at which Duo tells an agent its
+	// window is nearly full. It defaults to 85; 0 turns the warning off.
+	contextWarnPercent int
 }
 
 // helpRequested reports whether arg asks for usage instead of an action. Every
@@ -145,6 +149,7 @@ func (c config) sessionOptions() session.Options {
 		Observer:            c.observer,
 		ObserverConfigured:  c.observerConfigured,
 		Notify:              &c.notify,
+		ContextWarnPercent:  c.contextWarnPercent,
 		AgentCommands:       c.agentCommands,
 		AgentCommandDefault: c.agentCommandDefault,
 		DefaultAgentDriver:  defaultDriver,
@@ -171,6 +176,11 @@ type configFile struct {
 	// pointer so an absent key means "on", the default, and a project file can
 	// switch it off for one repository without touching the user's.
 	Notify *bool `json:"notify,omitempty"`
+
+	// ContextWarnPercent is the context occupancy, as a whole percentage, at which
+	// Duo tells an agent to start wrapping up. 0 turns the warning off; the default
+	// is 85.
+	ContextWarnPercent *int `json:"contextWarnPercent,omitempty"`
 }
 
 type agentFile struct {
@@ -526,6 +536,17 @@ func loadConfigCommand(args []string, resume bool) (config, error) {
 		notify = *fileCfg.Notify
 	}
 
+	// The context warning defaults to 85%: low enough that an agent can still
+	// finish the file it is in, high enough that Duo does not interrupt work that
+	// has room left. 0 is an explicit "never tell me".
+	contextWarnPercent := 85
+	if fileCfg.ContextWarnPercent != nil {
+		contextWarnPercent = *fileCfg.ContextWarnPercent
+	}
+	if contextWarnPercent < 0 || contextWarnPercent > 100 {
+		return config{}, fmt.Errorf("contextWarnPercent must be between 0 and 100, got %d", contextWarnPercent)
+	}
+
 	return config{
 		listen:              envString("DUO_LISTEN", "127.0.0.1:0"),
 		harnessEnabled:      harnessEnabled,
@@ -533,6 +554,7 @@ func loadConfigCommand(args []string, resume bool) (config, error) {
 		observer:            observerConfig,
 		observerConfigured:  fileCfg.Observer != nil,
 		notify:              notify,
+		contextWarnPercent:  contextWarnPercent,
 		repository:          launch,
 		launchDir:           launch,
 		worktreeRoot:        strings.TrimSpace(os.Getenv("DUO_WORKTREE_ROOT")),
@@ -620,7 +642,7 @@ func loadMergedConfigFile(launchDir string) (configFile, error) {
 	}
 	for _, p := range candidates {
 		projectCfg, err := loadConfigFile(p)
-		if err == nil && (projectCfg.Mode != "" || projectCfg.Language != "" || projectCfg.PiCommand != "" || projectCfg.Driver != "" || projectCfg.TestCommand != "" || len(projectCfg.Agents) > 0 || projectCfg.Harness != (harnessFile{}) || projectCfg.Observer != nil || projectCfg.Notify != nil) {
+		if err == nil && (projectCfg.Mode != "" || projectCfg.Language != "" || projectCfg.PiCommand != "" || projectCfg.Driver != "" || projectCfg.TestCommand != "" || len(projectCfg.Agents) > 0 || projectCfg.Harness != (harnessFile{}) || projectCfg.Observer != nil || projectCfg.Notify != nil || projectCfg.ContextWarnPercent != nil) {
 			mergeConfig(&merged, projectCfg)
 			break
 		} else if err != nil && !os.IsNotExist(err) {
@@ -688,6 +710,9 @@ func mergeConfig(dst *configFile, src configFile) {
 	}
 	if src.Notify != nil {
 		dst.Notify = src.Notify
+	}
+	if src.ContextWarnPercent != nil {
+		dst.ContextWarnPercent = src.ContextWarnPercent
 	}
 }
 
