@@ -132,7 +132,7 @@
 **位置** `internal/coordinator` 已有 4 个 e2e 文件 20 个 Test（`delivery_e2e_test.go`、`fast_e2e_test.go`、`step_e2e_test.go`、`step_goal_e2e_test.go`）；fake driver 基建 `internal/agent/agenttest/driver.go`
 **问题** 既有 e2e 在 coordinator 层，session.Service 组合根（驱动插件契约、resume、delivery 交接的整条真实链路）无全模式会话测试；kill -9 mid-delivery 与 journal replay 的崩溃边界无属性测试。
 **预期状态** 在既有 coordinator e2e 之上，补 session.Service 级 fake-driver 全模式（含 Fast）会话测试、kill -9 mid-delivery 边界、journal replay 属性测试与交付幂等（重跑不重复移动分支），并接入 CI。
-**验收** `internal/session` 新增 `TestSessionServiceFastRoundDeliversWithFakeDriver`、`TestSessionServiceGoalRoundDelivers`、`TestSessionServiceStepQueueLandsAllSteps`；`internal/recovery` 新增 `TestJournalReplayIsIdempotent`（属性测试）。
+**验收** `internal/session` 新增 `TestSessionServiceFastRoundDeliversWithFakeDriver`、`TestSessionServiceGoalRoundDelivers`、`TestSessionServiceStepQueueLandsAllSteps`、`TestResumeJournalReplayIsIdempotent`（journal 由 `internal/session/resume.go:49` 消费）；`internal/recovery` 新增 `TestReconcileIsIdempotent`（recovery 做的是快照对 Git 证据的 Reconcile，recovery.go:277，与既有 TestReconcile* 命名一致）。
 **依赖** T12（共用 fake-driver 基建）
 **验证** make check
 **负责人** Austin
@@ -214,7 +214,7 @@
 **问题** 最常被要求的 agent CLI（Claude Code）缺席，用户被迫用 pi/opencode 或自写插件。
 **预期状态** 新增 `cmd/duo-plugin-claude` + `duo-claude` shim，按 plugin 协议实现（identity、prompt 注入、活动上报、resume 状态），`duo plugins` 可见，`duo plugins test` 通过。
 **验收** `duo plugins test` 全项通过；新增插件契约测试（与 `plugins/codex` 同级结构）。
-**依赖** 无
+**依赖** T2（T2 先落地时新插件必须声明 tools 能力集，否则 `duo plugins test` 因声明缺失失败）
 **验证** make check
 **负责人** Tony
 
