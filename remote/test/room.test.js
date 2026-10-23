@@ -212,6 +212,33 @@ test("an expired room reports expired and drops its payload", async () => {
   assert.equal(late.server.closed.code, 1008);
 });
 
+test("expiry is sticky after the alarm and a re-registration starts a new epoch", async () => {
+  const harness = await newRoom();
+  await register(harness.room, { ttlSeconds: 60 });
+  const host = await socket(harness.room, harness.state);
+  host.deliver(hello({ role: "host" }));
+  host.deliver({ t: "msg", seq: 4, kind: "state", iv: "aXY-aXY-aXY", ct: "Y3Q" });
+
+  harness.advance(61 * 1000);
+  const open = await socket(harness.room, harness.state);
+  open.deliver(hello());
+  await harness.room.alarm();
+
+  // After the alarm cleared the payload, a late hello must still say expired
+  // rather than looking like a live room that silently replays nothing.
+  const late = await socket(harness.room, harness.state);
+  late.deliver(hello({ since: 0 }));
+  assert.deepEqual(late.server.last(), { t: "error", code: "expired" });
+
+  // The dead pairing can be registered again, and the epoch restarts.
+  const again = await register(harness.room);
+  assert.equal(again.status, 200);
+  const fresh = await socket(harness.room, harness.state);
+  fresh.deliver(hello({ role: "host" }));
+  assert.equal(fresh.server.frames()[0].t, "ready");
+  assert.equal(fresh.server.frames()[0].seq, 0);
+});
+
 test("revocation wipes the room, closes sockets and keeps a tombstone", async () => {
   const harness = await paired();
   const host = await socket(harness.room, harness.state);
@@ -243,6 +270,9 @@ test("revocation wipes the room, closes sockets and keeps a tombstone", async ()
   harness.advance(24 * 60 * 60 * 1000 + 1000);
   const again = await register(harness.room);
   assert.equal(again.status, 200);
+  const fresh = await socket(harness.room, harness.state);
+  fresh.deliver(hello({ role: "host" }));
+  assert.equal(fresh.server.frames()[0].seq, 0);
 });
 
 test("the daily budget closes the relay without touching anything local", async () => {

@@ -38,7 +38,8 @@ const schema = [
      proof TEXT,
      created_at INTEGER NOT NULL,
      expires_at INTEGER NOT NULL,
-     revoked_at INTEGER
+     revoked_at INTEGER,
+     expired_at INTEGER
    )`,
   `CREATE TABLE IF NOT EXISTS envelopes (
      seq INTEGER PRIMARY KEY,
@@ -60,6 +61,14 @@ export class RelayRoom {
     // Overridable so tests can move the clock without sleeping.
     this.nowMs = () => Date.now();
     for (const statement of schema) this.sql.exec(statement);
+    // Rows created by an earlier build predate expired_at. Adding it lazily is
+    // the whole migration: SQLite's IF NOT EXISTS only covers tables, not
+    // columns.
+    try {
+      this.sql.exec("ALTER TABLE room ADD COLUMN expired_at INTEGER");
+    } catch (error) {
+      if (!String(error).includes("duplicate column")) throw error;
+    }
   }
 
   // --- helpers -------------------------------------------------------------
@@ -109,7 +118,8 @@ export class RelayRoom {
     const candidates = [];
     if (row) {
       if (row.revoked_at) candidates.push(row.revoked_at + TOMBSTONE_SECONDS);
-      else candidates.push(row.expires_at);
+      if (row.expired_at) candidates.push(row.expired_at + TOMBSTONE_SECONDS);
+      if (!row.revoked_at && !row.expired_at) candidates.push(row.expires_at);
     }
     if (candidates.length === 0) return;
     const at = Math.min(...candidates);
@@ -199,6 +209,16 @@ export class RelayRoom {
     }
   }
 
+  // wipeRoom removes every trace of a room, including the sequence counter, so
+  // a re-registered room id starts a fresh epoch instead of reusing an old seq.
+  wipeRoom() {
+    this.sql.exec("DELETE FROM room");
+    this.sql.exec("DELETE FROM envelopes");
+    this.sql.exec("DELETE FROM commands");
+    this.sql.exec("DELETE FROM cmd_times");
+    this.sql.exec("DELETE FROM meta WHERE k = 'seq'");
+  }
+
   async register(request, room) {
     if (request.method !== "POST") return json({ error: "method" }, 405);
     if (!validRoom(room)) return json({ error: "bad_room" }, 400);
@@ -218,21 +238,23 @@ export class RelayRoom {
     if (existing) {
       if (existing.revoked_at) {
         if (existing.revoked_at + TOMBSTONE_SECONDS > now) return json({ error: "revoked" }, 409);
-        this.sql.exec("DELETE FROM room");
-      } else if (existing.expires_at > now) {
+        this.wipeRoom();
+      } else if (existing.expired_at || existing.expires_at <= now) {
+        // An expired pairing is dead: its payload is already gone, so a fresh
+        // registration starts a new epoch on the same (unguessable) room id.
+        this.wipeRoom();
+      } else {
         // First writer wins: only the pairing that created the room may refresh
         // it, so a leaked room id cannot be taken over.
         if (!timingSafeEqual(existing.proof, proof)) return json({ error: "exists" }, 409);
         this.sql.exec("UPDATE room SET expires_at = ?", expiresAt);
         this.scheduleAlarm();
         return json({ room: existing.id, expiresAt });
-      } else {
-        this.sql.exec("DELETE FROM room, envelopes, commands, cmd_times");
       }
     }
 
     this.sql.exec(
-      "INSERT INTO room (id, proof, created_at, expires_at, revoked_at) VALUES (?, ?, ?, ?, NULL)",
+      "INSERT INTO room (id, proof, created_at, expires_at, revoked_at, expired_at) VALUES (?, ?, ?, ?, NULL, NULL)",
       this.roomID,
       proof,
       now,
@@ -319,7 +341,7 @@ export class RelayRoom {
     // sockets' attachments survive.
     const row = this.roomRow();
     if (!row || row.revoked_at || frame.room !== row.id) return this.reject(ws, "auth");
-    if (row.expires_at <= now) {
+    if (row.expired_at || row.expires_at <= now) {
       this.send(ws, errorFrame("expired"));
       try {
         ws.close(1008, "expired");
@@ -468,17 +490,19 @@ export class RelayRoom {
     const row = this.roomRow();
     if (row) {
       if (row.revoked_at && row.revoked_at + TOMBSTONE_SECONDS <= now) {
-        this.sql.exec("DELETE FROM room WHERE id = ?", row.id);
-        this.closeAll("revoked");
-      } else if (!row.revoked_at && row.expires_at <= now) {
-        // Expired rooms keep their row (so a late hello gets "expired", not
-        // "auth") but drop the payload, which is the only thing that costs
-        // storage.
+        this.wipeRoom();
+      } else if (row.expired_at && row.expired_at + TOMBSTONE_SECONDS <= now) {
+        this.wipeRoom();
+      } else if (!row.revoked_at && !row.expired_at && row.expires_at <= now) {
+        // Expiry is sticky: the row survives as a tombstone so a late hello is
+        // told "expired" instead of silently looking like a wrong key, while
+        // the payload (the only part that costs storage) is dropped.
+        this.sql.exec("UPDATE room SET expired_at = ?", now);
         this.sql.exec("DELETE FROM envelopes");
         this.sql.exec("DELETE FROM commands");
         this.sql.exec("DELETE FROM cmd_times");
+        this.sql.exec("DELETE FROM meta WHERE k = 'seq'");
         this.closeAll("expired");
-        this.sql.exec("UPDATE room SET expires_at = ?", now + TOMBSTONE_SECONDS);
       }
     }
     this.sql.exec("DELETE FROM budget WHERE day < ?", new Date((now - 2 * 24 * 3600) * 1000).toISOString().slice(0, 10));
