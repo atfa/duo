@@ -165,6 +165,30 @@ type Capabilities struct {
 	// process starts. When false Core announces the connection itself once the
 	// process is up, so every agent produces the same signal at the same moment.
 	SelfReports bool `json:"selfReports"`
+	// Tools names the Duo coordination tools this driver's launch makes reachable
+	// to its agent, by exact tool name. Core uses it to keep a prompt from telling
+	// an agent to call a tool it cannot reach. Declaring nothing means Core knows
+	// nothing, and Core then keeps the full wording: see HasTool.
+	Tools []string `json:"tools,omitempty"`
+}
+
+// HasTool reports whether this driver's agent can call the named Duo coordination
+// tool.
+//
+// An empty declaration is treated as able. The cost of that assumption is one
+// sentence an agent can ignore; the cost of the opposite is a prompt that never
+// mentions a tool the agent does have, which is how a driver that predates the
+// field would lose its whole coordination contract.
+func (c Capabilities) HasTool(name string) bool {
+	if len(c.Tools) == 0 {
+		return true
+	}
+	for _, tool := range c.Tools {
+		if tool == name {
+			return true
+		}
+	}
+	return false
 }
 
 // AgentInfo names the coding agent a plugin drives.

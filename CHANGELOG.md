@@ -4,6 +4,19 @@ All notable project milestones are documented here.
 
 ## Unreleased
 
+### Driver capabilities
+
+- A Driver Plugin declares the Duo coordination tools its launch makes reachable
+  to its agent in `capabilities.tools`. Core cuts that agent's prompts to the
+  declared set: a clause instructing it to call a tool the driver did not declare
+  is removed before delivery, in both languages, so an agent no longer spends a
+  turn looking for a tool it cannot reach.
+- The declaration is checked, not trusted. `duo plugins test` fails a plugin that
+  names a tool Duo does not register, or that declares tools while
+  `capabilities.mcp` is false, and prints the declared set when it passes.
+- A driver that declares nothing keeps every tool in its prompts: the field is
+  additive, so a plugin written before it exists loses wording it can act on.
+
 ### Mode switching
 
 - `Ctrl+S` / `Alt+S`, `/mode` without an argument, and a click on the header mode

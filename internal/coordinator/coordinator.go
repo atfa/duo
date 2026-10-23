@@ -455,6 +455,14 @@ func (c *Coordinator) IsAgentConnected(agent protocol.AgentID) bool {
 }
 
 func (c *Coordinator) sendToAgent(ctx context.Context, agent protocol.AgentID, message protocol.Message) error {
+	// Core wrote these, so Core is answerable for the tools they name: a prompt may
+	// not instruct an agent to call a tool its driver never exposed. A human prompt
+	// and a peer steer are left alone — Core does not own that wording, and deleting
+	// half of what a person typed would be a lie about what they said.
+	switch message.Type {
+	case protocol.MsgDuoNotice, protocol.MsgHarnessPrompt, protocol.MsgResumePrompt, protocol.MsgModeChange:
+		message.Text = c.filterToolMentions(agent, message.Text)
+	}
 	c.pauseMu.Lock()
 	if c.pauseState != "running" {
 		switch message.Type {

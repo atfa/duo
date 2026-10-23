@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/atfa/duo/internal/driver"
+	"github.com/atfa/duo/internal/mcp"
 )
 
 // state is the plugin's private resume blob. Duo Core stores it verbatim and
@@ -54,6 +55,13 @@ func (plugin) Describe() (*driver.Manifest, error) {
 			PTYFallback:        true,
 			LiveSteering:       true,
 			SelfReports:        true,
+			// Tools names the Duo coordination tools this driver's launch makes
+			// reachable to its agent. Core cuts prompt wording to this set, so a
+			// driver that exposes a subset must say so: an agent is never told to
+			// call a tool it cannot. The reference plugin exposes every tool Duo
+			// registers, and takes the names from the server that registers them so
+			// the two cannot drift.
+			Tools: mcp.ToolNames(),
 		},
 		Activity: true,
 		MCP:      true,

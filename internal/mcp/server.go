@@ -17,6 +17,20 @@ import (
 	"github.com/atfa/duo/internal/version"
 )
 
+// ToolNames returns the name of every Duo coordination tool, in the order the
+// server publishes them. It is the only list of those names: a driver declares a
+// subset of it in `capabilities.tools`, the contract suite checks the declaration
+// against it, and Core cuts prompt wording to what the declaration allows, so the
+// names a prompt promises and the names a plugin can serve cannot drift apart.
+func ToolNames() []string {
+	tools := DefaultTools()
+	names := make([]string, 0, len(tools))
+	for _, tool := range tools {
+		names = append(names, tool.Name)
+	}
+	return names
+}
+
 // Tool represents an MCP tool definition.
 type Tool struct {
 	Name        string         `json:"name"`
