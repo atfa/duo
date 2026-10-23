@@ -209,9 +209,18 @@ while the session is live.
     {"at": 1761000000000, "kind": "assistant", "agent": "austin", "text": "..."}
   ],
   "observer": {"analyzing": false, "reports": [{"at": 1761000000000, "text": "..."}]},
-  "delivery": null
+  "delivery": null,
+  "command": {"id": "…", "kind": "task", "accepted": true, "note": ""}
 }
 ```
+
+`command` is the host's answer to the last command it received, addressed by
+its `id`. A refusal is reported, not swallowed: `accepted: false` with a `note`
+the page shows, because the phone is the only place the human is looking. The
+host refuses a command whose MAC does not verify, whose `n` is not one of the
+last nonces it published ("the command was for an older state"), whose `id` it
+already executed ("the command was already executed"), whose kind it does not
+implement, or which the session itself rejected.
 
 `n` is the command nonce: it must be a fresh random or monotonically increasing
 value on every state and event the host publishes, so a command the guest sends

@@ -373,6 +373,24 @@ func (r *fakeRelay) guest(t *testing.T, pairing Pairing) *fakePeer {
 	return peer
 }
 
+// nextMessage returns the next envelope of the given kind and decrypts it.
+func (p *fakePeer) nextMessage(t *testing.T, pairing Pairing, kind string, timeout time.Duration) []byte {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for {
+		f := p.read(t, time.Until(deadline))
+		if f.T != frameMsg || f.Kind != kind {
+			continue
+		}
+		plaintext, err := pairing.OpenMessage(f.Kind, f.Seq, f.IV, f.CT)
+		if err != nil {
+			t.Fatalf("guest could not open %s: %v", kind, err)
+		}
+		p.lastSeq = f.Seq
+		return plaintext
+	}
+}
+
 func (r *fakeRelay) dropHost(t *testing.T, room string) {
 	t.Helper()
 	r.mu.Lock()

@@ -81,6 +81,7 @@ type Client struct {
 	nonce  int64
 	nonces []int64
 	seen   map[string]bool
+	last   *CommandResult
 
 	dirty chan struct{}
 
@@ -409,53 +410,80 @@ func (c *Client) readLoop(ctx context.Context, conn *websocket.Conn, done chan<-
 
 func (c *Client) handleCommand(f frame) {
 	plaintext, err := c.opts.Pairing.OpenCommand(f.ID, f.IV, f.CT)
-	if err != nil {
-		c.logf("dropped a command that did not authenticate: %v", err)
-		return
+	if err == nil {
+		err = c.applyCommand(f, plaintext)
 	}
+	if err != nil {
+		c.logf("dropped a command: %v", err)
+	}
+	c.PublishState()
+}
+
+// applyCommand authenticates, deduplicates and runs one command. The returned
+// error is the answer the phone sees, not only a local log line: a command that
+// the session refused has to be visible on the phone, which is the only place
+// the human is looking.
+func (c *Client) applyCommand(f frame, plaintext []byte) error {
 	var cmd Command
 	if err := json.Unmarshal(plaintext, &cmd); err != nil {
-		c.logf("dropped a malformed command: %v", err)
-		return
+		return fmt.Errorf("malformed command: %w", err)
 	}
 	if cmd.ID != f.ID {
-		c.logf("dropped a command whose id did not match its envelope")
-		return
+		return errors.New("command id does not match its envelope")
 	}
 	if err := c.opts.Pairing.VerifyCommand(cmd.ID, cmd.Kind, cmd.N, cmd.Text, cmd.MAC); err != nil {
-		c.logf("dropped a command with a bad MAC")
-		return
+		return errors.New("the command did not authenticate")
 	}
+	c.record(&CommandResult{ID: cmd.ID, Kind: cmd.Kind, Accepted: true})
 	if !c.nonceValid(cmd.N) {
-		c.logf("dropped a command for a nonce this session never issued")
-		return
+		return c.reject(cmd.ID, cmd.Kind, "the command was for an older state; send it again")
 	}
 	if c.markSeen(cmd.ID) {
 		// A repeated command is a retry after a lost ack, not a second action.
-		c.PublishState()
-		return
+		return c.reject(cmd.ID, cmd.Kind, "the command was already executed")
 	}
 	switch cmd.Kind {
 	case CmdTask:
 		text := strings.TrimSpace(cmd.Text)
 		if text == "" {
-			c.logf("ignored an empty task")
-			return
+			return c.reject(cmd.ID, cmd.Kind, "the task was empty")
 		}
 		if err := c.opts.Sink.SubmitTask(text); err != nil {
-			c.setError(err.Error())
+			return c.reject(cmd.ID, cmd.Kind, err.Error())
 		}
 	case CmdNewSession:
 		if err := c.opts.Sink.NewSession(); err != nil {
-			c.setError(err.Error())
+			return c.reject(cmd.ID, cmd.Kind, err.Error())
 		}
 	case CmdObserverReport:
 		c.opts.Sink.RequestObserverReport()
 	default:
-		c.logf("ignored an unsupported command %q", cmd.Kind)
-		return
+		return c.reject(cmd.ID, cmd.Kind, fmt.Sprintf("unsupported command %q", cmd.Kind))
 	}
-	c.PublishState()
+	return nil
+}
+
+// reject records a refused command and returns the reason, so every refusal
+// path reports the same way.
+func (c *Client) reject(id, kind, note string) error {
+	c.record(&CommandResult{ID: id, Kind: kind, Accepted: false, Note: note})
+	return errors.New(note)
+}
+
+func (c *Client) record(result *CommandResult) {
+	c.mu.Lock()
+	c.last = result
+	c.mu.Unlock()
+}
+
+func (c *Client) lastResult() *CommandResult {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.last == nil {
+		return nil
+	}
+	copy := *c.last
+	return &copy
 }
 
 func (c *Client) sendState(ctx context.Context) error {
@@ -466,6 +494,7 @@ func (c *Client) sendState(ctx context.Context) error {
 	state.V = ProtocolVersion
 	state.N = c.issueNonce()
 	state.TS = c.opts.Now().UnixMilli()
+	state.Command = c.lastResult()
 	plaintext, err := fitState(state)
 	if err != nil {
 		return err
