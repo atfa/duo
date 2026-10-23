@@ -92,10 +92,7 @@ func (c *Coordinator) costLine() string {
 		return ""
 	}
 	total := ledger.Total()
-	if c.language == "zh" {
-		return fmt.Sprintf("会话成本：$%.2f · %d tokens · %d 轮", total.CostUSD, total.TotalTokens, total.Turns)
-	}
-	return fmt.Sprintf("Session cost: $%.2f · %d tokens · %d turns", total.CostUSD, total.TotalTokens, total.Turns)
+	return total.CostLine(c.language == "zh")
 }
 
 func (c *Coordinator) finalSummaryPrompt(snap project.Snapshot) string {
