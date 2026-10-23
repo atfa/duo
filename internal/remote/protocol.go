@@ -1,0 +1,218 @@
+package remote
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+)
+
+const (
+	// ProtocolVersion is the wire version both sides speak.
+	ProtocolVersion = 1
+
+	// MaxFrame bounds one JSON frame. The relay enforces the same number, so a
+	// client that respects it never has a frame refused.
+	MaxFrame = 4096
+
+	// MaxPlaintext bounds one payload before encryption. It leaves room for the
+	// base64url expansion and the envelope inside MaxFrame.
+	MaxPlaintext = 3000
+
+	// Frame kinds.
+	frameHello = "hello"
+	frameReady = "ready"
+	frameMsg   = "msg"
+	frameCmd   = "cmd"
+	frameAck   = "ack"
+	framePing  = "ping"
+	framePong  = "pong"
+	frameBye   = "bye"
+	frameError = "error"
+
+	// Roles.
+	RoleHost  = "host"
+	RoleGuest = "guest"
+
+	// Message kinds: what a `msg` frame carries.
+	KindState = "state"
+	KindEvent = "event"
+
+	// Command kinds: what the guest may ask for.
+	CmdTask           = "task"
+	CmdNewSession     = "new_session"
+	CmdObserverReport = "observer_report"
+)
+
+// Close and error codes. They are stable identifiers: a frontend localises them
+// and never parses prose from the relay.
+const (
+	CodeAuth        = "auth"
+	CodeBadFrame    = "bad_frame"
+	CodeRateLimited = "rate_limited"
+	CodeExpired     = "expired"
+	CodeRoomFull    = "room_full"
+	CodeUnsupported = "unsupported"
+
+	CodeRevoked    = "revoked"
+	CodeOverBudget = "over_budget"
+	CodeReplaced   = "replaced"
+)
+
+// ErrStopped reports that the client stopped on purpose.
+var ErrStopped = errors.New("remote: stopped")
+
+// ErrTerminal reports that the relay ended the room for good; reconnecting would
+// only repeat the refusal.
+type ErrTerminal struct {
+	Code string
+}
+
+func (e *ErrTerminal) Error() string { return "remote: relay closed the room: " + e.Code }
+
+// frame is one wire frame. One struct covers every type; encoding/json omits the
+// fields a type does not use, and the relay validates what it receives.
+type frame struct {
+	T         string `json:"t"`
+	V         int    `json:"v,omitempty"`
+	Role      string `json:"role,omitempty"`
+	Room      string `json:"room,omitempty"`
+	Proof     string `json:"proof,omitempty"`
+	Since     int64  `json:"since,omitempty"`
+	Seq       int64  `json:"seq,omitempty"`
+	Kind      string `json:"kind,omitempty"`
+	IV        string `json:"iv,omitempty"`
+	CT        string `json:"ct,omitempty"`
+	ID        string `json:"id,omitempty"`
+	Code      string `json:"code,omitempty"`
+	ExpiresAt int64  `json:"expiresAt,omitempty"`
+}
+
+func decodeFrame(data []byte) (frame, error) {
+	if len(data) > MaxFrame {
+		return frame{}, fmt.Errorf("remote: frame is %d bytes, limit %d", len(data), MaxFrame)
+	}
+	var f frame
+	if err := json.Unmarshal(data, &f); err != nil {
+		return frame{}, fmt.Errorf("remote: malformed frame: %w", err)
+	}
+	if f.T == "" {
+		return frame{}, errors.New("remote: frame has no type")
+	}
+	return f, nil
+}
+
+func (f frame) encode() ([]byte, error) {
+	data, err := json.Marshal(f)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > MaxFrame {
+		return nil, fmt.Errorf("remote: frame is %d bytes, limit %d", len(data), MaxFrame)
+	}
+	return data, nil
+}
+
+// State is the snapshot the phone renders. It is a plain projection: the caller
+// maps a session view into it, so this package never imports session state and
+// the page never sees a handle it could act through.
+type State struct {
+	V        int              `json:"v"`
+	N        int64            `json:"n"`
+	TS       int64            `json:"ts"`
+	Project  string           `json:"project"`
+	Repo     string           `json:"repo"`
+	Session  string           `json:"session"`
+	Mode     string           `json:"mode"`
+	Phase    string           `json:"phase"`
+	Started  bool             `json:"started"`
+	Step     *StepState       `json:"step"`
+	Plan     string           `json:"plan"`
+	Agents   map[string]Agent `json:"agents"`
+	Pause    PauseState       `json:"pause"`
+	Activity []Activity       `json:"activity"`
+	Observer ObserverState    `json:"observer"`
+	Delivery *DeliveryState   `json:"delivery"`
+}
+
+// StepState is the current Step-mode entry, or nil when the mode has no queue.
+type StepState struct {
+	Index  int    `json:"index"`
+	Total  int    `json:"total"`
+	Policy string `json:"policy"`
+	Title  string `json:"title"`
+}
+
+// Agent is one agent's runtime state as the phone shows it.
+type Agent struct {
+	Connected bool   `json:"connected"`
+	Running   bool   `json:"running"`
+	Model     string `json:"model"`
+	Thinking  string `json:"thinking"`
+	Activity  string `json:"activity"`
+}
+
+// PauseState is the workflow pause projection.
+type PauseState struct {
+	State string `json:"state"`
+}
+
+// Activity is one recent event the phone lists.
+type Activity struct {
+	At    int64  `json:"at"`
+	Kind  string `json:"kind"`
+	Agent string `json:"agent,omitempty"`
+	Text  string `json:"text"`
+}
+
+// ObserverState carries the observer's on-demand reports.
+type ObserverState struct {
+	Analyzing bool             `json:"analyzing"`
+	Reports   []ObserverReport `json:"reports"`
+}
+
+// ObserverReport is one status report and when it was produced.
+type ObserverReport struct {
+	At   int64  `json:"at"`
+	Text string `json:"text"`
+}
+
+// DeliveryState reports where the finished artifact landed.
+type DeliveryState struct {
+	Applied bool   `json:"applied"`
+	Head    string `json:"head"`
+	Note    string `json:"note"`
+}
+
+// Event is an incremental update between snapshots.
+type Event struct {
+	V     int    `json:"v"`
+	N     int64  `json:"n"`
+	At    int64  `json:"at"`
+	Kind  string `json:"kind"`
+	Agent string `json:"agent,omitempty"`
+	Text  string `json:"text"`
+}
+
+// Command is one instruction from the phone, after decryption.
+type Command struct {
+	V    int    `json:"v"`
+	ID   string `json:"id"`
+	Kind string `json:"kind"`
+	Text string `json:"text,omitempty"`
+	N    int64  `json:"n"`
+	MAC  string `json:"mac"`
+}
+
+// truncate shortens a text field so a payload stays under MaxPlaintext. It
+// counts runes, not bytes, so a multi-byte character is never cut in half.
+func truncate(s string, limit int) string {
+	runes := []rune(s)
+	if len(runes) <= limit {
+		return s
+	}
+	return string(runes[:limit]) + "…"
+}
+
+// unixMilli is the one timestamp unit the wire uses.
+func unixMilli(t time.Time) int64 { return t.UnixMilli() }
