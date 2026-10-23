@@ -76,6 +76,10 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 			a.handleScrollOverlayKey(ev, func(d int) { a.details.Scroll(d) }, max(0, len(a.details.lines)-max(1, a.details.Inner.Dy()-1)))
 		case overlayObserverReports:
 			a.handleObserverReportKey(ev)
+		case overlayQrcode:
+			if ev.Key() == tcell.KeyEsc {
+				a.closeOverlay()
+			}
 		}
 		return
 	}

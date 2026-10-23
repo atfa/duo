@@ -63,8 +63,8 @@ still cannot read or forge anything.
 The host registers the room before it shows a QR code:
 
 ```http
-POST /api/room
-{"room":"<22 chars>","proof":"<43 chars>","ttlSeconds":28800}
+POST /api/room?room=<22 chars>
+{"proof":"<43 chars>","ttlSeconds":28800}
 ```
 
 - The first writer wins. A second registration of a live room is accepted only
@@ -284,9 +284,9 @@ costs no duration.
 | frame size | 4 KiB | `error{bad_frame}` |
 | sockets per room | 8 | `error{room_full}` |
 | unauthenticated sockets | 2, 5 s to hello | close |
-| guest commands | 30/min per room | `error{rate_limited}`, then `bye{over_budget}` |
+| guest commands | 30/min per room | `error{rate_limited}` (recoverable; socket stays open) |
 | relayed messages | 2000/day/room | `bye{over_budget}` |
-| room lifetime | 8 h maximum | `bye{expired}`, room deleted |
+| room lifetime | 8 h maximum | `bye{expired}`; the row survives 24 h so a late `hello` still receives `error{expired}` |
 | revocation tombstone | 24 h | registration and `hello` refused with `error{auth}` |
 
 `over_budget` and `expired` close the remote connection only. Duo keeps running

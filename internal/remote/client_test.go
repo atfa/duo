@@ -113,6 +113,25 @@ func sendCommand(t *testing.T, guest *fakePeer, p Pairing, id, kind, text string
 	guest.send(frame{T: frameCmd, ID: id, IV: iv, CT: ct})
 }
 
+func TestRegisterCompletesBeforePairingCanBeShown(t *testing.T) {
+	relay := newFakeRelay(t)
+	pairing := testPairing(t, relay)
+	client, err := New(Options{Pairing: pairing, Sink: &fakeSink{}, Snapshot: staticState("register")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	if err := client.RegisterRoom(context.Background()); err != nil {
+		t.Fatalf("RegisterRoom: %v", err)
+	}
+	relay.mu.Lock()
+	_, registered := relay.rooms[pairing.Room]
+	relay.mu.Unlock()
+	if !registered {
+		t.Fatal("RegisterRoom returned before the room was created")
+	}
+}
+
 func TestClientPublishesStateAndRunsAnAuthenticatedCommand(t *testing.T) {
 	relay := newFakeRelay(t)
 	p := testPairing(t, relay)

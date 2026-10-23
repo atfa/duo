@@ -169,6 +169,13 @@ func (c *Client) Run(ctx context.Context) {
 	}
 }
 
+// Register creates or refreshes the room on the relay. Callers that expose the
+// pairing to a user should wait for this to succeed before showing its QR code.
+// Run registers again before each reconnect, making recovery idempotent.
+func (c *Client) RegisterRoom(ctx context.Context) error {
+	return c.register(ctx)
+}
+
 // Close stops the client and its connection. It is safe to call more than once
 // and before Run.
 func (c *Client) Close() {

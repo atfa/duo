@@ -160,6 +160,13 @@ func (m *remoteManager) start(ctx context.Context, pairing remote.Pairing) error
 	if err != nil {
 		return err
 	}
+	registerCtx, registerCancel := context.WithTimeout(ctx, 15*time.Second)
+	err = client.RegisterRoom(registerCtx)
+	registerCancel()
+	if err != nil {
+		client.Close()
+		return fmt.Errorf("register remote room before showing pairing: %w", err)
+	}
 	runCtx, cancel := context.WithCancel(ctx)
 	m.mu.Lock()
 	m.pairing = pairing

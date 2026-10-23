@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/atfa/duo/internal/project"
+	"github.com/gdamore/tcell/v3"
 )
 
 // remoteTestSnapshot is a started session, so /qrcode and /remote are not
@@ -147,6 +148,21 @@ func TestQrcodeOpensThePairingOverlay(t *testing.T) {
 	}
 	if app.overlay == overlayQrcode {
 		t.Error("/remote off left the pairing overlay open")
+	}
+}
+
+func TestQrcodeOverlayClosesOnEscape(t *testing.T) {
+	_, app := newModeSwitchApp(t, remoteTestSnapshot())
+	app.SetRemote(&fakeRemote{})
+	app.runSlash("/qrcode")
+	app.handleAsync(<-app.asyncCh)
+	if app.overlay != overlayQrcode {
+		t.Fatalf("overlay = %v, want the pairing overlay", app.overlay)
+	}
+
+	app.handleKey(tcell.NewEventKey(tcell.KeyEsc, "", tcell.ModNone))
+	if app.overlay != overlayNone {
+		t.Fatalf("Esc left overlay %v open", app.overlay)
 	}
 }
 

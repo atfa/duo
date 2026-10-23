@@ -1,11 +1,17 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/atfa/duo/internal/remote"
+	"github.com/atfa/duo/internal/session"
 )
 
 func writeRemoteConfig(t *testing.T, repo, body string) {
@@ -110,4 +116,63 @@ func TestValidateRemoteURL(t *testing.T) {
 			t.Errorf("validateRemoteURL(%q) = nil, want an error", tc.url)
 		}
 	}
+}
+
+func TestRemoteStartRegistersBeforeReturningPairing(t *testing.T) {
+	started := make(chan struct{}, 1)
+	allow := make(chan struct{})
+	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/api/room" {
+			select {
+			case started <- struct{}{}:
+			default:
+			}
+			<-allow
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer relay.Close()
+
+	manager := &remoteManager{
+		svc:     session.New(session.Options{}),
+		path:    filepath.Join(t.TempDir(), "remote.json"),
+		server:  relay.URL,
+		enabled: true,
+		now:     time.Now,
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	result := make(chan error, 1)
+	go func() {
+		pairing, err := manager.Start(ctx, false)
+		if err == nil && pairing.URL == "" {
+			err = errors.New("Start returned an empty pairing URL")
+		}
+		result <- err
+	}()
+
+	select {
+	case <-started:
+	case err := <-result:
+		t.Fatalf("Start returned before registration began: %v", err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Start did not register the room")
+	}
+	select {
+	case err := <-result:
+		t.Fatalf("Start returned before registration completed: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(allow)
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("Start: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Start did not return after registration completed")
+	}
+	manager.stopClient()
 }

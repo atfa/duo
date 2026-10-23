@@ -279,7 +279,16 @@ func (a *App) refreshView() {
 	if a.svc != nil {
 		a.live = a.svc.View()
 	}
+	a.observeNewSession()
 	a.applyLanguage()
+}
+
+// observeNewSession makes a NewSession request from any frontend stop this UI.
+// The outer CLI owns restarting Duo; the TUI only returns control to it.
+func (a *App) observeNewSession() {
+	if a.live.NewSession {
+		a.stopApp()
+	}
 }
 
 // applyLanguage makes the session's /language setting visible in the dashboard.
@@ -432,6 +441,7 @@ func (a *App) run(ctx context.Context, backend *ui.Backend) error {
 	if sub.View.SessionID != "" || len(sub.View.Worktrees.Repository) > 0 {
 		a.live = sub.View
 	}
+	a.observeNewSession()
 	a.applyLanguage()
 	if a.onboarding && !a.onboardingChecked {
 		a.onboardingChecked = true
