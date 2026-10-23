@@ -179,9 +179,8 @@ request/response calls over the same socket:
 | `duo_restart_duo` | request a guarded STEP/EXECUTE restart between steps, optionally installing a new binary |
 
 These eight are the whole set; availability still follows the session mode. The MCP
-server (`duo mcp-server`) exposes a six-tool subset — everything except
-`duo_set_steps` and `duo_restart_duo` — so an adapter can serve the tools natively or
-over MCP.
+server (`duo mcp-server`) exposes all eight over JSON-RPC, so an adapter can serve
+the tools natively or over MCP.
 
 Set `mcp` on your manifest only if your launch command really makes these reachable.
 An agent that cannot call them has no coordination tools, and Duo says so plainly.
