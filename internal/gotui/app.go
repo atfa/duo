@@ -837,6 +837,28 @@ func (a *App) requestQuit() {
 	})
 }
 
+// requestNewSession is /new: Ctrl+Q followed by running duo again, as one
+// action. The session is preserved exactly as quitting preserves it, and the
+// CLI re-runs duo in place when this process closes with the request set. Like
+// requestQuit, a finished session needs no confirmation: nothing is at stake.
+func (a *App) requestNewSession() {
+	if a.svc == nil {
+		return
+	}
+	start := func() {
+		if err := a.svc.Do(context.Background(), session.NewSession{}); err != nil {
+			a.setStatus(err.Error(), true)
+			return
+		}
+		a.stopApp()
+	}
+	if a.live.Phase() == project.PhaseDone {
+		start()
+		return
+	}
+	a.openConfirm(a.theme.tr("Start a new session?"), a.theme.tr("This session is not finished. It will be preserved and can be resumed with `duo resume`, and duo will start a fresh session."), start)
+}
+
 func (a *App) addAsync(result asyncResult) {
 	select {
 	case a.asyncCh <- result:

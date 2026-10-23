@@ -4,6 +4,13 @@ All notable project milestones are documented here.
 
 ## Unreleased
 
+### New session
+
+- `/new` quits the current session the way Ctrl+Q does — preserved, resumable —
+  and re-runs duo in place, so starting over is one action instead of two. A
+  session launched with `duo resume <id>` re-runs as a plain `duo`, never
+  reopening the session it just preserved.
+
 ### Cost and context pressure
 
 - `/cost` shows what a session has spent: per agent and per phase, with the session

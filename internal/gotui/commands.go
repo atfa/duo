@@ -120,6 +120,9 @@ func (a *App) runSlash(text string) bool {
 		a.addLabeled(protocol.Duo, directionLabel(protocol.Duo, ""), status, false, false)
 		a.setStatus(a.theme.tr("status reported in timeline"), false)
 		return true
+	case "/new":
+		a.requestNewSession()
+		return true
 	case "/quit", "/exit":
 		a.requestQuit()
 		return true
