@@ -88,6 +88,34 @@ func (a *App) runSlash(text string) bool {
 	case "/model":
 		a.openPicker()
 		return true
+	case "/qrcode":
+		rotate := len(fields) == 2 && strings.EqualFold(fields[1], "new")
+		if len(fields) > 2 || (len(fields) == 2 && !rotate) {
+			a.setStatus(a.theme.tr("usage: /qrcode [new]"), true)
+			return true
+		}
+		a.openQrcode(rotate)
+		return true
+	case "/remote":
+		if len(fields) == 1 {
+			a.showRemoteStatus()
+			return true
+		}
+		if len(fields) != 2 {
+			a.setStatus(a.theme.tr("usage: /remote [on|off|status]"), true)
+			return true
+		}
+		switch strings.ToLower(fields[1]) {
+		case "on":
+			a.openQrcode(false)
+		case "off":
+			a.remoteOff()
+		case "status":
+			a.showRemoteStatus()
+		default:
+			a.setStatus(a.theme.tr("usage: /remote [on|off|status]"), true)
+		}
+		return true
 	case "/observer":
 		a.openObserverConfig()
 		return true

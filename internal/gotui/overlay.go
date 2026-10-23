@@ -23,6 +23,7 @@ const (
 	overlayConfirm
 	overlayObserver
 	overlayObserverReports
+	overlayQrcode
 )
 
 func newModalBlock(t theme) *ui.Block {

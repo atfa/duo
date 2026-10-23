@@ -110,6 +110,9 @@ type App struct {
 	confirm           *confirmOverlay
 	observer          *observerConfigOverlay
 	observerReports   *observerReportOverlay
+	qr                *qrcodeOverlay
+	remote            Remote
+	qrPairing         RemotePairing
 	onboarding        bool
 	onboardingChecked bool
 	resumeNoticeShown bool
@@ -195,6 +198,7 @@ func New(svc Session) *App {
 	a.details = newDetails(t)
 	a.observer = newObserverConfig(t)
 	a.observerReports = newObserverReports(t)
+	a.qr = newQrcode(t)
 	a.slash = newSlashMenu(t)
 	a.fileMenu = newMentionMenu(t)
 	a.listFiles = gitListFiles
@@ -275,7 +279,16 @@ func (a *App) refreshView() {
 	if a.svc != nil {
 		a.live = a.svc.View()
 	}
+	a.observeNewSession()
 	a.applyLanguage()
+}
+
+// observeNewSession makes a NewSession request from any frontend stop this UI.
+// The outer CLI owns restarting Duo; the TUI only returns control to it.
+func (a *App) observeNewSession() {
+	if a.live.NewSession {
+		a.stopApp()
+	}
 }
 
 // applyLanguage makes the session's /language setting visible in the dashboard.
@@ -428,6 +441,7 @@ func (a *App) run(ctx context.Context, backend *ui.Backend) error {
 	if sub.View.SessionID != "" || len(sub.View.Worktrees.Repository) > 0 {
 		a.live = sub.View
 	}
+	a.observeNewSession()
 	a.applyLanguage()
 	if a.onboarding && !a.onboardingChecked {
 		a.onboardingChecked = true
@@ -630,6 +644,8 @@ func (a *App) draw() {
 			items = append(items, a.confirm)
 		case overlayObserver:
 			items = append(items, a.observer)
+		case overlayQrcode:
+			items = append(items, a.qr)
 		}
 	}
 	a.backend.Render(items...)
@@ -713,6 +729,10 @@ func (a *App) updateWidgets() {
 	a.confirm.place(l)
 	a.observer.place(l)
 	a.observerReports.place(l)
+	if a.overlay == overlayQrcode {
+		a.qr.rebuild(a.qrPairing, a.remoteStatus())
+	}
+	a.qr.place(l)
 	a.slash.commands = a.matchingCommands()
 	if len(a.slash.commands) == 0 {
 		a.slash.cursor = 0
@@ -904,6 +924,27 @@ func (a *App) handleAsync(res asyncResult) {
 		a.picker.loaded(res.agent, res.payload, res.err)
 	case "details":
 		a.details.loaded(res.payload, res.err)
+	case "remote_start":
+		pairing, ok := res.payload.(RemotePairing)
+		if res.err != nil {
+			a.setStatus(res.err.Error(), true)
+			return
+		}
+		if !ok {
+			return
+		}
+		a.qrPairing = pairing
+		a.overlay = overlayQrcode
+		a.setStatus(a.theme.tr("pairing code ready"), false)
+	case "remote_stop":
+		if res.err != nil {
+			a.setStatus(res.err.Error(), true)
+			return
+		}
+		if a.overlay == overlayQrcode {
+			a.overlay = overlayNone
+		}
+		a.setStatus(a.theme.tr("remote access is off"), false)
 	}
 }
 

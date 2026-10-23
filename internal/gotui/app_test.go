@@ -745,6 +745,35 @@ func TestNewSessionNoticeDoesNotSuppressStartup(t *testing.T) {
 	}
 }
 
+func TestRemoteNewSessionRequestStopsTheUI(t *testing.T) {
+	fake := newFakeSession()
+	app := New(fake)
+	backend, err := ui.NewBackend(&ui.InitConfig{SimulationMode: true, SimulationSize: image.Pt(80, 24)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := backend.Screen.(tcell.SimulationScreen); !ok {
+		t.Fatalf("screen %T is not a simulation screen", backend.Screen)
+	}
+	done := make(chan error, 1)
+	go func() { done <- app.runWithBackend(context.Background(), backend) }()
+
+	fake.mu.Lock()
+	fake.view.NewSession = true
+	fake.mu.Unlock()
+	fake.events <- events.Event{Kind: events.KindSystem, Text: "new session requested remotely"}
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runWithBackend: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		app.stopApp()
+		t.Fatal("remote NewSession request did not stop the UI")
+	}
+}
+
 func TestNativeDetach(t *testing.T) {
 	tests := []struct {
 		name    string

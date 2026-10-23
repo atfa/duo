@@ -151,6 +151,18 @@ func run(ctx context.Context, cfg config) error {
 				term = opened
 			}
 			app := gotui.New(svc)
+			// Remote access belongs to this session, not to the process: a pairing
+			// that is still live resumes here, and cancelling the context when the
+			// interface closes stops the relay connection without revoking the
+			// pairing, so /new can take the same room over.
+			if mgr, err := newRemoteManager(cfg, svc); err != nil {
+				log.Printf("Duo remote: %v", err)
+			} else {
+				app.SetRemote(mgr)
+				remoteCtx, stopRemote := context.WithCancel(ctx)
+				defer stopRemote()
+				mgr.Resume(remoteCtx)
+			}
 			// Drivers are built before the interface exists, so any diagnostic one
 			// of them reported is shown now, in its own words.
 			app.Notices(svc.Notices())
