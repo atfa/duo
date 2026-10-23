@@ -57,7 +57,7 @@
 **负责人** Tony（gotui）/ Austin（Core 事件与配置）
 
 ### T9 用量与成本账本 + 上下文压力预警
-- [ ] 完成：
+- [x] 完成：协议/持久化 5eed06850285 · UI b4f1f0cbcd · 2026-10-23（`MsgUsage` + `Capabilities.Usage` 门控、tracker 按 agent/阶段聚合、snapshot additive `UsageLedger` 与 resume 续算、`/cost` 面板、`/overview` 与最终摘要总计、`duo sessions` COST 列、`contextWarnPercent`（默认 85）+ 一次性定向 nudge + 侧栏标红）
 
 **位置** `internal/harness/tracker.go:198`（UpdateContext）、`:210`（UpdateRate）——仅写内存 `rt`，退出即丢；`internal/gotui/panels.go:434-436`（侧栏百分比瞬显）；持久化落点 `internal/sessionstore/snapshot.go`
 **问题** 驱动上报的 token/上下文数据只存在内存里，会话结束成本即蒸发；人类无法回答“这轮花了多少”，也没有上下文爆仓前的预警，agent 常在压缩边缘才被发现。
