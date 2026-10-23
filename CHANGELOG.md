@@ -30,6 +30,17 @@ All notable project milestones are documented here.
 - A round without a plan (Fast, or DONE after the plan was cleared) no longer
   advertises `plan v0` beside “no shared plan”.
 
+### MCP bridge
+
+- `duo mcp-server` now advertises all eight Duo coordination tools, adding
+  `duo_set_steps` and `duo_restart_duo`. An MCP-only driver (codex declares MCP
+  with no bridge) can publish the STEP queue in PLAN and ask for the guarded
+  between-steps restart, neither of which it could reach before.
+- Both tools send the same wire fields the Pi bridge sends: the raw Markdown
+  queue with an `append` marker, and a restart reason plus its `install` flag. A
+  blank queue or reason is refused at the bridge, and a refusal from Duo Core — a
+  dirty worktree, for example — comes back to the agent as a tool error.
+
 ### Chinese interface
 
 - Status feedback now goes through the translation table: send, clear, copy,

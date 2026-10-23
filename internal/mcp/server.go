@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -100,6 +101,24 @@ func DefaultTools() []Tool {
 			},
 		},
 		{
+			Name:        "duo_set_steps",
+			Description: "Create or replace the STEP-mode step queue during PLAN. Send a markdown checkbox list, one step per line, tagging each item [fast] or [goal] (untagged defaults to FAST). A PLAN update resets both agents' approvals. Duo Core advances the queue after each step lands — agents never mark a step done by hand. After PLAN the queue can only grow: set append=true to add steps to the end.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"steps": map[string]any{
+						"type":        "string",
+						"description": "The step queue as a markdown checkbox list, e.g. '- [ ] [fast] add ModeStep\\n- [ ] [goal] redesign the scheduler'. Send the whole list, not a patch. Duo owns the ticks, so send '- [ ]' for every step.",
+					},
+					"append": map[string]any{
+						"type":        "boolean",
+						"description": "true = add these steps to the END of the existing queue instead of replacing it. Replacing the queue is rejected after PLAN.",
+					},
+				},
+				"required": []string{"steps"},
+			},
+		},
+		{
 			Name:        "duo_escalate",
 			Description: "Switch the session to Goal mode. A Fast to Goal switch seeds the plan with the reason; other modes start a fresh Goal round.",
 			InputSchema: map[string]any{
@@ -108,6 +127,24 @@ func DefaultTools() []Tool {
 					"reason": map[string]any{
 						"type":        "string",
 						"description": "Explanation why escalation to Goal mode is required.",
+					},
+				},
+				"required": []string{"reason"},
+			},
+		},
+		{
+			Name:        "duo_restart_duo",
+			Description: "STEP mode only. Ask Duo to stop so the launcher can resume this session on a newly installed binary. Both agents are killed and restarted; the durable step queue continues at the same step. Call it between steps, as the last action of a round, never while a step is under review, and report it once before stopping.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"reason": map[string]any{
+						"type":        "string",
+						"description": "Why the restart is wanted now, e.g. the step landed a change to Duo itself.",
+					},
+					"install": map[string]any{
+						"type":        "boolean",
+						"description": "true = also build and install from the delivered branch before resuming. Omit or false to just restart on the binary already installed.",
 					},
 				},
 				"required": []string{"reason"},
@@ -499,6 +536,41 @@ func (s *Server) executeTool(ctx context.Context, params callToolParams) toolRes
 			Plan: plan,
 		}
 
+	case "duo_set_steps":
+		steps, _ := params.Arguments["steps"].(string)
+		steps = strings.TrimSpace(steps)
+		if steps == "" {
+			return toolResult{
+				Content: []toolContent{{Type: "text", Text: "duo_set_steps requires a non-empty steps list"}},
+				IsError: true,
+			}
+		}
+		msg = protocol.Message{
+			Version: protocol.Version,
+			Type:    protocol.MsgSetSteps,
+			Steps:   steps,
+		}
+		// The coordinator reads the append marker from Text: without it a
+		// mid-loop edit to the queue is rejected outright.
+		if append, _ := params.Arguments["append"].(bool); append {
+			msg.Text = "append"
+		}
+	case "duo_restart_duo":
+		reason, _ := params.Arguments["reason"].(string)
+		reason = strings.TrimSpace(reason)
+		if reason == "" {
+			return toolResult{
+				Content: []toolContent{{Type: "text", Text: "duo_restart_duo requires a reason"}},
+				IsError: true,
+			}
+		}
+		install, _ := params.Arguments["install"].(bool)
+		msg = protocol.Message{
+			Version: protocol.Version,
+			Type:    protocol.MsgRestartDuo,
+			Note:    reason,
+			Install: install,
+		}
 	case "duo_escalate":
 		reason, _ := params.Arguments["reason"].(string)
 		msg = protocol.Message{
