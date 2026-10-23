@@ -295,7 +295,8 @@ agent-owned bridge.
   "bridge": "agent",
   "ptyFallback": true,
   "liveSteering": true,
-  "selfReports": false
+  "selfReports": false,
+  "tools": ["duo_status", "duo_send", "duo_set_status"]
 }
 ```
 
@@ -312,6 +313,24 @@ agent-owned bridge.
 | `ptyFallback` | Core may deliver a prompt by writing to the agent's terminal when no bridge can take it. |
 | `liveSteering` | a peer message reaches the agent **mid-turn**, rather than being queued until it finishes. |
 | `selfReports` | your bridge attaches the moment the agent process starts, so Core does not announce the connection itself. Set false when your endpoint cannot attach until the agent has something to say. |
+| `tools` | Core advertises only these coordination tool names in the agent's prompts, and omits whole clauses naming tools you did not declare. See below. |
+
+### `tools`
+
+`tools` declares the duo_* coordination tools your launch command actually exposes
+to the agent. The canonical names are the ones `duo mcp-server` serves; the list is
+exported as `mcp.ToolNames()` so a plugin can declare the set it wires without
+copy-pasting strings.
+
+Core enforces the declaration in `duo plugins test`: every declared name must be a
+real tool, a non-empty set requires the `prepare` command to wire `duo mcp-server`,
+and a manifest with `mcp: false` must declare no tools. An empty or absent list is
+the conservative fallback for plugins written before this field existed: Core
+advertises the full set, exactly as it did before.
+
+This is the fix for the failure mode where a prompt tells the agent to call a tool
+that is not reachable in its session: the agent wastes turns on a tool that does not
+exist, and the human watches. Declare the set your launch command really wires.
 
 The rule above is enforced, not just stated: a field that Core does not branch on
 cannot stay in this table. `TestEveryCapabilityIsBranchedOn` in
@@ -322,7 +341,9 @@ never read by Core, so a new field has to earn its place here.
 
 Two facts about a driver are worth recording but are not capabilities, because Core
 handles them the same way for every driver and has nothing to decide. They sit on
-the manifest rather than in `capabilities`, where a promise Core relies on lives:
+the manifest rather than in `capabilities`, where a promise Core relies on lives.
+(`tools` is a capability, not descriptive metadata: Core branches on it when it
+renders prompts.)
 
 ```json
 { "name": "myagent", "activity": true, "mcp": true }
