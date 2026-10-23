@@ -76,6 +76,13 @@ const (
 	// (Duo Core → bridge); MsgThinkingState reports the level actually in effect.
 	MsgCycleThinking MessageType = "cycle_thinking"
 	MsgThinkingState MessageType = "thinking_state"
+
+	// MsgUsage reports what one completed agent turn cost, as the driver measured
+	// it (bridge → Duo Core). It is its own message type rather than a field on an
+	// activity: a turn's cost is one fact stated once, while the activity stream is
+	// a stream of transient states. One report per completed turn is the contract,
+	// which is what makes a turn count meaningful in the ledger.
+	MsgUsage MessageType = "usage"
 )
 
 type ActivityType string

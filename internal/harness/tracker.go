@@ -62,6 +62,11 @@ const recentTools = 3
 type Tracker struct {
 	mu     sync.RWMutex
 	agents map[protocol.AgentID]*AgentRuntime
+
+	// usage is the cost book, per agent and per phase. It is nil until the first
+	// measured report arrives, so a session whose drivers cannot measure cost never
+	// builds one and persists no ledger.
+	usage *usageLedger
 }
 
 func NewTracker() *Tracker {

@@ -27,9 +27,13 @@ func versionString() string { return version.Version }
 func (s *Service) composeSnapshot(coord *coordinator.Coordinator) sessionstore.Snapshot {
 	integration := s.integration
 	deliveryState := s.delivery
+	var usage *sessionstore.UsageLedger
 	if coord != nil {
 		integration = coord.CurrentIntegration()
 		deliveryState = coord.CurrentDelivery()
+		usage = coord.UsageLedger()
+	} else {
+		usage = s.usage
 	}
 	driverStates := make(map[protocol.AgentID]sessionstore.DriverState, len(s.driverState))
 	for k, v := range s.driverState {
@@ -88,6 +92,7 @@ func (s *Service) composeSnapshot(coord *coordinator.Coordinator) sessionstore.S
 		AgentModels:  agentModels,
 		Integration:  integration,
 		Delivery:     deliveryState,
+		Usage:        usage,
 	})
 	if coord != nil {
 		pause := coord.PauseSnapshot()

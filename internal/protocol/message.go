@@ -52,6 +52,12 @@ type Message struct {
 	ContextWindow   int     `json:"contextWindow,omitempty"`
 	TokensPerSecond float64 `json:"tokensPerSecond,omitempty"`
 
+	// Usage carries the measured cost of one completed turn on a MsgUsage message.
+	// A driver sends it only when it can measure it: Duo never estimates cost on an
+	// agent's behalf, so an absent report leaves the ledger empty rather than
+	// filling it with a figure nobody can check.
+	Usage *Usage `json:"usage,omitempty"`
+
 	Ready *bool `json:"ready,omitempty"`
 
 	// Verification carries a structured Fast-mode verdict: "passed" or
@@ -64,4 +70,23 @@ type Message struct {
 
 	OK    bool   `json:"ok,omitempty"`
 	State string `json:"state,omitempty"`
+}
+
+// Usage is one agent turn's measured token and cost usage, as reported on a
+// MsgUsage message. The token split is the provider-neutral one every driver we
+// ship can obtain; CostUSD is the reported span's total cost in US dollars.
+//
+// Turns says how many completed turns the report covers. A driver that reports per
+// turn sends 1, which is also what an omitted Turns means; a driver that can only
+// read usage in aggregate at exit sends the number of turns behind the figures.
+// The ledger adds this number rather than counting reports, so a batching driver
+// does not turn a session's real turn count into 1.
+type Usage struct {
+	Turns        int     `json:"turns,omitempty"`
+	InputTokens  int     `json:"inputTokens"`
+	OutputTokens int     `json:"outputTokens"`
+	CacheRead    int     `json:"cacheReadTokens,omitempty"`
+	CacheWrite   int     `json:"cacheWriteTokens,omitempty"`
+	TotalTokens  int     `json:"totalTokens,omitempty"`
+	CostUSD      float64 `json:"costUSD"`
 }

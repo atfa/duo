@@ -69,6 +69,46 @@ type Delivery struct {
 // Applied reports whether the final artifact is already in the user's repo.
 func (d Delivery) Applied() bool { return d.Status == DeliveryApplied }
 
+// UsageTotals is one cost-ledger entry: completed turns, tokens and cost, summed
+// over every report the driver filed. The figures are what the driver measured, so
+// an entry is a claim about a specific driver's own accounting, not Duo's estimate.
+type UsageTotals struct {
+	Turns        int     `json:"turns,omitempty"`
+	InputTokens  int     `json:"inputTokens,omitempty"`
+	OutputTokens int     `json:"outputTokens,omitempty"`
+	CacheRead    int     `json:"cacheReadTokens,omitempty"`
+	CacheWrite   int     `json:"cacheWriteTokens,omitempty"`
+	TotalTokens  int     `json:"totalTokens,omitempty"`
+	CostUSD      float64 `json:"costUSD,omitempty"`
+}
+
+// UsageLedger is the durable cost book of a session. The phase split is what lets a
+// human see where a session's cost went, which is the question a single total
+// cannot answer once a session has run through several phases.
+type UsageLedger struct {
+	Agents map[protocol.AgentID]UsageTotals `json:"agents,omitempty"`
+	Phases map[string]UsageTotals           `json:"phases,omitempty"`
+}
+
+// Total sums the per-agent entries into the session's own total. It is derived, not
+// stored, so the ledger cannot carry a total that disagrees with its parts.
+func (l *UsageLedger) Total() UsageTotals {
+	if l == nil {
+		return UsageTotals{}
+	}
+	var total UsageTotals
+	for _, u := range l.Agents {
+		total.Turns += u.Turns
+		total.InputTokens += u.InputTokens
+		total.OutputTokens += u.OutputTokens
+		total.CacheRead += u.CacheRead
+		total.CacheWrite += u.CacheWrite
+		total.TotalTokens += u.TotalTokens
+		total.CostUSD += u.CostUSD
+	}
+	return total
+}
+
 // Verification is the durable Fast-mode verification record. It is a small
 // optional checkpoint: Goal snapshots simply have no verification object.
 // `head` binds a passed verdict to one exact Austin artifact, `note` carries an
@@ -133,6 +173,12 @@ type Snapshot struct {
 
 	Integration Integration `json:"integration"`
 	Delivery    Delivery    `json:"delivery"`
+
+	// Usage is the session's cost ledger: measured token and cost totals per agent
+	// and per phase. It is additive optional state, so the persisted schema version
+	// is unchanged, and it is a pointer so a session whose drivers cannot measure
+	// cost stores no ledger at all rather than a ledger that claims zero.
+	Usage *UsageLedger `json:"usage,omitempty"`
 
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`

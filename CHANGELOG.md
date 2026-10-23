@@ -4,6 +4,17 @@ All notable project milestones are documented here.
 
 ## Unreleased
 
+### Cost ledger
+
+- A Duo session now knows what it cost. A driver that can measure its own token and
+  cost usage reports each completed turn, and Duo keeps a ledger per agent and per
+  phase, so the answer to "what did this session spend, and where" survives the
+  session: it is written into the checkpoint and a resumed session continues from
+  the cost already paid, with `duo sessions` showing the totals after the fact.
+- A cost is recorded only from a driver that declares it measures one. Duo never
+  estimates what an agent spent, so a driver that cannot measure leaves the ledger
+  absent rather than filling it with a figure that reads as zero.
+
 ### Human attention
 
 - When a Duo session stops until a human acts, the terminal says so: a merge

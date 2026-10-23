@@ -58,6 +58,11 @@ type View struct {
 	// frontend, so every frontend honours one operator setting.
 	Notify bool
 
+	// Usage is the session's cost ledger: measured token and cost totals per agent
+	// and per phase. It is nil while nothing has been measured, so a frontend shows no
+	// cost at all rather than a cost of zero.
+	Usage *sessionstore.UsageLedger
+
 	// Restart is non-empty when the session asked to continue on a new Duo binary.
 	// The interface stops and the CLI exits with the upgrade code so a launcher
 	// outside Duo can install and resume.

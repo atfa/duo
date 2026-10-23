@@ -121,8 +121,13 @@ type Service struct {
 	observerTrigger     chan struct{}
 	observerCancel      context.CancelFunc
 
-	driverState  map[protocol.AgentID]sessionstore.DriverState
-	pauseState   PauseState
+	driverState map[protocol.AgentID]sessionstore.DriverState
+	pauseState  PauseState
+
+	// usage is the cost ledger loaded from a resumed session. The coordinator owns
+	// the live ledger once it is running; this is what a session built without one
+	// (a snapshot write before launch) persists back out.
+	usage        *sessionstore.UsageLedger
 	pausedAgents map[protocol.AgentID]bool
 
 	integration workspace.IntegrationResult
@@ -317,6 +322,7 @@ func (s *Service) launch(ctx context.Context) (Result, error) {
 	})
 	coord.SetResumeContext(s.set.Repository, s.sessionID)
 	coord.SetPauseObserver(s.pauseChanged)
+	coord.RestoreUsage(s.usage)
 	if s.pauseState == PausePausing || s.pauseState == PausePaused {
 		coord.RestorePause(coordinator.PauseSnapshot{State: string(s.pauseState), Paused: s.pausedAgents})
 	}
@@ -721,6 +727,11 @@ func (s *Service) view() View {
 		Notices:     append([]string(nil), s.notices...),
 		Restart:     s.restart,
 		Notify:      s.opts.Notify == nil || *s.opts.Notify,
+	}
+	// The cost ledger is read from the coordinator, which owns the live totals. A
+	// session built before launch has none, and says so by showing nothing.
+	if s.coord != nil {
+		v.Usage = s.coord.UsageLedger()
 	}
 	if s.state != nil {
 		v.Project = s.state.Snapshot()

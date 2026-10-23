@@ -77,6 +77,9 @@ func (s *Service) startResume(ctx context.Context) (Result, error) {
 	// during startup cannot resurrect revoked signatures or a duplicate merge.
 	reconciled := result.Snapshot
 	reconciled.PauseState = snap.PauseState
+	// The cost ledger is carried over verbatim: a resumed session must keep the cost
+	// of the work it already did, and reconciliation has no opinion about it.
+	reconciled.Usage = snap.Usage
 	if snap.PausedAgents != nil {
 		reconciled.PausedAgents = map[protocol.AgentID]bool{protocol.Austin: snap.PausedAgents[protocol.Austin], protocol.Tony: snap.PausedAgents[protocol.Tony]}
 	}
@@ -169,6 +172,7 @@ func (s *Service) startResume(ctx context.Context) (Result, error) {
 		Conflicted:   reconciled.Integration.Conflicted,
 	}
 	s.delivery = reconciled.Delivery
+	s.usage = reconciled.Usage
 	s.pauseState = PauseState(reconciled.PauseState)
 	s.pausedAgents = map[protocol.AgentID]bool{protocol.Austin: reconciled.PausedAgents[protocol.Austin], protocol.Tony: reconciled.PausedAgents[protocol.Tony]}
 	s.resume = true

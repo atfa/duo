@@ -151,6 +151,10 @@ type Capabilities struct {
 	// TokenRate reports that the plugin estimates streamed output rate, on the
 	// same terms as ContextUsage.
 	TokenRate bool `json:"tokenRate"`
+	// Usage reports that the plugin sends a MsgUsage message with the measured
+	// token and cost usage of each completed turn. When false, Core keeps no cost
+	// ledger for this driver: a cost nobody measured is not a cost.
+	Usage bool `json:"usage"`
 	// Bridge declares who owns this driver's single bridge endpoint:
 	// BridgeNone, BridgeAgent or BridgePlugin. It decides downstream delivery:
 	// only BridgeAgent's endpoint can receive an injected prompt.

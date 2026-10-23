@@ -92,6 +92,10 @@ type ComposeInput struct {
 	AgentModels  map[protocol.AgentID]string
 	Integration  workspace.IntegrationResult
 	Delivery     sessionstore.Delivery
+	// Usage is the session's cost ledger as the coordinator holds it. It is nil when
+	// nothing has been measured, which is what keeps a driver that cannot measure cost
+	// from persisting a ledger that reads as a cost of zero.
+	Usage *sessionstore.UsageLedger
 }
 
 // Compose turns live domain, workspace and Pi state into the snapshot that is
@@ -125,6 +129,7 @@ func Compose(in ComposeInput) sessionstore.Snapshot {
 			MergedTony: in.Integration.MergedTony,
 		},
 		Delivery:  in.Delivery,
+		Usage:     in.Usage,
 		CreatedAt: in.CreatedAt,
 	}
 

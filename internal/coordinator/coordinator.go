@@ -1257,6 +1257,9 @@ func (c *Coordinator) OnMessage(ctx context.Context, client *transport.Client, m
 	case protocol.MsgActivity:
 		c.handleActivity(client.Identity(), message)
 
+	case protocol.MsgUsage:
+		c.handleUsage(client.Identity(), message)
+
 	case protocol.MsgAssistantMessage:
 		c.handleAssistant(client.Identity(), message)
 
