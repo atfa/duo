@@ -210,12 +210,14 @@ func TestRequestHandlersAssumeTheServiceLockIsHeld(t *testing.T) {
 // the request off the view to write its handoff file and exit with the sentinel
 // code, so a request that never reaches the view would stop nothing.
 func TestRestartRequestReachesTheView(t *testing.T) {
-	svc := &Service{}
+	svc := &Service{coord: &coordinator.Coordinator{}}
 	if svc.View().Restart.Reason != "" {
 		t.Fatal("a fresh session must not ask to restart")
 	}
-	if err := svc.requestRestart(RestartDuo{Reason: " install and continue the queue ", Install: true}); err != nil {
-		t.Fatalf("requestRestart: %v", err)
+	// Through Do, which is how the interface sends it and which holds the service
+	// lock while it dispatches.
+	if err := svc.Do(context.Background(), RestartDuo{Reason: " install and continue the queue ", Install: true}); err != nil {
+		t.Fatalf("Do(RestartDuo): %v", err)
 	}
 	got := svc.View().Restart
 	if got.Reason != "install and continue the queue" || !got.Install {

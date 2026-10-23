@@ -219,9 +219,6 @@ func runWith(ctx context.Context, cfg config, attach func(context.Context, *sess
 		return errUpgradeRequested
 	}
 
-	// A session that never started has been removed, so telling the human to
-	// resume it would hand them a command that fails and a session that `duo
-	// sessions` will never list again.
 	// /new keeps the terminal: the next session paints over this one, so nothing is
 	// printed here — text written now would land on the interface's screen. The
 	// session is preserved (or, when no task was submitted, removed) exactly as
@@ -229,6 +226,9 @@ func runWith(ctx context.Context, cfg config, attach func(context.Context, *sess
 	if view.NewSession {
 		return newSessionFromView(live)
 	}
+	// A session that never started has been removed, so telling the human to
+	// resume it would hand them a command that fails and a session that `duo
+	// sessions` will never list again.
 	if end.Discarded {
 		fmt.Printf("\nDuo stopped. No task was submitted, so the session left nothing behind: its worktrees and record were removed. Nothing to resume.\n")
 		return nil
