@@ -4,6 +4,7 @@ import (
 	"image"
 	"strings"
 
+	"github.com/atfa/duo/internal/sessionstore"
 	rw "github.com/mattn/go-runewidth"
 	ui "github.com/metaspartan/gotui/v5"
 )
@@ -16,6 +17,7 @@ const (
 	overlayDrivers
 	overlayModePicker
 	overlayPlan
+	overlayCost
 	overlayHelp
 	overlayDetails
 	overlayConfirm
@@ -278,6 +280,7 @@ type detailOverlay struct {
 	err     string
 	status  string
 	changes []string
+	usage   *sessionstore.UsageLedger
 	offset  int
 	lines   []renderLine
 	width   int
@@ -321,6 +324,7 @@ func (d *detailOverlay) loaded(payload any, err error) {
 	if p, ok := payload.(detailPayload); ok {
 		d.status = p.status
 		d.changes = p.changes
+		d.usage = p.usage
 	}
 	d.rebuild()
 }
@@ -328,6 +332,7 @@ func (d *detailOverlay) loaded(payload any, err error) {
 type detailPayload struct {
 	status  string
 	changes []string
+	usage   *sessionstore.UsageLedger
 }
 
 func (d *detailOverlay) rebuild() {
@@ -345,6 +350,12 @@ func (d *detailOverlay) rebuild() {
 	}
 	for _, line := range strings.Split(strings.TrimRight(d.status, "\n"), "\n") {
 		add(line, d.theme.Body)
+	}
+	// The cost total belongs to the ledger, not the git status: nil means nothing
+	// was measured, so the line is absent rather than $0.00.
+	if d.usage != nil {
+		d.lines = append(d.lines, renderLine{})
+		add(sessionCostLine(d.theme, d.usage.Total()), ui.Style{Fg: d.theme.Accent, Bg: d.theme.Panel, Modifier: ui.ModifierBold})
 	}
 	d.lines = append(d.lines, renderLine{})
 	add(d.theme.tr("CHANGES"), ui.Style{Fg: d.theme.Accent, Bg: d.theme.Panel, Modifier: ui.ModifierBold})

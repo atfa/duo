@@ -242,6 +242,13 @@ var zhUI = map[string]string{
 	"signatures from %s":                            "%s 的签名",
 	"Tony's verification result":                    "Tony 的验证结果",
 
+	// Cost ledger panel (T9b).
+	"COST":                   "成本",
+	"AGENTS":                 "代理",
+	"PHASES":                 "阶段",
+	"no usage measured yet":  "尚未测量用量",
+	"Esc close":              "Esc 关闭",
+
 	// Human-attention desktop notifications (T8). The reason text is the
 	// coordinator's projection; the dashboard only translates it.
 	"Duo needs you": "Duo 需要你",
