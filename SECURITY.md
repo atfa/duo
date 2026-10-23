@@ -63,6 +63,30 @@ Durable sessions write to `~/.duo/sessions/<repo-id>/<session-id>/`:
 The directory is owner-only. Files are not encrypted and describe project activity;
 treat them as local development artifacts and do not share them casually.
 
+## Remote control
+
+A phone can steer a session through a relay that is deliberately content-blind.
+
+- The pairing secret exists only in the QR code's URL fragment and in
+  `~/.duo/remote.json`, which is written `0600`. A browser never sends a
+  fragment to a server, so the relay never receives the secret.
+- The relay stores ciphertext envelopes and `proof`, a keyed hash of the secret.
+  Holding `proof` lets an operator join a room; it does not reveal the secret and
+  does not allow reading a message.
+- A command from the phone carries a MAC over the fields a relay could change
+  and a nonce the host issued, so a relay operator cannot inject or replay an
+  instruction. The host refuses a bad MAC, a nonce from a state older than the
+  last eight it published, a command id it already executed, and an unsupported
+  kind, and reports the refusal to the phone.
+- The relay can refuse, delay or drop traffic, and it can close the room when a
+  free-tier budget is exceeded. None of that can stop the local session.
+- A pairing expires after at most 8 hours and can be revoked with `/remote off`,
+  which deletes the room on the relay and the pairing file locally.
+- A cleartext relay URL is accepted only for a loopback host, so a pairing secret
+  cannot be sent over plain HTTP to a remote machine by accident.
+
+The wire format and its limits are in [docs/remote-protocol.md](docs/remote-protocol.md).
+
 ## Reporting a security issue
 
 Please avoid publishing exploit details in a public issue before maintainers have had

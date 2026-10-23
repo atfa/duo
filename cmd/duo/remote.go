@@ -201,10 +201,21 @@ func (m *remoteManager) watch(ctx context.Context, client *remote.Client) {
 	sub, cancel := m.svc.Subscribe(32)
 	defer cancel()
 	client.PublishState()
+	// An observer report is view state, not an event: it arrives when a model
+	// answers, which can be a minute after the phone asked. Polling only while a
+	// report is in flight costs nothing when nobody asked for one, and stops on
+	// its own, so the phone is never on a timer.
+	poll := time.NewTicker(observerReportPoll)
+	defer poll.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-poll.C:
+			if m.svc.View().Observer.Analyzing {
+				client.PublishState()
+			}
+			continue
 		case ev, ok := <-sub.Events:
 			if !ok {
 				return
@@ -224,6 +235,11 @@ func (m *remoteManager) watch(ctx context.Context, client *remote.Client) {
 		}
 	}
 }
+
+// observerReportPoll is how often the host checks for a finished observer
+// report while one is in flight. It is slow on purpose: the observer is
+// on-demand, and a report is worth waiting a few seconds for, not streaming.
+const observerReportPoll = 5 * time.Second
 
 // eventKind maps a session event to the incremental update a phone applies, or
 // returns "" when the change needs a full snapshot.

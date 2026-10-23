@@ -105,6 +105,19 @@ Agent bridge 提供八个 Duo 工具，用于同伴消息、共享状态、计�
 
 缺少密钥时面板会直接说明；请求超时、模型返回空内容或 HTTP 状态码非 2xx 时会写入 session 日志并在面板中显示诊断，这些都不会影响协调流程。若报告因 `maxTokens` 被截断，内容仍会显示，同时把截断作为诊断报告，而不是静默丢掉后面的小节。尚无报告时，面板会说明观察器未启用、缺少密钥，还是尚未被请求过。
 
+## 远程控制
+
+启动 Duo 并交代任务后，输入 `/qrcode`。用手机扫码：页面显示 Austin 与 Tony 的
+运行状态和最近动态，可以下达新任务、开启新会话、刷新观察者报告。中继是一个
+Cloudflare Worker，只存储密文，因此提示词与仓库路径都留在本机；配对密钥位于二维码
+URL 的 fragment 中，浏览器不会把它发送给服务器。
+
+配对信息保存在 `~/.duo/remote.json`（权限 `0600`），有效期 8 小时，并会自动重连，
+因此 `/new` 之后手机无需重新扫码。`/remote` 查看状态，`/remote off` 撤销配对。
+可在配置文件的 `remote` 段或 `DUO_REMOTE_URL` 中设置中继地址，默认为
+`https://remote.xduo.dev`；`remote/` 目录中的 Worker 可自行部署。见
+[docs/remote.md](docs/remote.md)。
+
 ## 恢复与交付
 
 `duo resume [session-id]` 恢复已保存的会话；`duo sessions` 列出会话。恢复会保留会话记录的模式；没有记录模式的旧会话按 Goal 恢复，且 `DUO_MODE` 不会覆盖已恢复的会话。批准后，Duo 只通过快进（fast-forward）原始分支来交付。若交付受阻，排除原因后用 `duo apply` 重试。`duo logs` 列出会话记录；`duo clean` 删除已完成的会话数据与工作树。每个命令都支持 `--help`。

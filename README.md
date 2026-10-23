@@ -105,6 +105,21 @@ Each report has three sections, in the interface language: what the agents just 
 
 A missing key is explained by the panel itself; timeouts, empty answers, and non-2xx responses are recorded in the session log and shown as diagnostics in the panel, and none of them interrupt coordination. A report cut off by `maxTokens` still appears, with the truncation reported as a diagnostic rather than silently losing its later sections. With no report yet, the panel says whether the observer is disabled, missing a key, or simply has not been asked.
 
+## Remote control
+
+Run Duo, give it a task, then type `/qrcode`. Scan the code with a phone: the
+page shows Austin's and Tony's state and recent activity, sends a new task,
+starts a fresh session and refreshes the observer's report. The relay is a
+Cloudflare Worker that stores ciphertext only, so prompts and repository paths
+stay on your machine; the pairing secret travels in the QR code's URL fragment,
+which a browser never sends to a server.
+
+A pairing lives in `~/.duo/remote.json` (`0600`) for 8 hours and reconnects by
+itself, so `/new` keeps the phone connected. `/remote` shows the status,
+`/remote off` revokes it. Configure the relay with a `remote` section in the
+config file or `DUO_REMOTE_URL`; the default is `https://remote.xduo.dev`, and
+the Worker in `remote/` is yours to deploy. See [docs/remote.md](docs/remote.md).
+
 ## Resume and delivery
 
 `duo resume [session-id]` restores a saved session; `duo sessions` lists sessions. Resume keeps the session's recorded mode; legacy sessions without one resume as Goal, and `DUO_MODE` does not override a resumed session. After approval, Duo delivers by fast-forwarding the original branch only. If delivery is blocked, resolve the cause and retry with `duo apply`. `duo logs` lists transcripts; `duo clean` removes completed session data and worktrees. Each command supports `--help`.

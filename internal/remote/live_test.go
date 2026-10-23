@@ -3,6 +3,8 @@ package remote
 import (
 	"context"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -95,4 +97,60 @@ func liveGuest(t *testing.T, pairing Pairing) *fakePeer {
 		t.Fatalf("guest handshake: got %+v", ready)
 	}
 	return peer
+}
+
+// TestLivePageCommandRoundTrip is the cross-implementation check: the phone's
+// own modules (remote/public/console.js and crypto.js, DOM-free by design) act
+// as the guest against the real Worker, and this Go client is the host. A task
+// signed by the page has to reach the Go sink, and the Go answer has to come
+// back to the page.
+func TestLivePageCommandRoundTrip(t *testing.T) {
+	base := strings.TrimSpace(os.Getenv("DUO_RELAY_BASE"))
+	if base == "" {
+		t.Skip("DUO_RELAY_BASE is not set; see scripts/remote-e2e.sh")
+	}
+	// A test runs in its package directory, so the checkout root is two levels up.
+	script, err := filepath.Abs(filepath.Join("..", "..", "remote", "e2e", "page.mjs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(script); err != nil {
+		t.Skipf("the page guest is not in the checkout: %v", err)
+	}
+	pairing, err := NewPairing(base, time.Now(), 10*time.Minute)
+	if err != nil {
+		t.Fatalf("NewPairing: %v", err)
+	}
+	sink := &fakeSink{}
+	client, err := New(Options{
+		Pairing:  pairing,
+		Sink:     sink,
+		Snapshot: staticState("duo"),
+		Logf:     t.Logf,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	startClient(t, client)
+	waitFor(t, "host connection", func() bool { return client.Status().Connected })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	page := exec.CommandContext(ctx, "node", script, base, pairing.Room, pairing.Key, "from the page")
+	page.Stdout = os.Stderr
+	page.Stderr = os.Stderr
+	if err := page.Start(); err != nil {
+		t.Fatalf("start the page guest: %v", err)
+	}
+	waitFor(t, "the page's task", func() bool {
+		tasks, _, _ := sink.snapshot()
+		return len(tasks) > 0
+	})
+	if err := page.Wait(); err != nil {
+		t.Fatalf("the page guest failed: %v", err)
+	}
+	tasks, _, _ := sink.snapshot()
+	if tasks[0] != "from the page" {
+		t.Fatalf("the host received %q", tasks[0])
+	}
 }
