@@ -30,7 +30,25 @@ export type DuoMessageType =
   | "model_state"
   | "cycle_thinking"
   | "thinking_state"
-  | "restart_duo";
+  | "restart_duo"
+  | "usage";
+
+/**
+ * What one completed agent turn cost, as the driver measured it. Must match
+ * `protocol.Usage` in the Go runtime. The driver reports only what it can
+ * measure: Duo never estimates cost on the agent's behalf, and a driver that
+ * does not declare the `usage` capability has its reports ignored.
+ */
+export type DuoUsage = {
+  /** Turns this report covers; omitted means one. */
+  turns?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  totalTokens?: number;
+  costUSD?: number;
+};
 
 /**
  * Structured verification result used by FAST mode and by a STEP `[fast]` item.
@@ -80,6 +98,9 @@ export type DuoMessage = {
   contextTokens?: number;
   contextWindow?: number;
   tokensPerSecond?: number;
+
+  /** Cost ledger: one completed turn's measured token and cost totals. */
+  usage?: DuoUsage;
 
   activity?: string;
   timestamp?: number;

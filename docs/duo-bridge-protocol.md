@@ -90,6 +90,23 @@ output; Core renders this instead of trying to parse a PTY.
 Core shows this in the shared timeline and records it in the transcript. It is how
 the peer agent sees what the other one said.
 
+## Reporting what a turn cost
+
+```json
+{"version":1,"type":"usage","agent":"Austin","usage":{"inputTokens":1200,"outputTokens":340,"cacheReadTokens":9000,"cacheWriteTokens":0,"totalTokens":10540,"costUSD":0.042}}
+```
+
+Send one `usage` message per completed agent turn, with the tokens and dollar cost
+your agent measured — never an estimate Duo has to trust. Core adds it to the
+session's cost ledger (per agent and per phase), and the ledger survives resume, so
+`duo sessions` can show what a session cost in total.
+
+Send it only if your manifest declared `usage: true`; Core ignores usage from a
+driver that did not, because an unmeasured turn must stay unmeasured rather than
+enter the ledger as a guess. Omit `turns` for a single turn (it means 1); omit
+`totalTokens` and Core derives it from the four parts. A report of all zeros is
+dropped: nothing happened, so nothing is recorded.
+
 ## Receiving instructions
 
 Core sends these. The ones that matter for an Agent Adapter:

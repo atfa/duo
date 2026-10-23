@@ -292,6 +292,7 @@ agent-owned bridge.
   "liveThinkingSwitch": false,
   "contextUsage": true,
   "tokenRate": false,
+  "usage": true,
   "bridge": "agent",
   "ptyFallback": true,
   "liveSteering": true,
@@ -309,6 +310,7 @@ agent-owned bridge.
 | `liveThinkingSwitch` | the same, for reasoning effort. |
 | `contextUsage` | Core shows the context-window figure you send, and ignores the numbers you send when this is false. |
 | `tokenRate` | the same, for an output-rate estimate. |
+| `usage` | Core records the `usage` messages you send in the session's cost ledger. When false, Core ignores them: an unmeasured turn stays unmeasured instead of entering the ledger as a guess. |
 | `bridge` | who holds Duo's one bridge endpoint. See below. |
 | `ptyFallback` | Core may deliver a prompt by writing to the agent's terminal when no bridge can take it. |
 | `liveSteering` | a peer message reaches the agent **mid-turn**, rather than being queued until it finishes. |

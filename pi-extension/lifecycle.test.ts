@@ -295,3 +295,76 @@ test("tool and stream activity carry the preview detail", async () => {
     detail: "first line second line",
   });
 });
+
+test("a measured assistant turn reports its usage once", async () => {
+  const handlers = new Map<string, (event: any) => Promise<void>>();
+  const sent: any[] = [];
+  installLifecycle(
+    {
+      on: (name: string, handler: (event: any) => Promise<void>) =>
+        handlers.set(name, handler),
+    },
+    {
+      setHandler() {},
+      sendActivity() {},
+      send: (message: any) => sent.push(message),
+    } as any,
+    "Austin",
+  );
+
+  const messageEnd = handlers.get("message_end")!;
+  await messageEnd({
+    message: {
+      role: "assistant",
+      stopReason: "stop",
+      content: [{ type: "text", text: "done" }],
+      usage: {
+        input: 1200,
+        output: 340,
+        cacheRead: 9000,
+        cacheWrite: 0,
+        totalTokens: 10540,
+        cost: { input: 0.01, output: 0.02, cacheRead: 0.005, cacheWrite: 0, total: 0.035 },
+      },
+    },
+  });
+
+  const usage = sent.filter((m) => m.type === "usage");
+  expect(usage).toHaveLength(1);
+  expect(usage[0]).toMatchObject({
+    agent: "Austin",
+    usage: {
+      inputTokens: 1200,
+      outputTokens: 340,
+      cacheReadTokens: 9000,
+      cacheWriteTokens: 0,
+      totalTokens: 10540,
+      costUSD: 0.035,
+    },
+  });
+});
+
+test("an unmeasured turn reports no usage", async () => {
+  const handlers = new Map<string, (event: any) => Promise<void>>();
+  const sent: any[] = [];
+  installLifecycle(
+    {
+      on: (name: string, handler: (event: any) => Promise<void>) =>
+        handlers.set(name, handler),
+    },
+    { setHandler() {}, sendActivity() {}, send: (m: any) => sent.push(m) } as any,
+    "Tony",
+  );
+
+  const messageEnd = handlers.get("message_end")!;
+  // No usage at all (a local reply), and an all-zero usage: neither is a measurement.
+  await messageEnd({ message: { role: "assistant", content: [{ type: "text", text: "x" }] } });
+  await messageEnd({
+    message: {
+      role: "assistant",
+      content: [{ type: "text", text: "y" }],
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } },
+    },
+  });
+  expect(sent.filter((m) => m.type === "usage")).toEqual([]);
+});
