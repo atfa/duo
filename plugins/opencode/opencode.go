@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/atfa/duo/internal/driver"
+	"github.com/atfa/duo/internal/mcp"
 )
 
 // Name is the driver name an operator selects with `--agent opencode`.
@@ -158,6 +159,9 @@ func (*Plugin) Describe() (*driver.Manifest, error) {
 			// something, so the bridge attaches late and Core announces the
 			// connection at process start.
 			SelfReports: false,
+			// The launch command wires Duo's MCP server, so the agent can call
+			// every coordination tool.
+			Tools: mcp.ToolNames(),
 		},
 		// The extension reports every turn over the bridge, and the launch command
 		// below points opencode at Duo's MCP server.

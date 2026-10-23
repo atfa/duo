@@ -17,6 +17,7 @@ import (
 	"sync"
 
 	"github.com/atfa/duo/internal/driver"
+	"github.com/atfa/duo/internal/mcp"
 	"github.com/atfa/duo/internal/protocol"
 )
 
@@ -134,6 +135,9 @@ func (p *Plugin) Describe() (*driver.Manifest, error) {
 			// The endpoint cannot attach until agy has told us which conversation
 			// it opened, so Core announces the connection at process start.
 			SelfReports: false,
+			// The launch command wires Duo's MCP server, so the agent can call
+			// every coordination tool.
+			Tools: mcp.ToolNames(),
 		},
 		// The watcher reports agy's turns over the bridge, and the launch command
 		// below points agy at Duo's MCP server.

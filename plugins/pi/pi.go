@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/atfa/duo/internal/driver"
+	"github.com/atfa/duo/internal/mcp"
 )
 
 // Name is the driver name an operator selects with `--agent pi`.
@@ -68,6 +69,9 @@ func (Plugin) Describe() (*driver.Manifest, error) {
 			LiveSteering: true,
 			// It connects on session_start, which is as early as it can.
 			SelfReports: true,
+			// The launch command wires Duo's MCP server, so the agent can call
+			// every coordination tool.
+			Tools: mcp.ToolNames(),
 		},
 		// The extension reports every turn over the bridge, and the launch command
 		// below points Pi at Duo's MCP server.

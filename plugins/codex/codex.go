@@ -70,6 +70,9 @@ func (p *Plugin) Describe() (*driver.Manifest, error) {
 			Thinking:    true,
 			Bridge:      driver.BridgeNone,
 			PTYFallback: true,
+			// The launch command wires Duo's MCP server, so the agent can call
+			// every coordination tool.
+			Tools: mcp.ToolNames(),
 		},
 		MCP:      true,
 		Activity: true,

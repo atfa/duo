@@ -322,15 +322,24 @@ to the agent. The canonical names are the ones `duo mcp-server` serves; the list
 exported as `mcp.ToolNames()` so a plugin can declare the set it wires without
 copy-pasting strings.
 
-Core enforces the declaration in `duo plugins test`: every declared name must be a
-real tool, a non-empty set requires the `prepare` command to wire `duo mcp-server`,
-and a manifest with `mcp: false` must declare no tools. An empty or absent list is
-the conservative fallback for plugins written before this field existed: Core
-advertises the full set, exactly as it did before.
+Core enforces the declaration in `duo plugins test` (check `tools-declared`): every
+declared name must be a real tool, and a manifest with `mcp: false` must declare no
+tools, because with no MCP server the agent has no endpoint to call them on. A
+non-empty declaration is your statement about how the launch command wires the
+tools: Core cannot prove it from the command line — an MCP config file, an
+extension flag, and a `duo mcp-server` child are all valid wiring — so it enforces
+the name list and the `mcp` consistency, not the wiring itself. An empty or absent
+list is not a failure: it is a plugin written before this field existed, and Core
+keeps advertising the full set for it.
 
 This is the fix for the failure mode where a prompt tells the agent to call a tool
 that is not reachable in its session: the agent wastes turns on a tool that does not
 exist, and the human watches. Declare the set your launch command really wires.
+
+One trade-off is worth knowing: Core filters the rendered prompt text, clause by
+clause, and drops any clause naming a tool the agent cannot call. A `duo_*` name
+anywhere in that text — including in a step title you published — is subject to the
+same rule, so describe queue and plan items in words other than tool names.
 
 The rule above is enforced, not just stated: a field that Core does not branch on
 cannot stay in this table. `TestEveryCapabilityIsBranchedOn` in
