@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { ROOM, PROOF, envelope, hello, newRoom, register, socket } from "./harness.js";
+import { ROOM, PROOF, envelope, hello, newRoom, register, reopen, socket } from "./harness.js";
 
 // Every test drives the shipped RelayRoom through its HTTP and hibernation
 // handlers; only storage, sockets and the clock are faked.
@@ -124,6 +124,33 @@ test("a second host takes the room over and the old socket is told why", async (
 
   assert.deepEqual(first.server.last(), { t: "bye", code: "replaced" });
   assert.equal(second.server.frames()[0].t, "ready");
+});
+
+test("a room survives hibernation: the constructor reruns on the same storage", async () => {
+  const harness = await paired();
+  const host = await socket(harness.room, harness.state);
+  host.deliver(hello({ role: "host" }));
+  host.deliver({ t: "msg", seq: 1, kind: "state", iv: "aXY-aXY-aXY", ct: "Y3Q" });
+
+  // New instance, same SQLite storage and socket attachments.
+  const woken = await reopen(harness);
+
+  // The live host keeps publishing without a new hello.
+  woken.room.webSocketMessage(host.server, JSON.stringify({ t: "msg", seq: 2, kind: "event", iv: "aXY-aXY-aXY", ct: "Y3Q" }));
+  assert.equal(woken.room.currentSeq(), 2);
+
+  // A reconnecting guest is authenticated against the stored room row, not
+  // against instance state that no longer exists.
+  const guest = await socket(woken.room, woken.state);
+  guest.deliver(hello({ since: 1 }));
+  const frames = guest.server.frames();
+  assert.equal(frames[0].t, "ready");
+  assert.equal(frames[0].room, ROOM);
+  assert.equal(frames[0].seq, 2);
+  assert.deepEqual(
+    frames.filter((frame) => frame.t === "msg").map((frame) => frame.seq),
+    [2],
+  );
 });
 
 test("commands are deduped by id, rate limited, and rejected while the host is away", async () => {

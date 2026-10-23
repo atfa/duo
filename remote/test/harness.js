@@ -152,6 +152,17 @@ export async function newRoom({ now = 1_700_000_000_000 } = {}) {
   };
 }
 
+// reopen builds a new instance on the same storage and sockets, which is what
+// workerd does after a hibernation eviction: only SQLite and each socket's
+// serialized attachment survive the constructor running again.
+export async function reopen(harness) {
+  const { RelayRoom } = await import("../src/room.js");
+  const room = new RelayRoom(harness.state, {});
+  const clock = harness.now();
+  room.nowMs = () => clock;
+  return { ...harness, room };
+}
+
 export async function newRegistrar({ now = 1_700_000_000_000 } = {}) {
   const { Registrar } = await import("../src/registrar.js");
   const state = new FakeState();

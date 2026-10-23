@@ -312,10 +312,13 @@ export class RelayRoom {
     if (frame.v !== VERSION || (frame.role !== "host" && frame.role !== "guest")) {
       return this.reject(ws, "auth");
     }
-    if (!validProof(frame.proof) || frame.room !== this.roomID) return this.reject(ws, "auth");
+    if (!validProof(frame.proof)) return this.reject(ws, "auth");
 
+    // The room id comes from the stored row, not from this instance: after a
+    // hibernation eviction the constructor runs again and only storage and the
+    // sockets' attachments survive.
     const row = this.roomRow();
-    if (!row || row.revoked_at) return this.reject(ws, "auth");
+    if (!row || row.revoked_at || frame.room !== row.id) return this.reject(ws, "auth");
     if (row.expires_at <= now) {
       this.send(ws, errorFrame("expired"));
       try {
@@ -344,7 +347,7 @@ export class RelayRoom {
     }
 
     ws.serializeAttachment({ authed: true, role: frame.role, at: this.nowMs() });
-    this.send(ws, readyFrame(this.roomID, this.currentSeq(), row.expires_at));
+    this.send(ws, readyFrame(row.id, this.currentSeq(), row.expires_at));
 
     const since = isSeq(frame.since) ? frame.since : 0;
     const replay = this.all(
