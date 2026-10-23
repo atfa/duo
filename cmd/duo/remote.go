@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/gotui"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
@@ -204,13 +205,34 @@ func (m *remoteManager) watch(ctx context.Context, client *remote.Client) {
 		select {
 		case <-ctx.Done():
 			return
-		case _, ok := <-sub.Events:
+		case ev, ok := <-sub.Events:
 			if !ok {
 				return
+			}
+			// A conversation line is cheap and frequent, so it goes out as an
+			// event; anything that changes the workflow goes out as a whole
+			// snapshot, which is the one thing a phone can always render.
+			if kind := eventKind(ev.Kind); kind != "" {
+				client.PublishEvent(remote.Event{
+					Kind:  kind,
+					Agent: string(ev.Agent),
+					Text:  clip(ev.Text, 240),
+				})
+				continue
 			}
 			client.PublishState()
 		}
 	}
+}
+
+// eventKind maps a session event to the incremental update a phone applies, or
+// returns "" when the change needs a full snapshot.
+func eventKind(kind events.Kind) string {
+	switch kind {
+	case events.KindAssistant, events.KindPeer, events.KindUser, events.KindSystem, events.KindError, events.KindVerdict:
+		return remote.EventActivity
+	}
+	return ""
 }
 
 // snapshot maps the session view into the projection a phone renders.

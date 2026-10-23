@@ -136,6 +136,18 @@ type State struct {
 	Activity []Activity       `json:"activity"`
 	Observer ObserverState    `json:"observer"`
 	Delivery *DeliveryState   `json:"delivery"`
+
+	// Command is the outcome of the last command the phone sent, so a rejected
+	// instruction is visible on the phone instead of only in a local log.
+	Command *CommandResult `json:"command"`
+}
+
+// CommandResult is the host's answer to one command, addressed by its id.
+type CommandResult struct {
+	ID       string `json:"id"`
+	Kind     string `json:"kind"`
+	Accepted bool   `json:"accepted"`
+	Note     string `json:"note,omitempty"`
 }
 
 // StepState is the current Step-mode entry, or nil when the mode has no queue.
@@ -186,6 +198,15 @@ type DeliveryState struct {
 	Head    string `json:"head"`
 	Note    string `json:"note"`
 }
+
+// Event kinds, the values of Event.Kind.
+const (
+	EventActivity = "activity"
+	EventPhase    = "phase"
+	EventAgent    = "agent"
+	EventObserver = "observer"
+	EventDelivery = "delivery"
+)
 
 // Event is an incremental update between snapshots.
 type Event struct {

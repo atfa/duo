@@ -3,6 +3,7 @@ package remote
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -332,3 +333,153 @@ func TestWebSocketURLRefusesCleartextRemoteRelays(t *testing.T) {
 // wire state has no seq field (the envelope carries it), so the test keeps the
 // last envelope's sequence on the peer instead.
 func (p *fakePeer) seqOf() int64 { return p.lastSeq }
+
+// A command the session refuses has to be visible on the phone: it is the only
+// place the human is looking, and a silent local log reads as a lost message.
+func TestPublishedStateCarriesTheCommandResult(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		id, kind string
+		text     string
+		mutate   func(t *testing.T, guest *fakePeer, p Pairing, n int64)
+		accepted bool
+		notes    string
+	}{
+		{
+			name: "accepted", id: "cmd-a", kind: CmdTask, text: "run the tests",
+			accepted: true,
+		},
+		{
+			name: "empty task", id: "cmd-e", kind: CmdTask, text: "   ",
+			accepted: false, notes: "empty",
+		},
+		{
+			name: "stale nonce", id: "cmd-s", kind: CmdTask, text: "go",
+			mutate: func(t *testing.T, guest *fakePeer, p Pairing, n int64) {
+				sendCommand(t, guest, p, "cmd-s", CmdTask, "go", n+500)
+			},
+			accepted: false, notes: "older state",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			relay := newFakeRelay(t)
+			p := testPairing(t, relay)
+			sink := &fakeSink{}
+			c, err := New(Options{Pairing: p, Sink: sink, Snapshot: staticState("duo"),
+				RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf})
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			startClient(t, c)
+			waitFor(t, "host connection", func() bool { return c.Status().Connected })
+			guest := relay.guest(t, p)
+			state := guest.nextState(t, p, 5*time.Second)
+
+			if tc.mutate != nil {
+				tc.mutate(t, guest, p, state.N)
+			} else {
+				sendCommand(t, guest, p, tc.id, tc.kind, tc.text, state.N)
+			}
+			next := guest.nextState(t, p, 5*time.Second)
+			if next.Command == nil {
+				t.Fatal("the republished state carried no command result")
+			}
+			if next.Command.ID != tc.id {
+				t.Errorf("result id = %q, want %q", next.Command.ID, tc.id)
+			}
+			if next.Command.Accepted != tc.accepted {
+				t.Errorf("accepted = %v, want %v (note %q)", next.Command.Accepted, tc.accepted, next.Command.Note)
+			}
+			if tc.notes != "" && !strings.Contains(next.Command.Note, tc.notes) {
+				t.Errorf("note = %q, want it to mention %q", next.Command.Note, tc.notes)
+			}
+		})
+	}
+}
+
+// A repeated command is a retry after a lost ack, so it must not run twice and
+// must say so on the phone.
+func TestRepeatedCommandIsReportedAsAlreadyExecuted(t *testing.T) {
+	relay := newFakeRelay(t)
+	p := testPairing(t, relay)
+	sink := &fakeSink{}
+	c, err := New(Options{Pairing: p, Sink: sink, Snapshot: staticState("duo"),
+		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	startClient(t, c)
+	waitFor(t, "host connection", func() bool { return c.Status().Connected })
+	guest := relay.guest(t, p)
+	state := guest.nextState(t, p, 5*time.Second)
+
+	sendCommand(t, guest, p, "cmd-dup", CmdTask, "go", state.N)
+	waitFor(t, "first execution", func() bool {
+		tasks, _, _ := sink.snapshot()
+		return len(tasks) == 1
+	})
+	// The relay dedupes by id, so a retry has to reach the host directly.
+	if err := c.PublishEvent(Event{Kind: EventActivity, Agent: "austin", Text: "working"}); err != nil {
+		t.Fatalf("PublishEvent: %v", err)
+	}
+	plaintext, err := json.Marshal(Command{V: ProtocolVersion, ID: "cmd-dup", Kind: CmdTask, Text: "go",
+		N: state.N, MAC: mustMAC(t, p, "cmd-dup", CmdTask, state.N, "go")})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	iv, ct, err := p.SealCommand("cmd-dup", plaintext)
+	if err != nil {
+		t.Fatalf("SealCommand: %v", err)
+	}
+	c.handleCommand(frame{T: frameCmd, ID: "cmd-dup", IV: iv, CT: ct})
+	if tasks, _, _ := sink.snapshot(); len(tasks) != 1 {
+		t.Errorf("the repeated command ran %d times, want 1", len(tasks))
+	}
+	c.PublishState()
+	next := guest.nextState(t, p, 5*time.Second)
+	if next.Command == nil || next.Command.Accepted {
+		t.Fatalf("the repeated command was not reported as refused: %+v", next.Command)
+	}
+	if !strings.Contains(next.Command.Note, "already") {
+		t.Errorf("note = %q, want it to mention that the command already ran", next.Command.Note)
+	}
+}
+
+func TestEventPushReachesTheGuest(t *testing.T) {
+	relay := newFakeRelay(t)
+	p := testPairing(t, relay)
+	sink := &fakeSink{}
+	c, err := New(Options{Pairing: p, Sink: sink, Snapshot: staticState("duo"),
+		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	startClient(t, c)
+	waitFor(t, "host connection", func() bool { return c.Status().Connected })
+	guest := relay.guest(t, p)
+	guest.nextState(t, p, 5*time.Second)
+
+	if err := c.PublishEvent(Event{Kind: EventActivity, Agent: "tony", Text: "editing room.js"}); err != nil {
+		t.Fatalf("PublishEvent: %v", err)
+	}
+	plaintext := guest.nextMessage(t, p, KindEvent, 5*time.Second)
+	var ev Event
+	if err := json.Unmarshal(plaintext, &ev); err != nil {
+		t.Fatalf("parse event: %v", err)
+	}
+	if ev.Kind != EventActivity || ev.Agent != "tony" || ev.Text != "editing room.js" {
+		t.Errorf("event = %+v", ev)
+	}
+	if ev.N == 0 {
+		t.Error("the event carried no nonce, so a command could not be tied to it")
+	}
+}
+
+func mustMAC(t *testing.T, p Pairing, id, kind string, n int64, text string) string {
+	t.Helper()
+	mac, err := p.SignCommand(id, kind, n, text)
+	if err != nil {
+		t.Fatalf("SignCommand: %v", err)
+	}
+	return mac
+}

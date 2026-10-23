@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/remote"
 	"github.com/atfa/duo/internal/session"
 )
@@ -175,4 +176,29 @@ func TestRemoteStartRegistersBeforeReturningPairing(t *testing.T) {
 		t.Fatal("Start did not return after registration completed")
 	}
 	manager.stopClient()
+}
+
+// A conversation line is cheap and frequent, so it goes out as an event; a
+// workflow change must go out as a whole snapshot, which is the one thing a
+// phone can always render.
+func TestEventKindSplitsEventsFromSnapshots(t *testing.T) {
+	cases := []struct {
+		kind events.Kind
+		want string
+	}{
+		{events.KindAssistant, remote.EventActivity},
+		{events.KindPeer, remote.EventActivity},
+		{events.KindUser, remote.EventActivity},
+		{events.KindVerdict, remote.EventActivity},
+		{events.KindError, remote.EventActivity},
+		{events.KindAttention, ""},
+		{events.KindHarness, ""},
+		{events.KindModel, ""},
+		{events.KindThinking, ""},
+	}
+	for _, tc := range cases {
+		if got := eventKind(tc.kind); got != tc.want {
+			t.Errorf("eventKind(%s) = %q, want %q", tc.kind, got, tc.want)
+		}
+	}
 }
