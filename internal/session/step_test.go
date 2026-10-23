@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/atfa/duo/internal/coordinator"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/recovery"
@@ -156,6 +158,54 @@ func TestNeedsDeliveryStepCase(t *testing.T) {
 	}
 }
 
+// TestRequestHandlersAssumeTheServiceLockIsHeld covers the lock contract Do
+// depends on: it dispatches with s.mu held, and sync.RWMutex is not reentrant,
+// so a handler that locked again hung the interface's event loop on /new. The
+// handlers are called here the way Do calls them — with s.mu already held — so
+// reintroducing the second lock fails this test instead of the human's terminal.
+func TestRequestHandlersAssumeTheServiceLockIsHeld(t *testing.T) {
+	svc := &Service{coord: &coordinator.Coordinator{}}
+	svc.mu.Lock()
+	done := make(chan error, 2)
+	go func() { done <- svc.requestNewSession() }()
+	go func() { done <- svc.requestRestart(RestartDuo{Reason: "r"}) }()
+	for i := 0; i < 2; i++ {
+		select {
+		case err := <-done:
+			if err != nil {
+				svc.mu.Unlock()
+				t.Fatalf("handler: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			svc.mu.Unlock()
+			t.Fatal("request handler blocked while the caller holds s.mu: it must not lock again")
+		}
+	}
+	if !svc.newSession || svc.restart.Reason != "r" {
+		svc.mu.Unlock()
+		t.Fatal("the requests did not land on the view")
+	}
+	svc.mu.Unlock()
+
+	// And through Do, which is how the interface sends them.
+	viaDo := make(chan error, 2)
+	go func() { viaDo <- svc.Do(context.Background(), NewSession{}) }()
+	go func() { viaDo <- svc.Do(context.Background(), RestartDuo{Reason: "upgrade"}) }()
+	for i := 0; i < 2; i++ {
+		select {
+		case err := <-viaDo:
+			if err != nil {
+				t.Fatalf("Do: %v", err)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("Do deadlocked")
+		}
+	}
+	if !svc.newSession || svc.restart.Reason != "upgrade" {
+		t.Fatal("the requests did not reach the view")
+	}
+}
+
 // TestRestartRequestReachesTheView is the self-upgrade plumbing: the CLI reads
 // the request off the view to write its handoff file and exit with the sentinel
 // code, so a request that never reaches the view would stop nothing.
@@ -173,16 +223,13 @@ func TestRestartRequestReachesTheView(t *testing.T) {
 	}
 }
 
-// TestNewSessionRequestReachesTheView is the /new plumbing: the CLI reads the
-// flag off the view to re-run duo after the session is closed, so a request
-// that never reaches the view would leave the human at a shell prompt.
 func TestNewSessionRequestReachesTheView(t *testing.T) {
-	svc := &Service{}
+	svc := &Service{coord: &coordinator.Coordinator{}}
 	if svc.View().NewSession {
 		t.Fatal("a fresh session must not ask for a new session")
 	}
-	if err := svc.requestNewSession(); err != nil {
-		t.Fatalf("requestNewSession: %v", err)
+	if err := svc.Do(context.Background(), NewSession{}); err != nil {
+		t.Fatalf("Do(NewSession): %v", err)
 	}
 	if !svc.View().NewSession {
 		t.Fatal("the /new request must reach the view")

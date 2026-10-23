@@ -10,6 +10,11 @@ All notable project milestones are documented here.
   session is preserved exactly as Ctrl+Q preserves it (resumable with `duo resume`)
   and the terminal stays open while the new session takes over.
 
+- Fixed: `/new` froze the terminal on Enter. The command handler took the session
+  lock that `Do` already held, so the interface's event loop blocked forever and
+  not even Ctrl+Q was read. `/new` also no longer prints a stop notice onto the
+  screen the next session is about to paint over.
+
 ### Cost and context pressure
 
 - `/cost` shows what a session has spent: per agent and per phase, with the session

@@ -1052,19 +1052,19 @@ func cloneAgentStrings(src map[protocol.AgentID]string) map[protocol.AgentID]str
 // itself: Duo stops, and a launcher outside Duo resumes the session on the new
 // binary. The request is in-memory on purpose — a restart that never happened is
 // recoverable with `duo resume`, a persisted one would restart a session forever.
+//
+// Do calls it with s.mu held, so it must not take the lock itself.
 func (s *Service) requestRestart(c RestartDuo) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.restart = RestartRequest{Reason: strings.TrimSpace(c.Reason), Install: c.Install}
 	return nil
 }
 
 // requestNewSession records the /new request. In-memory for the same reason as
 // the restart request: a relaunch that never happened is recoverable with
-// `duo resume`, a persisted one would relaunch the session forever.
+// `duo resume`, a persisted one would relaunch the session forever. Do calls it
+// with s.mu held, so it must not take the lock itself: sync.RWMutex is not
+// reentrant and /new would deadlock the interface.
 func (s *Service) requestNewSession() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.newSession = true
 	return nil
 }
