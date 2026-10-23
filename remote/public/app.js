@@ -25,6 +25,7 @@ let expiresAt = 0;
 let attempts = 0;
 let hostPresent = false;
 let fatal = false;
+let authRetries = 0;
 let retryTimer = 0;
 let pingTimer = 0;
 let expiryTimer = 0;
@@ -91,6 +92,15 @@ function fail(status, message) {
 function handleError(code) {
   switch (code) {
     case "auth":
+      // A scan can land in the moment between the computer minting the room and
+      // registering it on the relay. Give that a few short retries before
+      // calling the key rejected; a rotated key still ends as fatal.
+      if (authRetries < 5) {
+        authRetries += 1;
+        setMessage("Waiting for the computer to register this pairing…");
+        scheduleReconnect();
+        break;
+      }
       fail("rejected", "The relay rejected this key. It may have been rotated or revoked.");
       break;
     case "expired":
@@ -168,6 +178,7 @@ function handleFrame(text) {
   if (!frame || typeof frame !== "object") return;
   switch (frame.t) {
     case "ready":
+      authRetries = 0;
       expiresAt = Number(frame.expiresAt) || 0;
       startExpiry();
       setStatus("paired", "ok");
