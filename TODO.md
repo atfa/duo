@@ -35,7 +35,7 @@
 **负责人** Austin（协议）/ Tony（插件与文档）
 
 ### T3 `duo doctor` 环境自检命令
-- [ ] 完成：
+- [x] 完成：c11225b7e1f1 · 2026-10-23（`cmd/duo/doctor.go` 13 项检查带诊断码与修复建议；clidoc 注册；gotui 首跑失败提示运行）
 
 **位置** `cmd/duo/main.go:21-71`（case 分发：apply/sessions/logs/clean/mcp-server/plugins/step-loop，无 doctor）；`internal/clidoc/clidoc.go:37-92`（commands 表）
 **问题** 首跑失败不可诊断：driver CLI 不在 PATH、pi/opencode 扩展未装、config 非法、worktree 残留、base 分支不可交付等故障以 gotui 启动失败或会话内隐晦报错呈现，新用户无法自助定位。
@@ -46,7 +46,7 @@
 **负责人** Austin
 
 ### T8 “需要人类”通知（BEL + OSC 777）
-- [ ] 完成：
+- [x] 完成：4a9d5f0e95 · 2026-10-23（`events.KindAttention` 四类原因码 + coordinator 四发出点 + `notify` 配置贯通 View；gotui BEL + OSC 777 写 /dev/tty，文案跟随 `/language`，toast 保留）
 
 **位置** `internal/gotui/`（全仓 grep 无 BEL/OSC 777 输出）；事件源：`internal/coordinator/coordinator.go`（冲突/delivery 拒绝/验证等待）、DONE 摘要路径 `internal/coordinator/summary.go`
 **问题** 冲突、delivery 拒绝、Fast 验证等待、DONE 摘要就绪这些“必须人类行动”的信号只在 dashboard 内呈现；人切到别的终端/标签页就永久漏掉，会话静默挂起。
@@ -54,7 +54,7 @@
 **验收** `internal/gotui/notify_test.go` 新增 `TestHumanAttentionEmitsBellAndOSC777`（断言输出字节序列）、`TestNotifyDisabledByConfig`；翻译表 `internal/gotui/i18n.go` 补 zh 文案。
 **依赖** 无
 **验证** make check
-**负责人** Tony
+**负责人** Tony（gotui）/ Austin（Core 事件与配置）
 
 ### T9 用量与成本账本 + 上下文压力预警
 - [ ] 完成：
