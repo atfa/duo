@@ -4,7 +4,7 @@
 // here, so a phone that drops its Wi-Fi catches up on its own.
 
 import { LinkError, decryptEnvelope, deriveKeys, parsePairingKey, parseRoom } from "./crypto.js";
-import { applyEvent, buildCommand, viewModel } from "./console.js";
+import { applyEvent, buildCommand, nextSeq, viewModel } from "./console.js";
 
 const RECONNECT_MIN_MS = 500;
 const RECONNECT_MAX_MS = 15000;
@@ -230,18 +230,18 @@ function handleBye(code) {
 
 async function handleEnvelope(frame) {
   if (!Number.isSafeInteger(frame.seq) || !frame.kind || typeof frame.iv !== "string" || typeof frame.ct !== "string") return;
-  // A recreated room restarts its sequence: a non-increasing seq is a new epoch.
-  if (frame.seq <= lastSeq) lastSeq = 0;
-  lastSeq = Math.max(lastSeq, frame.seq);
+  // The newest sequence number wins; one that does not move forward means the
+  // room was recreated and the epoch restarts there.
+  lastSeq = nextSeq(lastSeq, frame.seq);
   try {
     const plain = await decryptEnvelope(keys.encKey, room, frame);
     if (frame.kind === "state") {
       model = viewModel(plain);
-      // The host publishes a state after it applies a command, so a state is
-      // the acknowledgement that a command landed.
-      if (pending) {
+      // The host answers the command it received, by id. A result for a command
+      // this page no longer has is ignored: it belongs to an earlier attempt.
+      if (pending && model.command && model.command.id === pending.id) {
+        setSent(model.command.accepted ? "Sent." : model.command.note || "The computer refused the command.");
         pending = null;
-        setSent("Sent.");
       }
     } else if (frame.kind === "event") {
       model = applyEvent(model, plain);
@@ -266,7 +266,7 @@ function handleFrame(text) {
     case "ready":
       authRetries = 0;
       expiresAt = Number(frame.expiresAt) || 0;
-      if (Number.isSafeInteger(frame.seq) && frame.seq <= lastSeq) lastSeq = 0;
+      lastSeq = nextSeq(lastSeq, Number(frame.seq));
       startExpiry();
       setStatus("paired", "ok");
       break;

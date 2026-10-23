@@ -5,11 +5,12 @@ import { applyEvent, buildCommand, nextSeq, viewModel } from "../public/console.
 import { b64uEncode, decryptEnvelope, deriveKeys, parsePairingKey, sealCommand } from "../public/crypto.js";
 import { VECTOR } from "./vectors.js";
 
-test("the sequence rule restarts the epoch on a recreated room", () => {
+test("the newest sequence number wins, and a restart moves the epoch", () => {
   assert.equal(nextSeq(0, 1), 1);
   assert.equal(nextSeq(4, 5), 5);
   assert.equal(nextSeq(7, 2), 2);
   assert.equal(nextSeq(3, 0), 3);
+  assert.equal(nextSeq(3, undefined), 3);
 });
 
 test("a state payload becomes a renderable model, tolerating missing fields", () => {
@@ -46,7 +47,10 @@ test("events fold into the model and unknown kinds are ignored", () => {
   assert.equal(withActivity.activity.length, 1);
   assert.equal(withActivity.nonce, 4);
   assert.equal(applyEvent(base, { kind: "phase", text: "REVIEW" }).phase, "REVIEW");
-  assert.equal(applyEvent(base, { kind: "observer", text: "report text" }).observer.report, "report text");
+  // Observer and delivery results arrive with the next snapshot, never guessed
+  // from a one-line event.
+  assert.equal(applyEvent(base, { kind: "observer", text: "report text" }), base);
+  assert.equal(applyEvent(base, { kind: "delivery", text: "applied" }), base);
   assert.equal(applyEvent(base, { kind: "from-the-future", text: "x" }), base);
 });
 
@@ -90,4 +94,15 @@ test("a sealed command does not decrypt under a message envelope", async () => {
   await assert.rejects(
     decryptEnvelope(encKey, VECTOR.room, { kind: "state", seq: "cmd-9", iv: sealed.iv, ct: sealed.ct }),
   );
+});
+
+test("a state carries the host's answer to the last command", () => {
+  const answered = viewModel({
+    n: 9,
+    command: { id: "cmd-1", kind: "task", accepted: false, note: "the task was empty" },
+  });
+  assert.equal(answered.command.id, "cmd-1");
+  assert.equal(answered.command.accepted, false);
+  assert.equal(answered.command.note, "the task was empty");
+  assert.equal(viewModel({ n: 1 }).command, null);
 });

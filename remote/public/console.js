@@ -7,11 +7,12 @@
 export const COMMAND_KINDS = new Set(["task", "new_session", "observer_report"]);
 export const MAX_ACTIVITY = 12;
 
-// nextSeq implements the sequence rule: a recreated room restarts at 1, so a
-// sequence that does not move forward is a new epoch rather than a stale frame.
+// nextSeq is the sequence rule: the newest sequence number wins, and one that
+// does not move forward means the room was recreated, so the epoch restarts at
+// that number. A frame with no usable seq leaves the watermark alone.
 export function nextSeq(lastSeq, seq) {
   if (!Number.isSafeInteger(seq) || seq < 1) return lastSeq;
-  return seq <= lastSeq ? seq : lastSeq + (seq - lastSeq);
+  return seq;
 }
 
 function text(value, fallback = "") {
@@ -85,6 +86,17 @@ export function viewModel(state) {
             note: clip(source.delivery.note, 160),
           }
         : null,
+    // The host answers the last command it received, addressed by id, so a
+    // refusal is visible on the phone instead of only in a local log.
+    command:
+      source.command && typeof source.command === "object"
+        ? {
+            id: text(source.command.id),
+            kind: text(source.command.kind),
+            accepted: source.command.accepted === true,
+            note: clip(source.command.note, 200),
+          }
+        : null,
   };
 }
 
@@ -93,7 +105,7 @@ export function viewModel(state) {
 // reconnect, so a dropped event can only ever cost a moment of detail.
 export function applyEvent(model, event) {
   if (!model || !event || typeof event !== "object") return model;
-  if (!["activity", "phase", "agent", "observer", "delivery"].includes(event.kind)) return model;
+  if (!["activity", "phase", "agent"].includes(event.kind)) return model;
   const next = { ...model, activity: model.activity.slice() };
   if (Number.isSafeInteger(event.n)) next.nonce = event.n;
   const at = time(event.at);
@@ -117,13 +129,9 @@ export function applyEvent(model, event) {
       }
       break;
     }
-    case "observer":
-      next.observer = { analyzing: false, report: body || next.observer.report };
-      break;
-    case "delivery":
-      next.delivery = { applied: true, head: "", note: body };
-      break;
     default:
+      // Observer and delivery results are richer than one line, so they arrive
+      // with the next snapshot rather than being guessed from an event.
       break;
   }
   return next;
