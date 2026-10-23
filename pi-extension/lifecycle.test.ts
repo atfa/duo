@@ -296,7 +296,7 @@ test("tool and stream activity carry the preview detail", async () => {
   });
 });
 
-test("a measured assistant turn reports its usage once", async () => {
+test("a turn's round-trips are reported once, at agent_settled", async () => {
   const handlers = new Map<string, (event: any) => Promise<void>>();
   const sent: any[] = [];
   installLifecycle(
@@ -313,11 +313,14 @@ test("a measured assistant turn reports its usage once", async () => {
   );
 
   const messageEnd = handlers.get("message_end")!;
+  const settled = handlers.get("agent_settled")!;
+
+  // One agent turn with a tool loop: two measured round-trips.
   await messageEnd({
     message: {
       role: "assistant",
-      stopReason: "stop",
-      content: [{ type: "text", text: "done" }],
+      stopReason: "toolUse",
+      content: [{ type: "text", text: "calling" }],
       usage: {
         input: 1200,
         output: 340,
@@ -328,20 +331,45 @@ test("a measured assistant turn reports its usage once", async () => {
       },
     },
   });
+  // Mid-turn round-trips report nothing on their own.
+  expect(sent.filter((m) => m.type === "usage")).toEqual([]);
+
+  await messageEnd({
+    message: {
+      role: "assistant",
+      stopReason: "stop",
+      content: [{ type: "text", text: "done" }],
+      usage: {
+        input: 500,
+        output: 100,
+        cacheRead: 2000,
+        cacheWrite: 0,
+        totalTokens: 2600,
+        cost: { input: 0.001, output: 0.002, cacheRead: 0.001, cacheWrite: 0, total: 0.004 },
+      },
+    },
+  });
+  await settled();
 
   const usage = sent.filter((m) => m.type === "usage");
   expect(usage).toHaveLength(1);
   expect(usage[0]).toMatchObject({
     agent: "Austin",
     usage: {
-      inputTokens: 1200,
-      outputTokens: 340,
-      cacheReadTokens: 9000,
+      turns: 1,
+      inputTokens: 1700,
+      outputTokens: 440,
+      cacheReadTokens: 11000,
       cacheWriteTokens: 0,
-      totalTokens: 10540,
-      costUSD: 0.035,
+      totalTokens: 13140,
+      costUSD: 0.039,
     },
   });
+
+  // The next turn starts from zero: a settled turn is not counted twice.
+  sent.length = 0;
+  await settled();
+  expect(sent.filter((m) => m.type === "usage")).toEqual([]);
 });
 
 test("an unmeasured turn reports no usage", async () => {
@@ -357,6 +385,7 @@ test("an unmeasured turn reports no usage", async () => {
   );
 
   const messageEnd = handlers.get("message_end")!;
+  const settled = handlers.get("agent_settled")!;
   // No usage at all (a local reply), and an all-zero usage: neither is a measurement.
   await messageEnd({ message: { role: "assistant", content: [{ type: "text", text: "x" }] } });
   await messageEnd({
@@ -366,5 +395,6 @@ test("an unmeasured turn reports no usage", async () => {
       usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } },
     },
   });
+  await settled();
   expect(sent.filter((m) => m.type === "usage")).toEqual([]);
 });
