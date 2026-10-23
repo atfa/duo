@@ -11,6 +11,12 @@ import (
 )
 
 func (a *App) route(event events.Event) {
+	// An attention event carries a reason code and no prose: it exists to reach the
+	// human over the terminal, not to join the conversation.
+	if event.Kind == events.KindAttention {
+		a.notifyHuman(event.Attention)
+		return
+	}
 	if event.Kind == events.KindModel && event.Model != "" {
 		ref := event.Model
 		if event.Provider != "" && !a.live.Agent(event.Agent).Manifest.Bare() && !strings.HasPrefix(ref, event.Provider+"/") {
