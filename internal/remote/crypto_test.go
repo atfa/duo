@@ -139,6 +139,39 @@ func TestCommandMACRejectsTampering(t *testing.T) {
 	}
 }
 
+// TestCrossLanguageVectorsFromThePage pins the values the mobile page uses, so a
+// change in either implementation shows up as a failing test rather than as a
+// phone that cannot decrypt.
+func TestCrossLanguageVectorsFromThePage(t *testing.T) {
+	p := Pairing{
+		Server: DefaultServer,
+		Room:   "QEFCQ0RFRkdISUpLTE1OTw",
+		Key:    "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
+	}
+	proof, err := p.Proof()
+	if err != nil {
+		t.Fatalf("Proof: %v", err)
+	}
+	if want := "lY4LXUExKI_Iu9P2mf-aQ6kQ81cqaTdyp9tTFSSOT3g"; proof != want {
+		t.Errorf("proof = %s, want %s", proof, want)
+	}
+	plaintext, err := p.OpenMessage(KindState, 1, "AQIDBAUGBwgJCgsM",
+		"tH3sLK7dMllmfr7Je85_wAfDvVr3nHftuuvP8In30ERgsENojPcqVHcLqhX7Ubz97D87hcvKwIcWfB-B6GpXz_V59p5MWaXd_2_2yEF1L_glKE83WgvZ35jUNA")
+	if err != nil {
+		t.Fatalf("OpenMessage: %v", err)
+	}
+	if want := `{"v":1,"t":"state","session":{"id":"demo","mode":"step","phase":"execute"}}`; string(plaintext) != want {
+		t.Errorf("plaintext = %s, want %s", plaintext, want)
+	}
+	mac, err := p.SignCommand("cmd-1", CmdTask, 7, "restart the build")
+	if err != nil {
+		t.Fatalf("SignCommand: %v", err)
+	}
+	if want := "z3lbGYzVxeRridRNlSahRvSQdrkPOnSAtC-BGqRVIH4"; mac != want {
+		t.Errorf("command MAC = %s, want %s", mac, want)
+	}
+}
+
 func TestPairingURLKeepsTheSecretInTheFragment(t *testing.T) {
 	p := Pairing{Server: "https://remote.example", Room: "r", Key: vectorKey}
 	got := p.URL()

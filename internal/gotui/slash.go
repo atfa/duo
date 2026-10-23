@@ -21,6 +21,8 @@ var slashCommands = []slashCommand{
 	{name: "/model", desc: "Model & thinking picker (Ctrl+M)"},
 	{name: "/plan", desc: "Read the shared plan and step queue (F3)"},
 	{name: "/cost", desc: "Session cost ledger: tokens and dollars per agent and phase"},
+	{name: "/qrcode", args: "[new]", desc: "Pair a phone: show the QR code and link"},
+	{name: "/remote", args: "[on|off|status]", desc: "Remote access: status, start or revoke"},
 	{name: "/observer", desc: "Configure the observer"},
 	{name: "/reports", desc: "Show the observer's status report (Ctrl+E)"},
 	{name: "/pause", desc: "Pause after the current turns finish"},

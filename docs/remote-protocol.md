@@ -22,7 +22,7 @@ user's machine. See [SECURITY.md](../SECURITY.md) for the threat model.
 | --- | --- | --- |
 | `GET` | `/p/{room}` | The static mobile page. The page is identical for every room and reads the secret from `location.hash`. |
 | `GET` | `/ws?room={room}` | WebSocket upgrade. The client offers subprotocol `duo.v1`; the `101` must echo it. |
-| `POST` | `/api/room` | Host-only registration. Body: `{"room","proof","ttlSeconds"}`. |
+| `POST` | `/api/room?room={room}` | Host-only registration. Body: `{"proof","ttlSeconds"}`. |
 | `DELETE` | `/api/room/{room}` | Revocation, authenticated with `Authorization: Bearer <proof>`. |
 | `GET` | `/healthz` | `ok`. Never falls through to the static assets. |
 
@@ -76,7 +76,8 @@ POST /api/room
 
 `DELETE /api/room/{room}` with the matching `proof` deletes the room record, its
 stored envelopes and its command ids, and closes every live socket with
-`bye{revoked}`. This is the `/remote off` path.
+`bye{revoked}`. It answers `204` even for a room that is already gone, so a
+caller can treat revocation as idempotent. This is the `/remote off` path.
 
 ## Handshake
 
@@ -99,8 +100,9 @@ Rules:
 - A `hello` with a malformed field, a `proof` that is not 43 base64url
   characters, or a proof that does not match the stored one in constant time is
   `error{auth}` followed by a close.
-- A `hello` for a missing, expired or revoked room is `error{auth}` followed by
-  a close. Guests can never create a room; only `POST /api/room` can.
+- A `hello` for a missing or revoked room is `error{auth}` followed by a close;
+  for an expired room it is `error{expired}`, which is equally terminal. Guests
+  can never create a room; only `POST /api/room` can.
 - Unauthenticated sockets are bounded: the relay closes one that sends no valid
   `hello` within 5 seconds, and holds at most 2 unauthenticated sockets per
   room.
@@ -108,6 +110,13 @@ Rules:
   `bye{replaced}` and is closed. This is how `/new` keeps the phone connected.
 - `since` replays stored envelopes with `seq > since` in ascending order, for
   host and guest alike.
+- `seq` is **host-assigned**: the host sets it on every `msg` because it is part
+  of the AEAD additional data, so the host must know it before it encrypts. A
+  fresh room starts at 1; the relay persists the host's `seq`, rejects a
+  non-increasing one with `error{bad_frame}`, and never rewrites it. `ready.seq`
+  is the last persisted value, and the host continues at `ready.seq + 1`. A
+  recreated room reports `ready.seq = 0`, and the guest treats `seq <= lastSeq`
+  as a new epoch rather than as a duplicate.
 - At most 8 authenticated sockets per room.
 
 ## Frames
@@ -139,9 +148,17 @@ Keepalive and control:
 ```json
 {"t":"ping"}                                  // client → relay
 {"t":"pong"}                                  // relay → client
+{"t":"presence","host":true,"guests":1}       // relay → client, after every join/leave
 {"t":"bye","code":"revoked|expired|over_budget|replaced"}
-{"t":"error","code":"auth|bad_frame|rate_limited|expired|room_full|unsupported"}
+{"t":"error","code":"auth|bad_frame|rate_limited|expired|room_full|offline|unsupported"}
 ```
+
+`presence` tells a guest whether a host is attached, which is how the page says
+"Duo is offline" instead of looking frozen. `error{offline}` answers a command
+sent while no host socket is connected; that command is not recorded, so the
+guest may retry the same `id` once a host returns. `error{rate_limited}` and
+`error{offline}` are recoverable; `bye{over_budget}`, `bye{revoked}` and
+`bye{expired}` end the room for this client.
 
 `ack` prunes replay state for messages both sides are done with; the relay keeps
 at least the last 50 envelopes regardless, and the last 100 command ids.
@@ -265,9 +282,10 @@ costs no duration.
 | frame size | 4 KiB | `error{bad_frame}` |
 | sockets per room | 8 | `error{room_full}` |
 | unauthenticated sockets | 2, 5 s to hello | close |
-| guest commands | 30/min | `error{rate_limited}` |
+| guest commands | 30/min per room | `error{rate_limited}`, then `bye{over_budget}` |
 | relayed messages | 2000/day/room | `bye{over_budget}` |
 | room lifetime | 8 h maximum | `bye{expired}`, room deleted |
+| revocation tombstone | 24 h | registration and `hello` refused with `error{auth}` |
 
 `over_budget` and `expired` close the remote connection only. Duo keeps running
 locally, which is the whole point of the default free-tier posture.

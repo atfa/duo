@@ -20,15 +20,16 @@ const (
 	MaxPlaintext = 3000
 
 	// Frame kinds.
-	frameHello = "hello"
-	frameReady = "ready"
-	frameMsg   = "msg"
-	frameCmd   = "cmd"
-	frameAck   = "ack"
-	framePing  = "ping"
-	framePong  = "pong"
-	frameBye   = "bye"
-	frameError = "error"
+	frameHello    = "hello"
+	frameReady    = "ready"
+	frameMsg      = "msg"
+	frameCmd      = "cmd"
+	frameAck      = "ack"
+	framePing     = "ping"
+	framePong     = "pong"
+	framePresence = "presence"
+	frameBye      = "bye"
+	frameError    = "error"
 
 	// Roles.
 	RoleHost  = "host"
@@ -86,6 +87,8 @@ type frame struct {
 	ID        string `json:"id,omitempty"`
 	Code      string `json:"code,omitempty"`
 	ExpiresAt int64  `json:"expiresAt,omitempty"`
+	Host      bool   `json:"host,omitempty"`
+	Guests    int    `json:"guests,omitempty"`
 }
 
 func decodeFrame(data []byte) (frame, error) {

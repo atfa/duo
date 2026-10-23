@@ -17,6 +17,7 @@ import (
 	"github.com/atfa/duo/internal/observer"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
+	"github.com/atfa/duo/internal/remote"
 	"github.com/atfa/duo/internal/session"
 	"github.com/atfa/duo/internal/workspace"
 )
@@ -71,6 +72,12 @@ type config struct {
 	// contextWarnPercent is the context occupancy at which Duo tells an agent its
 	// window is nearly full. It defaults to 85; 0 turns the warning off.
 	contextWarnPercent int
+
+	// remoteURL is the relay a phone pairs through, and remoteEnabled is whether
+	// a stored pairing may be resumed. Both are resolved here so the remote
+	// manager receives a decision rather than reading the environment itself.
+	remoteURL     string
+	remoteEnabled bool
 }
 
 // helpRequested reports whether arg asks for usage instead of an action. Every
@@ -181,6 +188,17 @@ type configFile struct {
 	// Duo tells an agent to start wrapping up. 0 turns the warning off; the default
 	// is 85.
 	ContextWarnPercent *int `json:"contextWarnPercent,omitempty"`
+
+	// Remote configures the phone pairing relay.
+	Remote *remoteFile `json:"remote,omitempty"`
+}
+
+// remoteFile is the remote section of a config file. Enabled is a pointer so an
+// absent key means "on" and a project file can switch one repository off
+// without touching the user's global setting.
+type remoteFile struct {
+	URL     string `json:"url,omitempty"`
+	Enabled *bool  `json:"enabled,omitempty"`
 }
 
 type agentFile struct {
@@ -547,6 +565,24 @@ func loadConfigCommand(args []string, resume bool) (config, error) {
 		return config{}, fmt.Errorf("contextWarnPercent must be between 0 and 100, got %d", contextWarnPercent)
 	}
 
+	// The relay is a decision, not a guess: a config file may name it, the
+	// environment wins over the file, and the shared relay is the default.
+	remoteURL := remote.DefaultServer
+	remoteEnabled := true
+	if fileCfg.Remote != nil {
+		if fileCfg.Remote.URL != "" {
+			remoteURL = fileCfg.Remote.URL
+		}
+		if fileCfg.Remote.Enabled != nil {
+			remoteEnabled = *fileCfg.Remote.Enabled
+		}
+	}
+	remoteURL = envString("DUO_REMOTE_URL", remoteURL)
+	remoteEnabled = envBool("DUO_REMOTE", remoteEnabled)
+	if err := validateRemoteURL(remoteURL); err != nil {
+		return config{}, err
+	}
+
 	return config{
 		listen:              envString("DUO_LISTEN", "127.0.0.1:0"),
 		harnessEnabled:      harnessEnabled,
@@ -576,6 +612,8 @@ func loadConfigCommand(args []string, resume bool) (config, error) {
 		modeSource:          modeSource,
 		modeRaw:             parsed.mode,
 		modeExplicit:        parsed.modeExplicit,
+		remoteURL:           remoteURL,
+		remoteEnabled:       remoteEnabled,
 	}, nil
 }
 
@@ -642,7 +680,7 @@ func loadMergedConfigFile(launchDir string) (configFile, error) {
 	}
 	for _, p := range candidates {
 		projectCfg, err := loadConfigFile(p)
-		if err == nil && (projectCfg.Mode != "" || projectCfg.Language != "" || projectCfg.PiCommand != "" || projectCfg.Driver != "" || projectCfg.TestCommand != "" || len(projectCfg.Agents) > 0 || projectCfg.Harness != (harnessFile{}) || projectCfg.Observer != nil || projectCfg.Notify != nil || projectCfg.ContextWarnPercent != nil) {
+		if err == nil && (projectCfg.Mode != "" || projectCfg.Language != "" || projectCfg.PiCommand != "" || projectCfg.Driver != "" || projectCfg.TestCommand != "" || len(projectCfg.Agents) > 0 || projectCfg.Harness != (harnessFile{}) || projectCfg.Observer != nil || projectCfg.Notify != nil || projectCfg.ContextWarnPercent != nil || projectCfg.Remote != nil) {
 			mergeConfig(&merged, projectCfg)
 			break
 		} else if err != nil && !os.IsNotExist(err) {
@@ -713,6 +751,17 @@ func mergeConfig(dst *configFile, src configFile) {
 	}
 	if src.ContextWarnPercent != nil {
 		dst.ContextWarnPercent = src.ContextWarnPercent
+	}
+	if src.Remote != nil {
+		if dst.Remote == nil {
+			dst.Remote = &remoteFile{}
+		}
+		if src.Remote.URL != "" {
+			dst.Remote.URL = src.Remote.URL
+		}
+		if src.Remote.Enabled != nil {
+			dst.Remote.Enabled = src.Remote.Enabled
+		}
 	}
 }
 

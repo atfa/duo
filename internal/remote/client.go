@@ -50,14 +50,16 @@ type Options struct {
 
 // Status is the connection as a frontend may render it.
 type Status struct {
-	Active    bool      `json:"active"`
-	Server    string    `json:"server"`
-	Room      string    `json:"room"`
-	ExpiresAt time.Time `json:"expiresAt"`
-	Connected bool      `json:"connected"`
-	LastAck   int64     `json:"lastAck"`
-	LastError string    `json:"lastError,omitempty"`
-	Published int64     `json:"published"`
+	Active      bool      `json:"active"`
+	Server      string    `json:"server"`
+	Room        string    `json:"room"`
+	ExpiresAt   time.Time `json:"expiresAt"`
+	Connected   bool      `json:"connected"`
+	LastAck     int64     `json:"lastAck"`
+	LastError   string    `json:"lastError,omitempty"`
+	Published   int64     `json:"published"`
+	HostPresent bool      `json:"hostPresent"`
+	Guests      int       `json:"guests"`
 }
 
 // Client keeps one room connected and republishes state as it changes.
@@ -367,6 +369,11 @@ func (c *Client) readLoop(ctx context.Context, conn *websocket.Conn, done chan<-
 		switch f.T {
 		case frameCmd:
 			c.handleCommand(f)
+		case framePresence:
+			c.mu.Lock()
+			c.status.HostPresent = f.Host
+			c.status.Guests = f.Guests
+			c.mu.Unlock()
 		case frameAck:
 			c.mu.Lock()
 			if f.Seq > c.status.LastAck {
@@ -527,7 +534,6 @@ func (c *Client) register(ctx context.Context) error {
 		ttl = int64(MaxRoomTTL.Seconds())
 	}
 	body, err := json.Marshal(map[string]any{
-		"room":       c.opts.Pairing.Room,
 		"proof":      proof,
 		"ttlSeconds": ttl,
 	})
@@ -535,7 +541,8 @@ func (c *Client) register(ctx context.Context) error {
 		return err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		strings.TrimRight(c.opts.Pairing.Server, "/")+"/api/room", bytes.NewReader(body))
+		strings.TrimRight(c.opts.Pairing.Server, "/")+"/api/room?room="+url.QueryEscape(c.opts.Pairing.Room),
+		bytes.NewReader(body))
 	if err != nil {
 		return err
 	}

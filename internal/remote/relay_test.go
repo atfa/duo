@@ -71,7 +71,15 @@ func (r *fakeRelay) register(w http.ResponseWriter, req *http.Request) {
 		Proof      string `json:"proof"`
 		TTLSeconds int64  `json:"ttlSeconds"`
 	}
-	if err := json.NewDecoder(req.Body).Decode(&body); err != nil || !ValidRoom(body.Room) || !ValidProof(body.Proof) {
+	if err := json.NewDecoder(req.Body).Decode(&body); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	// The room travels in the query string; the body carries the proof and TTL.
+	if room := req.URL.Query().Get("room"); room != "" {
+		body.Room = room
+	}
+	if !ValidRoom(body.Room) || !ValidProof(body.Proof) {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
 	}
