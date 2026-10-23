@@ -1,4 +1,4 @@
-import type { AgentName, DuoMessage } from "./protocol";
+import type { AgentName, DuoMessage, DuoUsage } from "./protocol";
 import { DuoTransport } from "./transport";
 
 function extractAssistantText(message: any): string | null {
@@ -94,6 +94,34 @@ function outputDeltaChars(event: any): number {
   )
     return 0;
   return typeof update.delta === "string" ? update.delta.length : 0;
+}
+
+/**
+ * Maps one Pi assistant message's measured usage onto Duo's cost ledger, in the
+ * shape `protocol.Usage` reads on the Go side. Pi measures tokens and the
+ * dollar total itself, so the extension reports exactly what Pi recorded and
+ * estimates nothing. A message without usage (a local reply, a failed request)
+ * reports nothing: an absent ledger entry means "not measured", which is not 0.
+ */
+export function usageReport(message: any): DuoUsage | null {
+  const usage = message?.role === "assistant" ? message?.usage : undefined;
+  if (!usage) return null;
+  const numbers = [usage.input, usage.output, usage.cacheRead, usage.cacheWrite];
+  const cost = usage.cost?.total;
+  const measured =
+    numbers.some((n) => Number.isFinite(n) && n > 0) ||
+    (Number.isFinite(cost) && cost > 0);
+  if (!measured) return null;
+  return {
+    inputTokens: Number.isFinite(usage.input) ? usage.input : 0,
+    outputTokens: Number.isFinite(usage.output) ? usage.output : 0,
+    cacheReadTokens: Number.isFinite(usage.cacheRead) ? usage.cacheRead : 0,
+    cacheWriteTokens: Number.isFinite(usage.cacheWrite) ? usage.cacheWrite : 0,
+    ...(Number.isFinite(usage.totalTokens) && usage.totalTokens > 0
+      ? { totalTokens: usage.totalTokens }
+      : {}),
+    costUSD: Number.isFinite(cost) ? cost : 0,
+  };
 }
 
 export function installLifecycle(
@@ -225,6 +253,16 @@ export function installLifecycle(
     }
     const text = extractAssistantText(message);
     if (text) lastAssistantText = text;
+    const usage = usageReport(message);
+    if (usage) {
+      transport.send({
+        version: 1,
+        type: "usage",
+        agent,
+        usage,
+        timestamp: Date.now(),
+      });
+    }
   });
 
   pi.on("agent_settled", async () => {

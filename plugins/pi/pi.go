@@ -62,6 +62,9 @@ func (Plugin) Describe() (*driver.Manifest, error) {
 			LiveThinkingSwitch: true,
 			ContextUsage:       true,
 			TokenRate:          true,
+			// Pi measures each turn's tokens and dollar cost on its assistant
+			// messages, and pi-extension reports them as usage messages.
+			Usage: true,
 			// pi-extension connects from inside the Pi process, so its endpoint can
 			// receive an injected prompt.
 			Bridge:       driver.BridgeAgent,

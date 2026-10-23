@@ -151,14 +151,14 @@ func listRepoSessions(baseDir, repoID, root string) error {
 		return nil
 	}
 
-	fmt.Printf("  %-28s  %-5s  %-9s  %-10s  %-19s  %-9s  %s\n",
-		"SESSION ID", "MODE", "PHASE", "BRANCH", "UPDATED", "WORKTREES", "STATUS")
+	fmt.Printf("  %-28s  %-5s  %-9s  %-10s  %-19s  %-9s  %-14s  %s\n",
+		"SESSION ID", "MODE", "PHASE", "BRANCH", "UPDATED", "WORKTREES", "COST", "STATUS")
 
 	var unfinished, completed int
 	for _, item := range list {
 		if item.Err != nil {
-			fmt.Printf("  %-28s  %-5s  %-9s  %-10s  %-19s  %-9s  %s\n",
-				item.SessionID, "-", "ERR", "-", "-", "-", fmt.Sprintf("corrupt (%v)", item.Err))
+			fmt.Printf("  %-28s  %-5s  %-9s  %-10s  %-19s  %-9s  %-14s  %s\n",
+				item.SessionID, "-", "ERR", "-", "-", "-", "-", fmt.Sprintf("corrupt (%v)", item.Err))
 			continue
 		}
 		snap := item.Snapshot
@@ -178,8 +178,8 @@ func listRepoSessions(baseDir, repoID, root string) error {
 		wtStatus := worktreePresence(snap)
 		status := sessionStatus(item)
 
-		fmt.Printf("  %-28s  %-5s  %-9s  %-10s  %-19s  %-9s  %s\n",
-			item.SessionID, mode, phase, branch, updated, wtStatus, status)
+		fmt.Printf("  %-28s  %-5s  %-9s  %-10s  %-19s  %-9s  %-14s  %s\n",
+			item.SessionID, mode, phase, branch, updated, wtStatus, sessionCost(item), status)
 	}
 
 	fmt.Printf("\nTotal: %d session(s) (%d unfinished, %d completed)\n", len(list), unfinished, completed)
@@ -201,8 +201,8 @@ func listAllSessions(baseDir string) error {
 		return nil
 	}
 
-	fmt.Printf("  %-20s  %-28s  %-5s  %-9s  %-19s  %-9s  %s\n",
-		"REPO ID", "SESSION ID", "MODE", "PHASE", "UPDATED", "WORKTREES", "STATUS")
+	fmt.Printf("  %-20s  %-28s  %-5s  %-9s  %-19s  %-9s  %-14s  %s\n",
+		"REPO ID", "SESSION ID", "MODE", "PHASE", "UPDATED", "WORKTREES", "COST", "STATUS")
 
 	var totalSessions, totalCompleted int
 	for _, repoID := range repos {
@@ -213,8 +213,8 @@ func listAllSessions(baseDir string) error {
 		for _, item := range list {
 			totalSessions++
 			if item.Err != nil {
-				fmt.Printf("  %-20s  %-28s  %-5s  %-9s  %-19s  %-9s  %s\n",
-					repoID, item.SessionID, "-", "ERR", "-", "-", fmt.Sprintf("corrupt (%v)", item.Err))
+				fmt.Printf("  %-20s  %-28s  %-5s  %-9s  %-19s  %-9s  %-14s  %s\n",
+					repoID, item.SessionID, "-", "ERR", "-", "-", "-", fmt.Sprintf("corrupt (%v)", item.Err))
 				continue
 			}
 			snap := item.Snapshot
@@ -228,8 +228,8 @@ func listAllSessions(baseDir string) error {
 			wtStatus := worktreePresence(snap)
 			status := sessionStatus(item)
 
-			fmt.Printf("  %-20s  %-28s  %-5s  %-9s  %-19s  %-9s  %s\n",
-				repoID, item.SessionID, mode, phase, updated, wtStatus, status)
+			fmt.Printf("  %-20s  %-28s  %-5s  %-9s  %-19s  %-9s  %-14s  %s\n",
+				repoID, item.SessionID, mode, phase, updated, wtStatus, sessionCost(item), status)
 		}
 	}
 
@@ -262,6 +262,17 @@ func worktreePresence(snap sessionstore.Snapshot) string {
 	default:
 		return "none"
 	}
+}
+
+// sessionCost renders the ledger's session total for the table. A nil ledger
+// means nothing was measured (a snapshot from before the ledger existed, or a
+// driver that cannot measure), which is not "$0.00": it renders as "-".
+func sessionCost(item sessionstore.Summary) string {
+	if item.Snapshot.Usage == nil {
+		return "-"
+	}
+	total := item.Snapshot.Usage.Total()
+	return fmt.Sprintf("$%.2f · %dk tok", total.CostUSD, (total.TotalTokens+500)/1000)
 }
 
 func sessionStatus(item sessionstore.Summary) string {
