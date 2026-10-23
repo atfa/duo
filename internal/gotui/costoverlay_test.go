@@ -16,7 +16,7 @@ func costTestLedger() *sessionstore.UsageLedger {
 			protocol.Tony:   {Turns: 3, InputTokens: 2000, OutputTokens: 1000, TotalTokens: 4800, CostUSD: 0.13},
 		},
 		Phases: map[string]sessionstore.UsageTotals{
-			"PLAN":   {Turns: 5, TotalTokens: 6000, CostUSD: 0.20},
+			"PLAN":    {Turns: 5, TotalTokens: 6000, CostUSD: 0.20},
 			"EXECUTE": {Turns: 10, TotalTokens: 14000, CostUSD: 0.35},
 		},
 	}
