@@ -121,15 +121,6 @@ func main() {
 		if errors.Is(err, errUpgradeRequested) {
 			os.Exit(upgradeExitCode)
 		}
-		// /new is not a failure either: the session is preserved and this process
-		// becomes a fresh duo. If the exec fails the human is left with the session
-		// preserved, so name the command that continues and exit cleanly.
-		if errors.Is(err, errNewSessionRequested) {
-			if rerr := relaunchDuo(); rerr != nil {
-				fmt.Fprintf(os.Stderr, "Duo could not start a new session: %v\nRun `duo` in this repository to start one; the preserved session can be resumed with `duo resume`.\n", rerr)
-			}
-			return
-		}
 		// A first run fails on a machine problem the operator can fix: a driver CLI
 		// that is not installed, a config file that does not parse, a repository that
 		// cannot receive the result. Naming the command that says which one is the
@@ -146,16 +137,34 @@ func main() {
 // internal/session, so this function differs from any other frontend only in the
 // interface it attaches and the lines it prints afterwards.
 func run(ctx context.Context, cfg config) error {
-	return runWith(ctx, cfg, func(ctx context.Context, svc *session.Service) error {
-		app := gotui.New(svc)
-		// Drivers are built before the interface exists, so any diagnostic one
-		// of them reported is shown now, in its own words.
-		app.Notices(svc.Notices())
-		if err := app.Run(ctx); err != nil && ctx.Err() == nil {
-			log.Printf("Duo gotui: %v", err)
+	// The terminal is opened once, on first use, and kept across /new: a new
+	// session paints over the old one instead of leaving the alternate screen.
+	var term *gotui.Terminal
+	defer func() { _ = term.Close() }()
+	for {
+		err := runWith(ctx, cfg, func(ctx context.Context, svc *session.Service) error {
+			if term == nil {
+				opened, openErr := gotui.OpenTerminal()
+				if openErr != nil {
+					return openErr
+				}
+				term = opened
+			}
+			app := gotui.New(svc)
+			// Drivers are built before the interface exists, so any diagnostic one
+			// of them reported is shown now, in its own words.
+			app.Notices(svc.Notices())
+			if err := app.RunTerminal(ctx, term); err != nil && ctx.Err() == nil {
+				log.Printf("Duo gotui: %v", err)
+			}
+			return nil
+		})
+		if errors.Is(err, errNewSessionRequested) && ctx.Err() == nil {
+			cfg = cfg.freshSession()
+			continue
 		}
-		return nil
-	})
+		return err
+	}
 }
 
 // runWith starts a session, attaches the interface this frontend chose, and owns

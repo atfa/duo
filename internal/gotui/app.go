@@ -354,21 +354,59 @@ func (a *App) pauseProgress() string {
 	return a.theme.tr("pausing") + ": " + part(protocol.Austin) + " · " + part(protocol.Tony) + " · " + a.theme.tr("/unpause cancels")
 }
 
+// Terminal is one opened terminal. It outlives a single App so that /new can
+// hand the same screen to the next session: the alternate screen is never left,
+// and the old picture stays until the new session paints its first frame.
+type Terminal struct{ backend *ui.Backend }
+
+// OpenTerminal takes over the real terminal.
+func OpenTerminal() (*Terminal, error) {
+	backend, err := ui.NewBackend(nil)
+	if err != nil {
+		return nil, fmt.Errorf("open terminal UI: %w", err)
+	}
+	return &Terminal{backend: backend}, nil
+}
+
+// Close gives the terminal back.
+func (t *Terminal) Close() error {
+	if t == nil || t.backend == nil {
+		return nil
+	}
+	t.backend.Close()
+	return nil
+}
+
+// Run opens its own terminal and closes it when the app stops.
 func (a *App) Run(ctx context.Context) error {
+	term, err := OpenTerminal()
+	if err != nil {
+		return err
+	}
+	defer term.Close()
+	return a.RunTerminal(ctx, term)
+}
+
+// RunTerminal runs the app on a terminal the caller owns and keeps open.
+func (a *App) RunTerminal(ctx context.Context, t *Terminal) error {
+	if t == nil || t.backend == nil {
+		return fmt.Errorf("terminal UI has no terminal")
+	}
 	if a.svc == nil {
 		return fmt.Errorf("terminal UI has no session")
 	}
-	backend, err := ui.NewBackend(nil)
-	if err != nil {
-		return fmt.Errorf("open terminal UI: %w", err)
-	}
 	a.onboarding = true
-	return a.runWithBackend(ctx, backend)
+	return a.run(ctx, t.backend)
 }
 
 // runWithBackend is the testable half of Run. The backend must already be
-// initialized (real or SimulationScreen).
+// initialized (real or SimulationScreen); it is closed when the app stops.
 func (a *App) runWithBackend(ctx context.Context, backend *ui.Backend) error {
+	defer backend.Close()
+	return a.run(ctx, backend)
+}
+
+func (a *App) run(ctx context.Context, backend *ui.Backend) error {
 	if a.svc == nil {
 		return fmt.Errorf("terminal UI has no session")
 	}
@@ -378,7 +416,6 @@ func (a *App) runWithBackend(ctx context.Context, backend *ui.Backend) error {
 	if a.screen == nil {
 		return fmt.Errorf("terminal UI has no screen")
 	}
-	defer backend.Close()
 	a.screen.SetStyle(tcell.StyleDefault.Foreground(a.theme.Fg).Background(a.theme.Bg))
 	a.screen.EnableMouse()
 	a.screen.EnablePaste()
