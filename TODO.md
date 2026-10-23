@@ -13,7 +13,7 @@
 ## P0
 
 ### T1 MCP 桥补齐 duo_set_steps 与 duo_restart_duo
-- [ ] 完成：
+- [x] 完成：6cb62de · 2026-10-23
 
 **位置** `internal/mcp/server.go:30-103`（仅六个工具 Name：duo_status/send/set_status/set_verification/set_plan/escalate）、`:436-502`（executeTool switch）；`plugins/codex/codex.go:74`（`MCP: true`，以 `mcp_servers.duo.args=["mcp-server"]` 接线）；参数校验参照 `pi-extension/tools/steps.ts:17`、`restart.ts:15`；测试落点 `cmd/duo/mcp_test.go`
 **问题** MCP server 只注册 6 个工具，而 STEP 模式提示词（`internal/coordinator/coordinator.go:885/891`）命令双方 agent 用 `duo_set_steps` 发布队列 → codex（及任何 MCP-only 驱动）的 agent 收到指令却调不到工具，STEP 的 PLAN 阶段无法完成，队列永远发不出来。
