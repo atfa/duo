@@ -103,9 +103,11 @@ Rules:
 - A `hello` for a missing or revoked room is `error{auth}` followed by a close;
   for an expired room it is `error{expired}`, which is equally terminal. Guests
   can never create a room; only `POST /api/room` can.
-- Unauthenticated sockets are bounded: the relay closes one that sends no valid
-  `hello` within 5 seconds, and holds at most 2 unauthenticated sockets per
-  room.
+- Unauthenticated sockets are bounded: at most 2 are held per room (a further
+  upgrade is refused with `429`), and a `hello` that arrives more than 5 seconds
+  after the upgrade is rejected with `error{auth}`. An unauthenticated socket
+  that never sends anything is never authenticated, so it can never relay a
+  frame.
 - `role:"host"` takes over the room: the previous host socket receives
   `bye{replaced}` and is closed. This is how `/new` keeps the phone connected.
 - `since` replays stored envelopes with `seq > since` in ascending order, for
