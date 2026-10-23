@@ -59,6 +59,10 @@ scripts/remote-e2e.sh                                   # starts the local relay
 DUO_RELAY_BASE=https://remote.xduo.dev scripts/remote-e2e.sh   # checks a deploy
 ```
 
+With the Go client present in the checkout, the script also runs
+`go test ./internal/remote -run TestLive` against that relay, so the Worker and
+the Go client are checked against each other, not only against their own mocks.
+
 The suites drive the shipped `RelayRoom`/`Registrar` classes through their real
 HTTP and hibernation handlers, with `node:sqlite` for storage, fake sockets, and
 a fake clock: auth rejection, hello deadline, replay-from-`since`, host takeover,

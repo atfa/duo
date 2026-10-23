@@ -58,3 +58,9 @@ if [[ -z "${DUO_RELAY_BASE:-}" ]]; then
 fi
 
 DUO_RELAY_BASE="$BASE" node "$ROOT/remote/e2e/relay.mjs"
+
+# When the Go client is present, exercise its live test against the same relay.
+# This is the cross-language half of the check: one Worker, two implementations.
+if [[ -f "$ROOT/internal/remote/live_test.go" ]]; then
+  ( cd "$ROOT" && DUO_RELAY_BASE="$BASE" go test ./internal/remote -run 'TestLive' -count=1 )
+fi
