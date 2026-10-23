@@ -2,12 +2,16 @@ package gotui
 
 import (
 	"context"
+	"image"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/atfa/duo/internal/project"
 	"github.com/gdamore/tcell/v3"
+	"github.com/mattn/go-runewidth"
+	ui "github.com/metaspartan/gotui/v5"
+	qrcode "github.com/skip2/go-qrcode"
 )
 
 // remoteTestSnapshot is a started session, so /qrcode and /remote are not
@@ -57,8 +61,7 @@ func TestQRCodeLinesAreSquareAndComplete(t *testing.T) {
 		t.Fatalf("only %d rows; a pairing code is taller", len(lines))
 	}
 	width := -1
-	for i, line := range lines {
-		text := line.runs[0].text
+	for i, text := range lines {
 		runes := []rune(text)
 		if width == -1 {
 			width = len(runes)
@@ -76,8 +79,100 @@ func TestQRCodeLinesAreSquareAndComplete(t *testing.T) {
 		}
 	}
 	// The quiet zone is part of the bitmap, so the border rows are blank.
-	if strings.TrimSpace(lines[0].runs[0].text) != "" {
+	if strings.TrimSpace(lines[0]) != "" {
 		t.Error("the first row is not the quiet zone")
+	}
+}
+
+// A camera reads black modules on a light background. The overlay once painted
+// the modules white on the black panel: an inverted code, which phone scanners
+// reject, so a scan failed and the only link left on screen was the one without
+// the secret, which can never pair.
+func TestQRCodeIsDarkOnLight(t *testing.T) {
+	if qrStyle.Fg != ui.ColorBlack || qrStyle.Bg != ui.ColorWhite {
+		t.Fatalf("code style is fg=%v bg=%v; a scanner needs dark modules on a light cell", qrStyle.Fg, qrStyle.Bg)
+	}
+	const link = "https://remote.xduo.dev/p/QEFCQ0RFRkdISUpLTE1OTw#AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+	lines, err := qrLines(link)
+	if err != nil {
+		t.Fatalf("qrLines: %v", err)
+	}
+	// The drawn blocks must be exactly the symbol's dark modules, or the code is
+	// missing rows or has them flipped.
+	code, err := qrcode.New(link, qrcode.Medium)
+	if err != nil {
+		t.Fatalf("qrcode.New: %v", err)
+	}
+	bitmap := code.Bitmap()
+	// An odd module count is padded with one light row so every text row holds
+	// two modules; that row is quiet zone, not symbol.
+	if len(bitmap)%2 == 1 {
+		bitmap = append(bitmap, make([]bool, len(bitmap[0])))
+	}
+	if len(lines)*2 != len(bitmap) {
+		t.Fatalf("drew %d module rows, want %d", len(lines)*2, len(bitmap))
+	}
+	for y, text := range lines {
+		for x, r := range []rune(text) {
+			top, bottom := false, false
+			switch r {
+			case '█':
+				top, bottom = true, true
+			case '▀':
+				top = true
+			case '▄':
+				bottom = true
+			}
+			if top != bitmap[y*2][x] || bottom != bitmap[y*2+1][x] {
+				t.Fatalf("module (%d,%d) is drawn top=%v bottom=%v, want top=%v bottom=%v", x, y*2, top, bottom, bitmap[y*2][x], bitmap[y*2+1][x])
+			}
+		}
+	}
+}
+
+// A CJK locale makes go-runewidth measure the block glyphs as two cells wide
+// while the terminal draws them in one. Writing the code as a string then leaves
+// a panel-coloured gap in every second module column, which no scanner can read,
+// so the overlay places one cell per module instead.
+func TestQRCodeStaysContiguousUnderAWideLocale(t *testing.T) {
+	previous := runewidth.DefaultCondition.EastAsianWidth
+	runewidth.DefaultCondition.EastAsianWidth = true
+	t.Cleanup(func() { runewidth.DefaultCondition.EastAsianWidth = previous })
+
+	q := newQrcode(newTheme())
+	q.rebuild(RemotePairing{URL: "https://relay.example/p/room-1#secret"}, RemoteStatus{Room: "room-1", Connected: true})
+	if len(q.code) == 0 {
+		t.Fatal("the overlay has no pairing code")
+	}
+	q.SetRect(0, 0, len([]rune(q.code[0]))+4, len(q.code)+len(q.lines)+4)
+	buf := ui.NewBuffer(image.Rect(0, 0, q.Dx(), q.Dy()))
+	q.Draw(buf)
+
+	width := len([]rune(q.code[0]))
+	rows := 0
+	for y := 0; y < q.Dy(); y++ {
+		first, last, count := -1, -1, 0
+		for x := 0; x < q.Dx(); x++ {
+			cell := buf.GetCell(image.Pt(x, y))
+			if cell.Style.Fg != qrStyle.Fg || cell.Style.Bg != qrStyle.Bg {
+				continue
+			}
+			if first < 0 {
+				first = x
+			}
+			last = x
+			count++
+		}
+		if first < 0 {
+			continue
+		}
+		rows++
+		if count != width || last-first+1 != width {
+			t.Fatalf("code row %d has %d code cells spread over %d columns, want %d adjacent cells", y, count, last-first+1, width)
+		}
+	}
+	if rows != len(q.code) {
+		t.Fatalf("drew %d code rows, want %d", rows, len(q.code))
 	}
 }
 

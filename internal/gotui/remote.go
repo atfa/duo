@@ -57,6 +57,7 @@ type qrcodeOverlay struct {
 	theme   theme
 	pairing RemotePairing
 	status  RemoteStatus
+	code    []string
 	lines   []renderLine
 	width   int
 	box     image.Rectangle
@@ -69,13 +70,14 @@ func newQrcode(t theme) *qrcodeOverlay {
 }
 
 func (q *qrcodeOverlay) place(l layout) {
-	q.box = centered(l, max(24, q.width+2), max(12, len(q.lines)+2))
+	q.box = centered(l, max(24, q.width+2), max(12, len(q.code)+len(q.lines)+2))
 	q.Block.SetRect(q.box.Min.X, q.box.Min.Y, q.box.Max.X, q.box.Max.Y)
 }
 
 func (q *qrcodeOverlay) rebuild(pairing RemotePairing, status RemoteStatus) {
 	q.pairing = pairing
 	q.status = status
+	q.code = nil
 	q.lines = nil
 	add := func(text string, style ui.Style) {
 		q.lines = append(q.lines, makeLine(text, style, 0))
@@ -84,13 +86,7 @@ func (q *qrcodeOverlay) rebuild(pairing RemotePairing, status RemoteStatus) {
 	if err != nil {
 		add(q.theme.tr("the pairing code could not be drawn"), q.theme.Error)
 	} else {
-		q.lines = append(q.lines, qr...)
-	}
-	q.width = 0
-	for _, line := range q.lines {
-		for _, run := range line.runs {
-			q.width = max(q.width, rw.StringWidth(run.text))
-		}
+		q.code = qr
 	}
 	add("", q.theme.Subtle)
 	if pairing.Display != "" {
@@ -111,6 +107,13 @@ func (q *qrcodeOverlay) rebuild(pairing RemotePairing, status RemoteStatus) {
 		add(q.theme.tr("connecting to the relay…"), q.theme.Warning)
 	}
 	add(q.theme.tr("scan with the phone camera; the secret stays in the code"), q.theme.Timestamp)
+	q.width = 0
+	for _, row := range q.code {
+		q.width = max(q.width, len([]rune(row)))
+	}
+	for _, line := range q.lines {
+		q.width = max(q.width, lineWidth(line))
+	}
 }
 
 func (q *qrcodeOverlay) Draw(buf *ui.Buffer) {
@@ -119,17 +122,39 @@ func (q *qrcodeOverlay) Draw(buf *ui.Buffer) {
 	q.Block.Draw(buf)
 	height := max(0, q.Inner.Dy()-1)
 	// A tall code is centred vertically so the block still reads as one panel.
+	rows := len(q.code) + len(q.lines)
 	top := 0
-	if len(q.lines) < height {
-		top = (height - len(q.lines)) / 2
+	if rows < height {
+		top = (height - rows) / 2
 	}
-	for i := 0; i < len(q.lines) && top+i < height; i++ {
-		line := q.lines[i]
+	y := q.Inner.Min.Y + top
+	// The code is written one cell per module rather than as a string: the
+	// frontend measures ambiguous characters (the block glyphs) as two cells in
+	// a CJK locale while the terminal draws them in one, and a string would leave
+	// a gap in every second module column. Placing each cell makes the code
+	// contiguous whatever the locale says a block is worth.
+	for _, row := range q.code {
+		if y >= q.Inner.Min.Y+height {
+			break
+		}
+		runes := []rune(row)
+		x := q.Inner.Min.X + max(0, (q.Inner.Dx()-len(runes))/2)
+		for _, r := range runes {
+			buf.SetCell(ui.Cell{Rune: r, Style: qrStyle}, image.Pt(x, y))
+			x++
+		}
+		y++
+	}
+	for _, line := range q.lines {
+		if y >= q.Inner.Min.Y+height {
+			break
+		}
 		x := q.Inner.Min.X + max(0, (q.Inner.Dx()-lineWidth(line))/2)
 		for _, run := range line.runs {
-			buf.SetString(run.text, run.style, image.Pt(x, q.Inner.Min.Y+top+i))
+			buf.SetString(run.text, run.style, image.Pt(x, y))
 			x += rw.StringWidth(run.text)
 		}
+		y++
 	}
 	buf.SetString(fitText(q.theme.tr("Esc close"), q.Inner.Dx()), q.theme.Timestamp, image.Pt(q.Inner.Min.X, q.Inner.Max.Y-1))
 }
@@ -142,10 +167,17 @@ func lineWidth(line renderLine) int {
 	return width
 }
 
+// qrStyle is the only style the code is drawn in: dark modules on a light cell.
+// A scanner reads black modules on a light background, and the same code drawn
+// white on the dark panel is inverted, which phone cameras reject. The light
+// cells also give the code the light margin it needs, since the bitmap carries
+// four border modules of quiet zone.
+var qrStyle = ui.Style{Fg: ui.ColorBlack, Bg: ui.ColorWhite}
+
 // qrLines renders a QR code with half blocks: two module rows per text row, one
 // character per module column, which keeps the code square in a terminal and
 // scannable without an image protocol.
-func qrLines(link string) ([]renderLine, error) {
+func qrLines(link string) ([]string, error) {
 	if link == "" {
 		return nil, fmt.Errorf("no pairing link")
 	}
@@ -160,7 +192,7 @@ func qrLines(link string) ([]renderLine, error) {
 	if len(bitmap)%2 == 1 {
 		bitmap = append(bitmap, make([]bool, len(bitmap[0])))
 	}
-	lines := make([]renderLine, 0, len(bitmap)/2)
+	lines := make([]string, 0, len(bitmap)/2)
 	for y := 0; y < len(bitmap); y += 2 {
 		var b strings.Builder
 		for x := range bitmap[y] {
@@ -177,7 +209,7 @@ func qrLines(link string) ([]renderLine, error) {
 				b.WriteString(" ")
 			}
 		}
-		lines = append(lines, makeLine(b.String(), ui.Style{Fg: ui.ColorWhite, Bg: ui.ColorBlack}, 0))
+		lines = append(lines, b.String())
 	}
 	return lines, nil
 }
