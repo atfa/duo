@@ -12,15 +12,12 @@ import (
 	ui "github.com/metaspartan/gotui/v5"
 )
 
-// sessionCostLine is the one spelling of the session cost total. The dashboard's
-// cost panel, the overview, and the coordinator's final summary all use it, so
-// the human reads the same sentence in all three places. The figures sit inside
-// the sentence, so the language branch is explicit rather than a zhUI lookup.
+// sessionCostLine renders the session cost total through the ledger's own
+// CostLine, the one sentence shared by the cost panel, the overview and the
+// coordinator's final summary, so the three can never drift apart.
 func sessionCostLine(t theme, total sessionstore.UsageTotals) string {
-	if t.Lang != nil && *t.Lang == "zh" {
-		return fmt.Sprintf("会话成本：$%.2f · %s tokens · %d 轮", total.CostUSD, humanTokens(total.TotalTokens), total.Turns)
-	}
-	return fmt.Sprintf("Session cost: $%.2f · %s tokens · %d turns", total.CostUSD, humanTokens(total.TotalTokens), total.Turns)
+	zh := t.Lang != nil && *t.Lang == "zh"
+	return total.CostLine(zh)
 }
 
 // costOverlay is a read-only view of the session's cost ledger. It reads
@@ -91,7 +88,7 @@ func (c *costOverlay) rebuild(view session.View) {
 
 // usageFigures renders one ledger entry: turns, tokens, cost.
 func usageFigures(u sessionstore.UsageTotals) string {
-	return fmt.Sprintf("%d turns · %s tok · $%.2f", u.Turns, humanTokens(u.TotalTokens), u.CostUSD)
+	return fmt.Sprintf("%d turns · %s tok · $%.2f", u.Turns, sessionstore.HumanTokens(u.TotalTokens), u.CostUSD)
 }
 
 func (c *costOverlay) Draw(buf *ui.Buffer) {

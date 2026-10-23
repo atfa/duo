@@ -42,6 +42,7 @@ var zhUI = map[string]string{
 	"↑/↓ choose · Enter switch · Esc cancel":                       "↑/↓ 选择 · Enter 切换 · Esc 取消",
 	"Model & thinking picker (Ctrl+M)":                             "模型与思考选择器（Ctrl+M）",
 	"Read the shared plan and step queue (F3)":                     "查看共享计划与步骤队列（F3）",
+	"Session cost ledger: tokens and dollars per agent and phase":  "成本账本：按代理与阶段的 token 与费用",
 	"Configure the observer":                                       "配置观察器",
 	"Show the observer's status report (Ctrl+E)":                   "查看观察器的状态报告（Ctrl+E）",
 	"Set Duo's language and save it":                               "设置 Duo 语言并保存",

@@ -48,7 +48,7 @@ func TestCostPanelRendersPerAgentTotals(t *testing.T) {
 		"Austin  12 turns · 15.2k tok · $0.42",
 		"Tony    3 turns · 4.8k tok · $0.13",
 		"PLAN", "EXECUTE",
-		"Session cost: $0.55 · 20.0k tokens · 15 turns",
+		"Session cost: $0.55 · 20k tokens · 15 turns",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("cost panel is missing %q; rendered:\n%s", want, text)
@@ -83,7 +83,7 @@ func TestCostPanelChineseTotal(t *testing.T) {
 		}
 		sb.WriteString("\n")
 	}
-	if !strings.Contains(sb.String(), "会话成本：$0.55 · 20.0k tokens · 15 轮") {
+	if !strings.Contains(sb.String(), "会话成本：$0.55 · 20k tokens · 15 轮") {
 		t.Errorf("zh cost panel missing the translated total; rendered:\n%s", sb.String())
 	}
 }
