@@ -421,3 +421,110 @@ func TestContractReportsADriverWithNoDeliveryPath(t *testing.T) {
 	}
 	t.Fatal("delivery-path was never reported")
 }
+
+// TestManifestToolsRoundTrip pins the wire name of the declared tool set. Core
+// reads a driver's declaration to decide what a prompt may promise, so a field
+// that silently fails to decode would take every tool out of the agent's prompts.
+func TestManifestToolsRoundTrip(t *testing.T) {
+	data, err := json.Marshal(Manifest{
+		Capabilities: Capabilities{Tools: []string{"duo_status", "duo_send"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fields map[string]any
+	if err := json.Unmarshal(data, &fields); err != nil {
+		t.Fatal(err)
+	}
+	capabilities, _ := fields["capabilities"].(map[string]any)
+	if _, exists := capabilities["tools"]; !exists {
+		t.Fatalf("declared tools were not encoded under capabilities: %s", data)
+	}
+	var back Manifest
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatal(err)
+	}
+	if len(back.Capabilities.Tools) != 2 || back.Capabilities.Tools[0] != "duo_status" {
+		t.Fatalf("tools = %v after round-trip in %s", back.Capabilities.Tools, data)
+	}
+	if back.Capabilities.HasTool("duo_set_steps") {
+		t.Error("HasTool reported a tool the driver did not declare")
+	}
+	if !back.Capabilities.HasTool("duo_send") {
+		t.Error("HasTool refused a declared tool")
+	}
+}
+
+// TestHasToolTreatsAnEmptyDeclarationAsAble is the conservative half of the
+// feature: a driver that predates capabilities.tools must not lose the tools it
+// really has, which is the failure mode T1 left behind.
+func TestHasToolTreatsAnEmptyDeclarationAsAble(t *testing.T) {
+	var caps Capabilities
+	if !caps.HasTool("duo_set_steps") {
+		t.Error("an empty declaration must be treated as able, not as an empty tool set")
+	}
+}
+
+func TestCheckDeclaredTools(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		mcp      bool
+		tools    []string
+		wantOK   bool
+		wantSkip bool
+		wantText string
+	}{
+		{
+			name:     "undeclared is skipped, not failed",
+			mcp:      true,
+			wantOK:   true,
+			wantSkip: true,
+			wantText: "capabilities.tools is empty",
+		},
+		{
+			name:   "declared tools are reported",
+			mcp:    true,
+			tools:  []string{"duo_status", "duo_send"},
+			wantOK: true,
+		},
+		{
+			name:     "a name Duo does not register is refused",
+			mcp:      true,
+			tools:    []string{"duo_status", "duo_set_mood"},
+			wantText: "duo_set_mood",
+		},
+		{
+			name:     "tools with no MCP server have no endpoint",
+			mcp:      false,
+			tools:    []string{"duo_status"},
+			wantText: "capabilities.mcp is false",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			report := &Report{}
+			checkDeclaredTools(report, &Manifest{
+				MCP:          tc.mcp,
+				Capabilities: Capabilities{Tools: tc.tools},
+			})
+			if len(report.Results) != 1 {
+				t.Fatalf("want one result, got %d: %+v", len(report.Results), report.Results)
+			}
+			got := report.Results[0]
+			if got.Name != "tools-declared" {
+				t.Fatalf("check name = %q", got.Name)
+			}
+			if got.OK != tc.wantOK {
+				t.Errorf("OK = %v, want %v (%s)", got.OK, tc.wantOK, got.Detail)
+			}
+			if got.Optional != tc.wantSkip {
+				t.Errorf("Optional = %v, want %v", got.Optional, tc.wantSkip)
+			}
+			if wantFailed := !(tc.wantOK || tc.wantSkip); report.Failed != wantFailed {
+				t.Errorf("report.Failed = %v, want %v", report.Failed, wantFailed)
+			}
+			if tc.wantText != "" && !strings.Contains(got.Detail, tc.wantText) {
+				t.Errorf("detail %q does not mention %q", got.Detail, tc.wantText)
+			}
+		})
+	}
+}

@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/atfa/duo/internal/mcp"
 )
 
 // Contract is the shared conformance suite for Driver Plugins. It exists so that
@@ -199,6 +201,7 @@ func RunContract(ctx context.Context, path, workDir string) Report {
 			report.add("capability-models", true, "models correctly refused")
 		}
 	}
+	checkDeclaredTools(&report, manifest)
 
 	// liveSteering with a plugin-owned bridge is impossible to honour: nothing can
 	// write to the terminal Core owns. Core refuses it at describe; a plugin that
@@ -318,6 +321,44 @@ func bytesEqual(a, b json.RawMessage) bool {
 // checkFirstLaunch validates the plan for a run with nothing selected and no stored
 // state. It is the case that reaches a user's machine on a fresh install, and it is
 // where the "flag for an unset value" bug lives.
+// checkDeclaredTools checks the declared set of Duo coordination tools against the
+// tools Duo actually registers.
+//
+// A prompt can only promise what the driver makes reachable, and Core cannot know
+// that from the launch command: one driver wires the MCP server in with a command
+// flag, another through the agent's own config file. The declaration is the one
+// statement the plugin author can be held to, so a name Duo has never heard of is
+// a prompt that will tell an agent to call a tool that does not exist.
+//
+// An empty declaration is not a failure. It is a driver that predates the field,
+// and Core keeps the full wording for it rather than promising it nothing.
+func checkDeclaredTools(report *Report, manifest *Manifest) {
+	declared := manifest.Capabilities.Tools
+	if len(declared) == 0 {
+		report.skip("tools-declared", "capabilities.tools is empty: Core keeps every coordination tool in this agent's prompts")
+		return
+	}
+	if !manifest.MCP {
+		report.add("tools-declared", false, "capabilities.tools declares %d tools but capabilities.mcp is false: with no MCP server the agent has no endpoint to call them on", len(declared))
+		return
+	}
+	known := map[string]bool{}
+	for _, name := range mcp.ToolNames() {
+		known[name] = true
+	}
+	var unknown []string
+	for _, name := range declared {
+		if !known[name] {
+			unknown = append(unknown, name)
+		}
+	}
+	if len(unknown) > 0 {
+		report.add("tools-declared", false, "capabilities.tools names %s, which Duo does not register, so Core would tell the agent about a tool it cannot call", strings.Join(unknown, ", "))
+		return
+	}
+	report.add("tools-declared", true, "%d tools declared: %s", len(declared), strings.Join(declared, ", "))
+}
+
 func checkFirstLaunch(report *Report, manifest *Manifest, plan *LaunchPlan) {
 	if strings.TrimSpace(plan.Command) == "" {
 		report.add("prepare", false, "prepare returned an empty command; Core would run nothing")
