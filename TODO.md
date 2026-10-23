@@ -24,7 +24,7 @@
 **负责人** Austin
 
 ### T2 驱动 capability 声明：提示词只宣传 agent 调得到的工具
-- [ ] 完成：
+- [x] 完成：18c8d98 · 2026-10-23
 
 **位置** `internal/driver/contract.go`（Manifest 无 `tools` 字段）；`internal/coordinator/phase_prompts.go:211/229`（英文 STEP PLAN 提示词硬编码 duo_set_steps）、`:342/360`（中文版）；`internal/coordinator/coordinator.go:885/891`
 **问题** 提示词按模式生成、不感知 agent 真实工具集：MCP-only 驱动收到命令它调用 `duo_set_steps`/`duo_restart_duo` 的指令（T1 补齐前根本不存在），未来新增精简桥的驱动同样会被宣传调不到的工具，agent 浪费轮次试错。
