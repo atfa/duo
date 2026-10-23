@@ -483,3 +483,52 @@ func mustMAC(t *testing.T, p Pairing, id, kind string, n int64, text string) str
 	}
 	return mac
 }
+
+// /new keeps the phone: the pairing file survives, the relaunched process takes
+// the same room over, and the guest is never told to scan again. The old host is
+// the only socket that learns it lost the room.
+func TestHostTakeoverKeepsTheGuestConnected(t *testing.T) {
+	relay := newFakeRelay(t)
+	p := testPairing(t, relay)
+	firstSink := &fakeSink{}
+	first, err := New(Options{Pairing: p, Sink: firstSink, Snapshot: staticState("session-one"),
+		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf})
+	if err != nil {
+		t.Fatalf("New first: %v", err)
+	}
+	startClient(t, first)
+	waitFor(t, "first host", func() bool { return first.Status().Connected })
+
+	guest := relay.guest(t, p)
+	if got := guest.nextState(t, p, 5*time.Second).Project; got != "session-one" {
+		t.Fatalf("guest saw project %q", got)
+	}
+
+	// The relaunched process: same pairing, new session id, new socket.
+	secondSink := &fakeSink{}
+	second, err := New(Options{Pairing: p, Sink: secondSink, Snapshot: staticState("session-two"),
+		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf})
+	if err != nil {
+		t.Fatalf("New second: %v", err)
+	}
+	startClient(t, second)
+	waitFor(t, "second host", func() bool { return second.Status().Connected })
+	waitFor(t, "first host replaced", func() bool { return !first.Status().Connected })
+
+	// The guest keeps the same socket and sees the new session's state, so it
+	// does not have to rescan.
+	next := guest.nextState(t, p, 10*time.Second)
+	if next.Project != "session-two" {
+		t.Fatalf("guest saw project %q after takeover, want session-two", next.Project)
+	}
+
+	// A command sent after takeover reaches the new process, not the old one.
+	sendCommand(t, guest, p, "cmd-after-takeover", CmdTask, "continue", next.N)
+	waitFor(t, "task on the new host", func() bool {
+		tasks, _, _ := secondSink.snapshot()
+		return len(tasks) == 1
+	})
+	if tasks, _, _ := firstSink.snapshot(); len(tasks) != 0 {
+		t.Errorf("the replaced host executed %d task(s), want 0", len(tasks))
+	}
+}
