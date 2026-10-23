@@ -362,9 +362,10 @@ test("a turn's round-trips are reported once, at agent_settled", async () => {
       cacheReadTokens: 11000,
       cacheWriteTokens: 0,
       totalTokens: 13140,
-      costUSD: 0.039,
     },
   });
+  // Dollar totals are float sums; compare with the tolerance a money figure needs.
+  expect(usage[0].usage.costUSD).toBeCloseTo(0.039, 10);
 
   // The next turn starts from zero: a settled turn is not counted twice.
   sent.length = 0;
