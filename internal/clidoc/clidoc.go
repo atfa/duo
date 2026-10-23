@@ -74,6 +74,11 @@ var commands = []Command{
 		Summary:   "list Driver Plugins, or check them against the protocol",
 	},
 	{
+		Name:      "doctor",
+		Signature: "duo doctor [repository]",
+		Summary:   "check git, the repository, the Driver Plugins and their CLIs, the bridges, the configuration and delivery",
+	},
+	{
 		Name:      "step-loop",
 		Signature: "duo step-loop [duo arguments…]",
 		Summary:   "run a session, and continue it on a newly installed binary whenever it asks to be upgraded",

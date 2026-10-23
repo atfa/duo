@@ -4,6 +4,18 @@ All notable project milestones are documented here.
 
 ## Unreleased
 
+### Diagnosis
+
+- `duo doctor [repository]` answers "why will not it start" in one command: git
+  present and new enough, the repository and its dirty state, the branch a result
+  delivers to, the worktree root, the configuration files, each configured Driver
+  Plugin with its agent CLI and protocol contract, the bridge each driver needs
+  installed, and the observer. Every line carries a stable code and a fix, a warn
+  is something a session runs through, and a fail exits non-zero.
+- A session that fails to start now names `duo doctor` on the way out, so a first
+  run on a machine missing a driver CLI is a self-service fix instead of a bug
+  report.
+
 ### Driver capabilities
 
 - A Driver Plugin declares the Duo coordination tools its launch makes reachable

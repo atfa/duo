@@ -68,6 +68,18 @@ func main() {
 				log.Fatal(err)
 			}
 			return
+		case "doctor":
+			// Doctor reports its own findings, so a failing check exits non-zero
+			// without a Go error message on top of the report.
+			if err := runDoctor(ctx, os.Args[2:]); err != nil {
+				if errors.Is(err, errDoctorUnhealthy) {
+					os.Exit(1)
+				}
+				if ctx.Err() == nil {
+					log.Fatal(err)
+				}
+			}
+			return
 		case "step-loop":
 			if err := runStepLoop(ctx, os.Args[2:]); err != nil && ctx.Err() == nil {
 				log.Fatal(err)
@@ -109,6 +121,11 @@ func main() {
 		if errors.Is(err, errUpgradeRequested) {
 			os.Exit(upgradeExitCode)
 		}
+		// A first run fails on a machine problem the operator can fix: a driver CLI
+		// that is not installed, a config file that does not parse, a repository that
+		// cannot receive the result. Naming the command that says which one is the
+		// difference between a self-service fix and a bug report.
+		fmt.Fprintln(os.Stderr, "Duo could not start this session. Run `duo doctor` in this repository to find out why.")
 		log.Fatal(err)
 	}
 }

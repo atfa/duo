@@ -38,6 +38,7 @@ var parserCommands = map[string]string{
 	"parseSessionsArgs":   "sessions",
 	"parsePluginTestArgs": "plugins",
 	"runPlugins":          "plugins",
+	"parseDoctorArgs":     "doctor",
 }
 
 // flagToken matches a flag spelling and nothing else. After the "=" split it
