@@ -82,6 +82,10 @@ type Service struct {
 	// restart is the pending request to continue on a new Duo binary.
 	restart RestartRequest
 
+	// newSession is the pending /new request: quit preserving the session, then
+	// re-run duo as a fresh session.
+	newSession bool
+
 	ctx    context.Context
 	cancel context.CancelFunc
 
@@ -727,6 +731,7 @@ func (s *Service) view() View {
 		TestCommand: s.opts.TestCommand,
 		Notices:     append([]string(nil), s.notices...),
 		Restart:     s.restart,
+		NewSession:  s.newSession,
 		Notify:      s.opts.Notify == nil || *s.opts.Notify,
 	}
 	v.ContextWarnPercent = s.opts.ContextWarnPercent
@@ -893,6 +898,8 @@ func (s *Service) Do(ctx context.Context, cmd Command) error {
 		return s.setObserver(c)
 	case RestartDuo:
 		return s.requestRestart(c)
+	case NewSession:
+		return s.requestNewSession()
 	default:
 		return fmt.Errorf("unsupported command %T", cmd)
 	}
@@ -1049,6 +1056,16 @@ func (s *Service) requestRestart(c RestartDuo) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.restart = RestartRequest{Reason: strings.TrimSpace(c.Reason), Install: c.Install}
+	return nil
+}
+
+// requestNewSession records the /new request. In-memory for the same reason as
+// the restart request: a relaunch that never happened is recoverable with
+// `duo resume`, a persisted one would relaunch the session forever.
+func (s *Service) requestNewSession() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.newSession = true
 	return nil
 }
 

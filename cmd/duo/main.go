@@ -121,6 +121,15 @@ func main() {
 		if errors.Is(err, errUpgradeRequested) {
 			os.Exit(upgradeExitCode)
 		}
+		// /new is not a failure either: the session is preserved and this process
+		// becomes a fresh duo. If the exec fails the human is left with the session
+		// preserved, so name the command that continues and exit cleanly.
+		if errors.Is(err, errNewSessionRequested) {
+			if rerr := relaunchDuo(); rerr != nil {
+				fmt.Fprintf(os.Stderr, "Duo could not start a new session: %v\nRun `duo` in this repository to start one; the preserved session can be resumed with `duo resume`.\n", rerr)
+			}
+			return
+		}
 		// A first run fails on a machine problem the operator can fix: a driver CLI
 		// that is not installed, a config file that does not parse, a repository that
 		// cannot receive the result. Naming the command that says which one is the
@@ -202,7 +211,19 @@ func runWith(ctx context.Context, cfg config, attach func(context.Context, *sess
 	// sessions` will never list again.
 	if end.Discarded {
 		fmt.Printf("\nDuo stopped. No task was submitted, so the session left nothing behind: its worktrees and record were removed. Nothing to resume.\n")
+		if view.NewSession {
+			return errNewSessionRequested
+		}
 		return nil
+	}
+
+	// /new asked to quit and run duo again as a fresh session. The session is
+	// preserved exactly as Ctrl+Q preserves it, and main replaces this process
+	// with a new duo. The upgrade request above wins over this one: an agent
+	// asking for a new binary is a request about the session itself.
+	if view.NewSession {
+		fmt.Printf("\nDuo stopped. Session %s was preserved; resume it with `duo resume %s`.\nStarting a new session.\n", end.SessionID, end.SessionID)
+		return errNewSessionRequested
 	}
 
 	what := "started"

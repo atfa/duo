@@ -73,6 +73,10 @@ type View struct {
 	// outside Duo can install and resume.
 	Restart RestartRequest
 
+	// NewSession is set when the human asked /new: quit preserving this session,
+	// then re-run duo as a fresh session.
+	NewSession bool
+
 	Agents   map[protocol.AgentID]AgentView
 	Pause    PauseView
 	Observer ObserverView

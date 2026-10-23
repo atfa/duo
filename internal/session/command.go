@@ -113,6 +113,12 @@ type RestartDuo struct {
 	Install bool `json:"install"`
 }
 
+// NewSession asks Duo to quit and be re-run as a fresh session. It is the /new
+// command: Ctrl+Q semantics (the session is preserved) followed by running duo
+// again, in one action. Like RestartDuo the request is in-memory: it is an
+// instruction to the process that is about to exit, not durable state.
+type NewSession struct{}
+
 func (SubmitTask) Kind() string     { return "submit_task" }
 func (SwitchMode) Kind() string     { return "switch_mode" }
 func (ResumeModeWork) Kind() string { return "resume_mode_work" }
@@ -128,6 +134,7 @@ func (SetDriver) Kind() string      { return "set_driver" }
 func (SetLanguage) Kind() string    { return "set_language" }
 func (SetObserver) Kind() string    { return "set_observer" }
 func (RestartDuo) Kind() string     { return "restart_duo" }
+func (NewSession) Kind() string     { return "new_session" }
 
 func (SubmitTask) command()     {}
 func (SwitchMode) command()     {}
@@ -144,3 +151,4 @@ func (SetDriver) command()      {}
 func (SetLanguage) command()    {}
 func (SetObserver) command()    {}
 func (RestartDuo) command()     {}
+func (NewSession) command()     {}

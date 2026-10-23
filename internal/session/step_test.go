@@ -173,6 +173,22 @@ func TestRestartRequestReachesTheView(t *testing.T) {
 	}
 }
 
+// TestNewSessionRequestReachesTheView is the /new plumbing: the CLI reads the
+// flag off the view to re-run duo after the session is closed, so a request
+// that never reaches the view would leave the human at a shell prompt.
+func TestNewSessionRequestReachesTheView(t *testing.T) {
+	svc := &Service{}
+	if svc.View().NewSession {
+		t.Fatal("a fresh session must not ask for a new session")
+	}
+	if err := svc.requestNewSession(); err != nil {
+		t.Fatalf("requestNewSession: %v", err)
+	}
+	if !svc.View().NewSession {
+		t.Fatal("the /new request must reach the view")
+	}
+}
+
 // TestResumeKeepsAMidStepSessionResumable is the restart path for the ordinary
 // case: a session in the middle of a queue must come back to the same step with no
 // re-delivery, because `duo resume` is also how a self-upgrade continues.
