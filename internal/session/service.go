@@ -720,6 +720,7 @@ func (s *Service) view() View {
 		TestCommand: s.opts.TestCommand,
 		Notices:     append([]string(nil), s.notices...),
 		Restart:     s.restart,
+		Notify:      s.opts.Notify == nil || *s.opts.Notify,
 	}
 	if s.state != nil {
 		v.Project = s.state.Snapshot()

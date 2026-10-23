@@ -1109,3 +1109,34 @@ func TestObserverConfiguredReflectsTheConfigSection(t *testing.T) {
 		t.Fatal("an explicit enabled:false must stay disabled")
 	}
 }
+
+// TestNotifyConfiguration pins the operator's switch on desktop notifications:
+// absent means on, because the failure it prevents is a session that waits for
+// hours with nobody watching; a project file can switch it off for one repository.
+func TestNotifyConfiguration(t *testing.T) {
+	temp := t.TempDir()
+	t.Setenv("DUO_REPO", temp)
+
+	cfg, err := loadConfig(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.notify {
+		t.Fatal("notify must default to on")
+	}
+
+	if err := os.WriteFile(filepath.Join(temp, ".duo.json"), []byte(`{"notify": false}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err = loadConfig(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.notify {
+		t.Fatal(`"notify": false in the project config was ignored`)
+	}
+	options := cfg.sessionOptions()
+	if options.Notify == nil || *options.Notify {
+		t.Fatalf("the switch did not reach session options: %+v", options.Notify)
+	}
+}

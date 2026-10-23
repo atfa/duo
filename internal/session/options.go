@@ -54,6 +54,12 @@ type Options struct {
 	// observer is off or only a key file exists.
 	ObserverConfigured bool
 
+	// Notify is the operator's choice on desktop notifications for the events that
+	// need a human. nil means the default, which is on: a frontend that says nothing
+	// must not silently lose the signal, because the failure it prevents is a session
+	// that waits for hours with nobody watching.
+	Notify *bool
+
 	// Drivers. Every map is keyed by agent. Missing agent entries use the
 	// frontend-selected default; Core does not choose a driver name.
 	AgentCommands       map[protocol.AgentID]string

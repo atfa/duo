@@ -4,6 +4,18 @@ All notable project milestones are documented here.
 
 ## Unreleased
 
+### Human attention
+
+- When a Duo session stops until a human acts, the terminal says so: a merge
+  conflict, a result that could not be applied to the repository, a Fast
+  verification nobody answers, and Austin's final report each ring the terminal
+  (BEL) and raise a desktop notification through OSC 777, so the signal reaches
+  someone who is in another tab. The text follows `/language`, the in-dashboard
+  toast is unchanged, and `"notify": false` in the configuration silences it.
+- The four situations are an event with a reason code, not prose, so a frontend
+  localises the wording and a notification fits one line. The workflow state stays
+  where it was: the event is a projection of it.
+
 ### Diagnosis
 
 - `duo doctor [repository]` answers "why will not it start" in one command: git

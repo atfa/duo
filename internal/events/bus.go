@@ -27,6 +27,31 @@ const (
 	KindModel Kind = "model"
 	// KindThinking reports an agent's active Pi thinking level.
 	KindThinking Kind = "thinking"
+	// KindAttention is the one event that says a human must act now: a merge
+	// conflict, a result that could not be delivered, a Fast verification nobody
+	// answers, Austin's finished report. It carries a reason code rather than prose
+	// because a frontend localises the text and a desktop notification has to fit on
+	// one line. The prose an agent reads is a separate notice, unchanged: this event
+	// is an output projection, not a new source of workflow state.
+	KindAttention Kind = "attention"
+)
+
+// Attention reasons are stable identifiers a frontend maps to localised text. They
+// name the four situations where a Duo session stops until a human acts, which is
+// exactly the list a notification is allowed to interrupt someone for.
+const (
+	// AttentionConflict: a merge produced conflicts, and the session cannot move
+	// until they are resolved.
+	AttentionConflict = "conflict"
+	// AttentionDelivery: approval is complete but the result could not be applied
+	// to the user's repository, so a human has to fix it and run `duo apply`.
+	AttentionDelivery = "delivery"
+	// AttentionVerification: Fast mode is waiting for Tony's verdict, which a human
+	// has to unblock when Tony is not answering.
+	AttentionVerification = "verification"
+	// AttentionSummary: Austin's final report for the human has arrived, after
+	// delivery, when nobody is watching the dashboard any more.
+	AttentionSummary = "summary"
 )
 
 type Event struct {
@@ -42,6 +67,10 @@ type Event struct {
 
 	// Thinking is set for KindThinking events.
 	Thinking string
+
+	// Attention is the reason code of a KindAttention event: one of the
+	// Attention* constants, never free text.
+	Attention string
 }
 
 type Bus struct {

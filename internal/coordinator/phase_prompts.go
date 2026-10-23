@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/sessionstore"
@@ -479,6 +480,9 @@ func (c *Coordinator) broadcastFinalApproval(ctx context.Context, snap project.S
 // notifyDeliveryPending tells both agents that approval stands but the
 // artifact could not be safely applied, so no agent should resume working.
 func (c *Coordinator) notifyDeliveryPending(ctx context.Context, record sessionstore.Delivery) {
+	// The result is approved and stuck: only a human can fix the original
+	// repository and run `duo apply`.
+	c.attention(events.AttentionDelivery)
 	if c.language == "zh" {
 		mode := c.project.Snapshot().EffectiveMode()
 		phase, action := "INTEGRATE", "不要编辑 worktree 或重新签署"
