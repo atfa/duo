@@ -4,6 +4,17 @@ All notable project milestones are documented here.
 
 ## Unreleased
 
+### Cost and context pressure
+
+- `/cost` shows what a session has spent: per agent and per phase, with the session
+  total, from the same ledger `duo sessions` prints after the fact. `/overview` and
+  Austin's final report carry the same total, so the number is stated once and
+  repeated identically rather than estimated per view.
+- When an agent's context crosses 85% of its window — configurable, `0` turns it
+  off — Duo tells that agent to start wrapping up, once per crossing, and the
+  sidebar marks the agent red. The judgement is made in Core and projected, so the
+  warning the agent receives and the colour the human sees cannot disagree.
+
 ### Cost ledger
 
 - A Duo session now knows what it cost. A driver that can measure its own token and

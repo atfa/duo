@@ -32,6 +32,11 @@ type AgentRuntime struct {
 	TokensPerSecond float64
 	TokenSpeedAt    time.Time
 
+	// ContextWarned marks that Duo already told this agent its context is nearly
+	// full. The coordinator owns the threshold and the telling; the interface only
+	// reads the answer, so a sidebar cannot disagree with the nudge the agent got.
+	ContextWarned bool
+
 	// TurnStarted, ToolStarted, Tools and Recent describe the current turn's
 	// shape: when it began, how long the running tool has been going, how many
 	// tools it has used, and how the last few ended.
@@ -221,6 +226,14 @@ func (t *Tracker) UpdateRate(agent protocol.AgentID, tokensPerSecond float64) {
 	rt := t.ensureLocked(agent)
 	rt.TokensPerSecond = tokensPerSecond
 	rt.TokenSpeedAt = time.Now()
+}
+
+// SetContextWarned records that the agent has been told about its context, so the
+// warning is not repeated every time the driver reports the same figure.
+func (t *Tracker) SetContextWarned(agent protocol.AgentID, warned bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.ensureLocked(agent).ContextWarned = warned
 }
 
 // NoteError keeps an agent's most recent failure visible in the preview until

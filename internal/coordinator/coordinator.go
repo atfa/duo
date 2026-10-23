@@ -46,6 +46,11 @@ type Coordinator struct {
 	testCommand   string
 	language      string
 
+	// contextWarnPercent is the context occupancy at which Duo tells an agent its
+	// window is nearly full; zero disables it. In-memory, like the runtime figures
+	// it is computed from.
+	contextWarnPercent int
+
 	// restartMu guards a pending request to continue the session on a new Duo
 	// binary. It is in-memory on purpose: a restart that never happened is just a
 	// resumable session, whereas a persisted flag would restart forever.
@@ -1314,6 +1319,7 @@ func (c *Coordinator) handleActivity(agent protocol.AgentID, message protocol.Me
 	caps := c.capabilities(agent)
 	if caps.ContextUsage {
 		c.tracker.UpdateContext(agent, message.ContextTokens, message.ContextWindow)
+		c.checkContextPressure(agent)
 	}
 	if caps.TokenRate {
 		c.tracker.UpdateRate(agent, message.TokensPerSecond)

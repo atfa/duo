@@ -63,6 +63,11 @@ type View struct {
 	// cost at all rather than a cost of zero.
 	Usage *sessionstore.UsageLedger
 
+	// ContextWarnPercent is the resolved context occupancy at which Duo tells an
+	// agent its window is nearly full: the frontend reads the number it must draw
+	// with, rather than guessing the same constant. 0 means the warning is off.
+	ContextWarnPercent int
+
 	// Restart is non-empty when the session asked to continue on a new Duo binary.
 	// The interface stops and the CLI exits with the upgrade code so a launcher
 	// outside Duo can install and resume.

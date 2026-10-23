@@ -1110,6 +1110,57 @@ func TestObserverConfiguredReflectsTheConfigSection(t *testing.T) {
 	}
 }
 
+// TestContextWarnPercentConfiguration pins the context-pressure threshold: 85% by
+// default, a project file can move it for one repository, 0 turns the warning off,
+// and a value that cannot be a percentage is a config error rather than a surprise.
+func TestContextWarnPercentConfiguration(t *testing.T) {
+	temp := t.TempDir()
+	t.Setenv("DUO_REPO", temp)
+
+	cfg, err := loadConfig(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.contextWarnPercent != 85 {
+		t.Fatalf("the threshold defaults to %d, want 85", cfg.contextWarnPercent)
+	}
+
+	write := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(temp, ".duo.json"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	write(`{"contextWarnPercent": 70}`)
+	cfg, err = loadConfig(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.contextWarnPercent != 70 {
+		t.Fatalf("a project threshold of 70 was ignored: %d", cfg.contextWarnPercent)
+	}
+	if options := cfg.sessionOptions(); options.ContextWarnPercent != 70 {
+		t.Fatalf("the threshold did not reach session options: %d", options.ContextWarnPercent)
+	}
+
+	// A file carrying only this key must count as configured: the predicate that
+	// decides that lists every field by hand.
+	write(`{"contextWarnPercent": 0}`)
+	cfg, err = loadConfig(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.contextWarnPercent != 0 {
+		t.Fatal(`"contextWarnPercent": 0 (warning off) was ignored`)
+	}
+
+	write(`{"contextWarnPercent": 130}`)
+	if _, err := loadConfig(nil); err == nil {
+		t.Fatal("a threshold above 100 must be a config error")
+	}
+}
+
 // TestNotifyConfiguration pins the operator's switch on desktop notifications:
 // absent means on, because the failure it prevents is a session that waits for
 // hours with nobody watching; a project file can switch it off for one repository.
