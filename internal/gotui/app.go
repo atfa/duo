@@ -120,6 +120,7 @@ type App struct {
 	nativeDetachBuf []byte
 	nativeInput     nativeInputAssembler
 	nativeTTY       *terminal.TTY
+	notifyTTY       *terminal.TTY
 	openTTY         func() (*terminal.TTY, error)
 	ctx             context.Context
 
