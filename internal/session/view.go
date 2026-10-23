@@ -53,6 +53,11 @@ type View struct {
 	TestCommand   string
 	Notices       []string
 
+	// Notify is the resolved answer to "may Duo interrupt the human with a desktop
+	// notification when the session needs them". It is resolved here, not in the
+	// frontend, so every frontend honours one operator setting.
+	Notify bool
+
 	// Restart is non-empty when the session asked to continue on a new Duo binary.
 	// The interface stops and the CLI exits with the upgrade code so a launcher
 	// outside Duo can install and resume.

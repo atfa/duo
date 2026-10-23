@@ -198,3 +198,25 @@ func TestDriverSeedsReturnsOpaqueStateForResume(t *testing.T) {
 		t.Fatalf("resume seed = %+v, want opaque state %+v", state, want)
 	}
 }
+
+// TestNotifySettingReachesTheView keeps the default in one place: a frontend that
+// says nothing gets notifications, and only an explicit false silences them.
+func TestNotifySettingReachesTheView(t *testing.T) {
+	on, off := true, false
+	for _, tc := range []struct {
+		name   string
+		notify *bool
+		want   bool
+	}{
+		{name: "absent means on", notify: nil, want: true},
+		{name: "explicit on", notify: &on, want: true},
+		{name: "explicit off", notify: &off, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := &Service{opts: Options{Notify: tc.notify}}
+			if got := s.view().Notify; got != tc.want {
+				t.Errorf("View.Notify = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

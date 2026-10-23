@@ -1349,6 +1349,11 @@ func (c *Coordinator) handleAssistant(agent protocol.AgentID, message protocol.M
 	}
 	c.tracker.Touch(agent)
 	c.emit(events.KindAssistant, agent, "", message.Text)
+	// The final report is the one message Duo promised the human, and it arrives
+	// after delivery, when nobody is watching the dashboard any more.
+	if agent == protocol.Austin && protocol.IsSummaryReport(message.Text) {
+		c.attention(events.AttentionSummary)
+	}
 }
 
 // noteInjected records the prompt text sent to an agent so handleAssistant can
@@ -1910,6 +1915,7 @@ func (c *Coordinator) handleFastSetStatus(ctx context.Context, client *transport
 		c.recordEvent("phase_transition", map[string]any{"from": string(tr.Previous), "to": string(tr.Next)})
 		c.logf("[FAST] phase advanced %s → %s", tr.Previous, tr.Next)
 		c.emit(events.KindSystem, protocol.Duo, "", fmt.Sprintf("verification requested → %s", tr.Next))
+		c.attention(events.AttentionVerification)
 	}
 	_ = c.respond(ctx, client, message.RequestID, true,
 		fmt.Sprintf("Verification requested for Austin HEAD %s. Tony must independently verify before Duo delivers.", shortSHA(snap.Verification.Head)),
@@ -2284,6 +2290,7 @@ func (c *Coordinator) deliverFinal(ctx context.Context, _ project.Snapshot) {
 	if err := c.persistStrict("pending delivery checkpoint"); err != nil {
 		c.logf("delivery not started: %v", err)
 		c.emit(events.KindError, protocol.Duo, "", "delivery not started: "+err.Error())
+		c.attention(events.AttentionDelivery)
 		return
 	}
 	c.recordEvent("delivery_attempt", map[string]any{
@@ -2580,6 +2587,7 @@ func (c *Coordinator) beginIntegration(ctx context.Context) string {
 			text = fmt.Sprintf("Git 已在 Austin 的 worktree 中开始合并，但存在冲突。Austin 必须在 %s 中解决冲突、提交解决结果、运行验证，然后签署 INTEGRATE。Tony 必须在签署前审查 Austin 最终集成的 HEAD。", result.AustinPath)
 		}
 		c.emit(events.KindSystem, protocol.Duo, "", "integration conflict in "+result.AustinPath)
+		c.attention(events.AttentionConflict)
 		return text
 	}
 

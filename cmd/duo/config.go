@@ -62,6 +62,11 @@ type config struct {
 	// help is set by -h/--help/help, which prints the usage and exits without
 	// starting or touching a session.
 	help bool
+
+	// notify is the operator's choice on desktop notifications for the events that
+	// need a human. It defaults to true: the failure it prevents is a session that
+	// waits silently for hours.
+	notify bool
 }
 
 // helpRequested reports whether arg asks for usage instead of an action. Every
@@ -139,6 +144,7 @@ func (c config) sessionOptions() session.Options {
 		Harness:             c.harness,
 		Observer:            c.observer,
 		ObserverConfigured:  c.observerConfigured,
+		Notify:              &c.notify,
 		AgentCommands:       c.agentCommands,
 		AgentCommandDefault: c.agentCommandDefault,
 		DefaultAgentDriver:  defaultDriver,
@@ -161,6 +167,10 @@ type configFile struct {
 	Agents      map[string]agentFile `json:"agents,omitempty"`
 	Harness     harnessFile          `json:"harness,omitempty"`
 	Observer    *observer.Settings   `json:"observer,omitempty"`
+	// Notify turns the desktop notification for "a human must act" off. It is a
+	// pointer so an absent key means "on", the default, and a project file can
+	// switch it off for one repository without touching the user's.
+	Notify *bool `json:"notify,omitempty"`
 }
 
 type agentFile struct {
@@ -511,12 +521,18 @@ func loadConfigCommand(args []string, resume bool) (config, error) {
 		testCommand = envString("DUO_TEST_COMMAND", fileCfg.TestCommand)
 	}
 
+	notify := true
+	if fileCfg.Notify != nil {
+		notify = *fileCfg.Notify
+	}
+
 	return config{
 		listen:              envString("DUO_LISTEN", "127.0.0.1:0"),
 		harnessEnabled:      harnessEnabled,
 		harness:             harnessConfig,
 		observer:            observerConfig,
 		observerConfigured:  fileCfg.Observer != nil,
+		notify:              notify,
 		repository:          launch,
 		launchDir:           launch,
 		worktreeRoot:        strings.TrimSpace(os.Getenv("DUO_WORKTREE_ROOT")),
@@ -604,7 +620,7 @@ func loadMergedConfigFile(launchDir string) (configFile, error) {
 	}
 	for _, p := range candidates {
 		projectCfg, err := loadConfigFile(p)
-		if err == nil && (projectCfg.Mode != "" || projectCfg.Language != "" || projectCfg.PiCommand != "" || projectCfg.Driver != "" || projectCfg.TestCommand != "" || len(projectCfg.Agents) > 0 || projectCfg.Harness != (harnessFile{}) || projectCfg.Observer != nil) {
+		if err == nil && (projectCfg.Mode != "" || projectCfg.Language != "" || projectCfg.PiCommand != "" || projectCfg.Driver != "" || projectCfg.TestCommand != "" || len(projectCfg.Agents) > 0 || projectCfg.Harness != (harnessFile{}) || projectCfg.Observer != nil || projectCfg.Notify != nil) {
 			mergeConfig(&merged, projectCfg)
 			break
 		} else if err != nil && !os.IsNotExist(err) {
@@ -669,6 +685,9 @@ func mergeConfig(dst *configFile, src configFile) {
 	if src.Observer != nil {
 		settings := *src.Observer
 		dst.Observer = &settings
+	}
+	if src.Notify != nil {
+		dst.Notify = src.Notify
 	}
 }
 
