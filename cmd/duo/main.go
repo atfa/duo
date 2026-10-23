@@ -159,8 +159,9 @@ func run(ctx context.Context, cfg config) error {
 			}
 			return nil
 		})
-		if errors.Is(err, errNewSessionRequested) && ctx.Err() == nil {
-			cfg = cfg.freshSession()
+		var req *newSessionRequest
+		if errors.As(err, &req) && ctx.Err() == nil {
+			cfg = cfg.freshSession(req)
 			continue
 		}
 		return err
@@ -196,6 +197,9 @@ func runWith(ctx context.Context, cfg config, attach func(context.Context, *sess
 		}
 	}
 
+	// The settings in force are read before Close: a /new request carries them to
+	// the next session, and they must not depend on what Close leaves behind.
+	live := svc.View()
 	end := svc.Close()
 	view := svc.View()
 
@@ -221,7 +225,7 @@ func runWith(ctx context.Context, cfg config, attach func(context.Context, *sess
 	if end.Discarded {
 		fmt.Printf("\nDuo stopped. No task was submitted, so the session left nothing behind: its worktrees and record were removed. Nothing to resume.\n")
 		if view.NewSession {
-			return errNewSessionRequested
+			return newSessionFromView(live)
 		}
 		return nil
 	}
@@ -232,7 +236,7 @@ func runWith(ctx context.Context, cfg config, attach func(context.Context, *sess
 	// asking for a new binary is a request about the session itself.
 	if view.NewSession {
 		fmt.Printf("\nDuo stopped. Session %s was preserved; resume it with `duo resume %s`.\nStarting a new session.\n", end.SessionID, end.SessionID)
-		return errNewSessionRequested
+		return newSessionFromView(live)
 	}
 
 	what := "started"
