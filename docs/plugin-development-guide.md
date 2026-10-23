@@ -107,7 +107,8 @@ Start here, and add the rest as you implement it:
     "bridge": "none",
     "ptyFallback": true,
     "liveSteering": false,
-    "selfReports": false
+    "selfReports": false,
+    "tools": []
   },
   "activity": false,
   "mcp": false
@@ -133,6 +134,13 @@ your agent will reject.
 **`defaultModel`** — return `""` unless you have a real reason. An empty value means
 your agent resolves its own default, which is what a human wants. A guessed id makes
 most agents abort with "Model not found".
+
+**`tools`** — when your launch command wires Duo's coordination tools in over MCP,
+declare the exact tool names the agent can call (the set `duo mcp-server` serves).
+Core advertises only those names in prompts, and `duo plugins test` refuses a
+declaration that names tools you do not expose. Leave the list empty while `mcp` is
+false; an empty list with `mcp: true` means Core advertises the full set, the
+pre-existing behavior.
 
 Then read the capability table and apply **the one rule**:
 
@@ -508,6 +516,7 @@ distribution story.
 - [ ] Executable is named `duo-plugin-<name>`; not `duo`, `duo-mcp-server` or `duo-plugin-test`
 - [ ] `describe` returns `protocol: 1`, a name, and a `resume` mode
 - [ ] Every declared capability has working code behind it
+- [ ] `capabilities.tools` declares exactly the tool names the launch command exposes (empty when `mcp` is false)
 - [ ] `modelReference` matches whether your agent accepts a provider prefix
 - [ ] `probe` reports unavailability with a reason instead of erroring
 - [ ] `prepare` returns a shell command line, quoted, preserving `baseCommand`
