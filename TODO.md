@@ -83,7 +83,7 @@
 **负责人** Austin
 
 ### T4 `duo apply --branch <name>`（+ `--keep`）
-- [ ] 完成：
+- [x] 完成：5599d12 · 2026-10-24
 
 **位置** `cmd/duo/apply.go`（零 flag，仅 session-id 参数）；`internal/delivery/delivery.go:65`（Check）、`:159`（Deliver）、`:246`（BranchHead）；`internal/workspace/git.go`
 **问题** 交付只会 fast-forward 记录分支：GitHub-flow 用户（main 受保护、走 PR）拿不到任何出口，只能手工 `git branch` 复制结果。
