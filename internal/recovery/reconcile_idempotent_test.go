@@ -44,6 +44,13 @@ func TestReconcileIsIdempotent(t *testing.T) {
 		if len(second.Report.Revoked) != 0 {
 			t.Fatalf("a second pass revoked signatures: %v", second.Report.Revoked)
 		}
+		// The report restates the recovery because every pass re-derives it from
+		// Git; that is a diagnostic, not a second write. Pinning it here keeps a
+		// future change from either silently re-applying the merge or quietly
+		// dropping the restatement a reviewer relies on.
+		if !second.Report.IntegrationRecovered {
+			t.Fatalf("the second pass stopped reporting the integration it re-derived: %s", second.Report.String())
+		}
 		if got := headTriple(t, ctx, ws, repo); got != heads {
 			t.Fatalf("replay moved Git: %s -> %s", heads, got)
 		}
