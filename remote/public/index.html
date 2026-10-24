@@ -2,8 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="color-scheme" content="dark light">
+  <meta name="theme-color" content="#0b0f14" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f6f8fa" media="(prefers-color-scheme: light)">
   <meta name="robots" content="noindex, nofollow">
   <title>DUO remote</title>
   <link rel="stylesheet" href="/style.css">
@@ -11,96 +13,114 @@
   <script type="module" src="/app.js"></script>
 </head>
 <body>
-  <main class="shell">
-    <header class="masthead">
+  <header class="topbar">
+    <div class="brandline">
       <span class="mark" aria-hidden="true">DUO</span>
       <span id="title" class="title">Duo</span>
       <span id="status" class="status status-wait" role="status" aria-live="polite">connecting</span>
-    </header>
-
+    </div>
+    <dl class="vitals">
+      <div class="vital"><dt>Mode</dt><dd id="mode">—</dd></div>
+      <div class="vital"><dt>Phase</dt><dd id="phase">—</dd></div>
+      <div class="vital"><dt>Step</dt><dd id="step">—</dd></div>
+      <div class="vital"><dt>Expires</dt><dd id="expiry">—</dd></div>
+    </dl>
+    <progress id="progress" class="progress" aria-label="Step progress" max="1" value="0" hidden></progress>
+    <div class="tabs" role="tablist" aria-label="Sections">
+      <button type="button" class="tab" id="tab-session" role="tab" aria-controls="panel-session" aria-selected="true">Session</button>
+      <button type="button" class="tab" id="tab-activity" role="tab" aria-controls="panel-activity" aria-selected="false" tabindex="-1">Activity</button>
+      <button type="button" class="tab" id="tab-settings" role="tab" aria-controls="panel-settings" aria-selected="false" tabindex="-1">Settings</button>
+    </div>
     <p id="banner" class="banner" hidden></p>
+  </header>
 
-    <section class="card" aria-labelledby="head-facts">
-      <h1 id="head-facts">Session</h1>
-      <dl class="facts">
-        <dt>Room</dt><dd id="room" class="mono">—</dd>
-        <dt>Mode</dt><dd id="mode">—</dd>
-        <dt>Phase</dt><dd id="phase">—</dd>
-        <dt>Step</dt><dd id="step">—</dd>
-        <dt>Expires</dt><dd id="expiry">—</dd>
-      </dl>
-      <div class="control">
-        <label for="modes">Switch mode</label>
-        <select id="modes" autocomplete="off">
-          <option value="fast">Fast</option>
-          <option value="step">Step</option>
-          <option value="goal">Goal</option>
-        </select>
+  <main class="shell">
+    <section id="panel-session" class="panel" role="tabpanel" tabindex="0" aria-labelledby="tab-session">
+      <div class="card">
+        <h1>Current step</h1>
+        <p id="step-title" class="step-title">—</p>
       </div>
-      <p id="plan" class="plan"></p>
-    </section>
-
-    <section class="card" aria-labelledby="head-agents">
-      <h1 id="head-agents">Agents</h1>
-      <ul id="agents" class="agents"></ul>
-    </section>
-
-    <section class="card" aria-labelledby="head-drivers">
-      <h1 id="head-drivers">Drivers</h1>
-      <div class="control">
-        <label for="driver-austin">Austin</label>
-        <select id="driver-austin" autocomplete="off"></select>
+      <div class="card">
+        <h1>Agents</h1>
+        <ul id="agents" class="agents"></ul>
       </div>
-      <div class="control">
-        <label for="driver-tony">Tony</label>
-        <select id="driver-tony" autocomplete="off"></select>
+      <div class="card">
+        <h1>Observer</h1>
+        <p id="observer" class="observer muted">No report yet.</p>
+        <button id="refresh" type="button" class="ghost">Refresh report</button>
       </div>
-      <p id="driver-note" class="muted" hidden></p>
+      <details class="card fold">
+        <summary>Shared plan</summary>
+        <p id="plan" class="plan"></p>
+      </details>
     </section>
 
-    <section class="card" aria-labelledby="head-models">
-      <h1 id="head-models">Models</h1>
-      <div class="control">
-        <label for="model-agent">Agent</label>
-        <select id="model-agent" autocomplete="off">
-          <option value="austin">Austin</option>
-          <option value="tony">Tony</option>
-        </select>
-        <button id="model-load" type="button" class="ghost">Load models</button>
+    <section id="panel-activity" class="panel" role="tabpanel" tabindex="0" aria-labelledby="tab-activity" hidden>
+      <div class="card">
+        <h1>Recent activity</h1>
+        <ul id="activity" class="activity"><li class="muted">No activity yet.</li></ul>
       </div>
-      <p id="model-status" class="muted">Load the model list to see what this agent can run.</p>
-      <label class="sr-only" for="model-filter">Filter models</label>
-      <input id="model-filter" type="search" placeholder="Filter models…" autocomplete="off">
-      <ul id="model-list" class="models"></ul>
     </section>
 
-    <section class="card" aria-labelledby="head-activity">
-      <h1 id="head-activity">Recent activity</h1>
-      <ul id="activity" class="activity"><li class="muted">No activity yet.</li></ul>
-    </section>
-
-    <section class="card" aria-labelledby="head-observer">
-      <h1 id="head-observer">Observer</h1>
-      <p id="observer" class="observer muted">No report yet.</p>
-      <button id="refresh" type="button" class="ghost">Refresh report</button>
-    </section>
-
-    <section class="card" aria-labelledby="head-command">
-      <h1 id="head-command">Send a command</h1>
-      <form id="composer" class="composer">
-        <label class="sr-only" for="task">Task for Duo</label>
-        <textarea id="task" rows="3" placeholder="Tell Duo what to do…" autocomplete="off"></textarea>
-        <div class="actions">
-          <button id="send" type="submit">Send</button>
+    <section id="panel-settings" class="panel" role="tabpanel" tabindex="0" aria-labelledby="tab-settings" hidden>
+      <div class="card">
+        <h1>Workflow</h1>
+        <div class="control">
+          <label for="modes">Mode</label>
+          <select id="modes" autocomplete="off">
+            <option value="fast">Fast</option>
+            <option value="step">Step</option>
+            <option value="goal">Goal</option>
+          </select>
+        </div>
+        <div class="control">
           <button id="newsess" type="button" class="ghost">New session</button>
         </div>
-      </form>
-      <p id="sent" class="sent" role="status" aria-live="polite"></p>
+      </div>
+      <div class="card">
+        <h1>Drivers</h1>
+        <div class="control">
+          <label for="driver-austin">Austin</label>
+          <select id="driver-austin" autocomplete="off"></select>
+        </div>
+        <div class="control">
+          <label for="driver-tony">Tony</label>
+          <select id="driver-tony" autocomplete="off"></select>
+        </div>
+        <p id="driver-note" class="muted" hidden></p>
+      </div>
+      <div class="card">
+        <h1>Models</h1>
+        <div class="control">
+          <label for="model-agent">Agent</label>
+          <select id="model-agent" autocomplete="off">
+            <option value="austin">Austin</option>
+            <option value="tony">Tony</option>
+          </select>
+          <button id="model-load" type="button" class="ghost">Load models</button>
+        </div>
+        <p id="model-status" class="muted">Load the model list to see what this agent can run.</p>
+        <label class="sr-only" for="model-filter">Filter models</label>
+        <input id="model-filter" type="search" placeholder="Filter models…" autocomplete="off">
+        <ul id="model-list" class="models"></ul>
+      </div>
+      <div class="card">
+        <h1>Pairing</h1>
+        <dl class="facts">
+          <dt>Room</dt><dd id="room" class="mono">—</dd>
+        </dl>
+        <p class="muted">Everything runs on your computer. This relay only forwards encrypted frames.</p>
+      </div>
     </section>
-
-    <footer class="foot">
-      <p>Everything runs on your computer. This relay only forwards encrypted frames.</p>
-    </footer>
   </main>
+
+  <footer class="dock">
+    <p id="sent" class="sent" role="status" aria-live="polite"></p>
+    <form id="composer" class="composer">
+      <label class="sr-only" for="task">Task for Duo</label>
+      <textarea id="task" rows="2" placeholder="Tell Duo what to do…" autocomplete="off"></textarea>
+      <button id="send" type="submit">Send</button>
+    </form>
+  </footer>
 </body>
 </html>
