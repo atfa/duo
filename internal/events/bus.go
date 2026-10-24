@@ -54,12 +54,29 @@ const (
 	AttentionSummary = "summary"
 )
 
+// ConnectionEvent marks the system event a bridge attach or detach produces. The
+// zero value means "not a connection event", so every other event is unchanged.
+// A frontend that attached after the event reads the same fact from the session
+// view, and this marker is what lets it recognise the event it missed as the
+// connection it already announced instead of printing it a second time.
+type ConnectionEvent int
+
+const (
+	ConnectionNone ConnectionEvent = iota
+	ConnectionUp
+	ConnectionDown
+)
+
 type Event struct {
 	Time  time.Time
 	Kind  Kind
 	Agent protocol.AgentID
 	Peer  protocol.AgentID
 	Text  string
+
+	// Connection is set on the system line an agent's bridge attach or detach
+	// produces, and is ConnectionNone everywhere else.
+	Connection ConnectionEvent
 
 	// Provider and Model are set for KindModel events.
 	Provider string
