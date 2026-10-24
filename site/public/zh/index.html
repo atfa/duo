@@ -82,6 +82,7 @@
         </button>
         <span class="copy-status sr-only" role="status" aria-live="polite"></span>
       </div>
+      <p class="install-note">发布归档目前仍是 v0.13.2；远程控制随 <code>main</code> 上的版本提供，在下一个 tag 之前请使用源码安装。</p>
 
       <div class="hero-actions">
         <a class="btn btn-primary" href="#start">开始使用</a>
@@ -275,13 +276,6 @@
 
     <div class="features grid">
       <article class="feature card reveal">
-        <span class="f-icon"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="4.6" y="1.6" width="6.8" height="12.8" rx="1.8" stroke="currentColor" stroke-width="1.2"/><path d="M6.9 3.2h2.2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M7.6 12.4h.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
-        <h3>远程控制</h3>
-        <p>输入 <code>/qrcode</code>，即可用手机掌控运行中的会话：实时 Agent 状态、任务输入、新会话与观察者报告。中继只承载密文。</p>
-        <span class="f-meta">/qrcode · remote/ · 8 小时配对</span>
-      </article>
-
-      <article class="feature card reveal">
         <span class="f-icon"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.2"/><path d="M5 5h6M5 8h6M5 11h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span>
         <h3>确定性的核心</h3>
         <p>阶段、关卡、路由与交付由 Go 强制执行，而不是在提示词里即兴发挥。Agent 使用自己的工具工作，由核心根据证据决定哪一步可以推进。</p>
@@ -394,6 +388,7 @@
               <p>macOS 或 Linux，amd64 或 arm64。也可以使用 Go 1.24+ 从源码构建。</p>
               <code id="install-cmd-start">curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash</code>
               <code>./scripts/install.sh</code>
+              <p class="install-note">发布归档目前仍是 v0.13.2；远程控制随 <code>main</code> 上的版本提供，在下一个 tag 之前请使用源码安装。</p>
             </div>
           </div>
           <div class="step">
@@ -469,7 +464,7 @@
       </details>
       <details class="faq-item">
         <summary class="faq-q">我的代码会离开本机吗？</summary>
-        <div class="faq-a"><p>只在你配对手机后，而且中继读不到内容。Duo 是本地 Go 二进制，协调过程没有托管后端；配对手机时，Cloudflare Worker 只转发加密信封，配对密钥位于浏览器不会发送的 URL fragment 中。未配对时，本机不会向中继发送任何内容。</p></div>
+        <div class="faq-a"><p>Duo 是本地的 Go 二进制：协调、工作树与证据都留在你的机器上，提示词也照旧只发给你自己的 Agent 服务商。配对手机只是增加一个可选中继，它只转发密文信封，读不到提示词，也拿不到配对密钥；未配对时，本机不会向中继发送任何内容。</p></div>
       </details>
       <details class="faq-item">
         <summary class="faq-q">开源吗？</summary>

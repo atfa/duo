@@ -468,6 +468,20 @@ p {
   user-select: none;
 }
 
+.install-note {
+  max-width: 560px;
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+.install-note code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text);
+}
+
 .copy {
   flex: none;
   display: inline-flex;

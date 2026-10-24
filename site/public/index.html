@@ -81,6 +81,7 @@
         </button>
         <span class="copy-status sr-only" role="status" aria-live="polite"></span>
       </div>
+      <p class="install-note">The release archive still carries v0.13.2. Remote control ships on <code>main</code>; use the source install until the next archive is tagged.</p>
 
       <div class="hero-actions">
         <a class="btn btn-primary" href="#start">Get started</a>
@@ -274,13 +275,6 @@
 
     <div class="features grid">
       <article class="feature card reveal">
-        <span class="f-icon"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="4.6" y="1.6" width="6.8" height="12.8" rx="1.8" stroke="currentColor" stroke-width="1.2"/><path d="M6.9 3.2h2.2" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/><path d="M7.6 12.4h.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
-        <h3>Remote control</h3>
-        <p>Type <code>/qrcode</code> and steer the running session from a phone: live agent state, a task composer, a fresh session and the observer report. The relay only carries ciphertext.</p>
-        <span class="f-meta">/qrcode · remote/ · 8-hour pairing</span>
-      </article>
-
-      <article class="feature card reveal">
         <span class="f-icon"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.2"/><path d="M5 5h6M5 8h6M5 11h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span>
         <h3>A deterministic core</h3>
         <p>Phases, gates, routing and delivery are enforced in Go, not improvised in a prompt. Agents keep their own tools; the core decides which transitions their evidence authorizes.</p>
@@ -393,6 +387,7 @@
               <p>macOS or Linux, amd64 or arm64. Or build from source with Go 1.24+.</p>
               <code id="install-cmd-start">curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash</code>
               <code>./scripts/install.sh</code>
+              <p class="install-note">The release archive still carries v0.13.2. Remote control ships on <code>main</code>; use the source install until the next archive is tagged.</p>
             </div>
           </div>
           <div class="step">
@@ -468,7 +463,7 @@
       </details>
       <details class="faq-item">
         <summary class="faq-q">Does my code leave my machine?</summary>
-        <div class="faq-a"><p>Only through the optional relay, and never in a form it can read. Duo is a local Go binary with no hosted backend for coordination; when you pair a phone, a Cloudflare Worker relays encrypted envelopes and the pairing secret stays in a URL fragment your browser never sends. With no pairing, the machine sends nothing to the relay.</p></div>
+        <div class="faq-a"><p>Duo is a local Go binary: coordination, worktrees and evidence stay on your machine, and prompts go to your agent provider exactly as they would without Duo. Pairing a phone adds an optional relay that carries encrypted envelopes only — it never sees a prompt or the pairing secret, and a machine with no pairing sends it nothing.</p></div>
       </details>
       <details class="faq-item">
         <summary class="faq-q">Is it open source?</summary>
