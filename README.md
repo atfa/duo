@@ -10,6 +10,8 @@ Duo offers three workflows:
 
 Duo owns coordination, verification gates, Git evidence, and safe delivery. Agents work in separate Git worktrees; the result is delivered to the branch from which you started Duo.
 
+**Remote control.** Type `/qrcode` and scan it with a phone to follow both agents and send a task from anywhere; the relay stores ciphertext only. See [Remote control](#remote-control) and [docs/remote.md](docs/remote.md).
+
 ## Quick start
 
 ```bash
@@ -23,7 +25,7 @@ Duo runs on macOS and Linux and requires Git plus at least one supported agent C
 
 ## Install
 
-**Release v0.13.2** (macOS/Linux, amd64/arm64):
+**Latest published release v0.13.2** (macOS/Linux, amd64/arm64):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash
@@ -34,6 +36,8 @@ Or install from source (Go 1.24+; the script runs the Go test suite):
 ```bash
 ./scripts/install.sh
 ```
+
+v0.14.0, which adds remote control, is on `main` ahead of the next release archive; the source install builds it.
 
 Restart running Pi or OpenCode processes after installing their bridges.
 
@@ -131,6 +135,8 @@ Resuming never sends anything to the agents: the transcripts and state are resto
 
 - [gotui dashboard and frontend internals](./docs/gotui.md)
 - [architecture and coordination boundaries](./docs/architecture.md)
+- [remote control and the phone console](./docs/remote.md)
+- [remote control wire protocol](./docs/remote-protocol.md)
 - [driver plugin protocol](./docs/driver-plugin-protocol.md)
 - [plugin development guide](./docs/plugin-development-guide.md)
 - [security model and delivery boundary](./SECURITY.md)

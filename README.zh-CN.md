@@ -10,6 +10,8 @@ Duo 提供三种工作流：
 
 Duo 负责协调、验证关卡、Git 证据与安全交付。Agent 在各自独立的 Git 工作树中工作，结果交付回你启动 Duo 时所在的分支。
 
+**远程控制。** 输入 `/qrcode` 并用手机扫码，即可随时查看两个 Agent 的状态并下达任务；中继只存储密文。见[远程控制](#远程控制)与 [docs/remote.md](docs/remote.md)。
+
 ## 快速开始
 
 ```bash
@@ -23,7 +25,7 @@ Duo 运行于 macOS 与 Linux，需要 Git 以及至少一种受支持的 Agent 
 
 ## 安装
 
-**发布版 v0.13.2**（macOS/Linux，amd64/arm64）：
+**最新发布版 v0.13.2**（macOS/Linux，amd64/arm64）：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash
@@ -34,6 +36,8 @@ curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-relea
 ```bash
 ./scripts/install.sh
 ```
+
+v0.14.0（新增远程控制）已在 `main` 上，尚未打包为发布归档；用源码安装即可获得。
 
 安装 bridge 后请重启正在运行的 Pi 或 OpenCode 进程。
 
@@ -129,6 +133,8 @@ URL 的 fragment 中，浏览器不会把它发送给服务器。
 
 - [gotui 仪表盘与前端内部机制](./docs/gotui.md)
 - [架构与协调边界](./docs/architecture.md)
+- [远程控制与手机控制台](./docs/remote.md)
+- [远程控制线路协议](./docs/remote-protocol.md)
 - [driver 插件协议](./docs/driver-plugin-protocol.md)
 - [插件开发指南](./docs/plugin-development-guide.md)
 - [安全模型与交付边界](./SECURITY.md)

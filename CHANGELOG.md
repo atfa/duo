@@ -2,7 +2,34 @@
 
 All notable project milestones are documented here.
 
-## Unreleased
+## v0.14.0 — 2026-10-24
+
+### Remote control
+
+- Duo can be steered from a phone. `/qrcode` pairs it: the page shows the project,
+  session, mode and phase, the current step, and Austin's and Tony's state and
+  recent activity; it sends a task through the same `SubmitTask` a keystroke uses,
+  starts a fresh session, and refreshes the observer's report. Every command is
+  answered — accepted, or the reason the host refused it.
+- The phone talks to a Cloudflare Worker that stores ciphertext only, so a prompt,
+  an agent message and a repository path never reach the relay in a form it can
+  read. The pairing secret travels in the QR code's URL fragment, which a browser
+  never sends to a server; a command carries a MAC over the fields it would have
+  to change and a nonce the host issued, so the relay can drop or delay traffic
+  but cannot read or forge it.
+- A pairing lives in `~/.duo/remote.json` (`0600`) for 8 hours and reconnects by
+  itself, so `/new` keeps the phone connected. `Esc` only hides the QR panel;
+  `/remote off`, expiry, or Duo exiting end access. `/remote` shows the relay,
+  room, expiry and connected phones, and `DUO_REMOTE=off` disables remote access
+  for one run.
+- The relay in `remote/` is part of this tree and is meant to run on Cloudflare's
+  free tier: WebSocket hibernation, event-driven pushes, a 30-second keepalive, a
+  per-room daily message budget and a per-room command rate limit. A machine that
+  has never paired sends nothing to the relay at all, and a busy session can never
+  turn into a bill.
+- [docs/remote.md](docs/remote.md) covers pairing and configuration;
+  [docs/remote-protocol.md](docs/remote-protocol.md) specifies the wire format,
+  key derivation and limits.
 
 ### New session
 
