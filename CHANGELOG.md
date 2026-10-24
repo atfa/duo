@@ -28,6 +28,18 @@ All notable project milestones are documented here.
   verdict and the diffstat. Without `gh` Duo prints that same body, tells you
   which branch to open the pull request from, and exits successfully.
 
+### Crash boundaries
+
+- The crash boundaries around delivery and resume are now pinned by tests rather
+  than argued in comments. Retrying a delivered session reports success without
+  moving the branch again or rewriting its checkpoint; a kill -9 between the
+  fast-forward and the checkpoint write is reconciled on resume without a second
+  merge, and resuming the finished session afterwards changes nothing; replaying
+  a session's journal twice does not duplicate its history; and running recovery
+  reconciliation a second time is a no-op that reports no revocation and no
+  integration recovery. The last two also cover the state a resumed session must
+  never silently rewrite: signatures, the step queue and the delivery record.
+
 ### Headless rounds
 
 - `duo run -m fast|goal|step "task" [--json] [--timeout <duration>]` runs one
