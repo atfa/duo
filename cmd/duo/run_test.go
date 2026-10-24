@@ -174,3 +174,41 @@ func TestParseRunArgsModeTimeoutJSON(t *testing.T) {
 		t.Fatal("a run without a task must be rejected")
 	}
 }
+
+// TestRunJSONTimeoutKeepsStdoutParseable is the scripting contract on the timeout
+// path: `--json` stdout must be exactly one JSON document, with the human notice
+// kept off it, because a timeout is one of the outcomes a script must handle.
+func TestRunJSONTimeoutKeepsStdoutParseable(t *testing.T) {
+	view := session.View{
+		SessionID: "sess-run",
+		Mode:      project.ModeFast,
+		Project:   project.Snapshot{Mode: project.ModeFast, Phase: project.PhaseExecute},
+	}
+	var stdout, stderr bytes.Buffer
+	err := runOutput{stdout: &stdout, stderr: &stderr}.finish(view, runStopTimeout, 40*time.Millisecond, true)
+	if !errors.Is(err, errRunTimeout) {
+		t.Fatalf("finish = %v, want the timeout sentinel", err)
+	}
+
+	decoder := json.NewDecoder(&stdout)
+	var report struct {
+		Phase    string `json:"phase"`
+		ExitCode int    `json:"exitCode"`
+	}
+	if err := decoder.Decode(&report); err != nil {
+		t.Fatalf("stdout is not one JSON document: %v\n%s", err, stdout.String())
+	}
+	if report.ExitCode != runExitTimeout {
+		t.Fatalf("json exitCode = %d, want %d", report.ExitCode, runExitTimeout)
+	}
+	if strings.Contains(stdout.String(), "timed out") {
+		t.Fatalf("prose leaked onto the JSON stream:\n%s", stdout.String())
+	}
+	var extra any
+	if err := decoder.Decode(&extra); err == nil {
+		t.Fatalf("stdout carried more than one JSON document:\n%s", stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "timed out") {
+		t.Fatalf("the timeout notice is missing from stderr:\n%s", stderr.String())
+	}
+}

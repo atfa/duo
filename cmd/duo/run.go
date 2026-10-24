@@ -175,15 +175,30 @@ func runHeadless(ctx context.Context, args []string) error {
 	}
 
 	view, stop, err := runRound(ctx, svc, parsed.task, parsed.timeout)
-	end := svc.Close()
+	svc.Close()
 	if err != nil {
 		return err
 	}
+	return runOutput{stdout: os.Stdout, stderr: os.Stderr}.finish(view, stop, parsed.timeout, parsed.json)
+}
+
+// runOutput is where a headless round writes. The report goes to stdout and every
+// human notice goes to stderr, so `--json` stdout is exactly one document a script
+// can parse: a timeout notice mixed into it would break `jq` on the very path the
+// exit code exists for.
+type runOutput struct {
+	stdout io.Writer
+	stderr io.Writer
+}
+
+// finish writes the notice for how the round ended and then the report.
+func (o runOutput) finish(view session.View, stop runStop, timeout time.Duration, asJSON bool) error {
 	if stop == runStopTimeout {
-		fmt.Printf("Duo run timed out after %s. Session %s was preserved; resume it with `duo resume %s`.\n",
-			parsed.timeout, end.SessionID, end.SessionID)
+		fmt.Fprintf(o.stderr,
+			"Duo run timed out after %s. Session %s was preserved; resume it with `duo resume %s`.\n",
+			timeout, view.SessionID, view.SessionID)
 	}
-	return reportRun(os.Stdout, view, stop, parsed.json)
+	return reportRun(o.stdout, view, stop, asJSON)
 }
 
 // runRound submits the task and waits for the round to end. It is the whole
