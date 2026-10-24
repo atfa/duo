@@ -25,7 +25,7 @@ Duo 运行于 macOS 与 Linux，需要 Git 以及至少一种受支持的 Agent 
 
 ## 安装
 
-**最新发布版 v0.13.2**（macOS/Linux，amd64/arm64）：
+**最新发布版 v0.14.1**（macOS/Linux，amd64/arm64）：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash
@@ -36,8 +36,6 @@ curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-relea
 ```bash
 ./scripts/install.sh
 ```
-
-v0.14.0（新增远程控制）已在 `main` 上，尚未打包为发布归档；用源码安装即可获得。
 
 安装 bridge 后请重启正在运行的 Pi 或 OpenCode 进程。
 

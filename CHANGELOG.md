@@ -2,7 +2,7 @@
 
 All notable project milestones are documented here.
 
-## Unreleased
+## v0.14.1 — 2026-10-25
 
 ### Delivery exits
 

@@ -25,7 +25,7 @@ Duo runs on macOS and Linux and requires Git plus at least one supported agent C
 
 ## Install
 
-**Latest published release v0.13.2** (macOS/Linux, amd64/arm64):
+**Latest published release v0.14.1** (macOS/Linux, amd64/arm64):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash
@@ -36,8 +36,6 @@ Or install from source (Go 1.24+; the script runs the Go test suite):
 ```bash
 ./scripts/install.sh
 ```
-
-v0.14.0, which adds remote control, is on `main` ahead of the next release archive; the source install builds it.
 
 Restart running Pi or OpenCode processes after installing their bridges.
 
