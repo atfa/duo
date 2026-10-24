@@ -297,15 +297,16 @@ func TestRemoteCatalogEntriesAndModelResolution(t *testing.T) {
 
 // A model change is only accepted for an entry of the list this phone was shown,
 // and the list stops describing what runs once the driver changes.
-func TestRemoteResolveModelUsesTheLoadedCatalog(t *testing.T) {
+func TestRemoteResolveModelUsesTheAgentsOwnCatalog(t *testing.T) {
 	manager := &remoteManager{svc: session.New(session.Options{}), now: time.Now}
 	if _, err := manager.resolveModel(protocol.Austin, "openai/gpt-5"); err == nil {
 		t.Fatal("a model was resolved before any catalog was loaded")
 	}
 
 	entries := catalogEntries([]models.Model{{Provider: "openai", ID: "gpt-5"}})
-	manager.catalog = catalogState(protocol.Austin, entries, nil)
-	manager.catalogModels = entries
+	manager.catalogs = map[protocol.AgentID]catalogEntry{
+		protocol.Austin: {state: catalogState(protocol.Austin, entries, nil), models: entries, driver: ""},
+	}
 
 	got, err := manager.resolveModel(protocol.Austin, " openai/gpt-5 ")
 	if err != nil || got.provider != "openai" || got.id != "gpt-5" {
@@ -314,29 +315,115 @@ func TestRemoteResolveModelUsesTheLoadedCatalog(t *testing.T) {
 	if _, err := manager.resolveModel(protocol.Austin, "openai/ghost"); err == nil {
 		t.Error("a model outside the list was resolved")
 	}
+	// The other agent resolves against its own list, which is not loaded here.
 	if _, err := manager.resolveModel(protocol.Tony, "openai/gpt-5"); err == nil {
-		t.Error("the other agent's catalog was used")
+		t.Error("the other agent's list was used")
 	}
 
-	// A snapshot is a copy: the phone cannot mutate the cache through it.
-	snapshot := manager.catalogSnapshot()
-	if snapshot == nil || len(snapshot.Models) != 1 {
-		t.Fatalf("catalogSnapshot = %+v, want the loaded list", snapshot)
+	// A list loaded before a driver change no longer describes what runs.
+	manager.catalogs[protocol.Austin] = catalogEntry{state: catalogState(protocol.Austin, entries, nil), models: entries, driver: "pi"}
+	if _, err := manager.resolveModel(protocol.Austin, "openai/gpt-5"); err == nil {
+		t.Error("a list from a previous driver was used after the driver changed")
 	}
+
+	// A read still in flight is not a list.
+	manager.catalogs[protocol.Austin] = catalogEntry{state: &remote.CatalogState{Agent: "austin", Loading: true}, driver: ""}
+	if _, err := manager.resolveModel(protocol.Austin, "openai/gpt-5"); err == nil {
+		t.Error("a list that is still loading was used")
+	}
+}
+
+// Each agent keeps its own list: asking about one never drops another, and a list
+// that is already loaded is shown again without starting the driver's CLI.
+func TestRemoteCatalogIsCachedPerAgent(t *testing.T) {
+	manager := &remoteManager{svc: session.New(session.Options{}), now: time.Now}
+	austin := catalogEntries([]models.Model{{Provider: "openai", ID: "gpt-5"}})
+	manager.catalogs = map[protocol.AgentID]catalogEntry{
+		protocol.Austin: {state: catalogState(protocol.Austin, austin, nil), models: austin, driver: ""},
+	}
+
+	// A cached list is published as it is, with no read started for it.
+	manager.requestCatalog(protocol.Austin)
+	if manager.catalogShown != protocol.Austin {
+		t.Errorf("shown agent = %q, want austin", manager.catalogShown)
+	}
+	if manager.catalogLoads[protocol.Austin] {
+		t.Error("a cached list started the driver's CLI again")
+	}
+	snapshot := manager.catalogSnapshot()
+	if snapshot == nil || snapshot.Agent != "austin" || len(snapshot.Models) != 1 || snapshot.Loading {
+		t.Fatalf("catalogSnapshot = %+v, want austin's loaded list", snapshot)
+	}
+	// A snapshot is a copy: the phone cannot mutate the cache through it.
 	snapshot.Models[0] = "mutated"
 	if manager.catalogSnapshot().Models[0] == "mutated" {
 		t.Error("the published catalog aliases the cache")
 	}
 
-	// A driver change invalidates the list that driver published.
-	manager.catalogDriver = "pi"
-	if _, err := manager.resolveModel(protocol.Austin, "openai/gpt-5"); err == nil {
-		t.Error("a list from a previous driver was used after the driver changed")
+	// Asking about the other agent while its read is in flight is not dropped: it
+	// becomes what the phone looks at, and the first list is left alone.
+	manager.catalogLoads[protocol.Tony] = true
+	manager.catalogs[protocol.Tony] = catalogEntry{
+		state: &remote.CatalogState{Agent: "tony", Loading: true}, driver: "",
 	}
-	manager.catalogDriver = ""
+	manager.requestCatalog(protocol.Tony)
+	if manager.catalogShown != protocol.Tony {
+		t.Errorf("shown agent = %q, want tony", manager.catalogShown)
+	}
+	if snapshot := manager.catalogSnapshot(); snapshot == nil || snapshot.Agent != "tony" || !snapshot.Loading {
+		t.Errorf("catalogSnapshot = %+v, want tony loading", snapshot)
+	}
+	if _, ok := manager.catalogs[protocol.Austin]; !ok {
+		t.Error("asking about one agent dropped the other agent's list")
+	}
+
+	// Back to the first agent: its list is still there and is shown again.
+	manager.requestCatalog(protocol.Austin)
+	if snapshot := manager.catalogSnapshot(); snapshot == nil || snapshot.Agent != "austin" || snapshot.Loading {
+		t.Errorf("catalogSnapshot = %+v, want austin's list again", snapshot)
+	}
+
+	// A driver change drops only that agent's list.
 	manager.forgetCatalog(protocol.Austin)
-	if manager.catalogSnapshot() != nil {
-		t.Error("the catalog survived a driver change")
+	if _, ok := manager.catalogs[protocol.Austin]; ok {
+		t.Error("the dropped list is still cached")
+	}
+	if manager.catalogShown != "" {
+		t.Errorf("the snapshot still shows %q", manager.catalogShown)
+	}
+}
+
+// A read that fails still answers: each agent asked for gets its own error, and a
+// request made while another read is running is not lost.
+func TestRemoteCatalogReadsEachAgentIndependently(t *testing.T) {
+	manager := &remoteManager{svc: session.New(session.Options{}), now: time.Now}
+	manager.requestCatalog(protocol.Austin)
+	manager.requestCatalog(protocol.Tony)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		manager.catalogMu.Lock()
+		austin := manager.catalogs[protocol.Austin]
+		tony := manager.catalogs[protocol.Tony]
+		manager.catalogMu.Unlock()
+		austinDone := austin.state != nil && !austin.state.Loading
+		tonyDone := tony.state != nil && !tony.state.Loading
+		if austinDone && tonyDone {
+			if austin.state.Error == "" || tony.state.Error == "" {
+				t.Errorf("a session that is not running answered a catalog read: austin=%q tony=%q",
+					austin.state.Error, tony.state.Error)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the catalog reads never finished: austin=%+v tony=%+v", austin.state, tony.state)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// The newest request is what the phone is looking at.
+	if manager.catalogShown != protocol.Tony {
+		t.Errorf("shown agent = %q, want tony", manager.catalogShown)
 	}
 }
 
