@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { agentId, agentLabel, agentMeta, applyEvent, buildCommand, dotClass, nextSeq, viewModel } from "../public/console.js";
+import { agentId, agentLabel, agentMeta, applyEvent, buildCommand, dotClass, nextSeq, PENDING_TIMEOUT_MS, resendText, settlePending, viewModel } from "../public/console.js";
 import { b64uEncode, decryptEnvelope, deriveKeys, parsePairingKey, sealCommand } from "../public/crypto.js";
 import { VECTOR } from "./vectors.js";
 
@@ -188,4 +188,64 @@ test("a state carries the host's answer to the last command", () => {
   assert.equal(answered.command.accepted, false);
   assert.equal(answered.command.note, "the task was empty");
   assert.equal(viewModel({ n: 1 }).command, null);
+});
+
+// One command in flight, three ways the wait ends. A page that only cleared the
+// pending command on a matching answer stayed disabled for good after a session
+// restart or a lost frame, which reads as "the phone cannot send anything".
+test("a pending command ends on its answer, a new session, or a bounded wait", () => {
+  const pending = { id: "cmd-1", session: "session-1", at: 1000 };
+
+  const accepted = settlePending(pending, { session: "session-1", command: { id: "cmd-1", accepted: true } }, 1500);
+  assert.deepEqual(accepted, { pending: null, note: "Sent.", resend: false });
+
+  // A command that did not run has to give its text back: the composer was
+  // cleared when it was sent, so "send it again" without the text loses it.
+  const refused = settlePending(
+    pending,
+    { session: "session-1", command: { id: "cmd-1", accepted: false, note: "the task was empty" } },
+    1500,
+  );
+  assert.deepEqual(refused, { pending: null, note: "the task was empty", resend: true });
+
+  // The host restarted: the session that would have answered is gone.
+  const restarted = settlePending(pending, { session: "session-2", command: null }, 1500);
+  assert.equal(restarted.pending, null);
+  assert.match(restarted.note, /new session/);
+  assert.equal(restarted.resend, true);
+
+  // A state published before the command was sent is not an answer to it, and
+  // must not end the wait: the answer can still arrive.
+  const stale = settlePending(pending, { session: "session-1", command: null }, 1500);
+  assert.equal(stale.pending, pending);
+  assert.equal(stale.note, null);
+
+  // Another command's answer belongs to an earlier attempt.
+  const other = settlePending(pending, { session: "session-1", command: { id: "cmd-0", accepted: true } }, 1500);
+  assert.equal(other.pending, pending);
+
+  // A silent host ends the wait with an honest note, and nothing is resent.
+  const silent = settlePending(pending, { session: "session-1" }, 1000 + PENDING_TIMEOUT_MS);
+  assert.equal(silent.pending, null);
+  assert.match(silent.note, /did not answer/);
+  assert.equal(silent.resend, true);
+  assert.equal(settlePending(pending, { session: "session-1" }, 1000 + PENDING_TIMEOUT_MS - 1).pending, pending);
+
+  // A host that reports no session cannot trigger the restart rule.
+  assert.equal(settlePending({ id: "cmd-2", at: 1000 }, { command: null }, 1500).pending.id, "cmd-2");
+
+  assert.deepEqual(settlePending(null, { session: "session-1" }, 0), { pending: null, note: null, resend: false });
+});
+
+// The text a command that did not run gives back. An accepted command keeps the
+// composer empty (it ran), and a draft the human has already started is never
+// overwritten.
+test("a command that did not run gives its text back to an empty composer", () => {
+  const sent = { id: "cmd-1", session: "session-1", at: 1000, text: "run the tests" };
+
+  assert.equal(resendText(sent, ""), "run the tests");
+  assert.equal(resendText(sent, "   "), "run the tests", "a composer holding only spaces is empty");
+  assert.equal(resendText(sent, "a new draft"), "", "a started draft must survive");
+  assert.equal(resendText({ id: "cmd-2", at: 1000, text: "" }, ""), "", "a non-task command has no text to give back");
+  assert.equal(resendText(null, ""), "");
 });

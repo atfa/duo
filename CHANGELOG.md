@@ -15,6 +15,15 @@ All notable project milestones are documented here.
   not even Ctrl+Q was read. `/new` also no longer prints a stop notice onto the
   screen the next session is about to paint over.
 
+- Fixed: a command sent from the phone could leave the page with every button
+  disabled. The one command in flight was cleared only by a state carrying its
+  answer, and a session restart, a lost frame or a relay that dropped the
+  duplicate id left that answer never arriving. The wait now ends on the answer,
+  on a state from a different session, or after 15s, and it says which of the
+  three happened instead of going quiet. Nothing is resent automatically, so a
+  task is never run twice, and a command that did not run gives its text back to
+  the composer instead of asking for a prompt the phone no longer has.
+
 ### Cost and context pressure
 
 - `/cost` shows what a session has spent: per agent and per phase, with the session

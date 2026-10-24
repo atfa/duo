@@ -183,6 +183,50 @@ export function applyEvent(model, event) {
   return next;
 }
 
+// A command stays in flight until the host answers it, and the page must
+// recognise every way that wait ends or its buttons stay disabled forever: the
+// answer itself, a state from a different session (the host restarted, so the
+// answer will never come), and a bounded wait for a host that went silent.
+// Nothing here resends: the relay drops a command id it already forwarded, so a
+// silent host is never answered by retrying, and a resend could run a task twice.
+export const PENDING_TIMEOUT_MS = 15000;
+
+// settlePending resolves the one command in flight against a state the host
+// published. A null note means "still waiting", so the caller says nothing new.
+// resend says the command did not run, so its text has to go back to the human
+// rather than being lost with the composer it was cleared from.
+export function settlePending(pending, state, now) {
+  if (!pending) return { pending: null, note: null, resend: false };
+  const source = state && typeof state === "object" ? state : {};
+  const answer = source.command && typeof source.command === "object" ? source.command : null;
+  if (answer && answer.id === pending.id) {
+    const accepted = answer.accepted === true;
+    const note = accepted ? "Sent." : clip(answer.note, 200) || "The computer refused the command.";
+    return { pending: null, note, resend: !accepted };
+  }
+  // A state from another session cannot answer this command: the host it was
+  // addressed to is gone. A state from the same session that does not mention the
+  // command is older news, and the answer may still arrive.
+  if (pending.session && source.session && source.session !== pending.session) {
+    return { pending: null, note: "Duo started a new session; the command was not confirmed.", resend: true };
+  }
+  const sent = Number(pending.at);
+  if (Number.isFinite(now) && Number.isFinite(sent) && sent > 0 && now - sent >= PENDING_TIMEOUT_MS) {
+    return { pending: null, note: "Duo did not answer; send it again.", resend: true };
+  }
+  return { pending, note: null, resend: false };
+}
+
+// resendText is the text a command that did not run gives back. The composer was
+// cleared when the command was sent, so asking the human to send it again without
+// the text is asking for a prompt they no longer have — which is exactly how a
+// phone prompt was lost once already. A draft already started is never overwritten.
+export function resendText(pending, draft) {
+  if (!pending || typeof pending.text !== "string" || pending.text === "") return "";
+  if (typeof draft === "string" && draft.trim() !== "") return "";
+  return pending.text;
+}
+
 // buildCommand signs and encrypts one command. The MAC covers the fields the
 // relay could change, and the id is repeated in the envelope's additional data,
 // so a relay operator can neither rewrite nor duplicate a command.

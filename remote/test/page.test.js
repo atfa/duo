@@ -64,8 +64,24 @@ test("the page and its scripts revalidate on every load", () => {
 test("a sent task leaves the composer empty", () => {
   const build = app.indexOf("const frame = await buildCommand({");
   const clear = app.indexOf('if (kind === "task") els.task.value = "";');
-  const queued = app.indexOf("pending = { id, frame };");
+  // The command in flight keeps the text it was sent with, so a command that did
+  // not run can give it back instead of asking for a prompt that is gone.
+  const queued = app.indexOf("pending = { id, frame, session: model.session, at: Date.now(), text:");
   assert.ok(build >= 0, "the command must still be built before it is sent");
   assert.ok(clear > build, "the composer must be cleared after a task command is built");
   assert.ok(queued > clear, "the composer must be cleared before the command is pending");
+});
+
+// One rule decides when the command in flight is over, and both triggers use it:
+// every state the host publishes, and the bounded wait that keeps a lost answer
+// from disabling the page for good.
+test("the pending command is settled by the same rule on a state and on the timer", () => {
+  const state = app.indexOf('if (frame.kind === "state") {');
+  const resolved = app.indexOf("resolvePending();", state);
+  const timer = app.indexOf("pendingTimer = setTimeout(", state);
+  const fromTimer = app.indexOf("resolvePending();", timer);
+  assert.ok(state >= 0 && resolved > state, "a state must resolve the command in flight");
+  assert.ok(timer > resolved, "sending a command must arm the bounded wait");
+  assert.ok(fromTimer > timer, "the bounded wait must resolve the command in flight");
+  assert.match(app, /PENDING_TIMEOUT_MS\),\s*\);|}, PENDING_TIMEOUT_MS\);/);
 });

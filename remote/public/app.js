@@ -4,7 +4,7 @@
 // here, so a phone that drops its Wi-Fi catches up on its own.
 
 import { LinkError, decryptEnvelope, deriveKeys, parsePairingKey, parseRoom } from "./crypto.js";
-import { agentLabel, agentMeta, applyEvent, buildCommand, dotClass, nextSeq, viewModel } from "./console.js";
+import { agentLabel, agentMeta, applyEvent, buildCommand, dotClass, nextSeq, PENDING_TIMEOUT_MS, resendText, settlePending, viewModel } from "./console.js";
 
 const RECONNECT_MIN_MS = 500;
 const RECONNECT_MAX_MS = 15000;
@@ -45,8 +45,32 @@ let pingTimer = 0;
 let expiryTimer = 0;
 // One command in flight. Its id is reused on a retry, so a command that was
 // already forwarded is dropped by the relay and by the host rather than run
-// twice.
+// twice. The timer is what keeps a lost answer from disabling the page for good.
 let pending = null;
+let pendingTimer = 0;
+
+// resolvePending ends the wait for the command in flight when it is over: the
+// host answered it, the session it was addressed to is gone, or the host stayed
+// silent past the bounded wait. The same rule runs on every state and from the
+// timer, so the two triggers cannot disagree.
+function resolvePending() {
+  const before = pending;
+  const result = settlePending(pending, model, Date.now());
+  pending = result.pending;
+  if (!pending && pendingTimer) {
+    clearTimeout(pendingTimer);
+    pendingTimer = 0;
+  }
+  if (result.note !== null) setSent(result.note);
+  // A command that did not run keeps its text: the composer was cleared when it
+  // was sent, and telling the human to send it again without it is how a prompt
+  // gets lost. A draft they have started is left alone.
+  if (result.resend) {
+    const draft = resendText(before, els.task.value);
+    if (draft) els.task.value = draft;
+  }
+  return result;
+}
 
 function setStatus(text, kind) {
   els.status.textContent = text;
@@ -231,12 +255,9 @@ async function handleEnvelope(frame) {
     const plain = await decryptEnvelope(keys.encKey, room, frame);
     if (frame.kind === "state") {
       model = viewModel(plain);
-      // The host answers the command it received, by id. A result for a command
-      // this page no longer has is ignored: it belongs to an earlier attempt.
-      if (pending && model.command && model.command.id === pending.id) {
-        setSent(model.command.accepted ? "Sent." : model.command.note || "The computer refused the command.");
-        pending = null;
-      }
+      // The host answers the command it received, by id; a state from a new
+      // session, or no state at all, ends the wait the same way.
+      resolvePending();
     } else if (frame.kind === "event") {
       model = applyEvent(model, plain);
     }
@@ -355,10 +376,14 @@ async function command(kind, text) {
     // is acknowledged, and the host would run it twice. A failed build keeps the
     // text so it can be retried.
     if (kind === "task") els.task.value = "";
-    pending = { id, frame };
+    pending = { id, frame, session: model.session, at: Date.now(), text: kind === "task" ? String(text).trim() : "" };
+    if (pendingTimer) clearTimeout(pendingTimer);
+    pendingTimer = setTimeout(() => {
+      resolvePending();
+      render();
+    }, PENDING_TIMEOUT_MS);
     setSent(kind === "task" ? "Sending…" : "Sending command…");
     if (!send(frame)) {
-      pending = { id, frame };
       setSent("Queued: Duo will receive it on reconnect.");
       scheduleReconnect();
     }
