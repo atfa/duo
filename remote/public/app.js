@@ -19,6 +19,8 @@ const els = {
   modes: document.getElementById("modes"),
   phase: document.getElementById("phase"),
   step: document.getElementById("step"),
+  stepTitle: document.getElementById("step-title"),
+  progress: document.getElementById("progress"),
   expiry: document.getElementById("expiry"),
   plan: document.getElementById("plan"),
   agents: document.getElementById("agents"),
@@ -105,7 +107,16 @@ function render() {
   // The select shows the host's mode, except while a switch is in flight: the
   // choice the human just made must not snap back before the host answers.
   if (!pending) els.modes.value = modeKey(model?.mode);
-  els.step.textContent = model?.step ? `${model.step.index}/${model.step.total} · ${model.step.policy} · ${model.step.title}` : "—";
+  // The vitals stay on one line, so the header carries only the counter and the
+  // long pair (policy and title) lives in the session card, where there is room.
+  const step = model?.step;
+  els.step.textContent = step ? `${step.index}/${step.total}` : "—";
+  els.stepTitle.textContent = step ? [step.policy, step.title].filter(Boolean).join(" · ") : "No step yet.";
+  els.progress.hidden = !step;
+  if (step) {
+    els.progress.max = step.total || 1;
+    els.progress.value = step.index || 0;
+  }
   els.plan.textContent = model?.plan || "";
 
   const agents = model?.agents.length
@@ -131,8 +142,10 @@ function render() {
     }),
   );
 
+  // The host appends oldest first. The feed reads newest first so the entry that
+  // just happened is at the top of the tab instead of below the fold.
   const activity = model?.activity.length
-    ? model.activity
+    ? model.activity.slice().reverse()
     : [{ at: "", agent: "", text: "No activity yet.", muted: true }];
   els.activity.replaceChildren(
     ...activity.map((entry) => {
@@ -495,6 +508,43 @@ async function command(kind, text) {
   render();
 }
 
+// The page is three tabs over one dumb document: every panel is always in the
+// DOM and keeps being rendered while it is hidden, so switching tabs costs no
+// round trip and a command sent from Settings is answered on every tab.
+const TABS = ["session", "activity", "settings"];
+
+function selectTab(name, focus) {
+  if (!TABS.includes(name)) return;
+  for (const tab of TABS) {
+    const button = document.getElementById(`tab-${tab}`);
+    const panel = document.getElementById(`panel-${tab}`);
+    if (!button || !panel) continue;
+    const on = tab === name;
+    button.setAttribute("aria-selected", on ? "true" : "false");
+    button.tabIndex = on ? 0 : -1;
+    panel.hidden = !on;
+    if (on && focus) button.focus();
+  }
+}
+
+function wireTabs() {
+  const buttons = TABS.map((tab) => document.getElementById(`tab-${tab}`)).filter(Boolean);
+  for (const button of buttons) {
+    button.addEventListener("click", () => selectTab(button.id.slice(4)));
+    button.addEventListener("keydown", (event) => {
+      const at = buttons.indexOf(button);
+      let target = -1;
+      if (event.key === "ArrowRight") target = (at + 1) % buttons.length;
+      else if (event.key === "ArrowLeft") target = (at - 1 + buttons.length) % buttons.length;
+      else if (event.key === "Home") target = 0;
+      else if (event.key === "End") target = buttons.length - 1;
+      if (target < 0) return;
+      event.preventDefault();
+      selectTab(buttons[target].id.slice(4), true);
+    });
+  }
+}
+
 let authRetries = 0;
 
 async function boot() {
@@ -525,6 +575,8 @@ async function boot() {
   render();
   connect();
 }
+
+wireTabs();
 
 els.composer.addEventListener("submit", (event) => {
   event.preventDefault();
