@@ -150,6 +150,12 @@ func run(ctx context.Context, cfg config) error {
 				}
 				term = opened
 			}
+			// The interface owns the terminal from here on. A line logged through the
+			// standard logger would land on top of the frame, wrap, and scroll the whole
+			// interface up one row, so it goes to the session's log file instead.
+			view := svc.View()
+			restoreLog := redirectLog(view.Worktrees.Repository, view.SessionID)
+			defer restoreLog()
 			app := gotui.New(svc)
 			// Remote access belongs to this session, not to the process: a pairing
 			// that is still live resumes here, and cancelling the context when the
