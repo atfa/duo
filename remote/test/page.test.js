@@ -37,6 +37,22 @@ test("the asset response carries a strict content security policy", () => {
   assert.match(headers, /Referrer-Policy: no-referrer/);
 });
 
+// The page and its scripts are served under fixed names, so a phone that reloads
+// after a deploy has to revalidate instead of running the previous app.js for
+// minutes: that looks exactly like "the fix did not work". Only the favicon,
+// whose bytes never carry behaviour, may sit in the cache.
+test("the page and its scripts revalidate on every load", () => {
+  const blocks = headers.split(/\n(?=\S)/).map((block) => block.trim()).filter(Boolean);
+  const shared = blocks.find((block) => block.startsWith("/*"));
+  assert.ok(shared, "the shared block is missing");
+  assert.match(shared, /Cache-Control: no-cache/);
+  assert.doesNotMatch(shared, /max-age/, "a max-age on the page keeps a stale app.js alive after a deploy");
+
+  const favicon = blocks.find((block) => block.startsWith("/favicon.svg"));
+  assert.ok(favicon, "the favicon needs its own cache rule");
+  assert.match(favicon, /max-age=/);
+});
+
 // A phone that keeps the text after sending it sends the same prompt again as
 // soon as the command is acknowledged, and each send carries a fresh id, so the
 // host runs it twice. The composer is emptied once the command is built, which

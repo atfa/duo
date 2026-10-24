@@ -54,6 +54,17 @@ access for one run. A cleartext URL is accepted only for a local relay
 Self-hosting means deploying `remote/` with Wrangler and pointing `remote.url`
 at your own worker. See [remote/README.md](../remote/README.md).
 
+### The phone page comes from the relay
+
+The page itself is part of the relay: `remote/wrangler.jsonc` serves
+`remote/public/` as the Worker's static assets. A change there reaches a phone
+only after `cd remote && wrangler deploy`, so a deploy is part of landing such a
+change. A phone that loaded the page before a deploy may keep the previous HTML
+and `app.js` for up to five minutes (those responses carried `max-age=300`), and
+an open tab keeps them until it reloads: force-reload the page, or wait, before
+concluding a fix did not work. The assets now ship `no-cache` with an ETag, so
+from this version on a reload always revalidates.
+
 The default relay is deployed and live: `https://remote.xduo.dev/healthz`
 answers `ok`. A live end-to-end check against it is opt-in
 (`DUO_RELAY_BASE=https://remote.xduo.dev scripts/remote-e2e.sh`) and can time

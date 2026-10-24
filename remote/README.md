@@ -87,6 +87,21 @@ checks a live deployment; it needs outbound WebSocket from the machine running
 it, and reports `ETIMEDOUT` where that is blocked (the hermetic `node --test`
 suite and `wrangler dev --local` do not).
 
+### The phone page is deployed, not read from the checkout
+
+`wrangler.jsonc` serves `public/` as the Worker's static assets, so the page a
+phone loads is whatever the last deploy published. A change under
+`remote/public/` reaches no phone until someone runs `wrangler deploy`; a fix
+that is only committed looks exactly like a fix that does not work. A deploy
+publishes the whole tree, so the page and the relay code are always one version.
+
+One residual window: a phone that loaded the page while the old
+`Cache-Control: public, max-age=300` was in force can keep running that HTML and
+`app.js` for up to five minutes after a deploy, and a tab that stays open keeps
+them until it reloads. So after a deploy, force-reload the phone page (or wait
+five minutes) before concluding anything. The assets now ship `no-cache` with an
+ETag, which revalidates on every load, so this window does not come back.
+
 `wrangler.jsonc` routes the custom domain `remote.xduo.dev`; that requires the
 `xduo.dev` zone in the same Cloudflare account. Without it, change the `routes`
 entry (or remove it and use the `*.workers.dev` URL) and point Duo at the new

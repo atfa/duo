@@ -3,4 +3,12 @@
   X-Content-Type-Options: nosniff
   Referrer-Policy: no-referrer
   Permissions-Policy: geolocation=(), microphone=(), camera=(), interest-cohort=()
-  Cache-Control: public, max-age=300
+  Cache-Control: no-cache
+
+# The page and its scripts are served from this Worker under fixed names, so a
+# deploy must reach a phone that reloads. `no-cache` still caches: the phone
+# revalidates with the ETag and gets a cheap 304 until the file really changes.
+# A `max-age` here would let a phone run the previous app.js for minutes after a
+# deploy, which looks exactly like "the fix did not work".
+/favicon.svg
+  Cache-Control: public, max-age=86400
