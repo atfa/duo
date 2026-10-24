@@ -55,6 +55,7 @@ body {
   padding-left: max(0.7rem, env(safe-area-inset-left));
   padding-right: max(0.7rem, env(safe-area-inset-right));
   background: color-mix(in srgb, var(--bg) 86%, transparent);
+  -webkit-backdrop-filter: blur(14px);
   backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--line);
 }
@@ -213,6 +214,7 @@ body {
   text-transform: uppercase;
   cursor: pointer;
   list-style: none;
+  touch-action: manipulation;
 }
 .fold summary::-webkit-details-marker { display: none; }
 .fold summary::before { content: "\25B8"; font-size: 0.72rem; transition: transform 0.15s ease; }
@@ -248,6 +250,7 @@ textarea {
   color: var(--text);
   font: inherit;
   font-size: 1rem; /* 16px: iOS zooms the page for anything smaller. */
+  touch-action: manipulation;
 }
 input[type="search"] { width: 100%; margin-top: 0.5rem; }
 textarea { line-height: 1.4; }
@@ -349,6 +352,7 @@ button:disabled { opacity: 0.45; cursor: default; }
   padding-left: max(0.7rem, env(safe-area-inset-left));
   padding-right: max(0.7rem, env(safe-area-inset-right));
   background: color-mix(in srgb, var(--bg) 88%, transparent);
+  -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
   border-top: 1px solid var(--line);
 }

@@ -100,6 +100,19 @@ test("every control is at least 44px tall", () => {
   assert.match(rule(".composer textarea"), /field-sizing:\s*content/);
 });
 
+// A phone is the target: iOS before 18 only knows the prefixed blur, and there
+// the sticky header would simply be flat, which is a silent difference nobody
+// sees on a desktop. The same for the double-tap zoom delay on the fields that
+// are actually touched.
+test("the sticky surfaces carry the prefixed blur and the touch action", () => {
+  assert.match(css, /-webkit-backdrop-filter:\s*blur\(/);
+  assert.match(css, /[^-]backdrop-filter:\s*blur\(/);
+  assert.match(rule("button"), /touch-action:\s*manipulation/);
+  assert.match(rule(".fold summary"), /touch-action:\s*manipulation/);
+  const fields = css.slice(css.indexOf('select,\ninput[type="search"],\ntextarea {'));
+  assert.match(fields.slice(0, fields.indexOf("}")), /touch-action:\s*manipulation/);
+});
+
 test("focus is visible and motion is optional", () => {
   assert.match(css, /:focus-visible\s*{[^}]*outline:\s*2px solid/);
   const reduce = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"));
