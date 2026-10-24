@@ -31,10 +31,24 @@ function time(value) {
   return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
 }
 
+// agentId normalises the spelling of an agent. The host sends "austin" and
+// "tony"; an older host sent "Austin" and "Tony", and a page that only matched
+// one spelling rendered a red dot for an agent that was connected all along. So
+// both the snapshot keys and an event's agent field fold through here.
+export function agentId(value) {
+  const id = text(value).trim().toLowerCase();
+  return id === "austin" || id === "tony" ? id : "";
+}
+
 // viewModel turns one decrypted state payload into what the page draws.
 export function viewModel(state) {
   const source = state && typeof state === "object" ? state : {};
   const agents = source.agents && typeof source.agents === "object" ? source.agents : {};
+  const known = {};
+  for (const [key, value] of Object.entries(agents)) {
+    const id = agentId(key);
+    if (id && value && typeof value === "object") known[id] = value;
+  }
   const step = source.step && typeof source.step === "object" ? source.step : null;
   const observer = source.observer && typeof source.observer === "object" ? source.observer : {};
   const reports = Array.isArray(observer.reports) ? observer.reports : [];
@@ -58,7 +72,7 @@ export function viewModel(state) {
     plan: clip(source.plan, 160),
     pause: text(source.pause?.state),
     agents: ["austin", "tony"].map((id) => {
-      const agent = agents[id] && typeof agents[id] === "object" ? agents[id] : {};
+      const agent = known[id] && typeof known[id] === "object" ? known[id] : {};
       return {
         id,
         connected: agent.connected === true,
@@ -111,7 +125,6 @@ export function applyEvent(model, event) {
   const at = time(event.at);
   const agent = text(event.agent);
   const body = clip(event.text, 240);
-
   switch (event.kind) {
     case "activity":
       next.activity.push({ at, kind: "activity", agent, text: body });
@@ -121,7 +134,7 @@ export function applyEvent(model, event) {
       next.phase = text(event.text, next.phase);
       break;
     case "agent": {
-      const id = agent === "austin" || agent === "tony" ? agent : "";
+      const id = agentId(agent);
       if (id) {
         next.agents = next.agents.map((entry) =>
           entry.id === id ? { ...entry, activity: body, running: true } : entry,

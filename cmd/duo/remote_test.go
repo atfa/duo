@@ -2,15 +2,18 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/atfa/duo/internal/events"
+	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/remote"
 	"github.com/atfa/duo/internal/session"
 )
@@ -199,6 +202,74 @@ func TestEventKindSplitsEventsFromSnapshots(t *testing.T) {
 	for _, tc := range cases {
 		if got := eventKind(tc.kind); got != tc.want {
 			t.Errorf("eventKind(%s) = %q, want %q", tc.kind, got, tc.want)
+		}
+	}
+}
+
+// The phone addresses its agents as "austin" and "tony", which is what the
+// protocol documents. The snapshot used to be keyed with the protocol's own
+// spelling ("Austin"), so the page found no agent at all and drew a red dot for
+// a connected one. The wire spelling is asserted here, on the marshalled
+// payload, because that is what a phone actually reads.
+func TestRemoteSnapshotUsesLowercaseAgentKeys(t *testing.T) {
+	manager := &remoteManager{svc: session.New(session.Options{}), now: time.Now}
+	state := manager.snapshot()
+
+	if len(state.Agents) != 2 {
+		t.Fatalf("snapshot carries %d agents, want 2: %v", len(state.Agents), state.Agents)
+	}
+	for _, key := range []string{"austin", "tony"} {
+		if _, ok := state.Agents[key]; !ok {
+			t.Errorf("snapshot has no %q agent: %v", key, state.Agents)
+		}
+	}
+	for _, key := range []string{"Austin", "Tony"} {
+		if _, ok := state.Agents[key]; ok {
+			t.Errorf("snapshot still uses the protocol spelling %q", key)
+		}
+	}
+
+	payload, err := json.Marshal(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"austin":`, `"tony":`, `"model":`} {
+		if !strings.Contains(string(payload), want) {
+			t.Errorf("payload has no %s: %s", want, payload)
+		}
+	}
+	if strings.Contains(string(payload), `"Austin":`) {
+		t.Errorf("payload still carries a capitalised agent key: %s", payload)
+	}
+}
+
+// Every agent field the phone renders comes from one projection, so a model the
+// driver reports reaches the page instead of being dropped on the way.
+func TestRemoteAgentCarriesTheModelAndTheWireKey(t *testing.T) {
+	agent := remoteAgent(session.AgentView{
+		Present:   true,
+		Driver:    "pi",
+		Model:     "claude-sonnet-4-6",
+		Connected: true,
+	})
+	if agent.Model != "claude-sonnet-4-6" {
+		t.Errorf("model = %q, want the driver's model", agent.Model)
+	}
+	if !agent.Connected {
+		t.Error("a connected agent is not connected in the projection")
+	}
+
+	for _, tc := range []struct {
+		in   protocol.AgentID
+		want string
+	}{
+		{protocol.Austin, "austin"},
+		{protocol.Tony, "tony"},
+		{protocol.Duo, "duo"},
+		{"", ""},
+	} {
+		if got := agentKey(tc.in); got != tc.want {
+			t.Errorf("agentKey(%q) = %q, want %q", tc.in, got, tc.want)
 		}
 	}
 }

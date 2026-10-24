@@ -226,7 +226,7 @@ func (m *remoteManager) watch(ctx context.Context, client *remote.Client) {
 			if kind := eventKind(ev.Kind); kind != "" {
 				client.PublishEvent(remote.Event{
 					Kind:  kind,
-					Agent: string(ev.Agent),
+					Agent: agentKey(ev.Agent),
 					Text:  clip(ev.Text, 240),
 				})
 				continue
@@ -251,6 +251,22 @@ func eventKind(kind events.Kind) string {
 	return ""
 }
 
+// agentKey is the wire spelling of an agent: the phone addresses its agents as
+// "austin" and "tony", which is what docs/remote-protocol.md documents, so both
+// the snapshot keys and an event's agent field go through this one function.
+func agentKey(id protocol.AgentID) string { return strings.ToLower(string(id)) }
+
+// remoteAgent is one agent's slice of the snapshot.
+func remoteAgent(av session.AgentView) remote.Agent {
+	return remote.Agent{
+		Connected: av.Connected,
+		Running:   av.Runtime.Busy,
+		Model:     av.Model,
+		Thinking:  av.Thinking,
+		Activity:  clip(agentActivity(av), 160),
+	}
+}
+
 // snapshot maps the session view into the projection a phone renders.
 func (m *remoteManager) snapshot() remote.State {
 	view := m.svc.View()
@@ -269,14 +285,7 @@ func (m *remoteManager) snapshot() remote.State {
 		state.Step = &step
 	}
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
-		av := view.Agent(id)
-		state.Agents[string(id)] = remote.Agent{
-			Connected: av.Connected,
-			Running:   av.Runtime.Busy,
-			Model:     av.Model,
-			Thinking:  av.Thinking,
-			Activity:  clip(agentActivity(av), 160),
-		}
+		state.Agents[agentKey(id)] = remoteAgent(view.Agent(id))
 	}
 	history := m.svc.History()
 	for i := len(history) - 1; i >= 0 && len(state.Activity) < 8; i-- {
@@ -385,9 +394,9 @@ func activityKind(entry sessionstore.TUIEntry) string {
 }
 
 func activityAgent(entry sessionstore.TUIEntry) string {
-	switch entry.Pane {
-	case string(protocol.Austin), string(protocol.Tony):
-		return entry.Pane
+	switch id := protocol.CanonicalAgent(entry.Pane); id {
+	case protocol.Austin, protocol.Tony:
+		return agentKey(id)
 	}
 	return ""
 }

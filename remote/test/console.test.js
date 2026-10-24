@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { applyEvent, buildCommand, nextSeq, viewModel } from "../public/console.js";
+import { agentId, applyEvent, buildCommand, nextSeq, viewModel } from "../public/console.js";
 import { b64uEncode, decryptEnvelope, deriveKeys, parsePairingKey, sealCommand } from "../public/crypto.js";
 import { VECTOR } from "./vectors.js";
 
@@ -52,6 +52,39 @@ test("events fold into the model and unknown kinds are ignored", () => {
   assert.equal(applyEvent(base, { kind: "observer", text: "report text" }), base);
   assert.equal(applyEvent(base, { kind: "delivery", text: "applied" }), base);
   assert.equal(applyEvent(base, { kind: "from-the-future", text: "x" }), base);
+});
+
+test("an agent is found whatever spelling the host sends", () => {
+  assert.equal(agentId("Austin"), "austin");
+  assert.equal(agentId(" tony "), "tony");
+  assert.equal(agentId("duo"), "");
+  assert.equal(agentId(undefined), "");
+
+  // An older host keys the snapshot with the protocol's own spelling. A page
+  // that only matched "austin" drew a red dot for a connected agent, so both
+  // spellings must reach the same entry, and with it the model.
+  const model = viewModel({
+    n: 5,
+    agents: {
+      Austin: { connected: true, running: false, model: "claude-sonnet-4-6", activity: "idle" },
+      Tony: { connected: true, running: true, model: "gpt-5", activity: "editing" },
+    },
+  });
+  assert.deepEqual(
+    model.agents.map((agent) => [agent.id, agent.connected, agent.running, agent.model]),
+    [
+      ["austin", true, false, "claude-sonnet-4-6"],
+      ["tony", true, true, "gpt-5"],
+    ],
+  );
+
+  // The event path had the same mismatch, so an "Austin" event never marked
+  // anyone as running.
+  const folded = applyEvent(model, { kind: "agent", agent: "Austin", text: "wrote a file", n: 6 });
+  assert.equal(folded.agents[0].running, true);
+  assert.equal(folded.agents[0].activity, "wrote a file");
+  assert.equal(folded.agents[1].running, true);
+  assert.equal(folded.nonce, 6);
 });
 
 test("a command is signed and encrypted the way the host verifies it", async () => {
