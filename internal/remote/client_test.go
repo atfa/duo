@@ -11,12 +11,14 @@ import (
 )
 
 type fakeSink struct {
-	mu       sync.Mutex
-	tasks    []string
-	newCount int
-	observer int
-	modes    []string
-	modeErr  error
+	mu        sync.Mutex
+	tasks     []string
+	newCount  int
+	observer  int
+	modes     []string
+	modeErr   error
+	drivers   []string
+	driverErr error
 }
 
 func (s *fakeSink) SubmitTask(text string) error {
@@ -65,6 +67,28 @@ func (s *fakeSink) modeSnapshot() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string(nil), s.modes...)
+}
+
+func (s *fakeSink) SetDriver(agent, driver string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.driverErr != nil {
+		return s.driverErr
+	}
+	s.drivers = append(s.drivers, agent+" "+driver)
+	return nil
+}
+
+func (s *fakeSink) setDriverError(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.driverErr = err
+}
+
+func (s *fakeSink) driverSnapshot() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.drivers...)
 }
 
 func testPairing(t *testing.T, relay *fakeRelay) Pairing {
@@ -464,6 +488,78 @@ func TestSwitchModeReachesTheSinkAndReportsRefusals(t *testing.T) {
 		t.Fatalf("a refused mode switch was accepted: %+v", next.Command)
 	}
 	if !strings.Contains(next.Command.Note, "locked") {
+		t.Errorf("note = %q, want the host's own reason", next.Command.Note)
+	}
+}
+
+// A driver command carries the agent and the driver in one text field. The split
+// is at the first space, and the rest is kept verbatim: a value that contains
+// spaces has to reach the host exactly as the phone meant it.
+func TestParseAgentCommandKeepsTheValueVerbatim(t *testing.T) {
+	for _, tc := range []struct{ name, text, agent, value string }{
+		{name: "plain", text: "austin pi", agent: "austin", value: "pi"},
+		{name: "padded", text: "  tony   opencode  ", agent: "tony", value: "opencode"},
+		{name: "spaces in the value", text: "austin vendor/model with spaces", agent: "austin", value: "vendor/model with spaces"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			agent, value, err := ParseAgentCommand(tc.text)
+			if err != nil {
+				t.Fatalf("ParseAgentCommand(%q): %v", tc.text, err)
+			}
+			if agent != tc.agent || value != tc.value {
+				t.Errorf("ParseAgentCommand(%q) = %q, %q; want %q, %q", tc.text, agent, value, tc.agent, tc.value)
+			}
+		})
+	}
+	for _, text := range []string{"", "   ", "austin", "austin   "} {
+		if _, _, err := ParseAgentCommand(text); err == nil {
+			t.Errorf("ParseAgentCommand(%q) accepted a command with no value", text)
+		}
+	}
+}
+
+// A driver change is one more verb a human has, so it reaches the sink with the
+// agent and the driver the phone sent, and text that names no driver is refused
+// with a reason the phone shows.
+func TestSetDriverReachesTheSinkAndRefusesBadText(t *testing.T) {
+	relay := newFakeRelay(t)
+	p := testPairing(t, relay)
+	sink := &fakeSink{}
+	c, err := New(Options{Pairing: p, Sink: sink, Snapshot: staticState("duo"),
+		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	startClient(t, c)
+	waitFor(t, "host connection", func() bool { return c.Status().Connected })
+	guest := relay.guest(t, p)
+	state := guest.nextState(t, p, 5*time.Second)
+
+	sendCommand(t, guest, p, "cmd-driver", CmdSetDriver, "austin pi", state.N)
+	next := guest.nextState(t, p, 5*time.Second)
+	if next.Command == nil || !next.Command.Accepted {
+		t.Fatalf("the driver change was not accepted: %+v", next.Command)
+	}
+	if got := sink.driverSnapshot(); len(got) != 1 || got[0] != "austin pi" {
+		t.Fatalf("sink saw drivers %v, want [austin pi]", got)
+	}
+
+	sendCommand(t, guest, p, "cmd-driver-bare", CmdSetDriver, "pi", next.N)
+	next = guest.nextState(t, p, 5*time.Second)
+	if next.Command == nil || next.Command.Accepted {
+		t.Fatalf("a driver command with no agent was accepted: %+v", next.Command)
+	}
+	if !strings.Contains(next.Command.Note, "no value") {
+		t.Errorf("note = %q, want it to say the command named no value", next.Command.Note)
+	}
+
+	sink.setDriverError(fmt.Errorf("driver can only be changed before the first task"))
+	sendCommand(t, guest, p, "cmd-driver-refused", CmdSetDriver, "tony codex", next.N)
+	next = guest.nextState(t, p, 5*time.Second)
+	if next.Command == nil || next.Command.Accepted {
+		t.Fatalf("a refused driver change was accepted: %+v", next.Command)
+	}
+	if !strings.Contains(next.Command.Note, "before the first task") {
 		t.Errorf("note = %q, want the host's own reason", next.Command.Note)
 	}
 }

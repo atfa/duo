@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { agentId, agentLabel, agentMeta, applyEvent, buildCommand, COMMAND_KINDS, dotClass, modeKey, needsModeConfirm, nextSeq, PENDING_TIMEOUT_MS, resendText, settlePending, viewModel } from "../public/console.js";
+import { agentId, agentLabel, agentMeta, applyEvent, buildCommand, COMMAND_KINDS, dotClass, driverChangeAllowed, modeKey, needsModeConfirm, nextSeq, PENDING_TIMEOUT_MS, pendingTimeout, resendText, settlePending, viewModel } from "../public/console.js";
 import { b64uEncode, commandMac, decryptEnvelope, deriveKeys, parsePairingKey, sealCommand } from "../public/crypto.js";
 import { VECTOR } from "./vectors.js";
 
@@ -166,6 +166,44 @@ test("a command is signed and encrypted the way the host verifies it", async () 
   assert.equal(plain.mac, VECTOR.mac);
 
   await assert.rejects(buildCommand({ room: VECTOR.room, encKey, macKey, kind: "reboot", nonce: 1, id: "x" }));
+});
+
+// A driver can only change before the first task, while fully paused, or after
+// DONE. The page greys the control by the same rule the host enforces, so it
+// never invites a choice the session will refuse.
+test("a driver control is enabled exactly when the host would accept the change", () => {
+  assert.ok(COMMAND_KINDS.has("set_driver"));
+  assert.equal(driverChangeAllowed({ started: false, phase: "PLAN", pause: "running" }), true);
+  assert.equal(driverChangeAllowed({ started: true, phase: "DONE", pause: "running" }), true);
+  assert.equal(driverChangeAllowed({ started: true, phase: "EXECUTE", pause: "paused" }), true);
+  assert.equal(driverChangeAllowed({ started: true, phase: "EXECUTE", pause: "running" }), false);
+  assert.equal(driverChangeAllowed({ started: true, phase: "REVIEW", pause: "" }), false);
+  assert.equal(driverChangeAllowed(null), false);
+});
+
+// Changing a driver probes and prepares a plugin, so its bounded wait is a
+// minute, not the 15s a task gets. A page that gave up sooner would ask the
+// human to resend work the host is still running.
+test("a slow command waits longer than a task before it is declared unanswered", () => {
+  assert.equal(pendingTimeout("set_driver"), 60000);
+  assert.equal(pendingTimeout("task"), PENDING_TIMEOUT_MS);
+  assert.equal(pendingTimeout("reboot"), PENDING_TIMEOUT_MS);
+
+  const slow = { id: "cmd-1", session: "session-1", at: 1000, timeout: 60000 };
+  assert.equal(settlePending(slow, { session: "session-1" }, 30000).pending, slow);
+  assert.equal(settlePending(slow, { session: "session-1" }, 61000).pending, null);
+
+  // A pending command with no timeout of its own keeps the original rule.
+  const plain = { id: "cmd-2", session: "session-1", at: 1000 };
+  assert.equal(settlePending(plain, { session: "session-1" }, 1000 + PENDING_TIMEOUT_MS).pending, null);
+});
+
+// The host lists the drivers this machine can run, and the page keeps only what
+// it can draw.
+test("a state carries the drivers the phone may offer", () => {
+  const model = viewModel({ n: 3, drivers: ["pi", "", 7, "opencode"] });
+  assert.deepEqual(model.drivers, ["pi", "opencode"]);
+  assert.deepEqual(viewModel({}).drivers, []);
 });
 
 // A mode switch is a signed command whose text is the mode name: the MAC covers

@@ -27,6 +27,10 @@ type Sink interface {
 	// SetMode switches the workflow. The host validates the name and treats a
 	// switch to the mode already running as a no-op rather than a failure.
 	SetMode(mode string) error
+	// SetDriver replaces the driver behind one agent. The agent is the wire name
+	// ("austin", "tony"); the host refuses one it does not run, and the session
+	// owns the gate that says when a driver may change at all.
+	SetDriver(agent, driver string) error
 }
 
 // Options configures a Client.
@@ -492,6 +496,14 @@ func (c *Client) applyCommand(f frame, plaintext []byte) error {
 			return c.reject(cmd.ID, cmd.Kind, "the mode was empty")
 		}
 		if err := c.opts.Sink.SetMode(mode); err != nil {
+			return c.reject(cmd.ID, cmd.Kind, err.Error())
+		}
+	case CmdSetDriver:
+		agent, driver, err := ParseAgentCommand(cmd.Text)
+		if err != nil {
+			return c.reject(cmd.ID, cmd.Kind, err.Error())
+		}
+		if err := c.opts.Sink.SetDriver(agent, driver); err != nil {
 			return c.reject(cmd.ID, cmd.Kind, err.Error())
 		}
 	default:

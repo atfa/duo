@@ -4,11 +4,11 @@
 // Shapes follow docs/remote-protocol.md. Nothing here trusts a field: a newer
 // host may add them, an older one may omit them.
 
-export const COMMAND_KINDS = new Set(["task", "new_session", "observer_report", "switch_mode"]);
+export const COMMAND_KINDS = new Set(["task", "new_session", "observer_report", "switch_mode", "set_driver"]);
 // COMMAND_TEXT_KINDS are the commands whose text is the instruction itself. A
 // command outside this set sends no text at all, so a future version cannot
 // start acting on a body nobody signs.
-export const COMMAND_TEXT_KINDS = new Set(["task", "switch_mode"]);
+export const COMMAND_TEXT_KINDS = new Set(["task", "switch_mode", "set_driver"]);
 export const MAX_ACTIVITY = 12;
 
 // MODES is every workflow mode the phone may switch to. The host validates the
@@ -70,6 +70,17 @@ export function needsModeConfirm(model) {
   return text(model.phase) !== "DONE";
 }
 
+// driverChangeAllowed mirrors the host's own gate exactly (session.setDriver): a
+// driver may change before the first task, while fully paused, or after DONE.
+// Anything else is refused by the session, so the page greys the control instead
+// of letting the human pick a driver the host will reject.
+export function driverChangeAllowed(model) {
+  if (!model) return false;
+  if (model.started !== true) return true;
+  if (text(model.phase) === "DONE") return true;
+  return text(model.pause) === "paused";
+}
+
 // dotClass is the agent's indicator. Green means healthy and idle, blue means
 // working, grey means "not attached yet", which is a normal moment during
 // startup, and red is reserved for a process that actually failed. A page that
@@ -122,6 +133,9 @@ export function viewModel(state) {
       : null,
     plan: clip(source.plan, 160),
     pause: text(source.pause?.state),
+    drivers: Array.isArray(source.drivers)
+      ? source.drivers.filter((name) => typeof name === "string" && name.trim() !== "").map((name) => clip(name, 24)).slice(0, 24)
+      : [],
     agents: ["austin", "tony"].map((id) => {
       const agent = known[id] && typeof known[id] === "object" ? known[id] : {};
       return {
@@ -214,6 +228,18 @@ export function applyEvent(model, event) {
 // silent host is never answered by retrying, and a resend could run a task twice.
 export const PENDING_TIMEOUT_MS = 15000;
 
+// COMMAND_TIMEOUT_MS is how long the page waits for one command's answer. Most
+// verbs are answered at once; changing a driver resolves and probes a plugin,
+// and changing a model can restart the agent, so those get a minute. The host
+// handles a command inside its read loop, so a page that gave up after 15s would
+// ask the human to resend work that is still running.
+export const COMMAND_TIMEOUT_MS = { set_driver: 60000, set_model: 60000 };
+
+// pendingTimeout is the bounded wait for one command kind.
+export function pendingTimeout(kind) {
+  return COMMAND_TIMEOUT_MS[kind] ?? PENDING_TIMEOUT_MS;
+}
+
 // settlePending resolves the one command in flight against a state the host
 // published. A null note means "still waiting", so the caller says nothing new.
 // resend says the command did not run, so its text has to go back to the human
@@ -234,7 +260,8 @@ export function settlePending(pending, state, now) {
     return { pending: null, note: "Duo started a new session; the command was not confirmed.", resend: true };
   }
   const sent = Number(pending.at);
-  if (Number.isFinite(now) && Number.isFinite(sent) && sent > 0 && now - sent >= PENDING_TIMEOUT_MS) {
+  const limit = Number(pending.timeout) > 0 ? Number(pending.timeout) : PENDING_TIMEOUT_MS;
+  if (Number.isFinite(now) && Number.isFinite(sent) && sent > 0 && now - sent >= limit) {
     return { pending: null, note: "Duo did not answer; send it again.", resend: true };
   }
   return { pending, note: null, resend: false };

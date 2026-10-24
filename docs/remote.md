@@ -39,11 +39,20 @@ second scan.
   computer: the agents are not woken up, and the next task is the one that runs
   in the new mode. A started session that is not `DONE` asks first, because the
   round in progress is discarded;
+- change the driver behind an agent, picked from the drivers the computer can
+  run. The session decides when that is allowed — before the first task, while
+  fully paused, or after `DONE` — and the page greys the control when it is not;
 - start a fresh session (`/new`), refresh the observer's status report.
 
 Every command is answered: the phone shows `accepted`, or the reason the host
 refused it — a bad signature, a command built from a stale state, a duplicate,
 an unsupported kind, or a session that takes no task in its current phase.
+
+The host handles one command at a time inside its connection loop, so a slow verb
+holds the next one: changing a driver resolves and probes a plugin, which is why
+the page waits a minute for those answers instead of the fifteen seconds a task
+gets. The relay's idle window is ninety seconds, so a command in progress never
+looks like a dead connection.
 
 ## Configuration
 

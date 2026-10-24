@@ -4,7 +4,7 @@
 // here, so a phone that drops its Wi-Fi catches up on its own.
 
 import { LinkError, decryptEnvelope, deriveKeys, parsePairingKey, parseRoom } from "./crypto.js";
-import { agentLabel, agentMeta, applyEvent, buildCommand, dotClass, modeKey, needsModeConfirm, nextSeq, PENDING_TIMEOUT_MS, resendText, settlePending, viewModel } from "./console.js";
+import { agentLabel, agentMeta, applyEvent, buildCommand, dotClass, driverChangeAllowed, modeKey, needsModeConfirm, nextSeq, pendingTimeout, resendText, settlePending, viewModel } from "./console.js";
 
 const RECONNECT_MIN_MS = 500;
 const RECONNECT_MAX_MS = 15000;
@@ -22,6 +22,8 @@ const els = {
   expiry: document.getElementById("expiry"),
   plan: document.getElementById("plan"),
   agents: document.getElementById("agents"),
+  drivers: { austin: document.getElementById("driver-austin"), tony: document.getElementById("driver-tony") },
+  driverNote: document.getElementById("driver-note"),
   activity: document.getElementById("activity"),
   observer: document.getElementById("observer"),
   refresh: document.getElementById("refresh"),
@@ -150,6 +152,42 @@ function render() {
   els.newsess.disabled = !ready || Boolean(pending);
   els.refresh.disabled = !ready || Boolean(pending);
   els.modes.disabled = !ready || Boolean(pending);
+  renderDrivers();
+}
+
+// The driver selects are rebuilt only when the host's list changes: a render
+// happens on every state, and replacing the options under an open select would
+// close it on the human's finger.
+let driversKey = "";
+
+function renderDrivers() {
+  const list = model?.drivers ?? [];
+  const key = list.join("\u0000");
+  if (key !== driversKey) {
+    for (const select of Object.values(els.drivers)) {
+      select.replaceChildren(
+        ...list.map((name) => {
+          const option = document.createElement("option");
+          option.value = name;
+          option.textContent = name;
+          return option;
+        }),
+      );
+    }
+    driversKey = key;
+  }
+  const allowed = driverChangeAllowed(model);
+  const ready = Boolean(model) && hostPresent && !fatal;
+  for (const agent of model?.agents ?? []) {
+    const select = els.drivers[agent.id];
+    if (!select) continue;
+    // The host's driver stays selected while a change is in flight, so a refusal
+    // snaps the control back to what is really running.
+    if (!pending) select.value = list.includes(agent.driver) ? agent.driver : "";
+    select.disabled = !ready || Boolean(pending) || !allowed;
+  }
+  els.driverNote.hidden = allowed || !model;
+  els.driverNote.textContent = allowed ? "" : "A driver can only change before the first task, while paused, or after DONE.";
 }
 
 function send(frame) {
@@ -381,12 +419,12 @@ async function command(kind, text) {
     // is acknowledged, and the host would run it twice. A failed build keeps the
     // text so it can be retried.
     if (kind === "task") els.task.value = "";
-    pending = { id, frame, session: model.session, at: Date.now(), text: kind === "task" ? String(text).trim() : "" };
+    pending = { id, frame, session: model.session, at: Date.now(), text: kind === "task" ? String(text).trim() : "", timeout: pendingTimeout(kind) };
     if (pendingTimer) clearTimeout(pendingTimer);
     pendingTimer = setTimeout(() => {
       resolvePending();
       render();
-    }, PENDING_TIMEOUT_MS);
+    }, pendingTimeout(kind));
     setSent(kind === "task" ? "Sending…" : "Sending command…");
     if (!send(frame)) {
       setSent("Queued: Duo will receive it on reconnect.");
@@ -453,6 +491,12 @@ els.modes.addEventListener("change", () => {
   }
   void command("switch_mode", target);
 });
+for (const [id, select] of Object.entries(els.drivers)) {
+  select.addEventListener("change", () => {
+    if (!select.value) return;
+    void command("set_driver", `${id} ${select.value}`);
+  });
+}
 
 window.addEventListener("online", () => {
   if (!fatal && (!socket || socket.readyState === WebSocket.CLOSED)) connect();

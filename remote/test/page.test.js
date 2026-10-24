@@ -85,6 +85,18 @@ test("the session card can switch mode", () => {
   assert.match(app, /window\.confirm\(/);
 });
 
+// Each agent's driver is chosen from what the computer can actually run, so the
+// page offers a select per agent instead of asking for a name from memory.
+test("the drivers card offers one select per agent", () => {
+  for (const agent of ["austin", "tony"]) {
+    assert.match(page, new RegExp(`<select id="driver-${agent}"`));
+    assert.match(page, new RegExp(`<label for="driver-${agent}"`));
+  }
+  assert.match(app, /command\("set_driver"/);
+  assert.match(app, /driverChangeAllowed\(model\)/);
+  assert.match(app, /driver-note/);
+});
+
 // One rule decides when the command in flight is over, and both triggers use it:
 // every state the host publishes, and the bounded wait that keeps a lost answer
 // from disabling the page for good.
@@ -96,5 +108,7 @@ test("the pending command is settled by the same rule on a state and on the time
   assert.ok(state >= 0 && resolved > state, "a state must resolve the command in flight");
   assert.ok(timer > resolved, "sending a command must arm the bounded wait");
   assert.ok(fromTimer > timer, "the bounded wait must resolve the command in flight");
-  assert.match(app, /PENDING_TIMEOUT_MS\),\s*\);|}, PENDING_TIMEOUT_MS\);/);
+  // The bounded wait is per command kind: a driver change may take a minute, a
+  // task is answered at once.
+  assert.match(app, /}, pendingTimeout\(kind\)\);/);
 });

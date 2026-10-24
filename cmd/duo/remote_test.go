@@ -202,6 +202,50 @@ func TestRemoteSetModeValidatesAndNoOpsTheRunningMode(t *testing.T) {
 	}
 }
 
+// The phone offers the drivers this machine can run, and names the agent it
+// addresses with the same spelling the snapshot uses.
+func TestRemoteSnapshotCarriesTheDriversAndRefusesUnknownAgents(t *testing.T) {
+	manager := &remoteManager{svc: session.New(session.Options{RegisterDrivers: registerDrivers}), now: time.Now}
+	state := manager.snapshot()
+	if len(state.Drivers) == 0 {
+		t.Fatal("the snapshot offers no driver at all")
+	}
+	seen := map[string]bool{}
+	for _, name := range state.Drivers {
+		if name == "" {
+			t.Error("a driver with no name reached the phone")
+		}
+		if seen[name] {
+			t.Errorf("driver %q is listed twice", name)
+		}
+		seen[name] = true
+	}
+	// Discovery is read once: a second snapshot must not run it again, and must
+	// report the same list.
+	if second := manager.snapshot(); len(second.Drivers) != len(state.Drivers) {
+		t.Errorf("a second snapshot offers %d drivers, the first %d", len(second.Drivers), len(state.Drivers))
+	}
+
+	for _, tc := range []struct {
+		name string
+		want protocol.AgentID
+	}{
+		{"austin", protocol.Austin},
+		{"Tony", protocol.Tony},
+		{" austin ", protocol.Austin},
+	} {
+		id, err := wireAgent(tc.name)
+		if err != nil || id != tc.want {
+			t.Errorf("wireAgent(%q) = %q, %v; want %q", tc.name, id, err, tc.want)
+		}
+	}
+	for _, name := range []string{"duo", "", "observer"} {
+		if _, err := wireAgent(name); err == nil {
+			t.Errorf("wireAgent(%q) accepted an agent the phone cannot address", name)
+		}
+	}
+}
+
 // A conversation line is cheap and frequent, so it goes out as an event; a
 // workflow change must go out as a whole snapshot, which is the one thing a
 // phone can always render.

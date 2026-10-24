@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -46,6 +47,9 @@ const (
 	// CmdSwitchMode carries the mode name in Text. The host validates it and
 	// switches quietly, so changing mode from a phone never wakes an agent.
 	CmdSwitchMode = "switch_mode"
+	// CmdSetDriver carries "<agent> <driver>" in Text: the phone replaces the
+	// executable behind one agent.
+	CmdSetDriver = "set_driver"
 )
 
 // Close and error codes. They are stable identifiers: a frontend localises them
@@ -132,6 +136,7 @@ type State struct {
 	Mode     string           `json:"mode"`
 	Phase    string           `json:"phase"`
 	Started  bool             `json:"started"`
+	Drivers  []string         `json:"drivers"`
 	Step     *StepState       `json:"step"`
 	Plan     string           `json:"plan"`
 	Agents   map[string]Agent `json:"agents"`
@@ -235,6 +240,26 @@ type Command struct {
 	Text string `json:"text,omitempty"`
 	N    int64  `json:"n"`
 	MAC  string `json:"mac"`
+}
+
+// ParseAgentCommand splits a command's text into the agent it addresses and the
+// value that follows it.
+//
+// The split is at the first space only, and the rest is kept verbatim: a driver
+// name or a model reference may itself contain spaces, and the host has to
+// receive exactly what the phone meant. Nothing here knows which agents exist;
+// the host maps the name and refuses one it does not run.
+func ParseAgentCommand(text string) (agent, value string, err error) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "", "", errors.New("the command named no agent")
+	}
+	agent, value, found := strings.Cut(text, " ")
+	value = strings.TrimSpace(value)
+	if !found || value == "" {
+		return "", "", fmt.Errorf("the command named no value for %s", agent)
+	}
+	return agent, value, nil
 }
 
 // truncate shortens a text field so a payload stays under MaxPlaintext. It

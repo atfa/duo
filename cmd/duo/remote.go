@@ -38,6 +38,12 @@ type remoteManager struct {
 	pairing remote.Pairing
 	client  *remote.Client
 	cancel  context.CancelFunc
+
+	// drivers is the discovered driver list the phone offers. Discovery reads
+	// directories and executes nothing, and the answer only changes when a plugin
+	// is installed, so it is read once rather than on every published state.
+	driversOnce sync.Once
+	drivers     []string
 }
 
 func newRemoteManager(cfg config, svc *session.Service) (*remoteManager, error) {
@@ -341,6 +347,7 @@ func (m *remoteManager) snapshot() remote.State {
 		Mode:    strings.ToLower(view.EffectiveMode().Display()),
 		Phase:   string(view.Phase()),
 		Started: view.Project.Started,
+		Drivers: m.driverNames(),
 		Plan:    firstLine(view.Project.Plan),
 		Pause:   remote.PauseState{State: string(view.Pause.State)},
 		Agents:  map[string]remote.Agent{},
@@ -398,6 +405,49 @@ func (s remoteSink) NewSession() error {
 }
 
 func (s remoteSink) RequestObserverReport() { s.m.svc.RequestObserverReport() }
+
+// driverNames is every driver this machine can run, in the order the interface
+// offers them.
+func (m *remoteManager) driverNames() []string {
+	m.driversOnce.Do(func() {
+		choices, err := m.svc.Drivers(context.Background())
+		if err != nil {
+			return
+		}
+		for _, choice := range choices {
+			m.drivers = append(m.drivers, choice.Name)
+		}
+	})
+	return m.drivers
+}
+
+// wireAgent is the inverse of agentKey: the phone names an agent "austin" or
+// "tony", and any other name is a command the host refuses rather than guesses
+// at.
+func wireAgent(name string) (protocol.AgentID, error) {
+	switch id := protocol.CanonicalAgent(name); id {
+	case protocol.Austin, protocol.Tony:
+		return id, nil
+	}
+	return "", fmt.Errorf("unknown agent %q", name)
+}
+
+// SetDriver replaces one agent's driver. The session owns the gate that says
+// when that is safe (before the first task, while fully paused, or after DONE)
+// and probes the plugin before using it, so the phone gets the same answer the
+// interface would.
+func (s remoteSink) SetDriver(agent, driver string) error {
+	id, err := wireAgent(agent)
+	if err != nil {
+		return err
+	}
+	// A driver change resolves, probes and prepares a plugin, which the interface
+	// waits for without a deadline. The phone waits 60s for the answer, so the
+	// host must not give up sooner and report a failure for work still running.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	return s.m.svc.Do(ctx, session.SetDriver{Agent: id, Driver: driver})
+}
 
 // SetMode switches the workflow from the phone. It is quiet, like the
 // interface's own mode change: the agents are not woken up, and the task the
