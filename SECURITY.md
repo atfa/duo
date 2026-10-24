@@ -45,6 +45,14 @@ never forced, and it reads the remote back afterwards to prove the result. A
 refused push leaves the local branch and the remote untouched; a push that fails
 after the local landing leaves the artifact delivered and reports why.
 
+`duo apply --pr` adds no hosting dependency of its own. It lands the artifact on a
+branch, pushes it exactly as `--push` does, and then asks `gh pr create` to open
+the pull request with a body built from evidence Duo already holds locally: the
+plan version, the step queue, both signatures with their evidence SHAs, the
+verdict, and the diffstat. Duo never talks to a hosting API itself and stores no
+hosting credentials. When `gh` is not installed, Duo prints the same body and
+exits successfully, leaving the push and the pull request to you.
+
 Delivery refuses without changing the checkout if it is dirty, on a different or
 detached branch, diverged from the final result, or the result cannot be proven to
 derive from the recorded base. A refused handoff remains pending for retry with

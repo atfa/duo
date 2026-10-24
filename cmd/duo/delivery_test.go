@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
@@ -9,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/atfa/duo/internal/delivery"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/session"
@@ -503,5 +505,78 @@ func TestApplyPushRefusesMovedRemote(t *testing.T) {
 	}
 	if got := strings.TrimSpace(deliveryGit(t, remote, "rev-parse", "refs/heads/"+branch)); got != moved {
 		t.Fatalf("remote branch changed to %s, want it left at %s", got, moved)
+	}
+}
+
+// TestApplyPRBodyContainsEvidenceChain is the review context a pull request
+// carries: the plan version, the step queue, both signatures with their evidence
+// SHAs, the verdict, and the diffstat — the chain Duo already holds.
+func TestApplyPRBodyContainsEvidenceChain(t *testing.T) {
+	snap := sessionstore.Snapshot{
+		SessionID:   "sess-pr",
+		Mode:        project.ModeStep,
+		Plan:        "# Step Plan\n\nFix the delivery exits.",
+		PlanVersion: 3,
+		Steps: project.Steps{
+			{Title: "T7 migrate the snapshot", Done: true, Policy: project.ModeFast, Head: "aaaa1111", DeliveryHead: "aaaa1111"},
+			{Title: "T6 open a pull request", Policy: project.ModeGoal, Head: "bbbb2222"},
+		},
+		Ready:    map[protocol.AgentID]bool{protocol.Austin: true, protocol.Tony: true},
+		Evidence: map[protocol.AgentID]string{protocol.Austin: "deadbeefcafe", protocol.Tony: "deadbeefcafe"},
+		Notes:    map[protocol.AgentID]string{protocol.Austin: "T6 is ready"},
+		Verification: &sessionstore.Verification{
+			Status: string(project.VerificationPassed), Head: "bbbb2222", Note: "tests pass",
+		},
+	}
+	changes := []delivery.Change{
+		{Status: "M", Path: "cmd/duo/apply.go"},
+		{Status: "A", Path: "cmd/duo/pr.go"},
+	}
+
+	body := prBody(snap, changes)
+	for _, want := range []string{
+		"Plan version 3.",
+		"Fix the delivery exits.",
+		"T7 migrate the snapshot",
+		"T6 open a pull request",
+		"[fast]",
+		"[goal]",
+		"landed aaaa1111",
+		"deadbeefca",
+		"signed",
+		"T6 is ready",
+		"verification: passed for `bbbb2222` — tests pass",
+		"cmd/duo/apply.go",
+		"cmd/duo/pr.go",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("pull request body is missing %q:\n%s", want, body)
+		}
+	}
+
+	if title := prTitle(snap); title != "Step Plan" {
+		t.Fatalf("title = %q, want the plan's first line", title)
+	}
+}
+
+// TestApplyPRDegradesWithoutGh covers the documented degradation: no gh is not a
+// failure, the branch is already pushed, and Duo hands over the same body.
+func TestApplyPRDegradesWithoutGh(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	var out bytes.Buffer
+	err := openPullRequest(context.Background(), t.TempDir(), "main", "duo/pr/result", "Duo delivery", "## Plan\n\nPlan version 1.", &out)
+	if err != nil {
+		t.Fatalf("a missing gh must degrade instead of failing: %v", err)
+	}
+	got := out.String()
+	for _, want := range []string{
+		"gh is not installed",
+		"duo/pr/result is pushed",
+		"into main",
+		"Plan version 1.",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("degraded output is missing %q:\n%s", want, got)
+		}
 	}
 }

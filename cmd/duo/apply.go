@@ -25,6 +25,10 @@ var errUsageRequested = errors.New("usage requested")
 // requested push did not happen. The caller already printed the reason.
 var errPushIncomplete = errors.New("delivery complete, push incomplete")
 
+// errPRIncomplete reports that the artifact was delivered and pushed but the
+// pull request was not opened. The caller already printed why.
+var errPRIncomplete = errors.New("delivery complete, pull request not opened")
+
 // runApply implements `duo apply [session-id] [--branch <name>] [--keep]`. It is
 // dispatched from main before interactive configuration, and never starts Austin
 // or Tony.
@@ -78,10 +82,16 @@ func runApply(ctx context.Context, args []string) error {
 	ws := workspace.NewGitManager(workspace.GitConfig{Repository: summary.Snapshot.Repository})
 	ws.Restore(setFromSnapshot(summary.Snapshot))
 
-	opts := session.DeliveryOptions{Branch: parsed.branch, Push: parsed.push}
+	// A pull request needs a branch of its own on the remote, so --pr without
+	// --branch lands on a session-named branch and implies the push.
+	branch := parsed.branch
+	if branch == "" && parsed.pr {
+		branch = "duo/" + summary.SessionID
+	}
+	opts := session.DeliveryOptions{Branch: branch, Push: parsed.push || parsed.pr}
 	var outcome deliveryOutcome
-	if parsed.branch != "" {
-		outcome, err = deliverToNewBranch(ctx, store, ws, summary.Snapshot, parsed.branch, parsed.push)
+	if branch != "" {
+		outcome, err = deliverToNewBranch(ctx, store, ws, summary.Snapshot, branch, opts.Push)
 	} else {
 		outcome, err = deliverAndPersistTo(ctx, store, ws, summary.Snapshot, opts)
 	}
@@ -93,10 +103,10 @@ func runApply(ctx context.Context, args []string) error {
 			summary.SessionID, outcome.Snapshot.Delivery.AppliedHead,
 			outcome.Snapshot.Delivery.TargetRepo, outcome.Snapshot.Delivery.TargetBranch)
 		printDeliverySuccess(outcome)
-		if parsed.branch != "" && !parsed.keep {
+		if branch != "" && !parsed.keep {
 			cleanupDeliveredWorktrees(ctx, ws)
 		}
-		if parsed.push {
+		if parsed.push || parsed.pr {
 			if outcome.PushReason != "" {
 				logger.Printf("push for session %s did not happen: %s", summary.SessionID, outcome.PushReason)
 				fmt.Println()
@@ -107,6 +117,20 @@ func runApply(ctx context.Context, args []string) error {
 			logger.Printf("pushed session %s to its upstream", summary.SessionID)
 			fmt.Println()
 			fmt.Println("Pushed the delivered branch to its upstream.")
+		}
+		if parsed.pr {
+			snap := outcome.Snapshot
+			body := prBody(snap, outcome.Result.Changes)
+			title := prTitle(snap)
+			fmt.Println()
+			if err := openPullRequest(ctx, root, snap.BaseBranch, branch, title, body, os.Stdout); err != nil {
+				logger.Printf("pull request for session %s was not opened: %v", summary.SessionID, err)
+				fmt.Println("The artifact is delivered, but the pull request was not opened:")
+				fmt.Printf("  %v\n", err)
+				fmt.Println()
+				fmt.Println(body)
+				return errPRIncomplete
+			}
 		}
 		return nil
 	}
@@ -123,6 +147,7 @@ type applyArgs struct {
 	branch    string
 	keep      bool
 	push      bool
+	pr        bool
 }
 
 func parseApplyArgs(args []string) (applyArgs, error) {
@@ -138,6 +163,8 @@ func parseApplyArgs(args []string) (applyArgs, error) {
 			out.keep = true
 		case arg == "--push":
 			out.push = true
+		case arg == "--pr":
+			out.pr = true
 		case arg == "--branch":
 			if i+1 >= len(args) {
 				return applyArgs{}, fmt.Errorf("--branch needs a branch name (usage: %s)", commandUsage("apply"))

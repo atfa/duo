@@ -20,6 +20,13 @@ All notable project milestones are documented here.
   both sides untouched. The push itself is never forced and is verified by
   reading the remote back. A push that fails after the local landing leaves the
   artifact delivered and says why; `duo apply --push` retries just the push.
+- `duo apply --pr` opens the pull request a review flow expects, without adding a
+  hosting dependency: it lands the artifact on a branch (a session-named one when
+  `--branch` is absent), pushes it under the same `--push` rules, and asks
+  `gh pr create` for the pull request. The body is the review chain Duo already
+  holds — plan version, step queue, both signatures with their evidence SHAs, the
+  verdict and the diffstat. Without `gh` Duo prints that same body, tells you
+  which branch to open the pull request from, and exits successfully.
 
 ### Session continuity
 
