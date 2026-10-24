@@ -24,6 +24,11 @@ type Manager struct {
 	BaseCommit  string
 	FinalBranch string
 	FinalHead   string
+
+	// Branch, when set, lands the artifact on that new branch instead of moving
+	// the branch Duo started on. The user's checkout, its HEAD and its index are
+	// left alone, which is what a protected-branch workflow needs.
+	Branch string
 }
 
 // Check is the result of inspecting the user's original repository before any
@@ -152,11 +157,16 @@ func (m Manager) Check(ctx context.Context) (Check, error) {
 	return check, nil
 }
 
-// Deliver checks the original repository and, when it is safe, fast-forwards it
-// to the final artifact. A repository that cannot be delivered automatically is
-// reported through Result.Applied == false and Check.Reason; the user's files
-// are never modified in that case.
+// Deliver checks the original repository and, when it is safe, lands the
+// artifact: a new branch when Manager.Branch names one, otherwise a
+// fast-forward of the branch Duo started on. A repository that cannot be
+// delivered is reported through Result.Applied == false and Check.Reason; the
+// user's files are never modified in that case.
 func (m Manager) Deliver(ctx context.Context) (Result, error) {
+	if branch := strings.TrimSpace(m.Branch); branch != "" {
+		return m.deliverToNewBranch(ctx, branch)
+	}
+
 	check, err := m.Check(ctx)
 	if err != nil {
 		return Result{}, err
@@ -191,6 +201,111 @@ func (m Manager) Deliver(ctx context.Context) (Result, error) {
 	result.Applied = true
 	result.Changes, _ = m.ChangedPaths(ctx)
 	return result, nil
+}
+
+// deliverToNewBranch creates branch at the final artifact. It is deliberately a
+// ref write and nothing else: the checkout, its HEAD and its index stay as they
+// were, so a dirty tree or a protected current branch cannot make the handoff
+// unsafe. Duo never forces the ref — a branch that already exists at another
+// commit is refused, and one that already points at the artifact is the
+// idempotent no-op.
+func (m Manager) deliverToNewBranch(ctx context.Context, branch string) (Result, error) {
+	check := Check{
+		Repository: strings.TrimSpace(m.Repository),
+		BaseBranch: strings.TrimSpace(m.BaseBranch),
+		BaseCommit: strings.TrimSpace(m.BaseCommit),
+		FinalHead:  strings.TrimSpace(m.FinalHead),
+	}
+	result := Result{Check: check}
+	refuse := func(reason string) (Result, error) {
+		check.Reason = reason
+		result.Check = check
+		return result, nil
+	}
+
+	if check.Repository == "" {
+		return result, errors.New("the original repository is unknown")
+	}
+	if check.FinalHead == "" {
+		return result, errors.New("the final Duo artifact is unknown")
+	}
+	if branch == check.BaseBranch {
+		return refuse(fmt.Sprintf("branch %q is the branch Duo started on; --branch must name a different branch", branch))
+	}
+	if err := validBranchName(ctx, check.Repository, branch); err != nil {
+		return refuse(err.Error())
+	}
+
+	final, err := revParse(ctx, check.Repository, check.FinalHead)
+	if err != nil {
+		return result, err
+	}
+	check.FinalHead = final
+	if check.BaseCommit != "" {
+		derived, err := isAncestor(ctx, check.Repository, check.BaseCommit, final)
+		if err != nil {
+			return result, err
+		}
+		if !derived {
+			return refuse(fmt.Sprintf(
+				"final Duo result %s is not derived from the recorded base commit %s; refusing to deliver",
+				short(final), short(check.BaseCommit),
+			))
+		}
+	}
+
+	exists, err := refExists(ctx, check.Repository, "refs/heads/"+branch)
+	if err != nil {
+		return result, err
+	}
+	if exists {
+		head, err := revParse(ctx, check.Repository, "refs/heads/"+branch)
+		if err != nil {
+			return result, err
+		}
+		if head != final {
+			return refuse(fmt.Sprintf(
+				"branch %q already exists at %s; refusing to move it to %s",
+				branch, short(head), short(final),
+			))
+		}
+		check.AlreadyApplied = true
+	} else {
+		if _, err := gitOutput(ctx, check.Repository, "branch", branch, final); err != nil {
+			return result, err
+		}
+		head, err := revParse(ctx, check.Repository, "refs/heads/"+branch)
+		if err != nil {
+			return result, err
+		}
+		if head != final {
+			return result, fmt.Errorf(
+				"branch %s was created at %s instead of %s",
+				branch, short(head), short(final),
+			)
+		}
+	}
+
+	check.CurrentHead = final
+	result.Check = check
+	result.Applied = true
+	result.Changes, _ = m.ChangedPaths(ctx)
+	return result, nil
+}
+
+// validBranchName rejects a name Git would refuse, or one that would be read as
+// a flag on the command line.
+func validBranchName(ctx context.Context, dir, branch string) error {
+	if branch == "" {
+		return errors.New("--branch needs a branch name")
+	}
+	if strings.HasPrefix(branch, "-") {
+		return fmt.Errorf("branch %q must not start with '-'", branch)
+	}
+	if _, err := gitOutput(ctx, dir, "check-ref-format", "refs/heads/"+branch); err != nil {
+		return fmt.Errorf("branch %q is not a valid branch name: %w", branch, err)
+	}
+	return nil
 }
 
 // ChangedPaths lists the files the final artifact adds, modifies, renames or

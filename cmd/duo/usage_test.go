@@ -343,7 +343,7 @@ func TestUsageAcceptsEveryDocumentedFlag(t *testing.T) {
 	perCommand := map[string][]string{
 		"duo":        {"--mode", "-m", "--language", "-l", "--test-cmd", "-t", "--agent", "-a", "--austin-driver", "-A", "--tony-driver", "-T", "-h", "--help"},
 		"resume":     {"-h", "--help"},
-		"apply":      {"-h", "--help"},
+		"apply":      {"--branch", "--keep", "-h", "--help"},
 		"sessions":   {"--all", "-a", "-h", "--help"},
 		"logs":       {"-h", "--help"},
 		"clean":      {"--all", "-a", "--all-repos", "--force", "-f", "--dry-run", "-n", "-h", "--help"},
@@ -371,7 +371,7 @@ func ignoreUsageRequested(err error) error {
 var valuelessFlags = map[string]bool{
 	"--all": true, "-a": true, "--all-repos": true, "--force": true, "-f": true,
 	"--dry-run": true, "-n": true, "-h": true,
-	"--help": true,
+	"--help": true, "--keep": true,
 }
 
 // acceptsFlag runs one flag through the parser that owns the command. A help

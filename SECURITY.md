@@ -27,6 +27,15 @@ rewrites history there, and never runs `reset --hard`, `checkout -f`, `clean`, o
 `merge --no-ff` against it. Duo does create/remove linked worktrees and temporary
 `duo/<session>/austin|tony` branches in the repository's Git directory.
 
+`duo apply --branch <name>` is the one alternative, for repositories whose base
+branch is protected: it creates that branch at the verified final commit with
+`git branch` and never checks out, moves or writes the current branch, its HEAD or
+its index, so the dirty-tree and current-branch rules above do not apply to it. It
+still refuses the branch Duo started on, an invalid branch name, and a branch that
+already exists at a different commit; a branch that already points at the artifact
+is the idempotent no-op. The Duo worktrees are removed after such a delivery unless
+`--keep` asks to preserve them.
+
 Delivery refuses without changing the checkout if it is dirty, on a different or
 detached branch, diverged from the final result, or the result cannot be proven to
 derive from the recorded base. A refused handoff remains pending for retry with

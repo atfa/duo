@@ -4,6 +4,17 @@ All notable project milestones are documented here.
 
 ## Unreleased
 
+### Delivery exits
+
+- `duo apply --branch <name>` delivers the verified artifact to a new branch
+  instead of fast-forwarding the branch Duo started on, which is the exit a
+  protected-branch (pull request) workflow needs. It is a ref write and nothing
+  else: the checkout, its HEAD and its index are untouched, so a dirty tree or a
+  branch you must not move cannot block it. Duo still refuses to move an existing
+  branch, and a branch already at the artifact is the idempotent no-op. The Duo
+  worktrees are removed after such a delivery unless `--keep` preserves them. With
+  no flag, local fast-forward remains the only default.
+
 ### Session continuity
 
 - A new snapshot schema no longer strands an unfinished session. Schema 3 records

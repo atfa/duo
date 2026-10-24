@@ -20,14 +20,17 @@ var errDeliveryPending = errors.New("delivery is pending; the original repositor
 // It is not a failure: the command prints the usage and exits 0.
 var errUsageRequested = errors.New("usage requested")
 
-// runApply implements `duo apply [session-id]`. It is dispatched from main
-// before interactive configuration, and never starts Austin or Tony.
+// runApply implements `duo apply [session-id] [--branch <name>] [--keep]`. It is
+// dispatched from main before interactive configuration, and never starts Austin
+// or Tony.
 //
 // It reuses the exact same safety rules as automatic delivery: only a clean,
 // recorded branch that can be fast-forwarded is moved. A pending delivery is
-// never forced.
+// never forced. `--branch` is the exception that moves nothing the user is
+// looking at: it creates a branch at the verified artifact instead, for
+// repositories whose base branch is protected.
 func runApply(ctx context.Context, args []string) error {
-	sessionID, err := parseApplyArgs(args)
+	parsed, err := parseApplyArgs(args)
 	if errors.Is(err, errUsageRequested) {
 		printUsage()
 		return nil
@@ -46,7 +49,7 @@ func runApply(ctx context.Context, args []string) error {
 	}
 	repoID := sessionstore.RepoID(root)
 
-	summary, err := selectDeliveryTarget(baseDir, repoID, sessionID, root)
+	summary, err := selectDeliveryTarget(baseDir, repoID, parsed.sessionID, root)
 	if err != nil {
 		return err
 	}
@@ -70,7 +73,12 @@ func runApply(ctx context.Context, args []string) error {
 	ws := workspace.NewGitManager(workspace.GitConfig{Repository: summary.Snapshot.Repository})
 	ws.Restore(setFromSnapshot(summary.Snapshot))
 
-	outcome, err := deliverAndPersist(ctx, store, ws, summary.Snapshot)
+	var outcome deliveryOutcome
+	if parsed.branch != "" {
+		outcome, err = deliverToNewBranch(ctx, store, ws, summary.Snapshot, parsed.branch)
+	} else {
+		outcome, err = deliverAndPersist(ctx, store, ws, summary.Snapshot)
+	}
 	if err != nil {
 		return err
 	}
@@ -79,6 +87,9 @@ func runApply(ctx context.Context, args []string) error {
 			summary.SessionID, outcome.Snapshot.Delivery.AppliedHead,
 			outcome.Snapshot.Delivery.TargetRepo, outcome.Snapshot.Delivery.TargetBranch)
 		printDeliverySuccess(outcome)
+		if parsed.branch != "" && !parsed.keep {
+			cleanupDeliveredWorktrees(ctx, ws)
+		}
 		return nil
 	}
 
@@ -87,24 +98,73 @@ func runApply(ctx context.Context, args []string) error {
 	return errDeliveryPending
 }
 
-func parseApplyArgs(args []string) (string, error) {
-	var sessionID string
+// applyArgs is the parsed `duo apply` command line. The zero value is the only
+// default: deliver by fast-forwarding the branch Duo started on.
+type applyArgs struct {
+	sessionID string
+	branch    string
+	keep      bool
+}
+
+func parseApplyArgs(args []string) (applyArgs, error) {
+	var out applyArgs
+	branchRequested := false
 	for i := 0; i < len(args); i++ {
 		arg := strings.TrimSpace(args[i])
 		switch {
 		case arg == "":
 		case helpRequested(arg):
-			return "", errUsageRequested
-		case strings.HasPrefix(arg, "-"):
-			return "", fmt.Errorf("unknown flag %q (usage: %s)", arg, commandUsage("apply"))
-		default:
-			if sessionID != "" {
-				return "", fmt.Errorf("unexpected extra argument %q", arg)
+			return applyArgs{}, errUsageRequested
+		case arg == "--keep":
+			out.keep = true
+		case arg == "--branch":
+			if i+1 >= len(args) {
+				return applyArgs{}, fmt.Errorf("--branch needs a branch name (usage: %s)", commandUsage("apply"))
 			}
-			sessionID = arg
+			i++
+			branchRequested = true
+			out.branch = strings.TrimSpace(args[i])
+		case strings.HasPrefix(arg, "--branch="):
+			branchRequested = true
+			out.branch = strings.TrimSpace(strings.TrimPrefix(arg, "--branch="))
+		case strings.HasPrefix(arg, "-"):
+			return applyArgs{}, fmt.Errorf("unknown flag %q (usage: %s)", arg, commandUsage("apply"))
+		default:
+			if out.sessionID != "" {
+				return applyArgs{}, fmt.Errorf("unexpected extra argument %q", arg)
+			}
+			out.sessionID = arg
 		}
 	}
-	return sessionID, nil
+	if branchRequested && out.branch == "" {
+		return applyArgs{}, fmt.Errorf("--branch needs a branch name (usage: %s)", commandUsage("apply"))
+	}
+	return out, nil
+}
+
+// cleanupDeliveredWorktrees removes the agent worktrees after the artifact has
+// landed on its own branch: their commits are reachable from that branch, so the
+// checkouts are only disk. It is best-effort because delivery already succeeded,
+// and `--keep` skips it entirely.
+func cleanupDeliveredWorktrees(ctx context.Context, ws *workspace.GitManager) {
+	set := ws.Set()
+	present := false
+	for _, wt := range []workspace.Worktree{set.Austin, set.Tony} {
+		if wt.Path == "" {
+			continue
+		}
+		if _, err := os.Stat(wt.Path); err == nil {
+			present = true
+		}
+	}
+	if !present {
+		return
+	}
+	if err := ws.Cleanup(ctx); err != nil {
+		fmt.Printf("The Duo worktrees were left in place (delivery is complete): %v\n", err)
+		return
+	}
+	fmt.Println("Removed the Duo worktrees; pass --keep to preserve them.")
 }
 
 func applyRoot(ctx context.Context) (string, error) {

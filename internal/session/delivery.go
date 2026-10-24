@@ -22,6 +22,14 @@ type DeliveryOutcome struct {
 	Reason   string
 }
 
+// DeliveryOptions selects where the artifact lands. The zero value is the only
+// default: a local fast-forward of the branch Duo started on.
+type DeliveryOptions struct {
+	// Branch lands the artifact on that new branch instead of moving the branch
+	// Duo started on, so a protected branch is never touched.
+	Branch string
+}
+
 // DeliverAndPersist runs the idempotent delivery transaction for a snapshot and
 // persists every checkpoint. The pending checkpoint (which records the exact final
 // HEAD) is written before the user's repository is touched, so a crash between the
@@ -32,6 +40,18 @@ func DeliverAndPersist(
 	store *sessionstore.Store,
 	ws *workspace.GitManager,
 	snap sessionstore.Snapshot,
+) (DeliveryOutcome, error) {
+	return DeliverAndPersistTo(ctx, store, ws, snap, DeliveryOptions{})
+}
+
+// DeliverAndPersistTo is DeliverAndPersist with an explicit landing target, so a
+// caller can ask for a new branch instead of the default fast-forward.
+func DeliverAndPersistTo(
+	ctx context.Context,
+	store *sessionstore.Store,
+	ws *workspace.GitManager,
+	snap sessionstore.Snapshot,
+	opts DeliveryOptions,
 ) (DeliveryOutcome, error) {
 	// Applied is monotonic for this final artifact. A stale caller must reconcile
 	// DONE, never replace it with a new pending checkpoint or re-run Git.
@@ -83,6 +103,7 @@ func DeliverAndPersist(
 	}
 
 	manager := ManagerFor(snap, finalHead)
+	manager.Branch = strings.TrimSpace(opts.Branch)
 
 	now := time.Now().UTC()
 	pending := snap.Delivery
@@ -97,6 +118,11 @@ func DeliverAndPersist(
 	}
 	if pending.TargetBranch == "" {
 		pending.TargetBranch = strings.TrimSpace(snap.BaseBranch)
+	}
+	// A new-branch delivery lands somewhere other than the branch Duo started on,
+	// so the record must name the branch the artifact actually went to.
+	if branch := strings.TrimSpace(opts.Branch); branch != "" {
+		pending.TargetBranch = branch
 	}
 	pending.AttemptedAt = &now
 	pending.CompletedAt = nil

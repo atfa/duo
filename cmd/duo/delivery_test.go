@@ -304,3 +304,111 @@ func deliveryGit(t *testing.T, dir string, args ...string) string {
 	}
 	return string(out)
 }
+
+// TestApplyToNewBranchLeavesUserBranch is the protected-branch exit: the verified
+// artifact lands on a branch of its own, while the branch the user is on, its HEAD
+// and the working tree stay exactly as they were.
+func TestApplyToNewBranchLeavesUserBranch(t *testing.T) {
+	ctx := context.Background()
+	repo := newDeliveryRepo(t)
+	base := deliveryHead(t, repo)
+	baseBranch := deliveryBranch(t, repo)
+	final := makeFinal(t, repo, "duo/branch/austin", "result.md", "hello Duo\n")
+
+	store := newDeliveryStore(t)
+	snap := deliverySnapshot(repo, base, baseBranch, final)
+	if err := store.Save(snap); err != nil {
+		t.Fatal(err)
+	}
+	ws := workspace.NewGitManager(workspace.GitConfig{Repository: repo})
+	ws.Restore(workspace.Set{Repository: repo, BaseBranch: baseBranch, BaseCommit: base})
+
+	// Duo never forces a branch: an existing branch at another commit is refused
+	// and nothing moves.
+	deliveryGit(t, repo, "branch", "duo/taken", base)
+	outcome, err := deliverToNewBranch(ctx, store, ws, snap, "duo/taken")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.Applied || !strings.Contains(outcome.Reason, "already exists") {
+		t.Fatalf("an existing branch was not refused: applied=%t reason=%q", outcome.Applied, outcome.Reason)
+	}
+	if got := deliveryGit(t, repo, "rev-parse", "refs/heads/duo/taken"); strings.TrimSpace(got) != base {
+		t.Fatalf("a refused delivery moved the existing branch to %s", strings.TrimSpace(got))
+	}
+
+	outcome, err = deliverToNewBranch(ctx, store, ws, snap, "duo/result")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !outcome.Applied {
+		t.Fatalf("delivery to a new branch failed: %q", outcome.Reason)
+	}
+	if got := deliveryBranch(t, repo); got != baseBranch {
+		t.Fatalf("the user's branch changed to %q, want %q", got, baseBranch)
+	}
+	if got := deliveryHead(t, repo); got != base {
+		t.Fatalf("the user's HEAD moved to %s, want %s", got, base)
+	}
+	if got := strings.TrimSpace(deliveryGit(t, repo, "rev-parse", "refs/heads/duo/result")); got != final {
+		t.Fatalf("new branch is at %s, want the final artifact %s", got, final)
+	}
+	if dirty := strings.TrimSpace(deliveryGit(t, repo, "status", "--porcelain")); dirty != "" {
+		t.Fatalf("delivery dirtied the working tree: %q", dirty)
+	}
+
+	persisted, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.Delivery.Status != sessionstore.DeliveryApplied {
+		t.Fatalf("persisted delivery = %+v, want applied", persisted.Delivery)
+	}
+	if persisted.Delivery.TargetBranch != "duo/result" || persisted.Delivery.AppliedHead != final {
+		t.Fatalf("delivery record does not name the new branch: %+v", persisted.Delivery)
+	}
+
+	// A second apply is the idempotent no-op: the branch is already at the artifact.
+	again, err := deliverToNewBranch(ctx, store, ws, persisted, "duo/result")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !again.Applied {
+		t.Fatalf("a repeated apply regressed: %q", again.Reason)
+	}
+	if got := strings.TrimSpace(deliveryGit(t, repo, "rev-parse", "refs/heads/duo/result")); got != final {
+		t.Fatalf("a repeated apply moved the branch to %s", got)
+	}
+}
+
+// TestApplyDefaultStillFastForwards keeps the no-flag behavior: the only default
+// delivery is a local fast-forward of the branch Duo started on.
+func TestApplyDefaultStillFastForwards(t *testing.T) {
+	ctx := context.Background()
+	repo := newDeliveryRepo(t)
+	base := deliveryHead(t, repo)
+	baseBranch := deliveryBranch(t, repo)
+	final := makeFinal(t, repo, "duo/default/austin", "result.md", "hello Duo\n")
+
+	store := newDeliveryStore(t)
+	snap := deliverySnapshot(repo, base, baseBranch, final)
+	if err := store.Save(snap); err != nil {
+		t.Fatal(err)
+	}
+	ws := workspace.NewGitManager(workspace.GitConfig{Repository: repo})
+	ws.Restore(workspace.Set{Repository: repo, BaseBranch: baseBranch, BaseCommit: base})
+
+	outcome, err := deliverAndPersist(ctx, store, ws, snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !outcome.Applied {
+		t.Fatalf("default delivery failed: %q", outcome.Reason)
+	}
+	if got := deliveryBranch(t, repo); got != baseBranch {
+		t.Fatalf("default delivery left the user on %q, want %q", got, baseBranch)
+	}
+	if got := deliveryHead(t, repo); got != final {
+		t.Fatalf("default delivery did not fast-forward: HEAD=%s want %s", got, final)
+	}
+}

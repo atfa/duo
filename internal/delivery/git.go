@@ -3,6 +3,7 @@ package delivery
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -80,4 +81,18 @@ func fastForward(ctx context.Context, dir, target string) error {
 		return fmt.Errorf("git merge --ff-only %s: %s", short(target), message)
 	}
 	return nil
+}
+
+// refExists reports whether a ref resolves. It is a read-only query, so it can
+// run before Duo decides to touch anything.
+func refExists(ctx context.Context, dir, ref string) (bool, error) {
+	cmd := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--verify", "--quiet", ref)
+	if err := cmd.Run(); err != nil {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && exit.ExitCode() == 1 {
+			return false, nil
+		}
+		return false, fmt.Errorf("git rev-parse --verify %s: %w", ref, err)
+	}
+	return true, nil
 }

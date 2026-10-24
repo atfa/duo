@@ -28,6 +28,18 @@ func deliverAndPersist(
 	return session.DeliverAndPersist(ctx, store, ws, snap)
 }
 
+// deliverToNewBranch runs the same delivery transaction but lands the artifact on
+// a new branch, leaving the user's checked-out branch and working tree untouched.
+func deliverToNewBranch(
+	ctx context.Context,
+	store *sessionstore.Store,
+	ws *workspace.GitManager,
+	snap sessionstore.Snapshot,
+	branch string,
+) (deliveryOutcome, error) {
+	return session.DeliverAndPersistTo(ctx, store, ws, snap, session.DeliveryOptions{Branch: branch})
+}
+
 // reconcileDelivery handles a session whose agent work may already be finished.
 func reconcileDelivery(
 	ctx context.Context,
