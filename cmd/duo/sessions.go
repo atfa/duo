@@ -151,14 +151,14 @@ func listRepoSessions(baseDir, repoID, root string) error {
 		return nil
 	}
 
-	fmt.Printf("  %-28s  %-5s  %-9s  %-10s  %-19s  %-9s  %-14s  %s\n",
-		"SESSION ID", "MODE", "PHASE", "BRANCH", "UPDATED", "WORKTREES", "COST", "STATUS")
+	fmt.Printf("  %-28s  %-5s  %-9s  %-10s  %-19s  %-9s  %-14s  %-6s  %s\n",
+		"SESSION ID", "MODE", "PHASE", "BRANCH", "UPDATED", "WORKTREES", "COST", "SCHEMA", "STATUS")
 
 	var unfinished, completed int
 	for _, item := range list {
 		if item.Err != nil {
-			fmt.Printf("  %-28s  %-5s  %-9s  %-10s  %-19s  %-9s  %-14s  %s\n",
-				item.SessionID, "-", "ERR", "-", "-", "-", "-", fmt.Sprintf("corrupt (%v)", item.Err))
+			fmt.Printf("  %-28s  %-5s  %-9s  %-10s  %-19s  %-9s  %-14s  %-6s  %s\n",
+				item.SessionID, "-", "ERR", "-", "-", "-", "-", "-", fmt.Sprintf("corrupt (%v)", item.Err))
 			continue
 		}
 		snap := item.Snapshot
@@ -178,8 +178,8 @@ func listRepoSessions(baseDir, repoID, root string) error {
 		wtStatus := worktreePresence(snap)
 		status := sessionStatus(item)
 
-		fmt.Printf("  %-28s  %-5s  %-9s  %-10s  %-19s  %-9s  %-14s  %s\n",
-			item.SessionID, mode, phase, branch, updated, wtStatus, sessionCost(item), status)
+		fmt.Printf("  %-28s  %-5s  %-9s  %-10s  %-19s  %-9s  %-14s  %-6s  %s\n",
+			item.SessionID, mode, phase, branch, updated, wtStatus, sessionCost(item), schemaLabel(snap), status)
 	}
 
 	fmt.Printf("\nTotal: %d session(s) (%d unfinished, %d completed)\n", len(list), unfinished, completed)
@@ -201,8 +201,8 @@ func listAllSessions(baseDir string) error {
 		return nil
 	}
 
-	fmt.Printf("  %-20s  %-28s  %-5s  %-9s  %-19s  %-9s  %-14s  %s\n",
-		"REPO ID", "SESSION ID", "MODE", "PHASE", "UPDATED", "WORKTREES", "COST", "STATUS")
+	fmt.Printf("  %-20s  %-28s  %-5s  %-9s  %-19s  %-9s  %-14s  %-6s  %s\n",
+		"REPO ID", "SESSION ID", "MODE", "PHASE", "UPDATED", "WORKTREES", "COST", "SCHEMA", "STATUS")
 
 	var totalSessions, totalCompleted int
 	for _, repoID := range repos {
@@ -213,8 +213,8 @@ func listAllSessions(baseDir string) error {
 		for _, item := range list {
 			totalSessions++
 			if item.Err != nil {
-				fmt.Printf("  %-20s  %-28s  %-5s  %-9s  %-19s  %-9s  %-14s  %s\n",
-					repoID, item.SessionID, "-", "ERR", "-", "-", "-", fmt.Sprintf("corrupt (%v)", item.Err))
+				fmt.Printf("  %-20s  %-28s  %-5s  %-9s  %-19s  %-9s  %-14s  %-6s  %s\n",
+					repoID, item.SessionID, "-", "ERR", "-", "-", "-", "-", fmt.Sprintf("corrupt (%v)", item.Err))
 				continue
 			}
 			snap := item.Snapshot
@@ -228,8 +228,8 @@ func listAllSessions(baseDir string) error {
 			wtStatus := worktreePresence(snap)
 			status := sessionStatus(item)
 
-			fmt.Printf("  %-20s  %-28s  %-5s  %-9s  %-19s  %-9s  %-14s  %s\n",
-				repoID, item.SessionID, mode, phase, updated, wtStatus, sessionCost(item), status)
+			fmt.Printf("  %-20s  %-28s  %-5s  %-9s  %-19s  %-9s  %-14s  %-6s  %s\n",
+				repoID, item.SessionID, mode, phase, updated, wtStatus, sessionCost(item), schemaLabel(snap), status)
 		}
 	}
 
@@ -238,6 +238,21 @@ func listAllSessions(baseDir string) error {
 		fmt.Println("Run `duo clean --all-repos` to remove completed sessions across all repositories.")
 	}
 	return nil
+}
+
+// schemaLabel renders the snapshot schema this Duo read: the current version, or
+// the migration applied to an older snapshot. A snapshot built in memory has no
+// read version, so it renders as unknown.
+func schemaLabel(snap sessionstore.Snapshot) string {
+	from := snap.PersistedSchemaVersion
+	switch {
+	case from <= 0:
+		return "-"
+	case from == sessionstore.SchemaVersion:
+		return fmt.Sprintf("%d", from)
+	default:
+		return fmt.Sprintf("%d→%d", from, sessionstore.SchemaVersion)
+	}
 }
 
 func worktreePresence(snap sessionstore.Snapshot) string {

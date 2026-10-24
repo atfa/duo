@@ -301,6 +301,22 @@ func installFromRepo(ctx context.Context, repo string) error {
 // binary to run.
 var schemaVersionInSource = regexp.MustCompile(`(?m)^\s*const SchemaVersion = (\d+)\s*$`)
 
+// migrationStepInSource reports whether the delivered checkout registers the
+// migration that upgrades this binary's schema to the one the new binary writes.
+// A forward schema bump is only safe when that step exists: without it the new
+// binary would refuse this session and the session would be stranded between two
+// binaries. This binary cannot consult the new registry at runtime, so it reads
+// the registration the new binary will compile, exactly as it reads the constant.
+func migrationStepInSource(repo string, from int) bool {
+	path := filepath.Join(repo, "internal", "sessionstore", "migrate.go")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	step := regexp.MustCompile(fmt.Sprintf(`(?m)^\s*%d:\s*migrate`, from))
+	return step.Match(data)
+}
+
 func checkSchemaCompatible(repo string) error {
 	path := filepath.Join(repo, "internal", "sessionstore", "snapshot.go")
 	data, err := os.ReadFile(path)
@@ -318,9 +334,18 @@ func checkSchemaCompatible(repo string) error {
 	if err != nil {
 		return nil
 	}
-	if next != sessionstore.SchemaVersion {
+	if next == sessionstore.SchemaVersion {
+		return nil
+	}
+	if next < sessionstore.SchemaVersion {
 		return fmt.Errorf(
-			"refusing to continue: the delivered code writes snapshot schema %d but this session is schema %d in %s; the session is preserved, so resume it with a Duo built from the schema it was written by",
+			"refusing to continue: the delivered code writes snapshot schema %d, older than this session's schema %d in %s; the session is preserved, so resume it with a Duo built from the schema it was written by",
+			next, sessionstore.SchemaVersion, path,
+		)
+	}
+	if !migrationStepInSource(repo, sessionstore.SchemaVersion) {
+		return fmt.Errorf(
+			"refusing to continue: the delivered code writes snapshot schema %d but declares no migration from this session's schema %d in %s; the session is preserved, so resume it with a Duo built from the schema it was written by",
 			next, sessionstore.SchemaVersion, path,
 		)
 	}

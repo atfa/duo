@@ -4,6 +4,17 @@ All notable project milestones are documented here.
 
 ## Unreleased
 
+### Session continuity
+
+- A new snapshot schema no longer strands an unfinished session. Schema 3 records
+  the workflow mode and each step's policy explicitly, and resuming upgrades a
+  schema 2 snapshot through a migration chain instead of refusing it, so the
+  signatures, the evidence and the step queue survive. `duo sessions` shows the
+  schema it read (`2→3` for an upgraded session). A version this binary cannot
+  reach is still refused, and `duo step-loop` installs a binary with a newer
+  schema only when the delivered source registers the migration that carries the
+  session forward.
+
 ### Remote control
 
 - The phone can change what runs, not only what to do: it switches the workflow

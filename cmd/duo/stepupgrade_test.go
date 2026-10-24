@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/atfa/duo/internal/sessionstore"
 	"github.com/atfa/duo/internal/workspace"
 )
 
@@ -223,8 +225,10 @@ func TestStepLoopLaunchFindsTheGitRootAndKeepsTheLaunchDir(t *testing.T) {
 }
 
 // TestCheckSchemaCompatibleRefusesABump is the loop's guard: installing a binary
-// whose snapshot schema this session does not match would leave a session that
-// neither binary can continue, so the loop must stop instead.
+// whose snapshot schema this session cannot reach would leave a session that
+// neither binary can continue, so the loop must stop instead. A forward bump is
+// only allowed when the delivered checkout registers the migration that carries
+// this session forward.
 func TestCheckSchemaCompatibleRefusesABump(t *testing.T) {
 	repo := t.TempDir()
 	pkg := filepath.Join(repo, "internal", "sessionstore")
@@ -232,6 +236,13 @@ func TestCheckSchemaCompatibleRefusesABump(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(pkg, "snapshot.go")
+	writeVersion := func(version int) {
+		t.Helper()
+		body := fmt.Sprintf("// SchemaVersion is the persisted snapshot schema.\nconst SchemaVersion = %d\n", version)
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
 
 	// No source to inspect: the loop cannot judge, and it must not refuse to
 	// resume a preserved session because of that.
@@ -239,19 +250,38 @@ func TestCheckSchemaCompatibleRefusesABump(t *testing.T) {
 		t.Fatalf("a missing source file must not block the loop: %v", err)
 	}
 
-	if err := os.WriteFile(path, []byte("const SchemaVersion = 99\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := checkSchemaCompatible(repo); err == nil {
-		t.Fatal("a schema bump must stop the loop before installing")
+	writeVersion(sessionstore.SchemaVersion)
+	if err := checkSchemaCompatible(repo); err != nil {
+		t.Fatalf("a matching schema must be accepted: %v", err)
 	}
 
-	same := []byte("// SchemaVersion is the persisted snapshot schema.\nconst SchemaVersion = 2\n")
-	if err := os.WriteFile(path, same, 0o644); err != nil {
+	// A downgrade would strand this session in a binary that cannot read it.
+	writeVersion(sessionstore.SchemaVersion - 1)
+	if err := checkSchemaCompatible(repo); err == nil {
+		t.Fatal("an older schema must stop the loop before installing")
+	}
+
+	// A forward bump without the migration step is the same stranding.
+	writeVersion(sessionstore.SchemaVersion + 1)
+	if err := checkSchemaCompatible(repo); err == nil {
+		t.Fatal("a schema bump without a migration step must stop the loop")
+	}
+
+	migrations := filepath.Join(pkg, "migrate.go")
+	step := fmt.Sprintf("var migrations = map[int]func(Snapshot) Snapshot{\n\t%d: migrateV3ToV4,\n}\n", sessionstore.SchemaVersion)
+	if err := os.WriteFile(migrations, []byte(step), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := checkSchemaCompatible(repo); err != nil {
-		t.Fatalf("a matching schema must be accepted: %v", err)
+		t.Fatalf("a forward bump with its migration step must be accepted: %v", err)
+	}
+
+	// A migration from some other version does not carry this session forward.
+	if err := os.WriteFile(migrations, []byte("var migrations = map[int]func(Snapshot) Snapshot{\n\t1: migrateV1ToV2,\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkSchemaCompatible(repo); err == nil {
+		t.Fatal("a migration from another version must not be mistaken for this one")
 	}
 }
 

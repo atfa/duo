@@ -13,9 +13,11 @@ import (
 	"github.com/atfa/duo/internal/protocol"
 )
 
-// SchemaVersion is the persisted snapshot schema. Version 2 removes the Pi-only
-// resume mirror; incompatible snapshots are refused instead of migrated.
-const SchemaVersion = 2
+// SchemaVersion is the persisted snapshot schema. Version 3 records the workflow
+// mode and each step's policy explicitly; older snapshots are upgraded by the
+// migration chain in migrate.go, and a version this binary cannot upgrade is
+// refused.
+const SchemaVersion = 3
 
 type Worktree struct {
 	Path   string `json:"path"`
@@ -125,8 +127,12 @@ type Verification struct {
 // project domain state with workspace, opaque driver state and integration
 // state. Git remains the ground truth for artifacts and evidence.
 type Snapshot struct {
-	SchemaVersion int    `json:"schemaVersion"`
-	DuoVersion    string `json:"duoVersion"`
+	SchemaVersion int `json:"schemaVersion"`
+	// PersistedSchemaVersion is the version the snapshot was read with, before
+	// Load migrated it in memory. It is not persisted: a migrated snapshot is
+	// saved as the current version. A snapshot built in memory leaves it zero.
+	PersistedSchemaVersion int    `json:"-"`
+	DuoVersion             string `json:"duoVersion"`
 
 	SessionID  string `json:"sessionId"`
 	RepoID     string `json:"repoId"`

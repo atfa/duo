@@ -15,8 +15,10 @@ agents start.
 By default, the launcher resumes with the same binary. To install a new Duo first,
 the request must ask for installation. Before installing, `duo step-loop` compares
 the delivered source's session snapshot schema with the schema of the saved
-session. A mismatch refuses the install and leaves the session available to resume
-with a compatible Duo. The installer also refuses a dirty source checkout, then
+session. A newer schema is accepted only when the delivered source registers the
+migration that carries this session forward; an older one, or a newer one without
+that step, refuses the install and leaves the session available to resume with a
+compatible Duo. The installer also refuses a dirty source checkout, then
 builds from the repository checkout where completed steps are delivered, not an
 agent's worktree. If installation fails, the launcher stops without resuming.
 

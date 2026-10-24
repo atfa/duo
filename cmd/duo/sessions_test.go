@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -87,5 +88,23 @@ func TestSessionIsActiveOnlyWhenLockIsContended(t *testing.T) {
 	}
 	if sessionIsActive(filepath.Join(dir, "not-a-directory")) {
 		t.Fatal("lock open failure reported active")
+	}
+}
+
+// TestSchemaLabelReportsMigration keeps the listing honest about the schema a
+// session was read with: a session this Duo had to upgrade says so instead of
+// looking like it was written by this binary.
+func TestSchemaLabelReportsMigration(t *testing.T) {
+	label := func(persisted int) string {
+		return schemaLabel(sessionstore.Snapshot{PersistedSchemaVersion: persisted})
+	}
+	if got := label(sessionstore.SchemaVersion); got != fmt.Sprintf("%d", sessionstore.SchemaVersion) {
+		t.Fatalf("current schema label = %q", got)
+	}
+	if got := label(sessionstore.SchemaVersion - 1); got != fmt.Sprintf("%d→%d", sessionstore.SchemaVersion-1, sessionstore.SchemaVersion) {
+		t.Fatalf("migrated schema label = %q, want the upgrade it took", got)
+	}
+	if got := label(0); got != "-" {
+		t.Fatalf("in-memory snapshot label = %q, want unknown", got)
 	}
 }

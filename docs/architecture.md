@@ -115,8 +115,10 @@ session through `internal/session` and implements nothing about a session itself
 `session.Options` is the whole of a session's configuration and names no flag,
 terminal or environment variable. The frontend selects the default driver and passes
 it explicitly; Core has no product-specific driver default. Driver resume state is
-persisted as an opaque per-agent blob. Snapshot schema changes are explicit and
-incompatible versions are rejected rather than migrated.
+persisted as an opaque per-agent blob. Snapshot schema changes are explicit: each
+released version keeps the migration step that upgrades it to the next one, so a
+new binary resumes the sessions written before it instead of stranding them. A
+version without a complete migration chain — including a newer one — is refused.
 `session.Service` owns the composition root, the
 session lock, the agent bridge, the lifecycle observer and the delivery handoff.
 `cmd/duo` builds `Options` from its flags and then only renders.

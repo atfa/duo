@@ -104,9 +104,11 @@ func (s *Store) Load() (Snapshot, error) {
 	if err := json.Unmarshal(data, &snap); err != nil {
 		return Snapshot{}, fmt.Errorf("session state %s is corrupt: %w", s.StatePath(), err)
 	}
-	if snap.SchemaVersion != SchemaVersion {
+	migrated, ok := Migrate(snap)
+	if !ok {
 		return Snapshot{}, &SchemaError{Path: s.StatePath(), Found: snap.SchemaVersion, Supported: SchemaVersion}
 	}
+	snap = migrated
 	if strings.TrimSpace(snap.SessionID) == "" {
 		return Snapshot{}, fmt.Errorf("session state %s is missing sessionId", s.StatePath())
 	}
