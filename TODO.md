@@ -2,7 +2,7 @@
 
 **本文件即 PLAN。** 仓库没有 PLAN.md，计划就是本文件；不要另建一份计划文档，也不要改名。
 
-本版基线：**main @ f9a33e2785（2026-10-25）**。上一版基线是 `538989f`（2026-10-23）；之后落地了 v0.14.0 / v0.14.1 的全部内容（远程手机页与命令、`duo apply --branch/--push/--pr`、headless `duo run` + `duo status --json`、schema 3 迁移、成本账本、attention 通知、交付/恢复崩溃边界），原 P0、P1 已清空。本轮为计划校准：只改本文件，不改代码；每条的性能数字都在本机实测，`file:line` 均对 `f9a33e2785` 复核过。
+本版基线：**main @ f9a33e2785（2026-10-25）**。上一版基线是 `538989f`（2026-10-23）；之后落地了 v0.14.0 / v0.14.1 的全部内容（远程手机页与命令、`duo apply --branch/--push/--pr`、headless `duo run` + `duo status --json`、schema 3 迁移、成本账本、attention 通知、交付/恢复崩溃边界），上一版 P0/P1 条目已全部完成（见历史）。本轮为计划校准：只改本文件，不改代码；每条的性能数字都在本机实测，`file:line` 均对 `f9a33e2785` 复核过。
 
 ## 开发原则（2026-10-25 定）
 
@@ -11,6 +11,15 @@
 3. **稳定性只覆盖已验证的故障边界**（如 T16 的交付/恢复崩溃边界）。不为极小概率情况堆设计：没有第二份状态机、没有兜底副本、没有自动重试框架。
 4. **不用配置项换行为。** 一个开关就是一份新契约（文档、持久化、两侧测试），只在该行为确实按人来变时加；"可能在某种流程下更好"不算理由。
 5. 不新增第三方依赖，除非标准库做不了。
+
+## 代码质量现状（f9a33e2785 实测）
+
+- 规模：311 个 `.go`（其中 150 个非测试文件）/ 77,221 行（非测试 41,438 行）；161 个 `_test.go`、894 个 `Test`、0 个 `Benchmark`（测试:非测试行数 ≈ 0.9:1）。
+- 门禁：`go vet ./...` 干净、`gofmt -l .` 为空、非测试代码 0 处 `TODO`/`FIXME`、只有 1 处 `panic`（`cmd/duo/config.go:780`，生成会话失败即不可继续）。
+- 集中度：最大的三个文件是 `internal/coordinator/coordinator.go` 2744 行、`internal/session/service.go` 1494 行、`internal/gotui/app.go` 1038 行。
+- 返回值忽略：227 处 `_ =`（`grep -rn '_ = ' --include=*.go . | grep -v _test.go`；多为“日志/清理失败不影响主流程”，未逐条审计）。
+- 驱动插件重复：`plugins/agy|codex|opencode` 的 `Prepare` 各 93/106/102 行、`pi` 51 行；共享 helper 已在 `internal/driver/cmdline.go:15/22/76`（`ShellQuote`/`HasFlag`/`AppendFlag`），codex 的 MCP 配置属该 CLI 自身差异。
+- 判断：**质量改进只走有实测证据的 T21/T22/T23**。不为行数做拆分重构（`coordinator.go` 拆文件是纯搬家，审查与冲突成本 > 收益）、不为 227 处 `_ =` 立项、不给插件做基类抽象——这三条同时列进非目标。
 
 ## 用法
 
@@ -24,7 +33,7 @@
 
 | 优先级 | 内容 | 条目 |
 | --- | --- | --- |
-| P0 | 门禁缺口（120 个前端用例无 CI） | T22 |
+| P0 | 门禁缺口（122 个前端用例无 CI） | T22 |
 | P1 | 实测性能（运行时 1 条、开发循环 1 条） | T21、T23 |
 | P2 | 功能规划（按价值排序） | T20、T24、T25、T13、T14、T11、T19、T15、T18 |
 | 非目标 | 刻意不做，附实测依据 | 见"非目标"一节 |
@@ -36,9 +45,9 @@
 ### T22 CI 补齐前端测试与 gofmt 门禁
 - [ ] 完成：
 
-**位置** `.github/workflows/ci.yml`（矩阵 ubuntu×2 + macos，步骤只有 `go test ./...`、`go vet ./...`、`go build ./cmd/duo`）；`Makefile` 的 `check` 目标已含 `fmt: gofmt -l .`；三套前端测试 `pi-extension/*.test.ts`（21 用例）、`opencode-extension/lifecycle.test.ts`（14 用例）、`remote/test/*.test.js`（85 用例，`npm run check` = `node --test` + `node --check`）。
-**问题** 120 个前端用例从未进门禁：本地 `bun test` / `node --test` 全绿，但 CI 只跑 Go，改坏 `pi-extension/lifecycle.ts` 或远程页面协议不会被任何门禁拦住。`gofmt` 同理，只在本地 `make check` 生效，CI 能合入未格式化代码。`opencode-extension/package.json` 甚至没有 `test` 脚本，跑法靠人记。
-**预期状态** CI 增加两步（不新增 lint 工具、不引入新依赖）：`bun test` 跑 pi-extension 与 opencode-extension（`opencode-extension/package.json` 补 `"test": "bun test"`），`node --test` 跑 `remote/`，外加 `gofmt -l` 非空即失败。矩阵只在 ubuntu 上跑前端测试，避免重复三遍。
+**位置** `.github/workflows/ci.yml`（矩阵 ubuntu×2 + macos，步骤只有 `go test ./...`、`go vet ./...`、`go build ./cmd/duo`）；`Makefile` 的 `check` 目标已含 `fmt: gofmt -l .`；三套前端测试 `pi-extension/*.test.ts`（21 用例）、`opencode-extension/lifecycle.test.ts`（14 用例）、`remote/test/*.test.js`（87 用例，`npm run check` = `node --test` + `node --check`）。
+**问题** **122** 个前端用例从未进门禁（21 + 14 + 87）：本地 `bun test` / `node --test` 全绿，但 CI 只跑 Go，改坏 `pi-extension/lifecycle.ts` 或远程页面协议不会被任何门禁拦住。`gofmt` 同理，只在本地 `make check` 生效，CI 能合入未格式化代码。`opencode-extension/package.json` 甚至没有 `test` 脚本，跑法靠人记。
+**预期状态** CI 增加三步（不新增 lint 工具、不引入项目依赖）：① `oven-sh/setup-bun@v2` 后跑 `bun test`（pi-extension、opencode-extension；后者 `package.json` 补 `"test": "bun test"`）；② `actions/setup-node@v4` 固定 `node-version: 22` 后跑 `node --test`（remote/）——`remote/test/harness.js:5` 用 `node:sqlite` 的 `DatabaseSync`，需要 Node ≥22，不能赌 runner 自带的 `node` 版本；③ `gofmt -l .` 非空即失败。两个 setup action 是 CI 工具，不算项目依赖。矩阵只在 ubuntu 上跑前端测试，避免重复三遍。
 **验收** 临时改坏一条 TS 断言 → CI 变红（PR 上验证一次即可回退）；`gofmt -l .` 为空；`make check` 与 CI 结论一致。
 **依赖** 无
 **验证** `make check` + 一次 CI 运行
@@ -52,9 +61,10 @@
 - [ ] 完成：
 
 **位置** `internal/gotui/transcript.go:70`（`SetEntries` 只按序号短路）、`:158`（`rebuildLines` 全量重跑 markdown + linkify + 换行）、`internal/gotui/text.go:104`/`:108`（超宽词逐 rune `+=` 拼接，O(n²)）；触发链 `internal/gotui/messages.go:89`（`addLabeled`）→ `internal/gotui/app.go:1015`（`appendEntry`，窗口上限 `:1025` 共 400 条）；每帧 `internal/gotui/app.go:672`（`updateWidgets` 写 4 个 transcript：timeline + 三个 pane）。
-**问题** 每来一条消息，timeline 与消息所属 pane 的 transcript 各自从头重解析全部 400 条（4 个 transcript 每帧都会被调用 `SetEntries`，但只有内容真的变了的那两个会重建）。临时基准（未入库）：400 条 × 0.7KB 正文 @100 列 = **8.6ms / 11.5MB / 11.3 万次分配**；400 条 × 1.4KB 正文 @40 列 = **1.8ms**。单条消息的停顿与 GC 压力是 10ms 量级；会话越长越贵，且到 400 条上限前随条目数线性增长。这是本轮勘察中**唯一实测成立的运行时性能缺陷**。
+**问题** 每来一条消息，timeline 与消息所属 pane 的 transcript 各自从头重解析全部 400 条（4 个 transcript 每帧都会被调用 `SetEntries`，但只有内容真的变了的那两个会重建）。实测（400 条、100 列 × 40 行、无时间戳、直接调 `rebuildLines`）：0.7–1KB 正文 = **8.6–19.5ms / 11.5–26.7MB**（随 markdown/链接密度变化）。一条消息 ≈ 两份重建 = **10–40ms 停顿 + 20–50MB 分配**，不是毫秒级抖动。会话越长越贵，到 400 条上限前随条目数线性增长。这是本轮勘察中**唯一实测成立的运行时性能缺陷**。
+**基准口径（重要）** 基准必须每次迭代真正进入 `rebuildLines`：重复传同一份列表会被 `SetEntries` 的序号短路（`internal/gotui/transcript.go:70`）且 `rebuild()` 在宽高未变且 `v.lines` 非空时直接返回（`internal/gotui/transcript.go:132`），测出来的是空转。写基准时交替传两份只有末条 seq 不同的列表，或每次追加新条目。条目必须写明：条目数 / 正文字节与密度 / 列×行 / 时间戳开关 / pathRoots / 是否追加第 N 条。
 **预期状态** 渲染行按 `entry.seq + 宽度 + 时间戳开关 + pathRoots 版本` 缓存：追加只渲染新条目，窗口淘汰的条目连同缓存一起丢弃（缓存规模 = 当前窗口，不随会话增长）。`wrapRuns` 的超宽词改用 `strings.Builder` 只在同基准确认有增益时做，否则不动。不引入第二份消息状态，不加异步渲染/后台协程/脏标记框架。
-**验收** 新增 `BenchmarkTranscriptAppend`（400 条 × 1KB @100 列，追加第 401 条）：目标 **<2ms、分配 <1MB**（基线 8.6ms / 11.5MB）；`go test ./internal/gotui` 全绿（含中文双宽、链接、选区、滚动、滚动条既有用例）；缓存内存不随会话增长。
+**验收** 新增 `BenchmarkTranscriptAppend`（400 条 × 1KB @100 列 × 40 行，追加第 401 条，且每轮真实重建）：目标**追加一条消息 <200µs、分配 <200KB**（基线 8.6–19.5ms / 11.5–26.7MB；单条 1KB 正文渲染实测 49µs / 69KB，所以 timeline + 所属 pane 两份约 100µs / 140KB，目标留一倍余量）；`go test ./internal/gotui` 全绿（含中文双宽、链接、选区、滚动、滚动条既有用例）；缓存内存不随会话增长。
 **依赖** 无
 **验证** `make check` + `go test ./internal/gotui -run '^$' -bench TranscriptAppend -benchmem`
 **负责人** Tony
@@ -63,9 +73,9 @@
 - [ ] 完成：
 
 **位置** `internal/driver/client.go:20`（`defaultTimeout = 20s`）、`:26`（`StartTimeout = 90s`）；`internal/driver/contract_test.go:133`（用 `sleep 30` 脚本撞默认超时）、`:287`（`TestLegacyShimIsDistinguishedFromABrokenPlugin`）；`internal/remote/client.go:345`（`keepalivePeriod = 30s`）、`:347`（`readIdleTimeout = 90s`）、`:351`（`pushInterval = 1s`）。
-**问题** `go test -count=1 -json ./...` 实测墙钟 **103.6s**，其中约 89s 在等固定超时而不是跑逻辑：internal/driver **59.6s**、internal/remote **17.1s**、plugins/agy **14.1s**（走同一 contract 超时）。改一行代码要等近两分钟，CI 每个任务再等一遍。
+**问题** `time go test -count=1 ./...` 墙钟实测 **60.1s**；关键路径是 internal/driver **59.6s**（`internal/driver/contract_test.go:133` 的 `sleep 30` 脚本撞 20s 默认超时，`:287` 的 `TestLegacyShimIsDistinguishedFromABrokenPlugin` 再等 27.3s），internal/remote 17.1s 与 plugins/agy 14.1s 与之并行（因此不能相加当墙钟）；driver 修好后这两个成为新关键路径。改一行代码要等一分钟，CI 每个任务再等一遍。
 **预期状态** 超时与间隔变成可注入字段：driver client 的单次/启动超时，remote client 的 push/keepalive 间隔；测试传 1s 量级。**生产默认值一个都不改**（20s/90s、1s/30s/90s），不新增配置项或环境变量。
-**验收** `time go test ./... -count=1` 墙钟 **<20s**；新增断言：注入值确实生效、生产默认仍是 20s/90s（`TestContractUsesInjectedTimeout` 一类）；全仓测试结论与改前一致。
+**验收** `time go test ./... -count=1` 墙钟 **<20s**（三处都改后预期 ~15s）；新增断言：注入值确实生效、生产默认仍是 20s/90s（`TestContractUsesInjectedTimeout` 一类）；全仓测试结论与改前一致。
 **依赖** 无
 **验证** `time go test ./... -count=1` + `make check`
 **负责人** Tony
@@ -90,7 +100,7 @@
 ### T24 远程解除挂起：pause / unpause / continue / resume
 - [ ] 完成：
 
-**位置** `internal/remote/protocol.go:44-59`（命令只有 `task`、`new_session`、`observer_report`、`switch_mode`、`set_driver`、`catalog`、`set_model`）、`internal/remote/client.go:23`（`Sink` 接口）、`cmd/duo/remote.go:406-698`（`remoteSink`）、`docs/remote-protocol.md:269`（`cmd` 列表）；已有动词与映射：`internal/session/command.go:45-55`（`Pause`/`Unpause`/`Continue`/`ResumeWork`）、`internal/session/service.go:872-877`（`Do` 里的 switch）；TUI 已用同一批动词 `internal/gotui/slash.go:28-31`、`internal/gotui/commands.go:218-233`。
+**位置** `internal/remote/protocol.go:44-59`（命令只有 `task`、`new_session`、`observer_report`、`switch_mode`、`set_driver`、`catalog`、`set_model`）、`internal/remote/client.go:23`（`Sink` 接口）、`cmd/duo/remote.go:404-709`（`remoteSink`）、`docs/remote-protocol.md:269`（`cmd` 列表）；已有动词与映射：`internal/session/command.go:45-55`（`Pause`/`Unpause`/`Continue`/`ResumeWork`）、`internal/session/service.go:872-877`（`Do` 里的 switch）；TUI 已用同一批动词 `internal/gotui/slash.go:28-31`、`internal/gotui/commands.go:221-233`。
 **用户/缺口** 人离开键盘后，Duo 的挂起无法从手机解除：`/pause` 之后没人能 `/continue`；恢复的会话没人 `/resume`；而手机只能发新任务、切模式、换驱动、换模型。远程存在的意义正是"人不在键盘前"。
 **最小实现** 四个新命令（`pause`/`unpause`/`continue`/`resume_work`）：`Sink` 加四个方法，host 直接映射到既有 `session` 命令，页面加暂停/继续按钮，复用现有 MAC、nonce、限流；`docs/remote-protocol.md` 同步命令表。**明确不做**：远程签 `set_plan`/`set_ready`/`set_verification`——签名是 agent 活连接授权的证据链（见 `internal/session/command.go` 顶部注释），不看 diff 就签是脚枪；也不做远程 diff 浏览。不新增会话状态、不新增协议字段。**中止本轮不单列动词**：会话层没有 abort（挂起是 pause 族），中止当前工作是重启该 agent（`RestartAgent`，TUI 的 Ctrl+R 用的就是它）；只有出现真实需求时才把 `restart_agent` 映射进本条的 Sink，不为此新增语义。
 **验收** `internal/remote` 新增 `TestPauseCommandReachesSink`、`TestUnknownCommandRefused`；`cmd/duo` 新增 `TestRemotePauseMapsToSessionPause`；`remote/test` 覆盖页面按钮发出的命令体与 MAC；协议文档命令表更新。
@@ -189,7 +199,10 @@
 | i18n 豁免白名单机制 | 只遍历用户可见文案来源即可，缺就补；白名单是给未来自己加的债（T18）。 |
 | `--format html` 导出 | Markdown 足够归档/评审；HTML 会引入自带样式与资源内联的第二套渲染（T11）。 |
 | 批量任务文件 / 并发多会话 / 插件市场 / 自研 diff 浏览器 | headless `duo run` 已可被脚本串起来；多会话守护与插件市场是独立产品方向，当前没有用户证据。 |
-| 新第三方依赖（含 lint 平台） | 现有 8 个直接依赖够用；CI 用 `gofmt` + `go vet` + 各扩展自带测试即可（T22）。 |
+| 新第三方依赖（含 lint 平台） | 现有 9 个直接依赖够用；CI 用 `gofmt` + `go vet` + 各扩展自带测试即可（T22）。 |
+| 按行数拆分 `coordinator.go`（2744）/ `service.go`（1494）/ `app.go`（1038） | 纯搬家，审查与冲突成本高于收益；只在这些文件下一次真实改动时顺手拆，不单独立项。 |
+| 清理 227 处 `_ =` | 多数是有意忽略（日志/清理失败不影响主流程），逐条审计的收益无法度量；新代码继续显式忽略。 |
+| 驱动插件基类/共享框架 | 4 个插件的共同点已在 `internal/driver/cmdline.go:15/22/76`；再抽象只会把 CLI 差异塞进 Core。 |
 
 ### 实测"不是瓶颈"，禁止为此加缓存/异步/批量/分段加载
 
@@ -199,9 +212,9 @@
 | `duo --version` / `duo sessions` 冷启动 | 1.6–2ms（各 3–5 次） | 不预加载、不加常驻守护 |
 | `Service.View()`（`internal/session/service.go:721`：Snapshot + UsageLedger + observerView） | µs 级 | 不加视图缓存层、不加脏标记 |
 | `transcript.SetEntries` 无变化短路（`internal/gotui/transcript.go:70`） | 400 条比较 µs 级 | 不改（T21 只处理"有变化"的那条路径） |
-| 远程 state 帧 | `internal/remote/protocol.go:19` `MaxPlaintext = 3000`；`client.go:810` `fitState`；push 合并 1 次/秒 | 不做增量 diff 协议、不加帧压缩 |
+| 远程 state 帧 | `internal/remote/protocol.go:19` `MaxPlaintext = 3000`；`internal/remote/client.go:810` `fitState`；push 合并 1 次/秒 | 不做增量 diff 协议、不加帧压缩 |
 | TUI 会话条目 | 窗口上限 400（`internal/gotui/app.go:1025`） | 不加分段加载/虚拟列表 |
-| 事件 journal 追加 | 每事件一次 `O_APPEND`（`internal/sessionstore/events.go:49`）；38MB journal 恢复扫描 `TUIEntries`（`:97`）71ms | 不做轮转/压缩；恢复超过 1s 再议 |
+| 事件 journal 追加 | 每事件一次 `O_APPEND`（`internal/sessionstore/events.go:49`）；恢复时 `TUIEntries`（`:97`）全文件扫描：合成 38MB / 3 万条 journal 的一次性观察 71ms（非可复现基准） | 不做轮转/压缩；恢复超过 1s 再议 |
 | 测试体量 | 894 个 `Test`、0 个 `Benchmark` | 只补 T21 一条必要基准，不建基准平台 |
 
 ---
