@@ -32,6 +32,26 @@ All notable project milestones are documented here.
 
 ### Remote access
 
+- Fixed: the phone showed "Duo is offline" for a room the relay had already
+  closed. The per-room daily budget was 2000 frames and a host published a state
+  on every event even with no phone attached, so an ordinary day of work spent it
+  and the room was closed for good — silently, because the terminal reason was
+  never logged. The budget is now 20000 frames, the host publishes nothing while
+  no phone is attached (it sends the current state when one joins, at most once a
+  second), and a relay stop is written to the session log.
+
+- Fixed: `/qrcode` handed out the code of a room the relay had ended, so scanning
+  it could only fail. It now mints a new room in that case, and reuses the live
+  one — without re-registering or dropping the socket — when the connection is
+  still healthy.
+
+- Fixed: Duo sat on a blank screen for seconds after starting. Resuming a live
+  pairing registered the room before the interface drew its first frame, which
+  cost a relay round trip on every launch; registration now happens inside the
+  client's own connection loop, with the same backoff and logging. `/qrcode`
+  still registers before it shows a code, because a code for an unregistered
+  room cannot pair.
+
 - The relay at https://remote.xduo.dev serves the page in this tree, so the fixes
   above reach a phone. `scripts/remote-deploy.sh` deploys and then compares
   `index.html`, `app.js`, `console.js`, `crypto.js` and `style.css` with the live

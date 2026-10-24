@@ -18,7 +18,11 @@ export const MAX_SOCKETS = 8;
 export const MAX_UNAUTH_SOCKETS = 2;
 export const HELLO_DEADLINE_MS = 5000;
 export const GUEST_CMD_PER_MINUTE = 30;
-export const DAILY_MESSAGE_BUDGET = 2000;
+// A room relays at most this many frames a day. The host publishes at most one
+// state a second and only while a phone is attached, so a session has to be
+// watched for hours before it can reach the cap; reaching it closes the relay
+// side of the room and nothing else.
+export const DAILY_MESSAGE_BUDGET = 20000;
 export const MAX_CMD_ID_LEN = 64;
 export const REGISTRATIONS_PER_HOUR = 30;
 export const REGISTRATIONS_GLOBAL_PER_HOUR = 2000;

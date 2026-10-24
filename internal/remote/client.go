@@ -160,6 +160,11 @@ func (c *Client) Run(ctx context.Context) {
 		if errors.As(err, &terminal) {
 			c.setActive(false)
 			c.setError(terminal.Error())
+			// A room the relay ended for good is the one failure nothing else
+			// reports: the socket stops, and the interface only knows the pairing
+			// is no longer live. The session log has to carry the code, or the
+			// phone's "offline" has no explanation anywhere on the computer.
+			c.logf("stopped: %v", terminal)
 			return
 		}
 		if err != nil {
@@ -198,8 +203,20 @@ func (c *Client) Close() {
 }
 
 // PublishState asks for a state publish. Requests coalesce: a burst of changes
-// produces one frame, and the writer caps the rate at four per second.
+// produces one frame, and the writer caps the rate at one per second.
+//
+// Nobody to send to means nothing to send: every frame costs the room's daily
+// relay budget, and a session with no phone attached would spend it on a
+// conversation nobody is reading. The state is published when a phone joins
+// instead (see the presence handling), so a later guest still starts from a
+// current frame.
 func (c *Client) PublishState() {
+	c.mu.Lock()
+	guests := c.status.Guests
+	c.mu.Unlock()
+	if guests == 0 {
+		return
+	}
 	select {
 	case c.dirty <- struct{}{}:
 	default:
@@ -313,8 +330,10 @@ const (
 	keepalivePeriod = 30 * time.Second
 	// readIdleTimeout drops a socket whose keepalive stopped being answered.
 	readIdleTimeout = 90 * time.Second
-	// pushInterval coalesces state writes to at most four per second.
-	pushInterval = 250 * time.Millisecond
+	// pushInterval coalesces state writes to at most one per second. The relay
+	// charges every host frame to the room's daily budget, and a phone cannot
+	// read faster than this anyway.
+	pushInterval = time.Second
 )
 
 func (c *Client) keepalive(ctx context.Context, conn *websocket.Conn, done chan<- error) {
@@ -379,9 +398,16 @@ func (c *Client) readLoop(ctx context.Context, conn *websocket.Conn, done chan<-
 			c.handleCommand(f)
 		case framePresence:
 			c.mu.Lock()
+			joined := f.Guests > c.status.Guests
 			c.status.HostPresent = f.Host
 			c.status.Guests = f.Guests
 			c.mu.Unlock()
+			if joined {
+				// A phone just arrived. It may have joined after the last change, so
+				// the frame it gets is the current state rather than whatever the
+				// relay happened to store.
+				c.PublishState()
+			}
 		case frameAck:
 			c.mu.Lock()
 			if f.Seq > c.status.LastAck {
@@ -504,7 +530,15 @@ func (c *Client) sendState(ctx context.Context) error {
 
 // PublishEvent sends one incremental update. A caller that cannot describe a
 // change as an event publishes a state instead, so the phone always converges.
+// Like PublishState it sends nothing while no phone is attached: a joining
+// phone is given a current state, which already carries recent activity.
 func (c *Client) PublishEvent(ev Event) error {
+	c.mu.Lock()
+	guests := c.status.Guests
+	c.mu.Unlock()
+	if guests == 0 {
+		return nil
+	}
 	ev.V = ProtocolVersion
 	ev.N = c.issueNonce()
 	if ev.At == 0 {

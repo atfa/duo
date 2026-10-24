@@ -3,6 +3,7 @@ package remote
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -530,5 +531,93 @@ func TestHostTakeoverKeepsTheGuestConnected(t *testing.T) {
 	})
 	if tasks, _, _ := firstSink.snapshot(); len(tasks) != 0 {
 		t.Errorf("the replaced host executed %d task(s), want 0", len(tasks))
+	}
+}
+
+// logRecorder keeps the client's log lines so a test can assert what an operator
+// would find in the session log afterwards.
+type logRecorder struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (l *logRecorder) logf(format string, args ...any) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.lines = append(l.lines, fmt.Sprintf(format, args...))
+}
+
+func (l *logRecorder) contains(substr string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, line := range l.lines {
+		if strings.Contains(line, substr) {
+			return true
+		}
+	}
+	return false
+}
+
+// Every host frame costs the room's daily relay budget, so a session nobody is
+// watching must not publish at all: the state a phone needs is sent when it
+// joins, not while it is away.
+func TestNoStateIsPublishedWithoutAGuest(t *testing.T) {
+	relay := newFakeRelay(t)
+	p := testPairing(t, relay)
+	c, err := New(Options{Pairing: p, Sink: &fakeSink{}, Snapshot: staticState("duo"),
+		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	startClient(t, c)
+	waitFor(t, "host connection", func() bool { return c.Status().Connected })
+	waitFor(t, "the initial state", func() bool { return relay.published(p.Room) >= 1 })
+
+	initial := relay.published(p.Room)
+	for i := 0; i < 5; i++ {
+		c.PublishState()
+		if err := c.PublishEvent(Event{Kind: EventActivity, Agent: "austin", Text: "nobody is reading"}); err != nil {
+			t.Fatalf("PublishEvent: %v", err)
+		}
+	}
+	time.Sleep(pushInterval + 300*time.Millisecond)
+	if got := relay.published(p.Room); got != initial {
+		t.Fatalf("published %d frame(s) with no phone attached, want %d", got, initial)
+	}
+
+	// A phone joins: it gets the current state without the host publishing on a
+	// timer, and publishing works again from then on.
+	guest := relay.guest(t, p)
+	state := guest.nextState(t, p, 5*time.Second)
+	if state.Project != "duo" {
+		t.Fatalf("guest state project = %q", state.Project)
+	}
+	c.PublishState()
+	guest.nextState(t, p, 5*time.Second)
+	if got := relay.published(p.Room); got <= initial {
+		t.Fatalf("published = %d after a guest joined, want > %d", got, initial)
+	}
+}
+
+// A room the relay ends for good used to stop the client in silence: the phone
+// said offline and nothing on the computer explained why.
+func TestTerminalStopIsLogged(t *testing.T) {
+	relay := newFakeRelay(t)
+	p := testPairing(t, relay)
+	logs := &logRecorder{}
+	c, err := New(Options{Pairing: p, Sink: &fakeSink{}, Snapshot: staticState("duo"),
+		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: logs.logf})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	startClient(t, c)
+	waitFor(t, "host connection", func() bool { return c.Status().Connected })
+	relay.endRoom(t, p, CodeOverBudget)
+	waitFor(t, "client to stop", func() bool { return !c.Status().Active })
+	if !strings.Contains(c.Status().LastError, CodeOverBudget) {
+		t.Errorf("LastError = %q, want it to name %q", c.Status().LastError, CodeOverBudget)
+	}
+	if !logs.contains(CodeOverBudget) {
+		t.Errorf("log lines = %v, want the terminal reason", logs.lines)
 	}
 }

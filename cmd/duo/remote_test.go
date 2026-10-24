@@ -296,3 +296,176 @@ func TestRemoteAgentCarriesTheModelAndTheWireKey(t *testing.T) {
 		}
 	}
 }
+
+// newTestManager builds a manager whose state directory is a temp HOME, so a
+// pairing written by one call is the pairing the next call reads.
+func newTestManager(t *testing.T, server string) *remoteManager {
+	t.Helper()
+	t.Setenv("HOME", t.TempDir())
+	path, err := remote.PairingPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &remoteManager{
+		svc:     session.New(session.Options{}),
+		path:    path,
+		server:  server,
+		enabled: true,
+		now:     time.Now,
+	}
+}
+
+func newTestClient(t *testing.T, m *remoteManager, pairing remote.Pairing) *remote.Client {
+	t.Helper()
+	client, err := remote.New(remote.Options{
+		Pairing:  pairing,
+		Sink:     remoteSink{m: m},
+		Snapshot: m.snapshot,
+		Logf:     t.Logf,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(client.Close)
+	return client
+}
+
+// /qrcode on a pairing this process already holds must not re-register or
+// reconnect: that costs a relay round trip and drops the socket the phone is
+// using. The panel can be answered from the live pairing.
+func TestQrcodeReusesAHeldPairingWithoutRegistering(t *testing.T) {
+	registers := make(chan struct{}, 8)
+	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/api/room" {
+			registers <- struct{}{}
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer relay.Close()
+
+	manager := newTestManager(t, relay.URL)
+	pairing, err := remote.NewPairing(relay.URL, time.Now(), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := remote.SavePairing(manager.path, pairing); err != nil {
+		t.Fatal(err)
+	}
+	client := newTestClient(t, manager, pairing)
+	manager.mu.Lock()
+	manager.pairing = pairing
+	manager.client = client
+	manager.mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	got, err := manager.Start(ctx, false)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if got.Status.Room != pairing.Room {
+		t.Errorf("room = %q, want the held pairing %q", got.Status.Room, pairing.Room)
+	}
+	select {
+	case <-registers:
+		t.Fatal("Start registered a room it already held")
+	default:
+	}
+}
+
+// A pairing whose room the relay ended cannot be handed out again: scanning it
+// can only produce "Duo is offline", so /qrcode mints a new room instead.
+func TestQrcodeRotatesARoomTheRelayEnded(t *testing.T) {
+	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/api/room" {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer relay.Close()
+
+	manager := newTestManager(t, relay.URL)
+	ended, err := remote.NewPairing(relay.URL, time.Now(), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := remote.SavePairing(manager.path, ended); err != nil {
+		t.Fatal(err)
+	}
+	// A closed client is what a terminal relay stop leaves behind: the pairing is
+	// still on disk, but nothing is connected for it any more.
+	client := newTestClient(t, manager, ended)
+	client.Close()
+	manager.mu.Lock()
+	manager.pairing = ended
+	manager.client = client
+	manager.mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	got, err := manager.Start(ctx, false)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer manager.stopClient()
+	if got.Status.Room == ended.Room {
+		t.Fatalf("Start handed out the dead room %q again", ended.Room)
+	}
+	saved, ok, err := remote.LoadPairing(manager.path)
+	if err != nil || !ok {
+		t.Fatalf("LoadPairing = %v, %v", ok, err)
+	}
+	if saved.Room != got.Status.Room {
+		t.Errorf("saved room = %q, want the new room %q", saved.Room, got.Status.Room)
+	}
+}
+
+// Resume runs before the interface draws its first frame, so it must not wait
+// for the relay: the client registers on its own before connecting.
+func TestResumeDoesNotWaitForRegistration(t *testing.T) {
+	blocked := make(chan struct{})
+	release := make(chan struct{})
+	relay := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/api/room" {
+			close(blocked)
+			<-release
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer relay.Close()
+
+	manager := newTestManager(t, relay.URL)
+	pairing, err := remote.NewPairing(relay.URL, time.Now(), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := remote.SavePairing(manager.path, pairing); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan struct{})
+	go func() {
+		manager.Resume(ctx)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		close(release)
+		t.Fatal("Resume waited for the relay to answer")
+	}
+	select {
+	case <-blocked:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the resumed client never tried to register the room")
+	}
+	close(release)
+	manager.stopClient()
+}

@@ -56,6 +56,11 @@ func newRemoteManager(cfg config, svc *session.Service) (*remoteManager, error) 
 
 // Resume reconnects a pairing that is still live. A machine that never paired
 // sends nothing to the relay and costs nothing, which is the default posture.
+//
+// The registration is not waited for: Run registers before it connects, and
+// blocking here would hold the interface's first frame for as long as the relay
+// takes to answer. Nothing about resuming a pairing needs that round trip
+// before the dashboard is drawn.
 func (m *remoteManager) Resume(ctx context.Context) {
 	if !m.enabled {
 		return
@@ -64,9 +69,36 @@ func (m *remoteManager) Resume(ctx context.Context) {
 	if !ok {
 		return
 	}
-	if err := m.start(ctx, pairing); err != nil {
+	if err := m.start(ctx, pairing, false); err != nil {
 		log.Printf("Duo remote: %v", err)
 	}
+}
+
+// pairingState is how this process relates to the pairing on disk.
+type pairingState int
+
+const (
+	// pairingUnheld: nothing is connected for it yet, so /qrcode has to start it.
+	pairingUnheld pairingState = iota
+	// pairingHeld: this process holds a live connection for it, so /qrcode can
+	// show the same code again without touching the relay.
+	pairingHeld
+	// pairingEnded: the relay ended the room for good (an exhausted daily budget,
+	// a revocation, an expiry), so its code can only produce "Duo is offline".
+	pairingEnded
+)
+
+func (m *remoteManager) stateOf(pairing remote.Pairing) pairingState {
+	m.mu.Lock()
+	client, current := m.client, m.pairing
+	m.mu.Unlock()
+	if client == nil || current.Room != pairing.Room {
+		return pairingUnheld
+	}
+	if client.Status().Active {
+		return pairingHeld
+	}
+	return pairingEnded
 }
 
 // Start is `/qrcode`: it reuses a live pairing, or mints and saves a new one.
@@ -77,8 +109,19 @@ func (m *remoteManager) Start(ctx context.Context, rotate bool) (gotui.RemotePai
 	if m.server == "" {
 		return gotui.RemotePairing{}, errors.New("no relay URL configured (remote.url or DUO_REMOTE_URL)")
 	}
-	pairing, ok := remote.LivePairing(m.path, m.now())
-	if !ok || rotate {
+	pairing, live := remote.LivePairing(m.path, m.now())
+	if live && !rotate {
+		switch m.stateOf(pairing) {
+		case pairingHeld:
+			// The code the human is asking for already works. Registering again
+			// would cost a relay round trip and drop the socket the phone may be
+			// using, so the panel is answered from the live pairing instead.
+			return m.pairingResult(pairing), nil
+		case pairingEnded:
+			live = false
+		}
+	}
+	if !live || rotate {
 		fresh, err := remote.NewPairing(m.server, m.now(), remote.DefaultRoomTTL)
 		if err != nil {
 			return gotui.RemotePairing{}, err
@@ -88,14 +131,19 @@ func (m *remoteManager) Start(ctx context.Context, rotate bool) (gotui.RemotePai
 		}
 		pairing = fresh
 	}
-	if err := m.start(ctx, pairing); err != nil {
+	if err := m.start(ctx, pairing, true); err != nil {
 		return gotui.RemotePairing{}, err
 	}
+	return m.pairingResult(pairing), nil
+}
+
+// pairingResult is what a frontend draws for one pairing.
+func (m *remoteManager) pairingResult(pairing remote.Pairing) gotui.RemotePairing {
 	return gotui.RemotePairing{
 		URL:     pairing.URL(),
 		Display: pairing.Server + "/p/" + pairing.Room,
 		Status:  m.Status(),
-	}, nil
+	}
 }
 
 // Stop is `/remote off`: it revokes the room on the relay, disconnects, and
@@ -148,7 +196,11 @@ func (m *remoteManager) Status() gotui.RemoteStatus {
 	return status
 }
 
-func (m *remoteManager) start(ctx context.Context, pairing remote.Pairing) error {
+// start builds the client for a pairing and starts serving it. wait registers
+// the room before returning, which /qrcode needs because a code for an
+// unregistered room cannot pair; resume does not, because Run registers again
+// before every connection and the interface must not wait for the relay.
+func (m *remoteManager) start(ctx context.Context, pairing remote.Pairing, wait bool) error {
 	m.stopClient()
 	client, err := remote.New(remote.Options{
 		Pairing:  pairing,
@@ -161,12 +213,14 @@ func (m *remoteManager) start(ctx context.Context, pairing remote.Pairing) error
 	if err != nil {
 		return err
 	}
-	registerCtx, registerCancel := context.WithTimeout(ctx, 15*time.Second)
-	err = client.RegisterRoom(registerCtx)
-	registerCancel()
-	if err != nil {
-		client.Close()
-		return fmt.Errorf("register remote room before showing pairing: %w", err)
+	if wait {
+		registerCtx, registerCancel := context.WithTimeout(ctx, 15*time.Second)
+		err = client.RegisterRoom(registerCtx)
+		registerCancel()
+		if err != nil {
+			client.Close()
+			return fmt.Errorf("register remote room before showing pairing: %w", err)
+		}
 	}
 	runCtx, cancel := context.WithCancel(ctx)
 	m.mu.Lock()
@@ -195,8 +249,8 @@ func (m *remoteManager) stopClient() {
 }
 
 // watch republishes the snapshot whenever the session changes. The client
-// coalesces to four frames a second, so a busy turn does not become a stream of
-// near-identical states.
+// coalesces to one frame a second, so a busy turn does not become a stream of
+// near-identical states, and it sends nothing at all while no phone is attached.
 func (m *remoteManager) watch(ctx context.Context, client *remote.Client) {
 	sub, cancel := m.svc.Subscribe(32)
 	defer cancel()

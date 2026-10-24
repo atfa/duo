@@ -87,3 +87,11 @@ hibernation, event-driven pushes, a 30-second keepalive, a per-room daily
 message budget and a per-room command rate limit. When a room exceeds its
 budget the relay closes the remote connection and Duo keeps running locally —
 a busy session can never turn into a bill.
+
+The budget is 20,000 frames per room per day, and the host only spends it while
+a phone is attached: with no phone connected the computer publishes nothing, so
+a session that runs all day costs one frame. A phone that is attached for hours
+still cannot exhaust the room by accident, because the host coalesces its
+updates to at most one state a second. If a room does run out, the next
+`/qrcode` mints a new room instead of handing out a code for a room the relay
+has ended, and the reason appears in the session log.

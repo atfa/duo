@@ -124,10 +124,11 @@ The relay is built to stay inside Cloudflare's free plan and to fail closed:
   only refuses a non-increasing value and persists it for replay.
 - Replay storage is bounded (50 envelopes, 100 command ids per room).
 - Frames are capped at 4 KiB; guests get 30 commands/minute (refused with
-  `error{rate_limited}`, not a disconnect); a room relays at most 2000
+  `error{rate_limited}`, not a disconnect); a room relays at most 20000
   messages/day; registration is limited per IP and globally.
 - `bye{over_budget}` closes only the relay connection. Duo keeps running
-  locally; reopening the QR code creates a fresh room.
+  locally; reopening the QR code creates a fresh room. The host spends no
+  frames while no phone is attached, so an unattended session costs nothing.
 
 ## Security notes
 

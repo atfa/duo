@@ -169,6 +169,7 @@ func (r *fakeRelay) servePeer(peer *fakePeer) {
 		}
 		r.mu.Unlock()
 		_ = peer.conn.Close()
+		r.sendPresence(peer.room)
 	}()
 
 	_ = peer.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
@@ -230,6 +231,7 @@ func (r *fakeRelay) servePeer(peer *fakePeer) {
 	for _, m := range replay {
 		peer.send(m)
 	}
+	r.sendPresence(peer.room)
 
 	_ = peer.conn.SetReadDeadline(time.Time{})
 	for {
@@ -388,6 +390,56 @@ func (p *fakePeer) nextMessage(t *testing.T, pairing Pairing, kind string, timeo
 		}
 		p.lastSeq = f.Seq
 		return plaintext
+	}
+}
+
+// published reports how many envelopes the relay has stored for a room, which is
+// what the daily message budget is charged for.
+func (r *fakeRelay) published(roomID string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	stored, ok := r.rooms[roomID]
+	if !ok {
+		return 0
+	}
+	return len(stored.msgs)
+}
+
+// sendPresence mirrors the relay's own frame. The page reads it to know whether
+// the computer is reachable, and the host reads it to know whether a phone is
+// attached before it spends the room's message budget.
+func (r *fakeRelay) sendPresence(roomID string) {
+	r.mu.Lock()
+	stored, ok := r.rooms[roomID]
+	if !ok {
+		r.mu.Unlock()
+		return
+	}
+	peers := stored.peers()
+	frame := frame{T: framePresence, Host: stored.host != nil, Guests: len(stored.guests)}
+	r.mu.Unlock()
+	for _, peer := range peers {
+		peer.send(frame)
+	}
+}
+
+// endRoom is the relay ending a room for good, which is what an exhausted daily
+// budget looks like from the client: every socket is told why and closed.
+func (r *fakeRelay) endRoom(t *testing.T, pairing Pairing, code string) {
+	t.Helper()
+	r.mu.Lock()
+	stored, ok := r.rooms[pairing.Room]
+	var peers []*fakePeer
+	if ok {
+		peers = stored.peers()
+	}
+	r.mu.Unlock()
+	if !ok {
+		t.Fatalf("room %s is not registered", pairing.Room)
+	}
+	for _, peer := range peers {
+		peer.send(frame{T: frameBye, Code: code})
+		_ = peer.conn.Close()
 	}
 }
 

@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { ROOM, PROOF, envelope, hello, newRoom, register, reopen, socket } from "./harness.js";
+import { DAILY_MESSAGE_BUDGET } from "../src/protocol.js";
 
 // Every test drives the shipped RelayRoom through its HTTP and hibernation
 // handlers; only storage, sockets and the clock are faked.
@@ -283,7 +284,7 @@ test("the daily budget closes the relay without touching anything local", async 
   guest.deliver(hello());
 
   // The budget is per room per day: drive it to just under the cap, then cross.
-  for (let i = 0; i < 2000; i++) {
+  for (let i = 0; i < DAILY_MESSAGE_BUDGET; i++) {
     harness.room.chargeBudget(harness.seconds());
   }
   host.deliver({ t: "msg", seq: 1, kind: "state", iv: "aXY-aXY-aXY", ct: "Y3Q" });
