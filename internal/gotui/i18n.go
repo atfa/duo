@@ -183,8 +183,6 @@ var zhUI = map[string]string{
 
 	// Status feedback. Values (agent names, mode names, driver/model ids, paths,
 	// core errors) stay verbatim; only the sentence around them is translated.
-	"sent to Austin":                          "已发送给 Austin",
-	"sent to Austin and Tony":                 "已发送给 Austin 和 Tony",
 	"screen redrawn":                          "屏幕已重绘",
 	"status reported in timeline":             "状态已输出到时间线",
 	"no status reported":                      "未报告状态",
@@ -210,7 +208,6 @@ var zhUI = map[string]string{
 	"remote:":                                                      "远程：",
 	"remote access is not available here":                          "此界面不支持远程访问",
 	"preparing the pairing…":                                       "正在准备配对…",
-	"pairing code ready":                                           "配对二维码已就绪",
 	"remote access is off":                                         "远程访问已关闭",
 	"remote status shown in the timeline":                          "远程状态已显示在时间线中",
 	"usage: /qrcode [new]":                                         "用法：/qrcode [new]",

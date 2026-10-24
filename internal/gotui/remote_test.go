@@ -246,6 +246,29 @@ func TestQrcodeOpensThePairingOverlay(t *testing.T) {
 	}
 }
 
+// The overlay is the whole answer to /qrcode. A footer status would replace the
+// idle key hint on the bottom row with a line the human does not need, and it
+// never cleared, so the same text came back on every /qrcode.
+func TestQrcodeOpensWithoutAFooterStatus(t *testing.T) {
+	_, app := newModeSwitchApp(t, remoteTestSnapshot())
+	app.SetRemote(&fakeRemote{})
+
+	app.runSlash("/qrcode")
+	app.handleAsync(<-app.asyncCh)
+	if app.overlay != overlayQrcode {
+		t.Fatalf("overlay = %v, want the pairing overlay", app.overlay)
+	}
+	if app.status != "" {
+		t.Fatalf("status = %q, want the idle key hint instead", app.status)
+	}
+
+	app.runSlash("/qrcode new")
+	app.handleAsync(<-app.asyncCh)
+	if app.status != "" {
+		t.Fatalf("status after a second /qrcode = %q, want the idle key hint instead", app.status)
+	}
+}
+
 func TestQrcodeOverlayClosesOnEscape(t *testing.T) {
 	_, app := newModeSwitchApp(t, remoteTestSnapshot())
 	app.SetRemote(&fakeRemote{})

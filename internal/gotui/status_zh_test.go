@@ -19,6 +19,16 @@ func requireChineseStatus(t *testing.T, app *App, want string) {
 	}
 }
 
+// requireNoStatus checks that the footer keeps its idle key hint. A submit or a
+// pairing must not leave a line there: the conversation list and the overlay are
+// the feedback, and a status would sit on the bottom row forever.
+func requireNoStatus(t *testing.T, app *App) {
+	t.Helper()
+	if app.status != "" {
+		t.Fatalf("status = %q, want the idle key hint instead", app.status)
+	}
+}
+
 // TestChineseStatusFeedback drives the real handlers in a zh session and checks
 // the human-visible status, not just the translation table. Values that belong
 // to the agents, drivers, models or the core stay verbatim.
@@ -62,10 +72,11 @@ func TestChineseStatusFeedback(t *testing.T) {
 	copier.runSlash("/copy")
 	requireChineseStatus(t, copier, "复制失败：boom")
 
-	// Submitting in FAST and outside FAST must read differently in Chinese.
+	// Submitting leaves no footer status in any mode: the coordinator reports the
+	// task into the conversation list, which is where the human reads it.
 	copier.composer.SetText("task")
 	copier.submit()
-	requireChineseStatus(t, copier, "已发送给 Austin")
+	requireNoStatus(t, copier)
 
 	fake.mu.Lock()
 	fake.view.Project.Mode = project.ModeGoal
@@ -73,7 +84,7 @@ func TestChineseStatusFeedback(t *testing.T) {
 	copier.refreshView()
 	copier.composer.SetText("task")
 	copier.submit()
-	requireChineseStatus(t, copier, "已发送给 Austin 和 Tony")
+	requireNoStatus(t, copier)
 
 	// Image paste: unavailable and error branches.
 	copier.pasteImage = nil
@@ -111,8 +122,6 @@ func TestChineseStatusFeedback(t *testing.T) {
 // replacing the behavioural test above.
 func TestStatusMessagesHaveChineseTranslations(t *testing.T) {
 	keys := []string{
-		"sent to Austin",
-		"sent to Austin and Tony",
 		"screen redrawn",
 		"status reported in timeline",
 		"workflow sidebar shown",

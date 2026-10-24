@@ -935,7 +935,10 @@ func (a *App) handleAsync(res asyncResult) {
 		}
 		a.qrPairing = pairing
 		a.overlay = overlayQrcode
-		a.setStatus(a.theme.tr("pairing code ready"), false)
+		// The overlay is the whole answer. A footer status would only replace the
+		// idle key hint with a line the human does not need, so the "preparing"
+		// text is cleared instead of confirmed.
+		a.setStatus("", false)
 	case "remote_stop":
 		if res.err != nil {
 			a.setStatus(res.err.Error(), true)

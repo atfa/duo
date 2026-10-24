@@ -42,11 +42,10 @@ func (a *App) submit() {
 		return
 	}
 	a.refreshView()
-	status := "sent to Austin"
-	if a.live.EffectiveMode() != project.ModeFast {
-		status = "sent to Austin and Tony"
-	}
-	a.setStatus(a.theme.tr(status), false)
+	// The coordinator reports the task as a conversation entry for each agent it
+	// reaches, so the timeline already shows who received it. Clearing the status
+	// leaves the idle key hint in place instead of a line the human does not need.
+	a.setStatus("", false)
 }
 
 // isSlashCommand mirrors runSlash's dispatch rule. An absolute path such as
