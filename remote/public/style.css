@@ -6,7 +6,6 @@
 :root {
   --bg: #0b0f14;
   --panel: #121a23;
-  --panel-2: #18222d;
   --line: #24313f;
   --text: #e6edf3;
   --muted: #93a4b5;
@@ -95,7 +94,7 @@ body {
 .vital { min-width: 0; }
 .vital dt {
   color: var(--muted);
-  font-size: 0.6rem;
+  font-size: 0.68rem;
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -422,7 +421,6 @@ button:disabled { opacity: 0.45; cursor: default; }
   :root {
     --bg: #f6f8fa;
     --panel: #ffffff;
-    --panel-2: #eef2f7;
     --line: #d5dee8;
     --text: #10171f;
     --muted: #56677a;

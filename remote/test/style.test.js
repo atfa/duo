@@ -106,6 +106,14 @@ test("every control is at least 44px tall", () => {
   assert.match(rule(".composer textarea"), /field-sizing:\s*content/);
 });
 
+// The labels above the values are the only thing that says which value is the
+// expiry and which is the step. At 0.6rem they were 9.6px, which is legible on a
+// desktop and an effort on a 360px phone, so the floor is pinned here.
+test("the vital labels stay legible", () => {
+  const size = Number(/font-size:\s*([\d.]+)rem/.exec(rule(".vital dt"))[1]);
+  assert.ok(size >= 0.68, `.vital dt is ${size}rem, below the legible floor`);
+});
+
 // A phone is the target: iOS before 18 only knows the prefixed blur, and there
 // the sticky header would simply be flat, which is a silent difference nobody
 // sees on a desktop. The same for the double-tap zoom delay on the fields that
