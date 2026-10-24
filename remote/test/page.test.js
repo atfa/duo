@@ -97,6 +97,20 @@ test("the drivers card offers one select per agent", () => {
   assert.match(app, /driver-note/);
 });
 
+// The model picker offers the driver's own list, one agent at a time, with a
+// filter and a tap to switch. Loading it is a request of its own, because it
+// starts the driver's CLI.
+test("the models card can load and pick a model", () => {
+  assert.match(page, /<select id="model-agent"/);
+  assert.match(page, /<button id="model-load"/);
+  assert.match(page, /<input id="model-filter" type="search"/);
+  assert.match(page, /<ul id="model-list"/);
+  assert.match(app, /command\("catalog"/);
+  assert.match(app, /command\("set_model"/);
+  assert.match(app, /mergeCatalog\(catalog, plain\.catalog\)/);
+  assert.match(app, /filterModels\(/);
+});
+
 // One rule decides when the command in flight is over, and both triggers use it:
 // every state the host publishes, and the bounded wait that keeps a lost answer
 // from disabling the page for good.

@@ -4,11 +4,11 @@
 // Shapes follow docs/remote-protocol.md. Nothing here trusts a field: a newer
 // host may add them, an older one may omit them.
 
-export const COMMAND_KINDS = new Set(["task", "new_session", "observer_report", "switch_mode", "set_driver"]);
+export const COMMAND_KINDS = new Set(["task", "new_session", "observer_report", "switch_mode", "set_driver", "catalog", "set_model"]);
 // COMMAND_TEXT_KINDS are the commands whose text is the instruction itself. A
 // command outside this set sends no text at all, so a future version cannot
 // start acting on a body nobody signs.
-export const COMMAND_TEXT_KINDS = new Set(["task", "switch_mode", "set_driver"]);
+export const COMMAND_TEXT_KINDS = new Set(["task", "switch_mode", "set_driver", "catalog", "set_model"]);
 export const MAX_ACTIVITY = 12;
 
 // MODES is every workflow mode the phone may switch to. The host validates the
@@ -79,6 +79,40 @@ export function driverChangeAllowed(model) {
   if (model.started !== true) return true;
   if (text(model.phase) === "DONE") return true;
   return text(model.pause) === "paused";
+}
+
+// mergeCatalog folds the host's catalog into what the page shows.
+//
+// A state without a catalog keeps the list the page already has: the host drops
+// the list when a snapshot would not fit one frame, and dropping the picker with
+// it would look like the driver lost its models. A loading answer never empties
+// the rows either — it only says the read is in flight.
+export function mergeCatalog(current, incoming) {
+  if (!incoming || typeof incoming !== "object") return current;
+  const agent = agentId(incoming.agent);
+  if (!agent) return current;
+  const same = Boolean(current) && current.agent === agent;
+  let models = [];
+  if (Array.isArray(incoming.models)) {
+    models = incoming.models
+      .filter((name) => typeof name === "string" && name.trim() !== "")
+      .map((name) => clip(name, 60));
+  } else if (same) {
+    // The list was dropped from the state, not emptied by the driver.
+    models = current.models;
+  }
+  const total = Number.isSafeInteger(incoming.total) ? Math.max(incoming.total, models.length) : models.length;
+  return { agent, models, total, loading: incoming.loading === true, error: clip(incoming.error, 200) };
+}
+
+// filterModels is the picker's filter: a case-insensitive substring over the
+// reference, which is what the interface's own picker matches. An empty query
+// keeps every row, and a missing list is an empty one.
+export function filterModels(models, query) {
+  const list = Array.isArray(models) ? models : [];
+  const q = text(query).trim().toLowerCase();
+  if (!q) return list.slice();
+  return list.filter((name) => name.toLowerCase().includes(q));
 }
 
 // dotClass is the agent's indicator. Green means healthy and idle, blue means

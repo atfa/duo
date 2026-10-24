@@ -88,6 +88,30 @@ h1 { font-size: 0.78rem; margin: 0 0 0.6rem; text-transform: uppercase; letter-s
   color: var(--text);
 }
 .control select:disabled { opacity: 0.5; }
+.control button { padding: 0.4rem 0.7rem; }
+.models { list-style: none; margin: 0.5rem 0 0; padding: 0; display: grid; gap: 0.3rem; max-height: 18rem; overflow-y: auto; }
+.models li { margin: 0; }
+.model {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.82rem;
+  padding: 0.4rem 0.55rem;
+  min-height: 2.2rem;
+  overflow-wrap: anywhere;
+}
+.model.current { border-color: var(--ok); color: var(--ok); }
+input[type="search"] {
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.45rem 0.55rem;
+  width: 100%;
+  border-radius: 0.6rem;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+}
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; }
 
 .plan { margin: 0.6rem 0 0; font-size: 0.85rem; color: var(--muted); overflow-wrap: anywhere; }

@@ -42,6 +42,13 @@ second scan.
 - change the driver behind an agent, picked from the drivers the computer can
   run. The session decides when that is allowed — before the first task, while
   fully paused, or after `DONE` — and the page greys the control when it is not;
+- change an agent's model. The list comes from the driver itself and is read when
+  the phone asks for it, because listing models starts the driver's own CLI, so
+  the picker offers at most the first forty references with a filter and says so
+  when the list was cut. A pick is resolved on the computer against the list it
+  published, so the phone never has to know how a provider and an id are joined,
+  and a driver that publishes no catalog says that instead of offering an empty
+  picker;
 - start a fresh session (`/new`), refresh the observer's status report.
 
 Every command is answered: the phone shows `accepted`, or the reason the host

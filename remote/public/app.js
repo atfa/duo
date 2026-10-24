@@ -4,7 +4,7 @@
 // here, so a phone that drops its Wi-Fi catches up on its own.
 
 import { LinkError, decryptEnvelope, deriveKeys, parsePairingKey, parseRoom } from "./crypto.js";
-import { agentLabel, agentMeta, applyEvent, buildCommand, dotClass, driverChangeAllowed, modeKey, needsModeConfirm, nextSeq, pendingTimeout, resendText, settlePending, viewModel } from "./console.js";
+import { agentLabel, agentMeta, applyEvent, buildCommand, dotClass, driverChangeAllowed, filterModels, mergeCatalog, modeKey, needsModeConfirm, nextSeq, pendingTimeout, resendText, settlePending, viewModel } from "./console.js";
 
 const RECONNECT_MIN_MS = 500;
 const RECONNECT_MAX_MS = 15000;
@@ -24,6 +24,11 @@ const els = {
   agents: document.getElementById("agents"),
   drivers: { austin: document.getElementById("driver-austin"), tony: document.getElementById("driver-tony") },
   driverNote: document.getElementById("driver-note"),
+  modelAgent: document.getElementById("model-agent"),
+  modelLoad: document.getElementById("model-load"),
+  modelStatus: document.getElementById("model-status"),
+  modelFilter: document.getElementById("model-filter"),
+  modelList: document.getElementById("model-list"),
   activity: document.getElementById("activity"),
   observer: document.getElementById("observer"),
   refresh: document.getElementById("refresh"),
@@ -37,6 +42,10 @@ const els = {
 let room = null;
 let keys = null;
 let model = null;
+// catalog is the model list the host published for the agent the page is looking
+// at. It is page state rather than a view of one state, because a state may omit
+// it and the picker must not empty out when it does.
+let catalog = null;
 let socket = null;
 let lastSeq = 0;
 let expiresAt = 0;
@@ -153,6 +162,7 @@ function render() {
   els.refresh.disabled = !ready || Boolean(pending);
   els.modes.disabled = !ready || Boolean(pending);
   renderDrivers();
+  renderModels();
 }
 
 // The driver selects are rebuilt only when the host's list changes: a render
@@ -188,6 +198,53 @@ function renderDrivers() {
   }
   els.driverNote.hidden = allowed || !model;
   els.driverNote.textContent = allowed ? "" : "A driver can only change before the first task, while paused, or after DONE.";
+}
+
+// The model picker shows one agent at a time, because the host publishes one list
+// at a time. Its rows are rebuilt only when what they would show changes: a render
+// runs on every state, and rebuilding a list of buttons under a thumb loses taps.
+let modelsKey = "";
+
+function renderModels() {
+  const ready = Boolean(model) && hostPresent && !fatal;
+  const selected = els.modelAgent.value || "austin";
+  els.modelAgent.disabled = !ready || Boolean(pending);
+  els.modelLoad.disabled = !ready || Boolean(pending);
+  els.modelFilter.disabled = !ready;
+
+  // A list that belongs to the other agent is not this agent's list.
+  const shown = catalog && catalog.agent === selected ? catalog : null;
+  const filtered = filterModels(shown?.models ?? [], els.modelFilter.value);
+  const current = model?.agents.find((agent) => agent.id === selected)?.model ?? "";
+  const key = [selected, current, Boolean(pending), ready, shown?.loading, shown?.error, filtered.join("\u0000")].join("|");
+  if (key !== modelsKey) {
+    modelsKey = key;
+    els.modelList.replaceChildren(
+      ...filtered.map((reference) => {
+        const li = document.createElement("li");
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = reference === current ? "model current" : "model";
+        button.dataset.model = reference;
+        button.textContent = reference;
+        button.disabled = !ready || Boolean(pending);
+        li.append(button);
+        return li;
+      }),
+    );
+  }
+
+  els.modelStatus.textContent = modelStatusText(shown, filtered);
+}
+
+function modelStatusText(shown, filtered) {
+  if (!shown) return "Load the model list to see what this agent can run.";
+  if (shown.loading) return "Reading models from the driver…";
+  if (shown.error) return shown.error;
+  if (shown.models.length === 0) return "This driver reported no models.";
+  const cut = shown.total > shown.models.length ? ` · the list is cut to ${shown.models.length} of ${shown.total}` : "";
+  if (filtered.length === shown.models.length) return `${shown.models.length} models${cut}`;
+  return `${filtered.length} of ${shown.models.length} match${cut}`;
 }
 
 function send(frame) {
@@ -298,6 +355,7 @@ async function handleEnvelope(frame) {
     const plain = await decryptEnvelope(keys.encKey, room, frame);
     if (frame.kind === "state") {
       model = viewModel(plain);
+      catalog = mergeCatalog(catalog, plain.catalog);
       // The host answers the command it received, by id; a state from a new
       // session, or no state at all, ends the wait the same way.
       resolvePending();
@@ -497,6 +555,18 @@ for (const [id, select] of Object.entries(els.drivers)) {
     void command("set_driver", `${id} ${select.value}`);
   });
 }
+els.modelAgent.addEventListener("change", () => {
+  if (els.modelAgent.value) void command("catalog", els.modelAgent.value);
+});
+els.modelLoad.addEventListener("click", () => void command("catalog", els.modelAgent.value || "austin"));
+els.modelFilter.addEventListener("input", () => renderModels());
+els.modelList.addEventListener("click", (event) => {
+  const button = event.target.closest("button[data-model]");
+  if (!button) return;
+  const reference = button.dataset.model;
+  if (!reference) return;
+  void command("set_model", `${els.modelAgent.value || "austin"} ${reference}`);
+});
 
 window.addEventListener("online", () => {
   if (!fatal && (!socket || socket.readyState === WebSocket.CLOSED)) connect();

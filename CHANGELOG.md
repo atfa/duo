@@ -2,6 +2,26 @@
 
 All notable project milestones are documented here.
 
+## Unreleased
+
+### Remote control
+
+- The phone can change what runs, not only what to do: it switches the workflow
+  mode (fast, step or goal), replaces the driver behind either agent, and picks a
+  new model. All three go through the same session verbs a keystroke uses, so the
+  host's own rules decide — a mode switch is quiet and asks before it discards a
+  round, a driver change is refused outside the moments the session allows, and a
+  model is chosen from the list the driver itself publishes.
+- Model lists are loaded on demand, because listing them starts the driver's own
+  CLI. The host keeps one list per agent, publishes the one the phone is looking
+  at with at most forty references and the true count, and resolves a pick to an
+  exact provider and id, so the phone never has to guess how the two are joined.
+  A driver without a catalog says so instead of offering an empty picker.
+- The page waits a minute for a driver or model change and fifteen seconds for
+  everything else, because the host handles a command inside its connection loop.
+- Landing a page change needs `cd remote && wrangler deploy`: the relay serves the
+  page, so a phone keeps the previous HTML and `app.js` until it is deployed.
+
 ## v0.14.0 — 2026-10-24
 
 ### Remote control

@@ -58,6 +58,22 @@
       <p id="driver-note" class="muted" hidden></p>
     </section>
 
+    <section class="card" aria-labelledby="head-models">
+      <h1 id="head-models">Models</h1>
+      <div class="control">
+        <label for="model-agent">Agent</label>
+        <select id="model-agent" autocomplete="off">
+          <option value="austin">Austin</option>
+          <option value="tony">Tony</option>
+        </select>
+        <button id="model-load" type="button" class="ghost">Load models</button>
+      </div>
+      <p id="model-status" class="muted">Load the model list to see what this agent can run.</p>
+      <label class="sr-only" for="model-filter">Filter models</label>
+      <input id="model-filter" type="search" placeholder="Filter models…" autocomplete="off">
+      <ul id="model-list" class="models"></ul>
+    </section>
+
     <section class="card" aria-labelledby="head-activity">
       <h1 id="head-activity">Recent activity</h1>
       <ul id="activity" class="activity"><li class="muted">No activity yet.</li></ul>

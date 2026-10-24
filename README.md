@@ -10,7 +10,7 @@ Duo offers three workflows:
 
 Duo owns coordination, verification gates, Git evidence, and safe delivery. Agents work in separate Git worktrees; the result is delivered to the branch from which you started Duo.
 
-**Remote control.** Type `/qrcode` and scan it with a phone to follow both agents and send a task from anywhere; the relay stores ciphertext only. See [Remote control](#remote-control) and [docs/remote.md](docs/remote.md).
+**Remote control.** Type `/qrcode` and scan it with a phone to follow both agents, send a task, and switch mode, driver or model from anywhere; the relay stores ciphertext only. See [Remote control](#remote-control) and [docs/remote.md](docs/remote.md).
 
 ## Quick start
 
@@ -113,7 +113,8 @@ A missing key is explained by the panel itself; timeouts, empty answers, and non
 
 Run Duo, give it a task, then type `/qrcode`. Scan the code with a phone: the
 page shows Austin's and Tony's state and recent activity, sends a new task,
-starts a fresh session and refreshes the observer's report. The relay is a
+starts a fresh session, refreshes the observer's report, and changes what runs —
+the workflow mode, either agent's driver, or its model. The relay is a
 Cloudflare Worker that stores ciphertext only, so prompts and repository paths
 stay on your machine; the pairing secret travels in the QR code's URL fragment,
 which a browser never sends to a server.

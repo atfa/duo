@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { agentId, agentLabel, agentMeta, applyEvent, buildCommand, COMMAND_KINDS, dotClass, driverChangeAllowed, modeKey, needsModeConfirm, nextSeq, PENDING_TIMEOUT_MS, pendingTimeout, resendText, settlePending, viewModel } from "../public/console.js";
+import { agentId, agentLabel, agentMeta, applyEvent, buildCommand, COMMAND_KINDS, dotClass, driverChangeAllowed, filterModels, mergeCatalog, modeKey, needsModeConfirm, nextSeq, PENDING_TIMEOUT_MS, pendingTimeout, resendText, settlePending, viewModel } from "../public/console.js";
 import { b64uEncode, commandMac, decryptEnvelope, deriveKeys, parsePairingKey, sealCommand } from "../public/crypto.js";
 import { VECTOR } from "./vectors.js";
 
@@ -204,6 +204,60 @@ test("a state carries the drivers the phone may offer", () => {
   const model = viewModel({ n: 3, drivers: ["pi", "", 7, "opencode"] });
   assert.deepEqual(model.drivers, ["pi", "opencode"]);
   assert.deepEqual(viewModel({}).drivers, []);
+});
+
+// The picker keeps the list it has when a state omits the catalog — the host drops
+// it when a snapshot would not fit one frame — and while a read is loading. An
+// empty answer is still an answer, and the true count survives a cut list.
+test("a catalog survives a state that omits it and a loading answer", () => {
+  const loaded = mergeCatalog(null, {
+    agent: "austin",
+    loading: false,
+    models: ["openai/gpt-5", "google/gemini-3.8-flash-high"],
+    total: 2,
+  });
+  assert.equal(loaded.agent, "austin");
+  assert.deepEqual(loaded.models, ["openai/gpt-5", "google/gemini-3.8-flash-high"]);
+  assert.equal(loaded.loading, false);
+
+  // Absent is not empty: the page keeps what it has.
+  assert.deepEqual(mergeCatalog(loaded, null), loaded);
+  assert.deepEqual(mergeCatalog(loaded, undefined), loaded);
+  assert.deepEqual(mergeCatalog(loaded, { agent: "" }), loaded);
+
+  // Loading for the same agent keeps the rows and raises the flag.
+  const loading = mergeCatalog(loaded, { agent: "austin", loading: true });
+  assert.equal(loading.loading, true);
+  assert.deepEqual(loading.models, loaded.models);
+
+  // Loading for another agent must not show the other agent's rows.
+  const other = mergeCatalog(loaded, { agent: "tony", loading: true });
+  assert.equal(other.agent, "tony");
+  assert.deepEqual(other.models, []);
+  assert.equal(other.loading, true);
+
+  // A cut list says so through total, and a driver without a catalog says why.
+  const cut = mergeCatalog(null, { agent: "austin", loading: false, models: ["a"], total: 120 });
+  assert.equal(cut.total, 120);
+  const failed = mergeCatalog(loaded, {
+    agent: "austin",
+    loading: false,
+    models: null,
+    error: "driver pi publishes no model catalog",
+  });
+  assert.deepEqual(failed.models, loaded.models);
+  assert.match(failed.error, /no model catalog/);
+});
+
+// The filter is a case-insensitive substring over the reference, and an empty
+// query keeps every row.
+test("the model filter matches a substring", () => {
+  const models = ["openai/gpt-5", "google/gemini-3.8-flash-high", "claude-sonnet-4-6"];
+  assert.deepEqual(filterModels(models, ""), models);
+  assert.deepEqual(filterModels(models, "  GPT "), ["openai/gpt-5"]);
+  assert.deepEqual(filterModels(models, "gemini"), ["google/gemini-3.8-flash-high"]);
+  assert.deepEqual(filterModels(models, "nope"), []);
+  assert.deepEqual(filterModels(null, "x"), []);
 });
 
 // A mode switch is a signed command whose text is the mode name: the MAC covers
