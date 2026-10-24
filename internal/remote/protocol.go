@@ -162,9 +162,15 @@ type StepState struct {
 type Agent struct {
 	Connected bool   `json:"connected"`
 	Running   bool   `json:"running"`
+	Driver    string `json:"driver"`
 	Model     string `json:"model"`
 	Thinking  string `json:"thinking"`
 	Activity  string `json:"activity"`
+	// State is the driver process state: starting, running, stopping, exited or
+	// failed, and empty when the session has no driver for this agent at all.
+	// The phone draws its indicator from it, so a failure is the only red one and
+	// "not started yet" never reads as an error.
+	State string `json:"state"`
 }
 
 // PauseState is the workflow pause projection.

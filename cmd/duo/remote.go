@@ -257,13 +257,23 @@ func eventKind(kind events.Kind) string {
 func agentKey(id protocol.AgentID) string { return strings.ToLower(string(id)) }
 
 // remoteAgent is one agent's slice of the snapshot.
+//
+// Process state is reported only for an agent the session actually runs: the
+// zero value of the state type is "starting", so an agent with no driver would
+// otherwise tell the phone it is starting when it is not configured at all.
 func remoteAgent(av session.AgentView) remote.Agent {
+	state := ""
+	if av.Present {
+		state = av.Process.String()
+	}
 	return remote.Agent{
 		Connected: av.Connected,
 		Running:   av.Runtime.Busy,
+		Driver:    av.Driver,
 		Model:     av.Model,
 		Thinking:  av.Thinking,
 		Activity:  clip(agentActivity(av), 160),
+		State:     state,
 	}
 }
 

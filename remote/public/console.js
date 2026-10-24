@@ -40,6 +40,34 @@ export function agentId(value) {
   return id === "austin" || id === "tony" ? id : "";
 }
 
+// agentLabel is the name a human reads, whatever spelling arrived.
+export function agentLabel(value) {
+  const id = agentId(value);
+  if (id) return id.charAt(0).toUpperCase() + id.slice(1);
+  return text(value);
+}
+
+// dotClass is the agent's indicator. Green means healthy and idle, blue means
+// working, grey means "not attached yet", which is a normal moment during
+// startup, and red is reserved for a process that actually failed. A page that
+// painted "not started yet" red made two healthy agents look broken.
+export function dotClass(agent) {
+  if (!agent) return "dot-wait";
+  if (agent.state === "failed") return "dot-bad";
+  if (agent.running) return "dot-run";
+  if (agent.connected) return "dot-on";
+  return "dot-wait";
+}
+
+// agentMeta is the line under an agent's name: what runs it, with which model
+// and thinking level. A host that reports no process state at all has no driver
+// for this agent, and says so instead of leaving the phone to guess.
+export function agentMeta(agent) {
+  if (!agent) return "";
+  if (agent.stateKnown && !agent.state) return "not configured";
+  return [agent.driver, agent.model, agent.thinking].filter(Boolean).join(" · ");
+}
+
 // viewModel turns one decrypted state payload into what the page draws.
 export function viewModel(state) {
   const source = state && typeof state === "object" ? state : {};
@@ -77,9 +105,14 @@ export function viewModel(state) {
         id,
         connected: agent.connected === true,
         running: agent.running === true,
+        driver: clip(agent.driver, 20),
         model: clip(agent.model, 28),
         thinking: text(agent.thinking),
         activity: clip(agent.activity, 120),
+        // A host that predates the field says nothing about the process, so the
+        // page stays quiet about it rather than claiming "not configured".
+        state: text(agent.state),
+        stateKnown: Object.hasOwn(agent, "state"),
       };
     }),
     activity: activity.slice(-MAX_ACTIVITY).map((entry) => ({

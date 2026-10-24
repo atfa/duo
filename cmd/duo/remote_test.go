@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	agentpkg "github.com/atfa/duo/internal/agent"
 	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/remote"
@@ -250,13 +251,35 @@ func TestRemoteAgentCarriesTheModelAndTheWireKey(t *testing.T) {
 		Present:   true,
 		Driver:    "pi",
 		Model:     "claude-sonnet-4-6",
+		Process:   agentpkg.ProcessRunning,
 		Connected: true,
 	})
 	if agent.Model != "claude-sonnet-4-6" {
 		t.Errorf("model = %q, want the driver's model", agent.Model)
 	}
+	if agent.Driver != "pi" {
+		t.Errorf("driver = %q, want pi", agent.Driver)
+	}
+	if agent.State != "running" {
+		t.Errorf("state = %q, want running", agent.State)
+	}
 	if !agent.Connected {
 		t.Error("a connected agent is not connected in the projection")
+	}
+
+	// A session with no driver for this agent must not report the zero value,
+	// which would tell the phone it is "starting" when it is not configured.
+	absent := remoteAgent(session.AgentView{})
+	if absent.State != "" {
+		t.Errorf("state of an agent without a driver = %q, want empty", absent.State)
+	}
+	if absent.Driver != "" || absent.Model != "" {
+		t.Errorf("an agent without a driver reports driver=%q model=%q", absent.Driver, absent.Model)
+	}
+
+	failed := remoteAgent(session.AgentView{Present: true, Driver: "pi", Process: agentpkg.ProcessFailed})
+	if failed.State != "failed" {
+		t.Errorf("state of a failed process = %q, want failed", failed.State)
 	}
 
 	for _, tc := range []struct {

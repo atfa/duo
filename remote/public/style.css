@@ -82,9 +82,12 @@ h1 { font-size: 0.78rem; margin: 0 0 0.6rem; text-transform: uppercase; letter-s
 .agents, .activity { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.45rem; font-size: 0.88rem; }
 .agents li { display: grid; grid-template-columns: auto 1fr; gap: 0.5rem; align-items: start; }
 .dot { width: 0.55rem; height: 0.55rem; border-radius: 50%; margin-top: 0.45rem; background: var(--muted); }
+/* Green: attached and idle. Blue: working. Grey: not attached yet, which is a
+   normal moment during startup, not an error. Red: the process failed. */
 .dot-on { background: var(--ok); }
 .dot-run { background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
-.dot-off { background: var(--bad); }
+.dot-wait { background: var(--muted); }
+.dot-bad { background: var(--bad); }
 @keyframes pulse { 50% { opacity: 0.35; } }
 
 .agent-meta { color: var(--muted); font-size: 0.78rem; overflow-wrap: anywhere; }

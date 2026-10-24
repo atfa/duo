@@ -4,7 +4,7 @@
 // here, so a phone that drops its Wi-Fi catches up on its own.
 
 import { LinkError, decryptEnvelope, deriveKeys, parsePairingKey, parseRoom } from "./crypto.js";
-import { applyEvent, buildCommand, nextSeq, viewModel } from "./console.js";
+import { agentLabel, agentMeta, applyEvent, buildCommand, dotClass, nextSeq, viewModel } from "./console.js";
 
 const RECONNECT_MIN_MS = 500;
 const RECONNECT_MAX_MS = 15000;
@@ -62,12 +62,6 @@ function setSent(text) {
   els.sent.textContent = text ?? "";
 }
 
-function dotClass(agent) {
-  if (agent.running) return "dot-run";
-  if (agent.connected) return "dot-on";
-  return "dot-off";
-}
-
 function render() {
   els.title.textContent = model ? model.project : "Duo";
   els.mode.textContent = model?.mode || "—";
@@ -85,10 +79,10 @@ function render() {
       dot.className = `dot ${dotClass(agent)}`;
       const body = document.createElement("div");
       const name = document.createElement("div");
-      name.textContent = agent.id;
+      name.textContent = agentLabel(agent.id);
       const meta = document.createElement("div");
       meta.className = "agent-meta";
-      meta.textContent = [agent.model, agent.thinking].filter(Boolean).join(" · ");
+      meta.textContent = agentMeta(agent);
       const activity = document.createElement("div");
       activity.className = "agent-activity";
       activity.textContent = agent.activity || (agent.running ? "working" : "");
@@ -109,7 +103,7 @@ function render() {
       when.textContent = entry.at;
       const who = document.createElement("span");
       who.className = "who";
-      who.textContent = entry.agent;
+      who.textContent = agentLabel(entry.agent);
       const text = document.createElement("span");
       text.className = entry.muted ? "text muted" : "text";
       text.textContent = entry.text;

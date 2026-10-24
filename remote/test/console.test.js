@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { agentId, applyEvent, buildCommand, nextSeq, viewModel } from "../public/console.js";
+import { agentId, agentLabel, agentMeta, applyEvent, buildCommand, dotClass, nextSeq, viewModel } from "../public/console.js";
 import { b64uEncode, decryptEnvelope, deriveKeys, parsePairingKey, sealCommand } from "../public/crypto.js";
 import { VECTOR } from "./vectors.js";
 
@@ -85,6 +85,56 @@ test("an agent is found whatever spelling the host sends", () => {
   assert.equal(folded.agents[0].activity, "wrote a file");
   assert.equal(folded.agents[1].running, true);
   assert.equal(folded.nonce, 6);
+});
+
+test("the agent indicator is green when healthy and red only for a failure", () => {
+  // Green: attached and idle. Blue: working. Grey: not attached yet, which is a
+  // normal moment during startup and used to be painted red. Red: a failure.
+  assert.equal(dotClass({ connected: true, running: false, state: "running" }), "dot-on");
+  assert.equal(dotClass({ connected: true, running: true, state: "running" }), "dot-run");
+  assert.equal(dotClass({ connected: false, running: false, state: "starting" }), "dot-wait");
+  assert.equal(dotClass({ connected: false, running: false, state: "" }), "dot-wait");
+  assert.equal(dotClass({ connected: false, running: false, state: "failed" }), "dot-bad");
+  assert.equal(dotClass(undefined), "dot-wait");
+});
+
+test("an agent shows its driver and model, and says when none is configured", () => {
+  assert.equal(
+    agentMeta({ driver: "pi", model: "claude-sonnet-4-6", thinking: "high", state: "running", stateKnown: true }),
+    "pi · claude-sonnet-4-6 · high",
+  );
+  // The host reports an empty state only for an agent it has no driver for, so
+  // the phone never claims "starting" for something that is not configured.
+  assert.equal(agentMeta({ driver: "", model: "", state: "", stateKnown: true }), "not configured");
+  // A host that predates the field says nothing at all; the page stays quiet.
+  assert.equal(agentMeta({ model: "gpt-5", state: "", stateKnown: false }), "gpt-5");
+  assert.equal(agentMeta(undefined), "");
+
+  assert.equal(agentLabel("austin"), "Austin");
+  assert.equal(agentLabel("Tony"), "Tony");
+  assert.equal(agentLabel("Duo"), "Duo");
+});
+
+test("a state payload carries the driver and process state the phone draws", () => {
+  const model = viewModel({
+    n: 11,
+    agents: {
+      austin: { connected: true, running: false, driver: "pi", model: "claude-sonnet-4-6", state: "running" },
+      tony: { connected: false, running: false, driver: "", model: "", state: "" },
+    },
+  });
+  assert.equal(model.agents[0].driver, "pi");
+  assert.equal(model.agents[0].stateKnown, true);
+  assert.equal(dotClass(model.agents[0]), "dot-on");
+  assert.equal(agentMeta(model.agents[0]), "pi · claude-sonnet-4-6");
+  assert.equal(dotClass(model.agents[1]), "dot-wait");
+  assert.equal(agentMeta(model.agents[1]), "not configured");
+
+  // An older host sends neither field: no state to judge, nothing to claim.
+  const older = viewModel({ n: 12, agents: { Austin: { connected: true, running: false, model: "gpt-5" } } });
+  assert.equal(older.agents[0].stateKnown, false);
+  assert.equal(dotClass(older.agents[0]), "dot-on");
+  assert.equal(agentMeta(older.agents[0]), "gpt-5");
 });
 
 test("a command is signed and encrypted the way the host verifies it", async () => {

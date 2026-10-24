@@ -201,8 +201,8 @@ while the session is live.
   "step": {"index": 1, "total": 3, "policy": "goal", "title": "relay + Go client"},
   "plan": "first line of the shared plan",
   "agents": {
-    "austin": {"connected": true, "running": true, "model": "claude-sonnet-4-6", "thinking": "high", "activity": "editing remote/src/room.js"},
-    "tony":   {"connected": true, "running": false, "model": "", "thinking": "", "activity": ""}
+    "austin": {"connected": true, "running": true, "driver": "pi", "model": "claude-sonnet-4-6", "thinking": "high", "activity": "editing remote/src/room.js", "state": "running"},
+    "tony":   {"connected": true, "running": false, "driver": "opencode", "model": "gpt-5", "thinking": "", "activity": "", "state": "running"}
   },
   "pause": {"state": "running"},
   "activity": [
@@ -213,6 +213,15 @@ while the session is live.
   "command": {"id": "…", "kind": "task", "accepted": true, "note": ""}
 }
 ```
+
+`agents` is keyed `austin` and `tony`, and a page folds either spelling onto the
+same agent so an older host still renders. `driver` names what runs the agent
+(`pi`, `opencode`, …) and `model` the model it is using, so the phone can say
+which of the two is working with what. `state` is the driver process state —
+`starting`, `running`, `stopping`, `exited` or `failed` — and empty when the
+session runs no driver for that agent. The page draws its indicator from these
+fields: green for attached and idle, blue for working, grey for not attached
+yet (a normal moment during startup), and red only for `failed`.
 
 `command` is the host's answer to the last command it received, addressed by
 its `id`. A refusal is reported, not swallowed: `accepted: false` with a `note`
