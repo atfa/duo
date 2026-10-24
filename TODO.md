@@ -72,7 +72,7 @@
 ## P1
 
 ### T7 snapshot 迁移链：升级不再孤立老会话
-- [ ] 完成：
+- [x] 完成：b582627 · 2026-10-24
 
 **位置** `internal/sessionstore/snapshot.go:18`（`SchemaVersion = 2`）；`internal/sessionstore/store.go:107-108`（版本不符直接返回 `SchemaError`）
 **问题** 快照 schema 不兼容时 `duo resume` 直接拒绝，无迁移路径：发布新 schema 的二进制后，用户所有未完成的旧会话永久不可 resume，签署与步骤队列随快照一起作废。
