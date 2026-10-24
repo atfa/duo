@@ -94,7 +94,7 @@
 **负责人** Austin
 
 ### T5 `duo apply --push`
-- [ ] 完成：
+- [x] 完成：f6f0dbe · 2026-10-24
 
 **位置** 同 T4（`cmd/duo/apply.go`、`internal/delivery/delivery.go`）
 **问题** fast-forward 只动本地仓库；有远端的用户还要手工 push，且手工 push 绕过了 Duo 的只读校验，可能覆盖远端移动。
