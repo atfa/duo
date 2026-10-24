@@ -39,8 +39,8 @@ All notable project milestones are documented here.
   reconciliation a second time changes nothing and revokes nothing — it re-derives
   the same state from Git, so the integration rebuild is restated rather than
   re-applied — leaving the signatures, the step queue and the delivery record
-  untouched. The last two also cover the state a resumed session must never
-  silently rewrite.
+  untouched. Together they also pin the state a resumed session must never
+  silently rewrite: the signatures, the step queue and the delivery record.
 
 ### Headless rounds
 
