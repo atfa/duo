@@ -116,8 +116,7 @@
 **负责人** Austin
 
 ### T12 headless：`duo run` + `duo status --json`
-- [ ] 完成：
-- 进度：`duo status --json` 已落地（b12f0c9）；`duo run` 在本条收尾时一并勾选。
+- [x] 完成：b12f0c9 + 9415d16 · 2026-10-24
 
 **位置** `cmd/duo/main.go:15-71`（无 run/status 命令，duo 必须开 gotui）；`internal/session/service.go:145`（New）、`:163`（Start）——headless seam 已存在，缺 CLI 表面
 **问题** CI/脚本/批处理无法使用 duo：会话只能由人在 TUI 里提交任务、盯 gates，无法自动化。
