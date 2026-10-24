@@ -36,3 +36,16 @@ test("the asset response carries a strict content security policy", () => {
   assert.match(headers, /frame-ancestors 'none'/);
   assert.match(headers, /Referrer-Policy: no-referrer/);
 });
+
+// A phone that keeps the text after sending it sends the same prompt again as
+// soon as the command is acknowledged, and each send carries a fresh id, so the
+// host runs it twice. The composer is emptied once the command is built, which
+// is also after the only early return that has to keep the text.
+test("a sent task leaves the composer empty", () => {
+  const build = app.indexOf("const frame = await buildCommand({");
+  const clear = app.indexOf('if (kind === "task") els.task.value = "";');
+  const queued = app.indexOf("pending = { id, frame };");
+  assert.ok(build >= 0, "the command must still be built before it is sent");
+  assert.ok(clear > build, "the composer must be cleared after a task command is built");
+  assert.ok(queued > clear, "the composer must be cleared before the command is pending");
+});

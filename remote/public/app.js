@@ -356,6 +356,11 @@ async function command(kind, text) {
       nonce: model.nonce,
       id,
     });
+    // The command is built, so the text is now the socket's: leaving it in the
+    // textarea invites a second send of the same prompt once the pending command
+    // is acknowledged, and the host would run it twice. A failed build keeps the
+    // text so it can be retried.
+    if (kind === "task") els.task.value = "";
     pending = { id, frame };
     setSent(kind === "task" ? "Sending…" : "Sending command…");
     if (!send(frame)) {
