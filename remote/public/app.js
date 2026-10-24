@@ -525,6 +525,9 @@ function selectTab(name, focus) {
     panel.hidden = !on;
     if (on && focus) button.focus();
   }
+  // The panels differ in height, so a tab picked while the page is scrolled down
+  // would otherwise show its middle. The dock and the header stay put.
+  window.scrollTo(0, 0);
 }
 
 function wireTabs() {

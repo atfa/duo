@@ -114,6 +114,9 @@ test("one selector drives the tabs and their panels", () => {
   assert.match(app, /setAttribute\("aria-selected"/);
   assert.match(app, /button\.tabIndex = on \? 0 : -1/);
   assert.match(app, /panel\.hidden = !on/);
+  // A panel picked while the page is scrolled down would otherwise open on its
+  // middle: the switch starts the new panel at the top.
+  assert.match(app, /window\.scrollTo\(0, 0\)/);
   assert.match(app, /event\.key === "ArrowRight"/);
   assert.match(app, /event\.key === "ArrowLeft"/);
   assert.match(app, /event\.key === "Home"/);
