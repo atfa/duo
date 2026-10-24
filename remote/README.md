@@ -99,8 +99,9 @@ One residual window: a phone that loaded the page while the old
 `Cache-Control: public, max-age=300` was in force can keep running that HTML and
 `app.js` for up to five minutes after a deploy, and a tab that stays open keeps
 them until it reloads. So after a deploy, force-reload the phone page (or wait
-five minutes) before concluding anything. The assets now ship `no-cache` with an
-ETag, which revalidates on every load, so this window does not come back.
+five minutes) before concluding anything. The page and its scripts now ship
+`no-cache` with an ETag, which revalidates on every load, so this window does not
+come back.
 
 `wrangler.jsonc` routes the custom domain `remote.xduo.dev`; that requires the
 `xduo.dev` zone in the same Cloudflare account. Without it, change the `routes`

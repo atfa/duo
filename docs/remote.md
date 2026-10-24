@@ -62,8 +62,8 @@ only after `cd remote && wrangler deploy`, so a deploy is part of landing such a
 change. A phone that loaded the page before a deploy may keep the previous HTML
 and `app.js` for up to five minutes (those responses carried `max-age=300`), and
 an open tab keeps them until it reloads: force-reload the page, or wait, before
-concluding a fix did not work. The assets now ship `no-cache` with an ETag, so
-from this version on a reload always revalidates.
+concluding a fix did not work. The page and its scripts now ship `no-cache` with
+an ETag, so from this version on a reload always revalidates.
 
 The default relay is deployed and live: `https://remote.xduo.dev/healthz`
 answers `ok`. A live end-to-end check against it is opt-in

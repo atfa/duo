@@ -10,5 +10,10 @@
 # revalidates with the ETag and gets a cheap 304 until the file really changes.
 # A `max-age` here would let a phone run the previous app.js for minutes after a
 # deploy, which looks exactly like "the fix did not work".
+
+# Rules merge by path instead of replacing each other, so the shared `no-cache`
+# above still applies here and would win over any max-age: the first line unsets
+# it, otherwise the second is inert.
 /favicon.svg
+  ! Cache-Control
   Cache-Control: public, max-age=86400

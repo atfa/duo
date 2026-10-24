@@ -50,7 +50,11 @@ test("the page and its scripts revalidate on every load", () => {
 
   const favicon = blocks.find((block) => block.startsWith("/favicon.svg"));
   assert.ok(favicon, "the favicon needs its own cache rule");
-  assert.match(favicon, /max-age=/);
+  // Rules merge by path, so the shared `no-cache` would win over the max-age
+  // unless the rule unsets it first. Without that line the long cache is inert
+  // and this assertion keeps the file honest about what it does.
+  assert.match(favicon, /!\s*Cache-Control/);
+  assert.match(favicon, /Cache-Control: public, max-age=/);
 });
 
 // A phone that keeps the text after sending it sends the same prompt again as
