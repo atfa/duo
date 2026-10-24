@@ -271,7 +271,8 @@ func TestQrcodeOpensWithoutAFooterStatus(t *testing.T) {
 
 func TestQrcodeOverlayClosesOnEscape(t *testing.T) {
 	_, app := newModeSwitchApp(t, remoteTestSnapshot())
-	app.SetRemote(&fakeRemote{})
+	remote := &fakeRemote{}
+	app.SetRemote(remote)
 	app.runSlash("/qrcode")
 	app.handleAsync(<-app.asyncCh)
 	if app.overlay != overlayQrcode {
@@ -281,6 +282,17 @@ func TestQrcodeOverlayClosesOnEscape(t *testing.T) {
 	app.handleKey(tcell.NewEventKey(tcell.KeyEsc, "", tcell.ModNone))
 	if app.overlay != overlayNone {
 		t.Fatalf("Esc left overlay %v open", app.overlay)
+	}
+
+	// Closing the panel is not revoking the pairing: docs/remote.md promises the
+	// phone keeps working until /remote off, expiry or Duo exiting. Wiring Esc to
+	// Stop would break that promise silently, so it is asserted here.
+	if remote.stopped != 0 {
+		t.Errorf("Esc stopped the remote control %d times, want 0", remote.stopped)
+	}
+	status := app.remoteStatus()
+	if !status.Enabled || status.Room != "room-1" {
+		t.Errorf("status after Esc = %+v, want the pairing still live in room-1", status)
 	}
 }
 
