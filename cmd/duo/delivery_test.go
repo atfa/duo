@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 	"github.com/atfa/duo/internal/delivery"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
+	"github.com/atfa/duo/internal/recovery"
 	"github.com/atfa/duo/internal/session"
 	"github.com/atfa/duo/internal/sessionstore"
 	"github.com/atfa/duo/internal/workspace"
@@ -643,5 +645,119 @@ func TestPRHeadPrefersTheLandedBranch(t *testing.T) {
 	empty := sessionstore.Snapshot{}
 	if got := prHead(empty, "duo/sess-1"); got != "duo/sess-1" {
 		t.Fatalf("prHead = %q, want the fallback for a record without a branch", got)
+	}
+}
+
+// TestStatusJSONMatchesDuoStatus is the single-source rule: `duo status --json`
+// reports the same phase, mode, plan version, queue, signatures and per-agent Git
+// evidence that duo_status answers with, because both are composed from the
+// project snapshot, the recorded workspace and each agent's Git status.
+func TestStatusJSONMatchesDuoStatus(t *testing.T) {
+	ctx := context.Background()
+	repo := newDeliveryRepo(t)
+	base := deliveryHead(t, repo)
+	baseBranch := deliveryBranch(t, repo)
+
+	austinPath := filepath.Join(t.TempDir(), "austin")
+	deliveryGit(t, repo, "worktree", "add", "-b", "duo/s/austin", austinPath)
+	if err := os.WriteFile(filepath.Join(austinPath, "austin.md"), []byte("work\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	deliveryGit(t, austinPath, "add", "austin.md")
+	deliveryGit(t, austinPath, "commit", "-m", "austin work")
+	austinHead := deliveryHead(t, austinPath)
+
+	tonyPath := filepath.Join(t.TempDir(), "tony")
+	deliveryGit(t, repo, "worktree", "add", "-b", "duo/s/tony", tonyPath)
+
+	snap := sessionstore.Snapshot{
+		SchemaVersion: sessionstore.SchemaVersion,
+		SessionID:     "sess-status",
+		RepoID:        "repo-1",
+		Repository:    repo,
+		BaseBranch:    baseBranch,
+		BaseCommit:    base,
+		Phase:         string(project.PhaseExecute),
+		Mode:          project.ModeStep,
+		Plan:          "the plan",
+		PlanVersion:   4,
+		Step:          2,
+		Steps: project.Steps{
+			{Title: "one", Done: true, Policy: project.ModeFast, Head: austinHead, DeliveryHead: austinHead},
+			{Title: "two", Policy: project.ModeGoal},
+		},
+		Ready:    map[protocol.AgentID]bool{protocol.Austin: true},
+		Evidence: map[protocol.AgentID]string{protocol.Austin: austinHead},
+		Worktrees: map[protocol.AgentID]sessionstore.Worktree{
+			protocol.Austin: {Path: austinPath, Branch: "duo/s/austin"},
+			protocol.Tony:   {Path: tonyPath, Branch: "duo/s/tony"},
+		},
+	}
+
+	report, err := buildStatusReport(ctx, snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Phase != "EXECUTE" || report.Mode != "step" || report.PlanVersion != 4 || report.Step != 2 {
+		t.Fatalf("workflow state does not match the snapshot: %+v", report)
+	}
+	if !report.Ready[protocol.Austin] || report.Evidence[protocol.Austin] != austinHead {
+		t.Fatalf("signatures do not match the snapshot: %+v %+v", report.Ready, report.Evidence)
+	}
+	if len(report.Steps) != 2 || report.Steps[1].EffectivePolicy() != project.ModeGoal {
+		t.Fatalf("queue does not match the snapshot: %+v", report.Steps)
+	}
+	if got := report.Agents[protocol.Austin]; got.Head != austinHead || got.Ahead != 1 || got.Dirty || got.Branch != "duo/s/austin" {
+		t.Fatalf("austin Git evidence = %+v", got)
+	}
+	if got := report.Agents[protocol.Tony]; got.Head != base || got.Ahead != 0 || got.Dirty {
+		t.Fatalf("tony Git evidence = %+v", got)
+	}
+
+	// The text is duo_status's own answer: the project snapshot, the recorded
+	// workspace and each agent's status, in that order.
+	set := session.SetFromSnapshot(snap)
+	ws := workspace.NewGitManager(workspace.GitConfig{Repository: repo})
+	ws.Restore(set)
+	want := []string{recovery.ProjectSnapshot(snap).String(), set.String()}
+	for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		status, err := ws.Status(ctx, agent)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want = append(want, status.String())
+	}
+	if report.StatusText != strings.Join(want, "\n") {
+		t.Fatalf("status text is not duo_status's answer:\n got: %s\nwant: %s", report.StatusText, strings.Join(want, "\n"))
+	}
+
+	// The JSON surface carries the same facts for a script.
+	encoded, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Phase       string                   `json:"phase"`
+		Mode        string                   `json:"mode"`
+		PlanVersion int                      `json:"planVersion"`
+		Steps       []struct{ Title string } `json:"steps"`
+		Ready       map[string]bool          `json:"ready"`
+		Agents      map[string]struct {
+			Head  string `json:"head"`
+			Dirty bool   `json:"dirty"`
+			Ahead int    `json:"ahead"`
+		} `json:"agents"`
+	}
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Phase != "EXECUTE" || decoded.Mode != "step" || decoded.PlanVersion != 4 {
+		t.Fatalf("encoded status lost the workflow: %s", encoded)
+	}
+	if len(decoded.Steps) != 2 || !decoded.Ready["Austin"] {
+		t.Fatalf("encoded status lost the queue or signatures: %s", encoded)
+	}
+	if decoded.Agents["Austin"].Head != austinHead || decoded.Agents["Austin"].Ahead != 1 {
+		t.Fatalf("encoded status lost the Git evidence: %s", encoded)
 	}
 }

@@ -28,6 +28,17 @@ All notable project milestones are documented here.
   verdict and the diffstat. Without `gh` Duo prints that same body, tells you
   which branch to open the pull request from, and exits successfully.
 
+### Scriptable status
+
+- `duo status [session-id] [--json]` answers the question `duo_status` answers,
+  without a running session: the phase, mode, plan version, step queue, both
+  signatures with their evidence, the verification verdict, and each agent's
+  branch, HEAD, dirtiness and ahead count. It is composed from the same three
+  sources the coordinator uses — the persisted project snapshot, the recorded
+  workspace and each agent's Git status — so the CLI cannot invent a second
+  account of a session; `--json` prints the same facts for scripts, with the
+  rendered text included verbatim.
+
 ### Session continuity
 
 - A new snapshot schema no longer strands an unfinished session. Schema 3 records

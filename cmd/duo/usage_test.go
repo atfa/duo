@@ -36,6 +36,7 @@ var parserCommands = map[string]string{
 	"parseLogsArgs":       "logs",
 	"parseMCPServerArgs":  "mcp-server",
 	"parseSessionsArgs":   "sessions",
+	"parseStatusArgs":     "status",
 	"parsePluginTestArgs": "plugins",
 	"runPlugins":          "plugins",
 	"parseDoctorArgs":     "doctor",
@@ -335,6 +336,7 @@ func dispatchedTokens(t *testing.T) map[string]bool {
 var parsersByCommand = map[string]bool{
 	"duo": true, "resume": true, "apply": true, "sessions": true, "logs": true, "clean": true, "mcp-server": true,
 	"plugins": true,
+	"status":  true,
 }
 
 // TestUsageAcceptsEveryDocumentedFlag feeds each documented flag to the parser
@@ -345,6 +347,7 @@ func TestUsageAcceptsEveryDocumentedFlag(t *testing.T) {
 		"resume":     {"-h", "--help"},
 		"apply":      {"--branch", "--keep", "--push", "--pr", "-h", "--help"},
 		"sessions":   {"--all", "-a", "-h", "--help"},
+		"status":     {"--json", "-h", "--help"},
 		"logs":       {"-h", "--help"},
 		"clean":      {"--all", "-a", "--all-repos", "--force", "-f", "--dry-run", "-n", "-h", "--help"},
 		"mcp-server": {"--agent", "-a", "--session", "-s", "--token", "-k", "--host", "-H", "--port", "-p", "-h", "--help"},
@@ -371,7 +374,7 @@ func ignoreUsageRequested(err error) error {
 var valuelessFlags = map[string]bool{
 	"--all": true, "-a": true, "--all-repos": true, "--force": true, "-f": true,
 	"--dry-run": true, "-n": true, "-h": true,
-	"--help": true, "--keep": true, "--push": true, "--pr": true,
+	"--help": true, "--keep": true, "--push": true, "--pr": true, "--json": true,
 }
 
 // acceptsFlag runs one flag through the parser that owns the command. A help
@@ -403,6 +406,9 @@ func accepts(t *testing.T, command string, args ...string) error {
 	case "apply":
 		_, err := parseApplyArgs(args)
 		return ignoreUsageRequested(err)
+	case "status":
+		_, err := parseStatusArgs(args)
+		return err
 	case "sessions":
 		_, err := parseSessionsArgs(args)
 		return err

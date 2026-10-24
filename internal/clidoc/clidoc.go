@@ -54,6 +54,11 @@ var commands = []Command{
 		Summary:   "deliver a pending final result (--branch creates a branch, --push updates its upstream, --pr opens a pull request)",
 	},
 	{
+		Name:      "status",
+		Signature: "duo status [session-id] [--json]",
+		Summary:   "print the authoritative session state (--json for scripts)",
+	},
+	{
 		Name:      "sessions",
 		Signature: "duo sessions [--all|-a] [--unfinished-ids] [repository]",
 		Summary:   "list sessions or emit unfinished session IDs for a launcher",

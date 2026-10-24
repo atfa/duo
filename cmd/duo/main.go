@@ -43,6 +43,11 @@ func main() {
 				log.Fatal(err)
 			}
 			return
+		case "status":
+			if err := runStatus(ctx, os.Args[2:]); err != nil && ctx.Err() == nil {
+				log.Fatal(err)
+			}
+			return
 		case "sessions":
 			if err := runSessions(ctx, os.Args[2:]); err != nil && ctx.Err() == nil {
 				log.Fatal(err)
