@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Duo — 两个平级 Agent，一个经过验证的结果</title>
-<meta name="description" content="Duo 让两个平级 Coding Agent 在隔离的 Git 工作树中协作。Austin 实现，Tony 验证确切的 commit，只有通过验证的结果才会进入你的分支。">
+<meta name="description" content="Duo 让两个平级 Coding Agent 在隔离的 Git 工作树中协作。Austin 实现，Tony 验证确切的 commit，只有通过验证的结果才会进入你的分支。配对手机后还能远程掌控会话，中继只承载密文。">
 <link rel="canonical" href="https://xduo.dev/zh/">
 <link rel="alternate" hreflang="en" href="https://xduo.dev/">
 <link rel="alternate" hreflang="zh-Hans" href="https://xduo.dev/zh/">
@@ -15,14 +15,14 @@
 <meta property="og:locale:alternate" content="en_US">
 <meta property="og:site_name" content="Duo">
 <meta property="og:title" content="Duo — 两个平级 Agent，一个经过验证的结果">
-<meta property="og:description" content="两个平级 Coding Agent，在隔离的 Git 工作树中协作，并把结果交付回你的仓库。">
+<meta property="og:description" content="两个平级 Coding Agent，在隔离的 Git 工作树中协作，并把结果交付回你的仓库。还可以用手机远程掌控会话，中继只承载密文。">
 <meta property="og:url" content="https://xduo.dev/zh/">
 <meta property="og:image" content="https://xduo.dev/assets/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="Duo — 两个平级 Agent，一个经过验证的结果">
-<meta name="twitter:description" content="两个平级 Coding Agent，在隔离的 Git 工作树中协作，并把结果交付回你的仓库。">
+<meta name="twitter:description" content="两个平级 Coding Agent，在隔离的 Git 工作树中协作，并把结果交付回你的仓库。还可以用手机远程掌控会话，中继只承载密文。">
 <meta name="twitter:image" content="https://xduo.dev/assets/og.png">
 <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
@@ -50,6 +50,7 @@
       <a href="#workflows">工作流</a>
       <a href="#how">如何落地</a>
       <a href="#features">特性</a>
+      <a href="#remote">远程</a>
       <a href="#start">安装</a>
     </nav>
     <div class="nav-actions">
@@ -69,7 +70,7 @@
 
   <section class="container hero" id="top">
     <div class="hero-copy">
-      <span class="eyebrow"><span class="pulse"></span><span class="eyebrow-version">v0.13.2 · </span>两个平级 Agent，一个经过验证的结果</span>
+      <span class="eyebrow"><span class="pulse"></span><span class="eyebrow-version">v0.14.0 · </span>两个平级 Agent，一个经过验证的结果</span>
       <h1>多一重思考，<span class="line-2">多一分把握。</span></h1>
       <p class="hero-sub">Duo 让<strong>两个平级 Coding Agent</strong> 在隔离的 Git 工作树中协作。Austin 实现，Tony 独立验证确切的 commit，只有通过验证的结果才会进入你的分支。</p>
 
@@ -81,6 +82,7 @@
         </button>
         <span class="copy-status sr-only" role="status" aria-live="polite"></span>
       </div>
+      <p class="install-note">发布归档目前仍是 v0.13.2；远程控制随 <code>main</code> 上的版本提供，在下一个 tag 之前请使用源码安装。</p>
 
       <div class="hero-actions">
         <a class="btn btn-primary" href="#start">开始使用</a>
@@ -88,7 +90,7 @@
       </div>
 
       <div class="hero-meta">
-        <span>v0.13.2</span>
+        <span>v0.14.0</span>
         <span>macOS 与 Linux</span>
         <span>Go · 单二进制</span>
         <span>MIT 开源</span>
@@ -324,7 +326,50 @@
       <span class="stack-item"><b>codex</b></span>
       <span class="stack-item">8 个 Duo 工具 + MCP 子集</span>
       <span class="stack-item">gotui 仪表盘</span>
+      <span class="stack-item">手机控制台（/qrcode）</span>
       <span class="stack-item">任意 Git 仓库</span>
+    </div>
+  </section>
+
+  <section class="container section" id="remote">
+    <div class="section-head reveal">
+      <p class="section-eyebrow">v0.14.0 新增 · 远程控制</p>
+      <h2 class="section-title">在手机上掌控会话。</h2>
+      <p class="lede">输入 <code>/qrcode</code> 并扫码，手机就变成运行中会话的控制台——两位 Agent 的实时状态、下达任务、开启新会话、刷新观察者报告——而工作仍然运行在你的机器上。</p>
+    </div>
+
+    <div class="remote">
+      <div class="remote-points">
+        <article class="principle card reveal">
+          <span class="p-num">01 / 配对</span>
+          <h3>一个二维码，八小时。</h3>
+          <p><code>/qrcode</code> 会生成房间与密钥。密钥位于 URL 的 fragment 中，浏览器不会把它发送出去，中继永远看不到。配对在 8 小时后过期，<code>/remote off</code> 可立即撤销，新会话会自动重连。</p>
+        </article>
+        <article class="principle card reveal">
+          <span class="p-num">02 / 控制</span>
+          <h3>同样的工作流，换一块屏幕。</h3>
+          <p>手机发出的任务与键盘输入走同一个 <code>SubmitTask</code>，因此阶段、关卡与交付的行为和终端完全一致。无需回到桌前，就能开启新会话或请求状态报告。</p>
+        </article>
+        <article class="principle card reveal">
+          <span class="p-num">03 / 中继</span>
+          <h3>中间只有密文。</h3>
+          <p>默认中继是一个 Cloudflare Worker，只存储加密信封：它可以丢弃或延迟流量，但无法读取提示词，也无法伪造命令。你也可以自行部署 <code>remote/</code>，把 <code>remote.url</code> 指向自己的 Worker。</p>
+        </article>
+      </div>
+
+      <div class="phone reveal" role="img" aria-label="Duo 手机控制台：项目与阶段、Austin 与 Tony 的实时状态、任务输入框与报告入口。">
+        <div class="phone-screen">
+          <div class="phone-bar"><span>remote.xduo.dev</span><span class="phone-live"><i></i>已配对</span></div>
+          <div class="phone-body">
+            <div class="phone-project">duo <span>· goal</span></div>
+            <div class="phone-phase"><span class="done">plan</span><span class="done">execute</span><span class="active">review</span><span>integrate</span></div>
+            <div class="phone-agent austin"><span class="phone-dot"></span>Austin<span class="phone-state">已提交 6f2a1c9</span></div>
+            <div class="phone-agent tony"><span class="phone-dot"></span>Tony<span class="phone-state">审查中</span></div>
+            <div class="phone-task">审查中继预算的改动，然后交付。</div>
+            <div class="phone-actions"><span>新任务</span><span>新会话</span><span>报告</span></div>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -343,6 +388,7 @@
               <p>macOS 或 Linux，amd64 或 arm64。也可以使用 Go 1.24+ 从源码构建。</p>
               <code id="install-cmd-start">curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash</code>
               <code>./scripts/install.sh</code>
+              <p class="install-note">发布归档目前仍是 v0.13.2；远程控制随 <code>main</code> 上的版本提供，在下一个 tag 之前请使用源码安装。</p>
             </div>
           </div>
           <div class="step">
@@ -372,7 +418,7 @@
           <pre aria-label="示例 Duo 终端会话"><span class="c">$</span> cd ~/projects/your-repo
 <span class="c">$</span> duo --mode goal
 
-<span class="hl">duo</span> <span class="muted">v0.13.2</span>  <span class="muted">·</span>  goal  <span class="muted">·</span>  pi
+<span class="hl">duo</span> <span class="muted">v0.14.0</span>  <span class="muted">·</span>  goal  <span class="muted">·</span>  pi
 <span class="muted">──────────────────────────────────────</span>
   <span class="c">austin</span>  plan      计划已共同确认
   <span class="t">tony</span>    plan      计划已共同确认
@@ -418,7 +464,7 @@
       </details>
       <details class="faq-item">
         <summary class="faq-q">我的代码会离开本机吗？</summary>
-        <div class="faq-a"><p>Duo 是本地 Go 二进制，没有托管后端。提示词会像没有 Duo 时一样发送给你的 Agent 提供商；协调、工作树与证据都留在本地。</p></div>
+        <div class="faq-a"><p>Duo 是本地的 Go 二进制：协调、工作树与证据都留在你的机器上，提示词也照旧只发给你自己的 Agent 服务商。配对手机只是增加一个可选中继，它只转发密文信封，读不到提示词，也拿不到配对密钥；未配对时，本机不会向中继发送任何内容。</p></div>
       </details>
       <details class="faq-item">
         <summary class="faq-q">开源吗？</summary>
@@ -452,6 +498,7 @@
             <li><a href="#workflows">工作流</a></li>
             <li><a href="#how">如何落地</a></li>
             <li><a href="#features">特性</a></li>
+            <li><a href="#remote">远程</a></li>
             <li><a href="#start">安装</a></li>
           </ul>
         </div>

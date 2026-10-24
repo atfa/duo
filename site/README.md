@@ -56,9 +56,10 @@ Local Wrangler state lives in `site/.wrangler/` and is git-ignored.
 ## Conventions
 
 - Palette comes from `internal/gotui/theme.go`; keep the site in sync with it.
-- Both pages share section order and IDs: `#why #workflows #how #features #start #faq`.
-- Keep copy factual: v0.13.2, MIT, drivers pi/agy/opencode/codex, eight Duo tools,
-  MCP subset, gotui. Do not claim the removed desktop GUI.
+- Both pages share section order and IDs: `#why #workflows #how #features #remote #start #faq`.
+- Keep copy factual: v0.14.0, MIT, drivers pi/agy/opencode/codex, eight Duo tools,
+  MCP subset, gotui, remote control (`/qrcode` + ciphertext-only relay). Do not
+  claim the removed desktop GUI.
 - No inline scripts or styles: `_headers` sets a strict CSP (`script-src 'self'`,
   `style-src 'self'`). Changing that requires updating the policy too.
 - `site.js` is loaded in `<head>` without `defer`: it swaps `html.no-js` for
