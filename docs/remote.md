@@ -51,6 +51,15 @@ second scan.
   picker;
 - start a fresh session (`/new`), refresh the observer's status report.
 
+The page itself is one screen with three tabs under a header that always shows
+mode, phase, step and expiry: **Session** holds the current step, the agents,
+the observer's report and the shared plan (folded away until asked for),
+**Activity** holds recent activity newest-first, and **Settings** holds the
+controls that are touched rarely — mode, new session, drivers, the model picker
+and the pairing details. The composer is pinned to the bottom edge above the
+home indicator, so a task can be typed at any moment without scrolling, and the
+cards reserve that height so the last one still scrolls clear of it.
+
 Every command is answered: the phone shows `accepted`, or the reason the host
 refused it — a bad signature, a command built from a stale state, a duplicate,
 an unsupported kind, or a session that takes no task in its current phase.

@@ -1,124 +1,307 @@
-/* Mobile first, one column, no frameworks and no external requests. */
+/* The phone console: a sticky header, three tabs and a composer that never
+   scrolls away. Mobile first, no frameworks, no external requests, and no inline
+   styles anywhere (the relay serves style-src 'self'), so every rule here is the
+   only place this page is allowed to look like anything. */
 
 :root {
   --bg: #0b0f14;
-  --panel: #131a22;
-  --line: #223040;
+  --panel: #121a23;
+  --panel-2: #18222d;
+  --line: #24313f;
   --text: #e6edf3;
   --muted: #93a4b5;
   --accent: #4cc2ff;
+  --accent-ink: #04121d;
   --ok: #3ddc97;
   --warn: #ffb454;
   --bad: #ff6b6b;
+  --radius: 0.9rem;
+  --gap: 0.6rem;
+  --tap: 2.75rem;
+  --shell: 34rem;
+  /* Worst case of the dock: two clamped status lines, a gap, a textarea at its
+     cap, the padding and the border. The dock's ceiling and the space the cards
+     reserve below themselves are the same number, so the last card can always
+     scroll clear of the composer, in every state. */
+  --dock-space: 9.5rem;
 }
 
 * { box-sizing: border-box; }
 
-html, body {
+/* The tabs and the progress bar are hidden by attribute, and they also carry a
+   display of their own: without this line a `.panel { display: grid }` would
+   win and the hidden panel would stay on screen. */
+[hidden] { display: none !important; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
   margin: 0;
   min-height: 100%;
   background: var(--bg);
   color: var(--text);
   font: 16px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.shell {
-  max-width: 34rem;
-  margin: 0 auto;
-  padding: max(0.75rem, env(safe-area-inset-top)) 0.85rem max(1.5rem, env(safe-area-inset-bottom));
-  display: grid;
-  gap: 0.75rem;
+/* Header: the one part of the page that is always on screen. It stays short
+   because every pixel here is a pixel the cards do not get. */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  padding-top: max(0.35rem, env(safe-area-inset-top));
+  padding-bottom: 0.3rem;
+  padding-left: max(0.7rem, env(safe-area-inset-left));
+  padding-right: max(0.7rem, env(safe-area-inset-right));
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line);
 }
+.topbar > * { max-width: var(--shell); margin-left: auto; margin-right: auto; }
 
-.masthead {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding-top: 0.35rem;
+.brandline { display: flex; align-items: center; gap: 0.55rem; min-height: 2.1rem; }
+.mark { font-size: 0.76rem; font-weight: 700; letter-spacing: 0.18em; color: var(--accent); }
+.title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.98rem;
+  font-weight: 600;
 }
-
-.mark { font-weight: 700; letter-spacing: 0.18em; color: var(--accent); }
-.title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 0.85rem; }
-
 .status {
-  font-size: 0.75rem;
-  padding: 0.15rem 0.55rem;
-  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32rem;
+  padding: 0.18rem 0.5rem;
   border: 1px solid var(--line);
+  border-radius: 999px;
   color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
   white-space: nowrap;
 }
+.status::before { content: ""; width: 0.42rem; height: 0.42rem; border-radius: 50%; background: currentColor; }
 .status-ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 45%, var(--line)); }
 .status-wait { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, var(--line)); }
 .status-bad { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
 
-.banner {
+/* Four facts in one row: mode, phase, step and expiry, each clipped rather than
+   wrapped so a long step title cannot push the tabs off screen. */
+.vitals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.35rem; margin: 0.15rem 0 0; }
+.vital { min-width: 0; }
+.vital dt {
+  color: var(--muted);
+  font-size: 0.6rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.vital dd {
   margin: 0;
-  padding: 0.5rem 0.7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.progress {
+  display: block;
+  width: 100%;
+  height: 3px;
+  margin: 0.45rem 0 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 999px;
+  background: var(--line);
+  appearance: none;
+}
+.progress::-webkit-progress-bar { background: var(--line); border-radius: 999px; }
+.progress::-webkit-progress-value { background: var(--accent); border-radius: 999px; }
+.progress::-moz-progress-bar { background: var(--accent); border-radius: 999px; }
+
+/* Three tabs, one selected. The selected state is the markup's aria-selected:
+   the script never adds a class for it. */
+.tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 0.22rem;
+  margin-top: 0.4rem;
+  padding: 0.2rem;
+  border: 1px solid var(--line);
+  border-radius: 0.8rem;
+  background: var(--panel);
+}
+.tab {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: var(--tap);
+  padding: 0.3rem 0.2rem;
+  border: 0;
+  border-radius: 0.6rem;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tab[aria-selected="true"] {
+  background: color-mix(in srgb, var(--accent) 16%, var(--panel));
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.banner {
+  margin-block: 0.4rem 0;
+  padding: 0.45rem 0.6rem;
   border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--line));
   border-radius: 0.6rem;
   background: color-mix(in srgb, var(--warn) 12%, var(--panel));
   color: var(--warn);
-  font-size: 0.85rem;
+  font-size: 0.82rem;
 }
+
+/* The cards. The bottom padding is the dock's reservation: the last card has to
+   be able to scroll clear of a fixed composer. */
+.shell {
+  display: grid;
+  align-content: start;
+  gap: var(--gap);
+  max-width: var(--shell);
+  margin: 0 auto;
+  padding-top: 0.6rem;
+  padding-bottom: calc(var(--dock-space) + env(safe-area-inset-bottom));
+  padding-left: max(0.7rem, env(safe-area-inset-left));
+  padding-right: max(0.7rem, env(safe-area-inset-right));
+}
+
+.panel { display: grid; gap: var(--gap); }
 
 .card {
-  background: var(--panel);
+  padding: 0.75rem 0.8rem;
   border: 1px solid var(--line);
-  border-radius: 0.9rem;
-  padding: 0.85rem;
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+.card h1 {
+  margin: 0 0 0.5rem;
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
 }
 
-h1 { font-size: 0.78rem; margin: 0 0 0.6rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+.step-title { margin: 0; font-size: 0.95rem; font-weight: 600; line-height: 1.35; overflow-wrap: anywhere; }
 
-.facts { display: grid; grid-template-columns: auto 1fr; gap: 0.3rem 0.8rem; margin: 0; font-size: 0.9rem; }
+/* The plan folds away: it is long, and it is the least urgent thing on screen. */
+.fold { padding: 0; }
+.fold summary {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: var(--tap);
+  padding: 0 0.8rem;
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  cursor: pointer;
+  list-style: none;
+}
+.fold summary::-webkit-details-marker { display: none; }
+.fold summary::before { content: "\25B8"; font-size: 0.72rem; transition: transform 0.15s ease; }
+.fold[open] summary::before { transform: rotate(90deg); }
+.plan {
+  margin: 0;
+  padding: 0 0.8rem 0.75rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.facts { display: grid; grid-template-columns: auto 1fr; gap: 0.3rem 0.8rem; margin: 0; font-size: 0.88rem; }
 .facts dt { color: var(--muted); }
 .facts dd { margin: 0; overflow-wrap: anywhere; }
-.control { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.7rem; font-size: 0.85rem; }
-.control label { color: var(--muted); }
-.control select {
-  font: inherit;
-  font-size: 0.9rem;
-  padding: 0.4rem 0.6rem;
-  min-height: 2.6rem;
-  border-radius: 0.6rem;
+
+/* One control per row: label on the left, the field taking what is left, and a
+   button that wraps under the field instead of squeezing it. */
+.control { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem; margin-top: 0.6rem; font-size: 0.85rem; }
+.control label { flex: 0 0 auto; color: var(--muted); }
+.control select { flex: 1 1 8rem; min-width: 0; }
+.control > button:only-child { flex: 1 1 auto; }
+
+select,
+input[type="search"],
+textarea {
+  min-height: var(--tap);
+  padding: 0.5rem 0.6rem;
   border: 1px solid var(--line);
+  border-radius: 0.65rem;
   background: var(--bg);
   color: var(--text);
+  font: inherit;
+  font-size: 1rem; /* 16px: iOS zooms the page for anything smaller. */
 }
-.control select:disabled { opacity: 0.5; }
-.control button { padding: 0.4rem 0.7rem; }
-.models { list-style: none; margin: 0.5rem 0 0; padding: 0; display: grid; gap: 0.3rem; max-height: 18rem; overflow-y: auto; }
-.models li { margin: 0; }
+input[type="search"] { width: 100%; margin-top: 0.5rem; }
+textarea { line-height: 1.4; }
+
+button {
+  min-height: var(--tap);
+  padding: 0.45rem 0.95rem;
+  border: 1px solid transparent;
+  border-radius: 0.7rem;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+button.ghost { border-color: var(--line); background: transparent; color: var(--text); }
+button:disabled { opacity: 0.45; cursor: default; }
+
+/* The model picker can be forty rows: it scrolls on its own so the Settings tab
+   does not turn into a wall of names. */
+.models {
+  max-height: 45vh;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  background: var(--bg);
+  list-style: none;
+}
+.models:empty { display: none; }
+.models li + li { border-top: 1px solid var(--line); }
 .model {
   width: 100%;
-  text-align: left;
+  padding: 0.45rem 0.55rem;
+  border: 0;
+  border-radius: 0;
   background: transparent;
   color: var(--text);
   font-size: 0.82rem;
-  padding: 0.4rem 0.55rem;
-  min-height: 2.2rem;
+  font-weight: 500;
+  text-align: left;
   overflow-wrap: anywhere;
 }
-.model.current { border-color: var(--ok); color: var(--ok); }
-input[type="search"] {
-  font: inherit;
-  font-size: 0.9rem;
-  padding: 0.45rem 0.55rem;
-  width: 100%;
-  border-radius: 0.6rem;
-  border: 1px solid var(--line);
-  background: var(--bg);
-  color: var(--text);
-}
-.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; }
+.model.current { color: var(--ok); box-shadow: inset 2px 0 0 var(--ok); }
 
-.plan { margin: 0.6rem 0 0; font-size: 0.85rem; color: var(--muted); overflow-wrap: anywhere; }
-
-.agents, .activity { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.45rem; font-size: 0.88rem; }
-.agents li { display: grid; grid-template-columns: auto 1fr; gap: 0.5rem; align-items: start; }
-.dot { width: 0.55rem; height: 0.55rem; border-radius: 50%; margin-top: 0.45rem; background: var(--muted); }
+.agents { display: grid; gap: 0.55rem; margin: 0; padding: 0; list-style: none; }
+.agents li { display: grid; grid-template-columns: auto 1fr; gap: 0.55rem; align-items: start; }
+.agents li + li { border-top: 1px solid var(--line); padding-top: 0.55rem; }
+.agents li > div > div:not(.agent-meta):not(.agent-activity) { font-size: 0.92rem; font-weight: 600; }
+.dot { width: 0.55rem; height: 0.55rem; margin-top: 0.42rem; border-radius: 50%; background: var(--muted); }
 /* Green: attached and idle. Blue: working. Grey: not attached yet, which is a
    normal moment during startup, not an error. Red: the process failed. */
 .dot-on { background: var(--ok); }
@@ -127,52 +310,111 @@ input[type="search"] {
 .dot-bad { background: var(--bad); }
 @keyframes pulse { 50% { opacity: 0.35; } }
 
-.agent-meta { color: var(--muted); font-size: 0.78rem; overflow-wrap: anywhere; }
-.agent-activity { color: var(--muted); font-size: 0.78rem; overflow-wrap: anywhere; }
+.agent-meta { color: var(--muted); font-size: 0.76rem; overflow-wrap: anywhere; }
+.agent-activity {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.agent-activity:empty { display: none; }
 
-.activity li { border-left: 2px solid var(--line); padding-left: 0.55rem; }
-.activity .when { color: var(--muted); font-size: 0.72rem; margin-right: 0.4rem; }
-.activity .who { color: var(--accent); font-size: 0.78rem; margin-right: 0.4rem; }
+.activity { display: grid; gap: 0.5rem; margin: 0; padding: 0; list-style: none; font-size: 0.86rem; }
+.activity li { padding-left: 0.55rem; border-left: 2px solid var(--line); }
+.activity .when { margin-right: 0.35rem; color: var(--muted); font-size: 0.7rem; font-variant-numeric: tabular-nums; }
+.activity .who { margin-right: 0.35rem; color: var(--accent); font-size: 0.76rem; font-weight: 600; }
 .activity .text { overflow-wrap: anywhere; }
 
-.observer { margin: 0 0 0.6rem; font-size: 0.85rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.observer { margin: 0 0 0.6rem; font-size: 0.86rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.observer:last-child { margin-bottom: 0; }
 .muted { color: var(--muted); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; }
 
-button {
-  font: inherit;
-  font-size: 0.9rem;
-  padding: 0.5rem 0.9rem;
-  border-radius: 0.6rem;
-  border: 1px solid var(--line);
-  background: var(--accent);
-  color: #04121d;
-  min-height: 2.6rem;
+/* The dock: fixed to the bottom edge, above the safe area, with the status line
+   clamped so its height cannot grow without bound and cover the last card. */
+.dock {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 5;
+  display: grid;
+  gap: 0.3rem;
+  max-height: calc(var(--dock-space) + env(safe-area-inset-bottom));
+  padding-top: 0.45rem;
+  padding-bottom: calc(0.45rem + env(safe-area-inset-bottom));
+  padding-left: max(0.7rem, env(safe-area-inset-left));
+  padding-right: max(0.7rem, env(safe-area-inset-right));
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(16px);
+  border-top: 1px solid var(--line);
 }
-button.ghost { background: transparent; color: var(--text); }
-button:disabled { opacity: 0.5; }
+.dock > * { width: 100%; max-width: var(--shell); margin-left: auto; margin-right: auto; }
 
-.composer { display: grid; gap: 0.5rem; }
-textarea {
-  font: inherit;
-  font-size: 0.95rem;
-  padding: 0.55rem;
-  border-radius: 0.6rem;
-  border: 1px solid var(--line);
-  background: var(--bg);
-  color: var(--text);
-  resize: vertical;
+.sent {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
-.actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-.sent { margin: 0.5rem 0 0; font-size: 0.8rem; color: var(--muted); min-height: 1.2rem; }
+.sent:empty { display: none; }
 
-.foot { color: var(--muted); font-size: 0.72rem; text-align: center; }
-.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.composer { display: flex; align-items: flex-end; gap: 0.45rem; }
+.composer textarea {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-height: 5.5rem;
+  padding: 0.55rem 0.65rem;
+  overflow-y: auto;
+  border-radius: 0.8rem;
+  resize: none;
+  /* Grows with the text where the browser knows how; a plain two-row box
+     everywhere else. Never a JS height write, which the CSP would block. */
+  field-sizing: content;
+}
+.composer button { flex: 0 0 auto; }
+
+:where(button, select, input, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dot-run { animation: none; }
+  .fold summary::before { transition: none; }
+}
 
 @media (prefers-color-scheme: light) {
   :root {
-    --bg: #f6f8fa; --panel: #fff; --line: #d7dee7; --text: #12181f; --muted: #5a6b7c;
-    --accent: #0969da; --ok: #1a7f4b; --warn: #9a6700; --bad: #b42318;
+    --bg: #f6f8fa;
+    --panel: #ffffff;
+    --panel-2: #eef2f7;
+    --line: #d5dee8;
+    --text: #10171f;
+    --muted: #56677a;
+    --accent: #0b6bcb;
+    --accent-ink: #f5faff;
+    --ok: #127a52;
+    --warn: #8a5a00;
+    --bad: #b42318;
   }
-  button { color: #f5faff; }
-  button.ghost { color: var(--text); }
 }
