@@ -36,9 +36,11 @@ All notable project milestones are documented here.
   fast-forward and the checkpoint write is reconciled on resume without a second
   merge, and resuming the finished session afterwards changes nothing; replaying
   a session's journal twice does not duplicate its history; and running recovery
-  reconciliation a second time is a no-op that reports no revocation and no
-  integration recovery. The last two also cover the state a resumed session must
-  never silently rewrite: signatures, the step queue and the delivery record.
+  reconciliation a second time changes nothing and revokes nothing — it re-derives
+  the same state from Git, so the integration rebuild is restated rather than
+  re-applied — leaving the signatures, the step queue and the delivery record
+  untouched. The last two also cover the state a resumed session must never
+  silently rewrite.
 
 ### Headless rounds
 
