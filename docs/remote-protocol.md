@@ -303,12 +303,16 @@ costs no duration.
 | sockets per room | 8 | `error{room_full}` |
 | unauthenticated sockets | 2, 5 s to hello | close |
 | guest commands | 30/min per room | `error{rate_limited}` (recoverable; socket stays open) |
-| relayed messages | 2000/day/room | `bye{over_budget}` |
+| relayed messages | 20000/day/room | `bye{over_budget}` |
 | room lifetime | 8 h maximum | `bye{expired}`; the row survives 24 h so a late `hello` still receives `error{expired}` |
 | revocation tombstone | 24 h | registration and `hello` refused with `error{auth}` |
 
 `over_budget` and `expired` close the remote connection only. Duo keeps running
-locally, which is the whole point of the default free-tier posture.
+locally, which is the whole point of the default free-tier posture. The host
+spends no frames while no guest is attached: a `presence` frame with `guests`
+above zero is what tells it to publish, so an unattended session relays nothing.
+A room that does exhaust its budget is not handed out again: the next `/qrcode`
+mints a new one instead of showing a code for a room the relay has ended.
 
 ## Test vectors
 
