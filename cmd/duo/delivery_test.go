@@ -11,6 +11,7 @@ import (
 
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
+	"github.com/atfa/duo/internal/session"
 	"github.com/atfa/duo/internal/sessionstore"
 	"github.com/atfa/duo/internal/workspace"
 )
@@ -80,7 +81,7 @@ func TestDeliverAndPersistDoesNotRegressAppliedCheckpoint(t *testing.T) {
 		Delivery:  sessionstore.Delivery{Status: sessionstore.DeliveryApplied, FinalHead: "final", AppliedHead: "final"},
 	}
 	ws := workspace.NewGitManager(workspace.GitConfig{})
-	outcome, err := deliverAndPersist(context.Background(), store, ws, snap)
+	outcome, err := deliverAndPersistTo(context.Background(), store, ws, snap, session.DeliveryOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -326,7 +327,7 @@ func TestApplyToNewBranchLeavesUserBranch(t *testing.T) {
 	// Duo never forces a branch: an existing branch at another commit is refused
 	// and nothing moves.
 	deliveryGit(t, repo, "branch", "duo/taken", base)
-	outcome, err := deliverToNewBranch(ctx, store, ws, snap, "duo/taken")
+	outcome, err := deliverToNewBranch(ctx, store, ws, snap, "duo/taken", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,7 +338,7 @@ func TestApplyToNewBranchLeavesUserBranch(t *testing.T) {
 		t.Fatalf("a refused delivery moved the existing branch to %s", strings.TrimSpace(got))
 	}
 
-	outcome, err = deliverToNewBranch(ctx, store, ws, snap, "duo/result")
+	outcome, err = deliverToNewBranch(ctx, store, ws, snap, "duo/result", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +370,7 @@ func TestApplyToNewBranchLeavesUserBranch(t *testing.T) {
 	}
 
 	// A second apply is the idempotent no-op: the branch is already at the artifact.
-	again, err := deliverToNewBranch(ctx, store, ws, persisted, "duo/result")
+	again, err := deliverToNewBranch(ctx, store, ws, persisted, "duo/result", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +399,7 @@ func TestApplyDefaultStillFastForwards(t *testing.T) {
 	ws := workspace.NewGitManager(workspace.GitConfig{Repository: repo})
 	ws.Restore(workspace.Set{Repository: repo, BaseBranch: baseBranch, BaseCommit: base})
 
-	outcome, err := deliverAndPersist(ctx, store, ws, snap)
+	outcome, err := deliverAndPersistTo(ctx, store, ws, snap, session.DeliveryOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -410,5 +411,97 @@ func TestApplyDefaultStillFastForwards(t *testing.T) {
 	}
 	if got := deliveryHead(t, repo); got != final {
 		t.Fatalf("default delivery did not fast-forward: HEAD=%s want %s", got, final)
+	}
+}
+
+// newDeliveryRepoWithRemote gives the test repository a real upstream, so a push
+// is exercised against Git rather than a stub.
+func newDeliveryRepoWithRemote(t *testing.T) (repo, remote, branch string) {
+	t.Helper()
+	repo = newDeliveryRepo(t)
+	remote = t.TempDir()
+	deliveryGit(t, remote, "init", "--bare")
+	deliveryGit(t, repo, "remote", "add", "origin", remote)
+	branch = deliveryBranch(t, repo)
+	deliveryGit(t, repo, "push", "-u", "origin", branch)
+	return repo, remote, branch
+}
+
+// TestApplyPushFastForwardsRemote covers the exit a remote user needs: the local
+// fast-forward is followed by a push, and the remote is read back to prove it.
+func TestApplyPushFastForwardsRemote(t *testing.T) {
+	ctx := context.Background()
+	repo, remote, branch := newDeliveryRepoWithRemote(t)
+	base := deliveryHead(t, repo)
+	final := makeFinal(t, repo, "duo/push/austin", "result.md", "hello Duo\n")
+
+	store := newDeliveryStore(t)
+	snap := deliverySnapshot(repo, base, branch, final)
+	if err := store.Save(snap); err != nil {
+		t.Fatal(err)
+	}
+	ws := workspace.NewGitManager(workspace.GitConfig{Repository: repo})
+	ws.Restore(workspace.Set{Repository: repo, BaseBranch: branch, BaseCommit: base})
+
+	outcome, err := deliverAndPersistTo(ctx, store, ws, snap, session.DeliveryOptions{Push: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !outcome.Applied || !outcome.Pushed || outcome.PushReason != "" {
+		t.Fatalf("push delivery did not complete: %+v", outcome)
+	}
+	if got := deliveryHead(t, repo); got != final {
+		t.Fatalf("local HEAD = %s, want %s", got, final)
+	}
+	if got := strings.TrimSpace(deliveryGit(t, remote, "rev-parse", "refs/heads/"+branch)); got != final {
+		t.Fatalf("remote branch = %s, want %s", got, final)
+	}
+}
+
+// TestApplyPushRefusesMovedRemote is the safety rule: when the remote has moved
+// ahead, the delivery is refused before the local branch is touched, so neither
+// side changes.
+func TestApplyPushRefusesMovedRemote(t *testing.T) {
+	ctx := context.Background()
+	repo, remote, branch := newDeliveryRepoWithRemote(t)
+	base := deliveryHead(t, repo)
+	final := makeFinal(t, repo, "duo/push/austin", "result.md", "hello Duo\n")
+
+	// Someone else pushes a commit onto the upstream branch, which Duo must not
+	// overwrite.
+	deliveryGit(t, repo, "checkout", "-b", "remote-move")
+	if err := os.WriteFile(filepath.Join(repo, "theirs.md"), []byte("theirs\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	deliveryGit(t, repo, "add", "theirs.md")
+	deliveryGit(t, repo, "commit", "-m", "someone else")
+	moved := deliveryHead(t, repo)
+	deliveryGit(t, repo, "push", "origin", "remote-move:"+branch)
+	deliveryGit(t, repo, "checkout", branch)
+	deliveryGit(t, repo, "branch", "-D", "remote-move")
+
+	store := newDeliveryStore(t)
+	snap := deliverySnapshot(repo, base, branch, final)
+	if err := store.Save(snap); err != nil {
+		t.Fatal(err)
+	}
+	ws := workspace.NewGitManager(workspace.GitConfig{Repository: repo})
+	ws.Restore(workspace.Set{Repository: repo, BaseBranch: branch, BaseCommit: base})
+
+	outcome, err := deliverAndPersistTo(ctx, store, ws, snap, session.DeliveryOptions{Push: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if outcome.Applied {
+		t.Fatal("a delivery whose push would overwrite the remote must be refused")
+	}
+	if !strings.Contains(outcome.Reason, "moved") {
+		t.Fatalf("refusal does not explain the moved remote: %q", outcome.Reason)
+	}
+	if got := deliveryHead(t, repo); got != base {
+		t.Fatalf("local HEAD moved to %s, want it left at %s", got, base)
+	}
+	if got := strings.TrimSpace(deliveryGit(t, remote, "rev-parse", "refs/heads/"+branch)); got != moved {
+		t.Fatalf("remote branch changed to %s, want it left at %s", got, moved)
 	}
 }

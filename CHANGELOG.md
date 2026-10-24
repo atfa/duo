@@ -14,6 +14,12 @@ All notable project milestones are documented here.
   branch, and a branch already at the artifact is the idempotent no-op. The Duo
   worktrees are removed after such a delivery unless `--keep` preserves them. With
   no flag, local fast-forward remains the only default.
+- `duo apply --push` updates the delivered branch's upstream. It reads the remote
+  with `ls-remote` before anything moves: a remote that has moved, or that holds
+  commits this repository never fetched, refuses the whole delivery and leaves
+  both sides untouched. The push itself is never forced and is verified by
+  reading the remote back. A push that fails after the local landing leaves the
+  artifact delivered and says why; `duo apply --push` retries just the push.
 
 ### Session continuity
 

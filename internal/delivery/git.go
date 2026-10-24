@@ -96,3 +96,63 @@ func refExists(ctx context.Context, dir, ref string) (bool, error) {
 	}
 	return true, nil
 }
+
+// gitConfig reads one configuration value. An unset key is reported as an empty
+// value, not as an error, because "no upstream" is a normal state.
+func gitConfig(ctx context.Context, dir, key string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", "-C", dir, "config", "--get", key)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && exit.ExitCode() == 1 {
+			return "", nil
+		}
+		return "", fmt.Errorf("git config --get %s: %s", key, strings.TrimSpace(stderr.String()))
+	}
+	return strings.TrimSpace(stdout.String()), nil
+}
+
+// remoteExists reports whether the repository has a remote with this name.
+func remoteExists(ctx context.Context, dir, remote string) (bool, error) {
+	out, err := gitOutput(ctx, dir, "remote")
+	if err != nil {
+		return false, err
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.TrimSpace(line) == remote {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// lsRemote reads a branch from the remote without fetching or pushing anything.
+func lsRemote(ctx context.Context, dir, remote, ref string) (string, error) {
+	out, err := gitOutput(ctx, dir, "ls-remote", "--heads", remote, ref)
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && strings.TrimSpace(fields[1]) == strings.TrimSpace(ref) {
+			return strings.TrimSpace(fields[0]), nil
+		}
+	}
+	return "", nil
+}
+
+// objectPresent reports whether this repository has the commit object. A remote
+// head it does not have is a remote that moved ahead of it.
+func objectPresent(ctx context.Context, dir, sha string) (bool, error) {
+	cmd := exec.CommandContext(ctx, "git", "-C", dir, "cat-file", "-e", sha+"^{commit}")
+	if err := cmd.Run(); err != nil {
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && (exit.ExitCode() == 1 || exit.ExitCode() == 128) {
+			return false, nil
+		}
+		return false, fmt.Errorf("git cat-file -e %s: %w", short(sha), err)
+	}
+	return true, nil
+}

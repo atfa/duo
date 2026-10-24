@@ -37,7 +37,7 @@ func main() {
 			err := runApply(ctx, os.Args[2:])
 			switch {
 			case err == nil || ctx.Err() != nil:
-			case errors.Is(err, errDeliveryPending):
+			case errors.Is(err, errDeliveryPending), errors.Is(err, errPushIncomplete):
 				os.Exit(1)
 			default:
 				log.Fatal(err)

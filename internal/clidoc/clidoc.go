@@ -50,8 +50,8 @@ var commands = []Command{
 	},
 	{
 		Name:      "apply",
-		Signature: "duo apply [session-id] [--branch <name> [--keep]]",
-		Summary:   "deliver a pending final result (--branch creates a branch instead of moving yours)",
+		Signature: "duo apply [session-id] [--branch <name> [--keep]] [--push]",
+		Summary:   "deliver a pending final result (--branch creates a branch, --push updates its upstream)",
 	},
 	{
 		Name:      "sessions",

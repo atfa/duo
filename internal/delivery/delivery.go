@@ -356,6 +356,134 @@ func Summary(changes []Change) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
+// PushCheck is the read-only verdict before a delivery pushes its branch. Duo
+// proves the push cannot discard remote commits before anything moves, so a
+// refused push leaves the local branch and the remote exactly as they were.
+type PushCheck struct {
+	Repository    string
+	Branch        string
+	Remote        string
+	RemoteRef     string
+	Head          string
+	RemoteHead    string
+	CanPush       bool
+	AlreadyPushed bool
+	Reason        string
+}
+
+// CheckPush resolves where branch would be pushed and compares that with head.
+// It never mutates the repository or the remote.
+func CheckPush(ctx context.Context, repository, branch, head string) (PushCheck, error) {
+	check := PushCheck{
+		Repository: strings.TrimSpace(repository),
+		Branch:     strings.TrimSpace(branch),
+		Head:       strings.TrimSpace(head),
+	}
+	if check.Repository == "" {
+		return check, errors.New("the original repository is unknown")
+	}
+	if check.Branch == "" {
+		return check, errors.New("the branch to push is unknown")
+	}
+	if check.Head == "" {
+		return check, errors.New("the commit to push is unknown")
+	}
+
+	remote, err := gitConfig(ctx, check.Repository, "branch."+check.Branch+".remote")
+	if err != nil {
+		return check, err
+	}
+	ref, err := gitConfig(ctx, check.Repository, "branch."+check.Branch+".merge")
+	if err != nil {
+		return check, err
+	}
+	if remote == "" || ref == "" {
+		// A branch Duo just created has no upstream yet. Pushing it to origin
+		// under its own name is the same thing `git push -u origin <branch>`
+		// would do, and it keeps --branch usable for a pull-request workflow.
+		origin, err := remoteExists(ctx, check.Repository, "origin")
+		if err != nil {
+			return check, err
+		}
+		if !origin {
+			check.Reason = fmt.Sprintf(
+				"branch %q has no upstream and this repository has no origin remote; set one with `git push -u <remote> %s` and retry",
+				check.Branch, check.Branch,
+			)
+			return check, nil
+		}
+		remote, ref = "origin", "refs/heads/"+check.Branch
+	}
+	check.Remote = remote
+	check.RemoteRef = ref
+
+	remoteHead, err := lsRemote(ctx, check.Repository, remote, ref)
+	if err != nil {
+		return check, err
+	}
+	check.RemoteHead = remoteHead
+	switch {
+	case remoteHead == "":
+		check.CanPush = true
+	case remoteHead == check.Head:
+		check.AlreadyPushed = true
+		check.CanPush = true
+	default:
+		present, err := objectPresent(ctx, check.Repository, remoteHead)
+		if err != nil {
+			return check, err
+		}
+		if !present {
+			check.Reason = fmt.Sprintf(
+				"%s has commits this repository does not have (%s); fetch and retry, Duo will not overwrite them",
+				remoteRefName(remote, ref), short(remoteHead),
+			)
+			return check, nil
+		}
+		contained, err := isAncestor(ctx, check.Repository, remoteHead, check.Head)
+		if err != nil {
+			return check, err
+		}
+		if !contained {
+			check.Reason = fmt.Sprintf(
+				"%s has moved to %s, which is not contained in the final Duo result %s; refusing to push",
+				remoteRefName(remote, ref), short(remoteHead), short(check.Head),
+			)
+			return check, nil
+		}
+		check.CanPush = true
+	}
+	return check, nil
+}
+
+// Push updates the upstream branch to the checked head. It is only called after
+// CheckPush approved the push, and it re-reads the remote afterwards so a
+// reported success is the remote's own answer, not the push command's.
+func Push(ctx context.Context, check PushCheck) error {
+	if !check.CanPush || check.AlreadyPushed {
+		return nil
+	}
+	if _, err := gitOutput(ctx, check.Repository, "push", check.Remote, check.Head+":"+check.RemoteRef); err != nil {
+		return err
+	}
+	remoteHead, err := lsRemote(ctx, check.Repository, check.Remote, check.RemoteRef)
+	if err != nil {
+		return err
+	}
+	if remoteHead != check.Head {
+		return fmt.Errorf(
+			"the push reported success but %s is at %s instead of %s",
+			remoteRefName(check.Remote, check.RemoteRef), short(remoteHead), short(check.Head),
+		)
+	}
+	return nil
+}
+
+// remoteRefName renders a remote branch the way a human names it: origin/main.
+func remoteRefName(remote, ref string) string {
+	return remote + "/" + strings.TrimPrefix(strings.TrimSpace(ref), "refs/heads/")
+}
+
 // BranchHead resolves a branch in the repository that owns the Duo worktrees.
 // It is the fallback when a legacy snapshot lost its integration head.
 func BranchHead(ctx context.Context, repository, branch string) (string, error) {

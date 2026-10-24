@@ -36,6 +36,15 @@ already exists at a different commit; a branch that already points at the artifa
 is the idempotent no-op. The Duo worktrees are removed after such a delivery unless
 `--keep` asks to preserve them.
 
+`duo apply --push` adds one remote operation. Before anything moves, Duo reads the
+upstream with `git ls-remote` and refuses the whole delivery if the remote branch
+holds commits the final result does not contain — including commits this
+repository has never fetched. After the local delivery lands, the only mutating
+command it runs against the remote is `git push <remote> <sha>:<refs/heads/...>`,
+never forced, and it reads the remote back afterwards to prove the result. A
+refused push leaves the local branch and the remote untouched; a push that fails
+after the local landing leaves the artifact delivered and reports why.
+
 Delivery refuses without changing the checkout if it is dirty, on a different or
 detached branch, diverged from the final result, or the result cannot be proven to
 derive from the recorded base. A refused handoff remains pending for retry with

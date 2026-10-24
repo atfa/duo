@@ -20,6 +20,12 @@ type DeliveryOutcome struct {
 	Result   delivery.Result
 	Applied  bool
 	Reason   string
+
+	// Pushed reports that the requested push also updated the upstream branch.
+	// PushReason explains why a requested push did not happen; the artifact is
+	// still delivered locally in that case.
+	Pushed     bool
+	PushReason string
 }
 
 // DeliveryOptions selects where the artifact lands. The zero value is the only
@@ -28,6 +34,11 @@ type DeliveryOptions struct {
 	// Branch lands the artifact on that new branch instead of moving the branch
 	// Duo started on, so a protected branch is never touched.
 	Branch string
+
+	// Push updates the delivered branch's upstream after it lands. The remote is
+	// read first: a remote that moved ahead refuses the whole delivery before the
+	// local branch is touched.
+	Push bool
 }
 
 // DeliverAndPersist runs the idempotent delivery transaction for a snapshot and
@@ -73,7 +84,18 @@ func DeliverAndPersistTo(
 					return DeliveryOutcome{Snapshot: snap}, fmt.Errorf("persist reconciled DONE checkpoint: %w", err)
 				}
 			}
-			return DeliveryOutcome{Snapshot: snap, Applied: true}, nil
+			// The artifact is already delivered, but a requested push may still be
+			// outstanding: the remote is read again, and pushed only if it is behind.
+			outcome := DeliveryOutcome{Snapshot: snap, Applied: true}
+			if opts.Push {
+				pushOutcome, err := pushDelivered(ctx, snap, opts)
+				if err != nil {
+					return DeliveryOutcome{Snapshot: snap}, err
+				}
+				outcome.Pushed = pushOutcome.Pushed
+				outcome.PushReason = pushOutcome.PushReason
+			}
+			return outcome, nil
 		}
 	}
 	finalHead, err := ResolveFinalHead(ctx, ws, snap)
@@ -124,6 +146,27 @@ func DeliverAndPersistTo(
 	if branch := strings.TrimSpace(opts.Branch); branch != "" {
 		pending.TargetBranch = branch
 	}
+
+	// A push is proven safe before anything moves, so a remote that moved refuses
+	// the delivery while the local branch is still where the user left it.
+	var pushCheck *delivery.PushCheck
+	if opts.Push {
+		check, err := delivery.CheckPush(ctx, pending.TargetRepo, pending.TargetBranch, finalHead)
+		if err != nil {
+			return DeliveryOutcome{Snapshot: snap}, err
+		}
+		if !check.CanPush {
+			pending.Status = sessionstore.DeliveryPending
+			pending.Reason = check.Reason
+			pending.AttemptedAt = &now
+			snap.Delivery = pending
+			if err := store.Save(snap); err != nil {
+				return DeliveryOutcome{Snapshot: snap}, fmt.Errorf("persist refused push checkpoint: %w", err)
+			}
+			return DeliveryOutcome{Snapshot: snap, Applied: false, Reason: check.Reason}, nil
+		}
+		pushCheck = &check
+	}
 	pending.AttemptedAt = &now
 	pending.CompletedAt = nil
 	snap.Delivery = pending
@@ -172,7 +215,7 @@ func DeliverAndPersistTo(
 		if err := store.Save(snap); err != nil {
 			return DeliveryOutcome{Snapshot: snap, Result: result}, err
 		}
-		return DeliveryOutcome{Snapshot: snap, Result: result, Applied: true}, nil
+		return finishDelivery(ctx, snap, result, pushCheck), nil
 	}
 
 	// The artifact landed, so the project may now become DONE. Passing through the
@@ -185,7 +228,47 @@ func DeliverAndPersistTo(
 	if err := store.Save(snap); err != nil {
 		return DeliveryOutcome{Snapshot: snap, Result: result}, err
 	}
-	return DeliveryOutcome{Snapshot: snap, Result: result, Applied: true}, nil
+	return finishDelivery(ctx, snap, result, pushCheck), nil
+}
+
+// finishDelivery reports a landed artifact and performs the push a caller asked
+// for. A failed push does not undo the landing: the artifact is delivered
+// locally, and the reason is reported so `duo apply --push` can retry it.
+func finishDelivery(ctx context.Context, snap sessionstore.Snapshot, result delivery.Result, push *delivery.PushCheck) DeliveryOutcome {
+	outcome := DeliveryOutcome{Snapshot: snap, Result: result, Applied: true}
+	if push == nil {
+		return outcome
+	}
+	if err := delivery.Push(ctx, *push); err != nil {
+		outcome.PushReason = err.Error()
+		return outcome
+	}
+	outcome.Pushed = true
+	return outcome
+}
+
+// pushDelivered completes a push for an artifact that is already delivered, so a
+// retry does not move the local branch a second time.
+func pushDelivered(ctx context.Context, snap sessionstore.Snapshot, opts DeliveryOptions) (DeliveryOutcome, error) {
+	branch := strings.TrimSpace(snap.Delivery.TargetBranch)
+	if branch == "" {
+		branch = strings.TrimSpace(snap.BaseBranch)
+	}
+	head := strings.TrimSpace(snap.Delivery.AppliedHead)
+	if head == "" {
+		head = strings.TrimSpace(snap.Delivery.FinalHead)
+	}
+	check, err := delivery.CheckPush(ctx, strings.TrimSpace(snap.Delivery.TargetRepo), branch, head)
+	if err != nil {
+		return DeliveryOutcome{}, err
+	}
+	if !check.CanPush {
+		return DeliveryOutcome{PushReason: check.Reason}, nil
+	}
+	if err := delivery.Push(ctx, check); err != nil {
+		return DeliveryOutcome{PushReason: err.Error()}, nil
+	}
+	return DeliveryOutcome{Pushed: true}, nil
 }
 
 // currentStepLanded reports whether the session-level delivery record describes the

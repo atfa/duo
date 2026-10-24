@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/atfa/duo/internal/session"
 	"github.com/atfa/duo/internal/sessionstore"
 	"github.com/atfa/duo/internal/workspace"
 )
@@ -19,6 +20,10 @@ var errDeliveryPending = errors.New("delivery is pending; the original repositor
 // errUsageRequested is returned by a parser that was asked for -h/--help/help.
 // It is not a failure: the command prints the usage and exits 0.
 var errUsageRequested = errors.New("usage requested")
+
+// errPushIncomplete reports that the artifact was delivered locally but the
+// requested push did not happen. The caller already printed the reason.
+var errPushIncomplete = errors.New("delivery complete, push incomplete")
 
 // runApply implements `duo apply [session-id] [--branch <name>] [--keep]`. It is
 // dispatched from main before interactive configuration, and never starts Austin
@@ -73,11 +78,12 @@ func runApply(ctx context.Context, args []string) error {
 	ws := workspace.NewGitManager(workspace.GitConfig{Repository: summary.Snapshot.Repository})
 	ws.Restore(setFromSnapshot(summary.Snapshot))
 
+	opts := session.DeliveryOptions{Branch: parsed.branch, Push: parsed.push}
 	var outcome deliveryOutcome
 	if parsed.branch != "" {
-		outcome, err = deliverToNewBranch(ctx, store, ws, summary.Snapshot, parsed.branch)
+		outcome, err = deliverToNewBranch(ctx, store, ws, summary.Snapshot, parsed.branch, parsed.push)
 	} else {
-		outcome, err = deliverAndPersist(ctx, store, ws, summary.Snapshot)
+		outcome, err = deliverAndPersistTo(ctx, store, ws, summary.Snapshot, opts)
 	}
 	if err != nil {
 		return err
@@ -89,6 +95,18 @@ func runApply(ctx context.Context, args []string) error {
 		printDeliverySuccess(outcome)
 		if parsed.branch != "" && !parsed.keep {
 			cleanupDeliveredWorktrees(ctx, ws)
+		}
+		if parsed.push {
+			if outcome.PushReason != "" {
+				logger.Printf("push for session %s did not happen: %s", summary.SessionID, outcome.PushReason)
+				fmt.Println()
+				fmt.Println("The artifact is delivered, but the push did not happen:")
+				fmt.Printf("  %s\n", outcome.PushReason)
+				return errPushIncomplete
+			}
+			logger.Printf("pushed session %s to its upstream", summary.SessionID)
+			fmt.Println()
+			fmt.Println("Pushed the delivered branch to its upstream.")
 		}
 		return nil
 	}
@@ -104,6 +122,7 @@ type applyArgs struct {
 	sessionID string
 	branch    string
 	keep      bool
+	push      bool
 }
 
 func parseApplyArgs(args []string) (applyArgs, error) {
@@ -117,6 +136,8 @@ func parseApplyArgs(args []string) (applyArgs, error) {
 			return applyArgs{}, errUsageRequested
 		case arg == "--keep":
 			out.keep = true
+		case arg == "--push":
+			out.push = true
 		case arg == "--branch":
 			if i+1 >= len(args) {
 				return applyArgs{}, fmt.Errorf("--branch needs a branch name (usage: %s)", commandUsage("apply"))

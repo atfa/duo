@@ -36,8 +36,21 @@ func deliverToNewBranch(
 	ws *workspace.GitManager,
 	snap sessionstore.Snapshot,
 	branch string,
+	push bool,
 ) (deliveryOutcome, error) {
-	return session.DeliverAndPersistTo(ctx, store, ws, snap, session.DeliveryOptions{Branch: branch})
+	return session.DeliverAndPersistTo(ctx, store, ws, snap, session.DeliveryOptions{Branch: branch, Push: push})
+}
+
+// deliverAndPersistTo is the default landing (a fast-forward of the branch Duo
+// started on) with the caller's extra options.
+func deliverAndPersistTo(
+	ctx context.Context,
+	store *sessionstore.Store,
+	ws *workspace.GitManager,
+	snap sessionstore.Snapshot,
+	opts session.DeliveryOptions,
+) (deliveryOutcome, error) {
+	return session.DeliverAndPersistTo(ctx, store, ws, snap, opts)
 }
 
 // reconcileDelivery handles a session whose agent work may already be finished.
