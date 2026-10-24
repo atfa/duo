@@ -127,7 +127,7 @@
 **负责人** Austin
 
 ### T16 端到端会话测试补强 + 崩溃边界
-- [ ] 完成：
+- [x] 完成：bfe1836 + 33607ef · 2026-10-24（含 Tony 的 journal 重放与 recovery 幂等测试）
 
 **位置** `internal/coordinator` 已有 4 个 e2e 文件 20 个 Test（`delivery_e2e_test.go`、`fast_e2e_test.go`、`step_e2e_test.go`、`step_goal_e2e_test.go`）；fake driver 基建 `internal/agent/agenttest/driver.go`
 **问题** 既有 e2e 在 coordinator 层，session.Service 组合根（驱动插件契约、resume、delivery 交接的整条真实链路）无全模式会话测试；kill -9 mid-delivery 与 journal replay 的崩溃边界无属性测试。
