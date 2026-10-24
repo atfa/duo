@@ -37,6 +37,7 @@ var parserCommands = map[string]string{
 	"parseMCPServerArgs":  "mcp-server",
 	"parseSessionsArgs":   "sessions",
 	"parseStatusArgs":     "status",
+	"parseRunArgs":        "run",
 	"parsePluginTestArgs": "plugins",
 	"runPlugins":          "plugins",
 	"parseDoctorArgs":     "doctor",
@@ -337,6 +338,7 @@ var parsersByCommand = map[string]bool{
 	"duo": true, "resume": true, "apply": true, "sessions": true, "logs": true, "clean": true, "mcp-server": true,
 	"plugins": true,
 	"status":  true,
+	"run":     true,
 }
 
 // TestUsageAcceptsEveryDocumentedFlag feeds each documented flag to the parser
@@ -348,6 +350,7 @@ func TestUsageAcceptsEveryDocumentedFlag(t *testing.T) {
 		"apply":      {"--branch", "--keep", "--push", "--pr", "-h", "--help"},
 		"sessions":   {"--all", "-a", "-h", "--help"},
 		"status":     {"--json", "-h", "--help"},
+		"run":        {"-m", "--mode", "--json", "--timeout", "-h", "--help"},
 		"logs":       {"-h", "--help"},
 		"clean":      {"--all", "-a", "--all-repos", "--force", "-f", "--dry-run", "-n", "-h", "--help"},
 		"mcp-server": {"--agent", "-a", "--session", "-s", "--token", "-k", "--host", "-H", "--port", "-p", "-h", "--help"},
@@ -380,19 +383,28 @@ var valuelessFlags = map[string]bool{
 // acceptsFlag runs one flag through the parser that owns the command. A help
 // request is a success, not a rejection: it prints usage and exits 0.
 func acceptsFlag(t *testing.T, command, flag string) error {
+	var args []string
 	if valuelessFlags[flag] && !(flag == "-a" && (command == "duo" || command == "mcp-server")) {
-		return accepts(t, command, flag)
-	}
-	value := "x"
-	switch flag {
-	case "--mode", "-m":
-		value = "fast"
-	case "--agent", "-a":
-		if command == "mcp-server" {
-			value = "austin"
+		args = []string{flag}
+	} else {
+		value := "x"
+		switch flag {
+		case "--mode", "-m":
+			value = "fast"
+		case "--timeout":
+			value = "30m"
+		case "--agent", "-a":
+			if command == "mcp-server" {
+				value = "austin"
+			}
 		}
+		args = []string{flag, value}
 	}
-	return accepts(t, command, flag, value)
+	// `duo run` also requires the task itself, which is not a flag.
+	if command == "run" {
+		args = append(args, "the task")
+	}
+	return accepts(t, command, args...)
 }
 
 func accepts(t *testing.T, command string, args ...string) error {
@@ -409,6 +421,9 @@ func accepts(t *testing.T, command string, args ...string) error {
 	case "status":
 		_, err := parseStatusArgs(args)
 		return err
+	case "run":
+		_, err := parseRunArgs(args)
+		return ignoreUsageRequested(err)
 	case "sessions":
 		_, err := parseSessionsArgs(args)
 		return err

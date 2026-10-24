@@ -43,6 +43,18 @@ func main() {
 				log.Fatal(err)
 			}
 			return
+		case "run":
+			err := runHeadless(ctx, os.Args[2:])
+			switch {
+			case err == nil || ctx.Err() != nil:
+			case errors.Is(err, errRunTimeout):
+				os.Exit(runExitTimeout)
+			case errors.Is(err, errRunRefused):
+				os.Exit(runExitRefused)
+			default:
+				log.Fatal(err)
+			}
+			return
 		case "status":
 			if err := runStatus(ctx, os.Args[2:]); err != nil && ctx.Err() == nil {
 				log.Fatal(err)

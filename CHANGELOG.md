@@ -28,6 +28,17 @@ All notable project milestones are documented here.
   verdict and the diffstat. Without `gh` Duo prints that same body, tells you
   which branch to open the pull request from, and exits successfully.
 
+### Headless rounds
+
+- `duo run -m fast|goal|step "task" [--json] [--timeout <duration>]` runs one
+  full round without a terminal, so CI and batch jobs can use Duo at all: it
+  starts the session, submits the task, waits for DONE and closes the session
+  again. The exit code distinguishes the outcomes a script branches on — 0 when
+  the artifact was delivered, 3 when the round finished without delivering (the
+  reason is printed, and the session stays resumable), 124 when the timeout
+  stopped the wait. `--json` prints the phase, the delivery record and the exit
+  code as one object.
+
 ### Scriptable status
 
 - `duo status [session-id] [--json]` answers the question `duo_status` answers,

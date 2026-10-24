@@ -54,6 +54,11 @@ var commands = []Command{
 		Summary:   "deliver a pending final result (--branch creates a branch, --push updates its upstream, --pr opens a pull request)",
 	},
 	{
+		Name:      "run",
+		Signature: "duo run [--mode|-m fast|goal|step] \"task\" [--json] [--timeout <duration>]",
+		Summary:   "run one round without a terminal (exit 0 delivered, 3 not delivered, 124 timeout)",
+	},
+	{
 		Name:      "status",
 		Signature: "duo status [session-id] [--json]",
 		Summary:   "print the authoritative session state (--json for scripts)",
