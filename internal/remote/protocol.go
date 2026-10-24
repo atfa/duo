@@ -50,6 +50,13 @@ const (
 	// CmdSetDriver carries "<agent> <driver>" in Text: the phone replaces the
 	// executable behind one agent.
 	CmdSetDriver = "set_driver"
+	// CmdCatalog carries an agent name in Text and asks for its model list. It is a
+	// read: loading a catalog starts the driver's own CLI, so the answer arrives
+	// as a later state rather than as the command's result.
+	CmdCatalog = "catalog"
+	// CmdSetModel carries "<agent> <reference>" in Text, where the reference is one
+	// the host published in a catalog.
+	CmdSetModel = "set_model"
 )
 
 // Close and error codes. They are stable identifiers: a frontend localises them
@@ -127,23 +134,26 @@ func (f frame) encode() ([]byte, error) {
 // maps a session view into it, so this package never imports session state and
 // the page never sees a handle it could act through.
 type State struct {
-	V        int              `json:"v"`
-	N        int64            `json:"n"`
-	TS       int64            `json:"ts"`
-	Project  string           `json:"project"`
-	Repo     string           `json:"repo"`
-	Session  string           `json:"session"`
-	Mode     string           `json:"mode"`
-	Phase    string           `json:"phase"`
-	Started  bool             `json:"started"`
-	Drivers  []string         `json:"drivers"`
-	Step     *StepState       `json:"step"`
-	Plan     string           `json:"plan"`
-	Agents   map[string]Agent `json:"agents"`
-	Pause    PauseState       `json:"pause"`
-	Activity []Activity       `json:"activity"`
-	Observer ObserverState    `json:"observer"`
-	Delivery *DeliveryState   `json:"delivery"`
+	V       int              `json:"v"`
+	N       int64            `json:"n"`
+	TS      int64            `json:"ts"`
+	Project string           `json:"project"`
+	Repo    string           `json:"repo"`
+	Session string           `json:"session"`
+	Mode    string           `json:"mode"`
+	Phase   string           `json:"phase"`
+	Started bool             `json:"started"`
+	Drivers []string         `json:"drivers"`
+	Step    *StepState       `json:"step"`
+	Plan    string           `json:"plan"`
+	Agents  map[string]Agent `json:"agents"`
+	// Catalog is the model list the phone last asked for. It is absent until it
+	// asks, because loading one starts another CLI and most states do not need it.
+	Catalog  *CatalogState  `json:"catalog"`
+	Pause    PauseState     `json:"pause"`
+	Activity []Activity     `json:"activity"`
+	Observer ObserverState  `json:"observer"`
+	Delivery *DeliveryState `json:"delivery"`
 
 	// Command is the outcome of the last command the phone sent, so a rejected
 	// instruction is visible on the phone instead of only in a local log.
@@ -156,6 +166,20 @@ type CommandResult struct {
 	Kind     string `json:"kind"`
 	Accepted bool   `json:"accepted"`
 	Note     string `json:"note,omitempty"`
+}
+
+// CatalogState is one agent's model list as the phone shows it.
+//
+// Total is the whole catalog, so a page whose list was cut can say so; Loading
+// is set while the driver's own CLI is being asked, and Error carries the reason
+// a driver published no list at all (a driver without a catalog is an answer,
+// not a failure).
+type CatalogState struct {
+	Agent   string   `json:"agent"`
+	Loading bool     `json:"loading"`
+	Models  []string `json:"models"`
+	Total   int      `json:"total,omitempty"`
+	Error   string   `json:"error,omitempty"`
 }
 
 // StepState is the current Step-mode entry, or nil when the mode has no queue.

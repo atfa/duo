@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +15,7 @@ import (
 
 	agentpkg "github.com/atfa/duo/internal/agent"
 	"github.com/atfa/duo/internal/events"
+	"github.com/atfa/duo/internal/models"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/remote"
 	"github.com/atfa/duo/internal/session"
@@ -243,6 +245,98 @@ func TestRemoteSnapshotCarriesTheDriversAndRefusesUnknownAgents(t *testing.T) {
 		if _, err := wireAgent(name); err == nil {
 			t.Errorf("wireAgent(%q) accepted an agent the phone cannot address", name)
 		}
+	}
+}
+
+// The model list the phone shows is built from the driver's own catalog, and a
+// model change is resolved against it: the phone never has to split a provider
+// from an id, which would break a model id that contains a slash.
+func TestRemoteCatalogEntriesAndModelResolution(t *testing.T) {
+	entries := catalogEntries([]models.Model{
+		{Provider: "openai", ID: "gpt-5"},
+		{Provider: "google", ID: "gemini-3.8-flash-high"},
+		{ID: "bare-id"},
+	})
+	want := []string{"openai/gpt-5", "google/gemini-3.8-flash-high", "bare-id"}
+	for i, entry := range entries {
+		if entry.ref != want[i] {
+			t.Errorf("entry %d ref = %q, want %q", i, entry.ref, want[i])
+		}
+	}
+	if entries[2].provider != "" || entries[2].id != "bare-id" {
+		t.Errorf("a bare model resolved to provider=%q id=%q", entries[2].provider, entries[2].id)
+	}
+
+	state := catalogState(protocol.Austin, entries, nil)
+	if state.Agent != "austin" || state.Total != 3 || state.Loading || state.Error != "" {
+		t.Errorf("catalogState = %+v, want austin with 3 entries", state)
+	}
+	if len(state.Models) != 3 {
+		t.Errorf("the state carries %d models, want 3", len(state.Models))
+	}
+
+	// A driver that publishes no catalog is an answer, not an empty list.
+	failed := catalogState(protocol.Austin, nil, fmt.Errorf("driver agy publishes no model catalog"))
+	if failed.Error == "" || len(failed.Models) != 0 {
+		t.Errorf("catalogState for a driver without a catalog = %+v", failed)
+	}
+
+	// A list longer than one frame is cut, and Total says how long it really is.
+	long := make([]models.Model, maxCatalogModels+5)
+	for i := range long {
+		long[i] = models.Model{Provider: "p", ID: fmt.Sprintf("m%d", i)}
+	}
+	cut := catalogState(protocol.Tony, catalogEntries(long), nil)
+	if len(cut.Models) != maxCatalogModels {
+		t.Errorf("a long catalog published %d entries, want %d", len(cut.Models), maxCatalogModels)
+	}
+	if cut.Total != len(long) {
+		t.Errorf("total = %d, want %d", cut.Total, len(long))
+	}
+}
+
+// A model change is only accepted for an entry of the list this phone was shown,
+// and the list stops describing what runs once the driver changes.
+func TestRemoteResolveModelUsesTheLoadedCatalog(t *testing.T) {
+	manager := &remoteManager{svc: session.New(session.Options{}), now: time.Now}
+	if _, err := manager.resolveModel(protocol.Austin, "openai/gpt-5"); err == nil {
+		t.Fatal("a model was resolved before any catalog was loaded")
+	}
+
+	entries := catalogEntries([]models.Model{{Provider: "openai", ID: "gpt-5"}})
+	manager.catalog = catalogState(protocol.Austin, entries, nil)
+	manager.catalogModels = entries
+
+	got, err := manager.resolveModel(protocol.Austin, " openai/gpt-5 ")
+	if err != nil || got.provider != "openai" || got.id != "gpt-5" {
+		t.Fatalf("resolveModel = %+v, %v; want openai/gpt-5", got, err)
+	}
+	if _, err := manager.resolveModel(protocol.Austin, "openai/ghost"); err == nil {
+		t.Error("a model outside the list was resolved")
+	}
+	if _, err := manager.resolveModel(protocol.Tony, "openai/gpt-5"); err == nil {
+		t.Error("the other agent's catalog was used")
+	}
+
+	// A snapshot is a copy: the phone cannot mutate the cache through it.
+	snapshot := manager.catalogSnapshot()
+	if snapshot == nil || len(snapshot.Models) != 1 {
+		t.Fatalf("catalogSnapshot = %+v, want the loaded list", snapshot)
+	}
+	snapshot.Models[0] = "mutated"
+	if manager.catalogSnapshot().Models[0] == "mutated" {
+		t.Error("the published catalog aliases the cache")
+	}
+
+	// A driver change invalidates the list that driver published.
+	manager.catalogDriver = "pi"
+	if _, err := manager.resolveModel(protocol.Austin, "openai/gpt-5"); err == nil {
+		t.Error("a list from a previous driver was used after the driver changed")
+	}
+	manager.catalogDriver = ""
+	manager.forgetCatalog(protocol.Austin)
+	if manager.catalogSnapshot() != nil {
+		t.Error("the catalog survived a driver change")
 	}
 }
 

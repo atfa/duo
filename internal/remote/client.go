@@ -31,6 +31,14 @@ type Sink interface {
 	// ("austin", "tony"); the host refuses one it does not run, and the session
 	// owns the gate that says when a driver may change at all.
 	SetDriver(agent, driver string) error
+	// RequestCatalog asks the host to load one agent's model list and publish it.
+	// The error is only about the request itself: the list (or the reason there is
+	// none) arrives as a later state, because loading it starts another CLI.
+	RequestCatalog(agent string) error
+	// SetModel switches one agent's model. The reference is one the host published
+	// in a catalog, so the host can resolve it exactly instead of guessing where a
+	// provider ends and an id begins.
+	SetModel(agent, reference string) error
 }
 
 // Options configures a Client.
@@ -506,6 +514,22 @@ func (c *Client) applyCommand(f frame, plaintext []byte) error {
 		if err := c.opts.Sink.SetDriver(agent, driver); err != nil {
 			return c.reject(cmd.ID, cmd.Kind, err.Error())
 		}
+	case CmdCatalog:
+		agent := strings.TrimSpace(cmd.Text)
+		if agent == "" {
+			return c.reject(cmd.ID, cmd.Kind, "the request named no agent")
+		}
+		if err := c.opts.Sink.RequestCatalog(agent); err != nil {
+			return c.reject(cmd.ID, cmd.Kind, err.Error())
+		}
+	case CmdSetModel:
+		agent, reference, err := ParseAgentCommand(cmd.Text)
+		if err != nil {
+			return c.reject(cmd.ID, cmd.Kind, err.Error())
+		}
+		if err := c.opts.Sink.SetModel(agent, reference); err != nil {
+			return c.reject(cmd.ID, cmd.Kind, err.Error())
+		}
 	default:
 		return c.reject(cmd.ID, cmd.Kind, fmt.Sprintf("unsupported command %q", cmd.Kind))
 	}
@@ -797,6 +821,13 @@ func fitState(state State) ([]byte, error) {
 			state.Activity = state.Activity[1:]
 		case len(state.Observer.Reports) > 0:
 			state.Observer.Reports = state.Observer.Reports[1:]
+		case state.Catalog != nil && len(state.Catalog.Models) > 0:
+			// A model list the phone asked for is the one part of a snapshot it can ask
+			// for again, so it shrinks before the plan or the activity do. Total stays
+			// the whole catalog, so the page can still say the list was cut.
+			trimmed := *state.Catalog
+			trimmed.Models = trimmed.Models[:len(trimmed.Models)/2]
+			state.Catalog = &trimmed
 		case len(state.Plan) > 200:
 			state.Plan = truncate(state.Plan, len(state.Plan)/2)
 		case len(state.Activity) == 0 && state.Plan != "":

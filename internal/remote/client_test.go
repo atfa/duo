@@ -11,14 +11,18 @@ import (
 )
 
 type fakeSink struct {
-	mu        sync.Mutex
-	tasks     []string
-	newCount  int
-	observer  int
-	modes     []string
-	modeErr   error
-	drivers   []string
-	driverErr error
+	mu         sync.Mutex
+	tasks      []string
+	newCount   int
+	observer   int
+	modes      []string
+	modeErr    error
+	drivers    []string
+	driverErr  error
+	catalogs   []string
+	catalogErr error
+	models     []string
+	modelErr   error
 }
 
 func (s *fakeSink) SubmitTask(text string) error {
@@ -89,6 +93,38 @@ func (s *fakeSink) driverSnapshot() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string(nil), s.drivers...)
+}
+
+func (s *fakeSink) RequestCatalog(agent string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.catalogErr != nil {
+		return s.catalogErr
+	}
+	s.catalogs = append(s.catalogs, agent)
+	return nil
+}
+
+func (s *fakeSink) SetModel(agent, reference string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.modelErr != nil {
+		return s.modelErr
+	}
+	s.models = append(s.models, agent+" "+reference)
+	return nil
+}
+
+func (s *fakeSink) setModelError(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.modelErr = err
+}
+
+func (s *fakeSink) catalogSnapshot() ([]string, []string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.catalogs...), append([]string(nil), s.models...)
 }
 
 func testPairing(t *testing.T, relay *fakeRelay) Pairing {
@@ -560,6 +596,96 @@ func TestSetDriverReachesTheSinkAndRefusesBadText(t *testing.T) {
 		t.Fatalf("a refused driver change was accepted: %+v", next.Command)
 	}
 	if !strings.Contains(next.Command.Note, "before the first task") {
+		t.Errorf("note = %q, want the host's own reason", next.Command.Note)
+	}
+}
+
+// A long model list must never stop a state from being published: the list is
+// the one part of a snapshot the phone can ask for again, so it shrinks first and
+// the true count survives so the page can say it was cut.
+func TestFitStateShrinksALongCatalogBeforeFailing(t *testing.T) {
+	catalog := &CatalogState{Agent: "austin", Total: 300}
+	for i := 0; i < 300; i++ {
+		catalog.Models = append(catalog.Models, fmt.Sprintf("provider/model-with-a-long-name-%03d", i))
+	}
+	data, err := fitState(State{Project: "duo", Session: "session-1", Catalog: catalog})
+	if err != nil {
+		t.Fatalf("fitState: %v", err)
+	}
+	if len(data) > MaxPlaintext {
+		t.Errorf("fitState returned %d bytes, limit %d", len(data), MaxPlaintext)
+	}
+	var got State
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if got.Catalog == nil {
+		t.Fatal("the catalog disappeared instead of shrinking")
+	}
+	if got.Catalog.Total != 300 {
+		t.Errorf("total = %d, want the whole catalog (300)", got.Catalog.Total)
+	}
+	if len(got.Catalog.Models) >= 300 {
+		t.Errorf("the list was not trimmed: %d models", len(got.Catalog.Models))
+	}
+	// The published snapshot must not mutate the cache the next one is built from.
+	if len(catalog.Models) != 300 {
+		t.Errorf("fitState trimmed the caller's list to %d entries", len(catalog.Models))
+	}
+}
+
+// A catalog request is a read and a model change is a write: both reach the sink
+// with the agent the phone named, and both report a refusal.
+func TestCatalogAndSetModelReachTheSink(t *testing.T) {
+	relay := newFakeRelay(t)
+	p := testPairing(t, relay)
+	sink := &fakeSink{}
+	c, err := New(Options{Pairing: p, Sink: sink, Snapshot: staticState("duo"),
+		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	startClient(t, c)
+	waitFor(t, "host connection", func() bool { return c.Status().Connected })
+	guest := relay.guest(t, p)
+	state := guest.nextState(t, p, 5*time.Second)
+
+	sendCommand(t, guest, p, "cmd-catalog", CmdCatalog, " austin ", state.N)
+	next := guest.nextState(t, p, 5*time.Second)
+	if next.Command == nil || !next.Command.Accepted {
+		t.Fatalf("the catalog request was not accepted: %+v", next.Command)
+	}
+	catalogs, _ := sink.catalogSnapshot()
+	if len(catalogs) != 1 || catalogs[0] != "austin" {
+		t.Fatalf("sink saw catalogs %v, want [austin]", catalogs)
+	}
+
+	sendCommand(t, guest, p, "cmd-model", CmdSetModel, "austin openai/gpt-5", next.N)
+	next = guest.nextState(t, p, 5*time.Second)
+	if next.Command == nil || !next.Command.Accepted {
+		t.Fatalf("the model change was not accepted: %+v", next.Command)
+	}
+	_, models := sink.catalogSnapshot()
+	if len(models) != 1 || models[0] != "austin openai/gpt-5" {
+		t.Fatalf("sink saw models %v, want [austin openai/gpt-5]", models)
+	}
+
+	sendCommand(t, guest, p, "cmd-catalog-empty", CmdCatalog, "   ", next.N)
+	next = guest.nextState(t, p, 5*time.Second)
+	if next.Command == nil || next.Command.Accepted {
+		t.Fatalf("a catalog request with no agent was accepted: %+v", next.Command)
+	}
+	if !strings.Contains(next.Command.Note, "no agent") {
+		t.Errorf("note = %q, want it to say the request named no agent", next.Command.Note)
+	}
+
+	sink.setModelError(fmt.Errorf("\"openai/ghost\" is not in austin's model list"))
+	sendCommand(t, guest, p, "cmd-model-unknown", CmdSetModel, "austin openai/ghost", next.N)
+	next = guest.nextState(t, p, 5*time.Second)
+	if next.Command == nil || next.Command.Accepted {
+		t.Fatalf("an unknown model was accepted: %+v", next.Command)
+	}
+	if !strings.Contains(next.Command.Note, "model list") {
 		t.Errorf("note = %q, want the host's own reason", next.Command.Note)
 	}
 }

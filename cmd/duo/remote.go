@@ -13,6 +13,7 @@ import (
 
 	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/gotui"
+	"github.com/atfa/duo/internal/models"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/remote"
@@ -44,6 +45,15 @@ type remoteManager struct {
 	// is installed, so it is read once rather than on every published state.
 	driversOnce sync.Once
 	drivers     []string
+
+	// catalog is the model list the phone last asked for, with the provider/id
+	// pairs set_model needs. Loading one starts the driver's own CLI, so it stays
+	// out of the snapshot until a phone asks for it.
+	catalogMu      sync.Mutex
+	catalog        *remote.CatalogState
+	catalogModels  []catalogModel
+	catalogDriver  string
+	catalogLoading bool
 }
 
 func newRemoteManager(cfg config, svc *session.Service) (*remoteManager, error) {
@@ -348,6 +358,7 @@ func (m *remoteManager) snapshot() remote.State {
 		Phase:   string(view.Phase()),
 		Started: view.Project.Started,
 		Drivers: m.driverNames(),
+		Catalog: m.catalogSnapshot(),
 		Plan:    firstLine(view.Project.Plan),
 		Pause:   remote.PauseState{State: string(view.Pause.State)},
 		Agents:  map[string]remote.Agent{},
@@ -446,7 +457,190 @@ func (s remoteSink) SetDriver(agent, driver string) error {
 	// host must not give up sooner and report a failure for work still running.
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	return s.m.svc.Do(ctx, session.SetDriver{Agent: id, Driver: driver})
+	if err := s.m.svc.Do(ctx, session.SetDriver{Agent: id, Driver: driver}); err != nil {
+		return err
+	}
+	// The catalog belongs to the driver that published it, so it cannot outlive a
+	// driver change.
+	s.m.forgetCatalog(id)
+	return nil
+}
+
+// RequestCatalog loads one agent's model list and publishes it. The load runs
+// off the command path because it starts the driver's own CLI; the phone sees
+// Loading at once and the list, or the reason there is none, when it finishes.
+func (s remoteSink) RequestCatalog(agent string) error {
+	id, err := wireAgent(agent)
+	if err != nil {
+		return err
+	}
+	s.m.loadCatalog(id)
+	return nil
+}
+
+// SetModel switches one agent's model to an entry of the list the phone was
+// shown, so the provider and the id are exact rather than guessed from a string
+// that may contain a slash.
+func (s remoteSink) SetModel(agent, reference string) error {
+	id, err := wireAgent(agent)
+	if err != nil {
+		return err
+	}
+	model, err := s.m.resolveModel(id, reference)
+	if err != nil {
+		return err
+	}
+	// Changing a model restarts an agent whose driver cannot switch live, which
+	// takes as long as a driver change; the phone waits 60s for it.
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	return s.m.svc.Do(ctx, session.SetModel{Agent: id, Provider: model.provider, Model: model.id})
+}
+
+// catalogModel is one resolved catalog entry: the reference the phone shows and
+// the provider/id pair the session needs.
+type catalogModel struct {
+	provider string
+	id       string
+	ref      string
+}
+
+const (
+	// maxCatalogModels bounds one published list. A phone filters its picker, so a
+	// few dozen rows are enough, and MaxPlaintext is 3000 bytes: Total carries the
+	// real count so the page can say the list was cut.
+	maxCatalogModels = 40
+	// catalogTimeout bounds one catalog read. Listing models starts the driver's own
+	// CLI (driver.ModelListTimeout is 20s), and a phone waiting on a wedged plugin
+	// must be told rather than left loading forever.
+	catalogTimeout = 30 * time.Second
+)
+
+// catalogEntries resolves what a driver published into the reference the phone
+// shows and the pair the session needs. The reference is built from the two
+// fields rather than models.Model.Reference, which drops the provider for a
+// driver that takes bare ids — and the phone should still see which provider it
+// is choosing.
+func catalogEntries(list []models.Model) []catalogModel {
+	entries := make([]catalogModel, 0, len(list))
+	for _, model := range list {
+		ref := model.ID
+		if model.Provider != "" {
+			ref = model.Provider + "/" + model.ID
+		}
+		entries = append(entries, catalogModel{provider: model.Provider, id: model.ID, ref: ref})
+	}
+	return entries
+}
+
+// catalogState is what the phone sees: at most maxCatalogModels references, the
+// true count, and the reason a driver published none.
+func catalogState(agent protocol.AgentID, entries []catalogModel, err error) *remote.CatalogState {
+	state := &remote.CatalogState{Agent: agentKey(agent), Total: len(entries)}
+	if err != nil {
+		state.Error = err.Error()
+		return state
+	}
+	for i, entry := range entries {
+		if i == maxCatalogModels {
+			break
+		}
+		state.Models = append(state.Models, entry.ref)
+	}
+	return state
+}
+
+// loadCatalog reads one agent's catalog in the background and republishes the
+// snapshot with the answer. A second request while one is in flight is ignored:
+// the phone is told Loading, and asking the CLI twice would only be slower.
+func (m *remoteManager) loadCatalog(agent protocol.AgentID) {
+	driver := m.svc.View().Agent(agent).Driver
+	m.catalogMu.Lock()
+	if m.catalogLoading {
+		m.catalogMu.Unlock()
+		return
+	}
+	m.catalogLoading = true
+	m.catalog = &remote.CatalogState{Agent: agentKey(agent), Loading: true}
+	m.catalogMu.Unlock()
+	m.publish()
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), catalogTimeout)
+		defer cancel()
+		list, err := m.svc.Models(ctx, agent)
+		var entries []catalogModel
+		if err == nil {
+			entries = catalogEntries(list)
+		}
+		state := catalogState(agent, entries, err)
+
+		m.catalogMu.Lock()
+		m.catalogLoading = false
+		m.catalog = state
+		m.catalogModels = entries
+		m.catalogDriver = driver
+		m.catalogMu.Unlock()
+		m.publish()
+	}()
+}
+
+// resolveModel finds the entry the phone was shown. The catalog is per agent and
+// per driver, so a list loaded before a driver change no longer describes what
+// runs and is refused rather than used.
+func (m *remoteManager) resolveModel(agent protocol.AgentID, reference string) (catalogModel, error) {
+	reference = strings.TrimSpace(reference)
+	driver := m.svc.View().Agent(agent).Driver
+	m.catalogMu.Lock()
+	defer m.catalogMu.Unlock()
+	if m.catalog == nil || m.catalog.Agent != agentKey(agent) {
+		return catalogModel{}, fmt.Errorf("no model list for %s yet; open its model list first", agent)
+	}
+	if m.catalogDriver != driver {
+		return catalogModel{}, fmt.Errorf("%s now runs %s; refresh its model list and pick again", agent, driver)
+	}
+	for _, model := range m.catalogModels {
+		if model.ref == reference {
+			return model, nil
+		}
+	}
+	return catalogModel{}, fmt.Errorf("%q is not in %s's model list; refresh it and pick again", reference, agent)
+}
+
+// forgetCatalog drops one agent's list after its driver changed.
+func (m *remoteManager) forgetCatalog(agent protocol.AgentID) {
+	m.catalogMu.Lock()
+	defer m.catalogMu.Unlock()
+	if m.catalog == nil || m.catalog.Agent != agentKey(agent) {
+		return
+	}
+	m.catalog = nil
+	m.catalogModels = nil
+	m.catalogDriver = ""
+}
+
+// catalogSnapshot is the model list to publish, or nil when no phone has asked
+// for one.
+func (m *remoteManager) catalogSnapshot() *remote.CatalogState {
+	m.catalogMu.Lock()
+	defer m.catalogMu.Unlock()
+	if m.catalog == nil {
+		return nil
+	}
+	copy := *m.catalog
+	copy.Models = append([]string(nil), m.catalog.Models...)
+	return &copy
+}
+
+// publish republishes the snapshot after a change the session did not report,
+// which is how an asynchronous catalog load reaches the phone.
+func (m *remoteManager) publish() {
+	m.mu.Lock()
+	client := m.client
+	m.mu.Unlock()
+	if client != nil {
+		client.PublishState()
+	}
 }
 
 // SetMode switches the workflow from the phone. It is quiet, like the
