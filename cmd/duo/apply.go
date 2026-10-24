@@ -123,7 +123,7 @@ func runApply(ctx context.Context, args []string) error {
 			body := prBody(snap, outcome.Result.Changes)
 			title := prTitle(snap)
 			fmt.Println()
-			if err := openPullRequest(ctx, root, snap.BaseBranch, branch, title, body, os.Stdout); err != nil {
+			if err := openPullRequest(ctx, root, snap.BaseBranch, prHead(snap, branch), title, body, os.Stdout); err != nil {
 				logger.Printf("pull request for session %s was not opened: %v", summary.SessionID, err)
 				fmt.Println("The artifact is delivered, but the pull request was not opened:")
 				fmt.Printf("  %v\n", err)

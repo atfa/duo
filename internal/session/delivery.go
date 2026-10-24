@@ -84,9 +84,15 @@ func DeliverAndPersistTo(
 					return DeliveryOutcome{Snapshot: snap}, fmt.Errorf("persist reconciled DONE checkpoint: %w", err)
 				}
 			}
+			// A retry re-reads the diff as well: the pull request body is built from
+			// these changes, so leaving them empty would claim the delivery changed
+			// nothing at all.
+			outcome := DeliveryOutcome{Snapshot: snap, Applied: true}
+			if head := deliveredHead(snap); head != "" {
+				outcome.Result.Changes, _ = ManagerFor(snap, head).ChangedPaths(ctx)
+			}
 			// The artifact is already delivered, but a requested push may still be
 			// outstanding: the remote is read again, and pushed only if it is behind.
-			outcome := DeliveryOutcome{Snapshot: snap, Applied: true}
 			if opts.Push {
 				pushOutcome, err := pushDelivered(ctx, snap, opts)
 				if err != nil {
@@ -247,6 +253,14 @@ func finishDelivery(ctx context.Context, snap sessionstore.Snapshot, result deli
 	return outcome
 }
 
+// deliveredHead is the artifact an applied delivery record landed.
+func deliveredHead(snap sessionstore.Snapshot) string {
+	if head := strings.TrimSpace(snap.Delivery.AppliedHead); head != "" {
+		return head
+	}
+	return strings.TrimSpace(snap.Delivery.FinalHead)
+}
+
 // pushDelivered completes a push for an artifact that is already delivered, so a
 // retry does not move the local branch a second time.
 func pushDelivered(ctx context.Context, snap sessionstore.Snapshot, opts DeliveryOptions) (DeliveryOutcome, error) {
@@ -254,10 +268,7 @@ func pushDelivered(ctx context.Context, snap sessionstore.Snapshot, opts Deliver
 	if branch == "" {
 		branch = strings.TrimSpace(snap.BaseBranch)
 	}
-	head := strings.TrimSpace(snap.Delivery.AppliedHead)
-	if head == "" {
-		head = strings.TrimSpace(snap.Delivery.FinalHead)
-	}
+	head := deliveredHead(snap)
 	check, err := delivery.CheckPush(ctx, strings.TrimSpace(snap.Delivery.TargetRepo), branch, head)
 	if err != nil {
 		return DeliveryOutcome{}, err

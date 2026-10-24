@@ -580,3 +580,68 @@ func TestApplyPRDegradesWithoutGh(t *testing.T) {
 		}
 	}
 }
+
+// TestApplyPRRetryReportsTheRecordedDiff is the retry the gh-missing flow
+// depends on: an artifact already landed on a branch, applied again so the pull
+// request can be opened, must still report the delivery's diffstat and the branch
+// it really landed on.
+func TestApplyPRRetryReportsTheRecordedDiff(t *testing.T) {
+	ctx := context.Background()
+	repo := newDeliveryRepo(t)
+	base := deliveryHead(t, repo)
+	baseBranch := deliveryBranch(t, repo)
+	final := makeFinal(t, repo, "duo/pr-retry/austin", "result.md", "hello Duo\n")
+
+	store := newDeliveryStore(t)
+	snap := deliverySnapshot(repo, base, baseBranch, final)
+	if err := store.Save(snap); err != nil {
+		t.Fatal(err)
+	}
+	ws := workspace.NewGitManager(workspace.GitConfig{Repository: repo})
+	ws.Restore(workspace.Set{Repository: repo, BaseBranch: baseBranch, BaseCommit: base})
+
+	first, err := deliverToNewBranch(ctx, store, ws, snap, "feat/x", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !first.Applied {
+		t.Fatalf("first delivery failed: %q", first.Reason)
+	}
+	persisted, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The retry carries a fresh default branch name, exactly as `duo apply <id>
+	// --pr` does without --branch.
+	retried, err := deliverToNewBranch(ctx, store, ws, persisted, "duo/sess-1", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !retried.Applied {
+		t.Fatalf("retry regressed: %q", retried.Reason)
+	}
+	if len(retried.Result.Changes) == 0 {
+		t.Fatal("the retry reported no changes, so the pull request body would claim an empty delivery")
+	}
+	body := prBody(retried.Snapshot, retried.Result.Changes)
+	if !strings.Contains(body, "result.md") {
+		t.Fatalf("the retried body has no diffstat:\n%s", body)
+	}
+	if got := prHead(retried.Snapshot, "duo/sess-1"); got != "feat/x" {
+		t.Fatalf("pull request head = %q, want the branch the artifact landed on", got)
+	}
+}
+
+// TestPRHeadPrefersTheLandedBranch pins the fallback: only a record without a
+// target branch may use the freshly computed name.
+func TestPRHeadPrefersTheLandedBranch(t *testing.T) {
+	snap := sessionstore.Snapshot{Delivery: sessionstore.Delivery{TargetBranch: "feat/x"}}
+	if got := prHead(snap, "duo/sess-1"); got != "feat/x" {
+		t.Fatalf("prHead = %q, want the recorded branch", got)
+	}
+	empty := sessionstore.Snapshot{}
+	if got := prHead(empty, "duo/sess-1"); got != "duo/sess-1" {
+		t.Fatalf("prHead = %q, want the fallback for a record without a branch", got)
+	}
+}

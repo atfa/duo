@@ -87,6 +87,17 @@ func prBody(snap sessionstore.Snapshot, changes []delivery.Change) string {
 	return b.String()
 }
 
+// prHead is the branch a pull request must come from: the branch the artifact
+// actually landed on. A retry can carry a freshly computed default, and naming a
+// branch nothing was pushed to would open the request against the wrong head or
+// fail after the push already happened.
+func prHead(snap sessionstore.Snapshot, fallback string) string {
+	if head := strings.TrimSpace(snap.Delivery.TargetBranch); head != "" {
+		return head
+	}
+	return fallback
+}
+
 // openPullRequest asks gh to open the pull request, or prints the same body with
 // what to do by hand when gh is not installed. Duo never talks to a hosting API
 // itself: gh is the only hosting dependency, and only when it is present.
