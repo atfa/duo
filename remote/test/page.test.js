@@ -53,6 +53,9 @@ test("the page is three tabs, one panel each", () => {
   for (const name of ["session", "activity", "settings"]) {
     assert.match(page, new RegExp(`<button[^>]*id="tab-${name}"[^>]*role="tab"[^>]*aria-controls="panel-${name}"`));
     assert.match(page, new RegExp(`<section[^>]*id="panel-${name}"[^>]*role="tabpanel"[^>]*aria-labelledby="tab-${name}"`));
+    // A panel is reachable from the keyboard: the Activity panel has no focusable
+    // child of its own, so a reader would otherwise land nowhere after the tab.
+    assert.match(page, new RegExp(`<section[^>]*id="panel-${name}"[^>]*tabindex="0"`));
   }
   // Session is the default tab; the other two are hidden until they are picked.
   assert.match(page, /<button[^>]*id="tab-session"[^>]*aria-selected="true"/);
@@ -95,7 +98,8 @@ test("the sticky header carries the short vitals and the step progress", () => {
   for (const id of ["title", "status", "mode", "phase", "step", "expiry", "banner"]) {
     assert.match(header, new RegExp(`id="${id}"`), `${id} stays visible without a tab`);
   }
-  assert.match(header, /<progress id="progress"[^>]*hidden/);
+  // The bar shows the step counter a second time, so it needs a name of its own.
+  assert.match(header, /<progress id="progress"[^>]*aria-label="[^"]+"[^>]*hidden/);
   assert.match(header, /aria-controls="panel-session"/, "the tabs are part of the sticky header");
   assert.doesNotMatch(header, /id="step-title"/, "the long step text is not in the header");
 });

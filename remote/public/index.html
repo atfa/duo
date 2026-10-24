@@ -25,7 +25,7 @@
       <div class="vital"><dt>Step</dt><dd id="step">—</dd></div>
       <div class="vital"><dt>Expires</dt><dd id="expiry">—</dd></div>
     </dl>
-    <progress id="progress" class="progress" max="1" value="0" hidden></progress>
+    <progress id="progress" class="progress" aria-label="Step progress" max="1" value="0" hidden></progress>
     <div class="tabs" role="tablist" aria-label="Sections">
       <button type="button" class="tab" id="tab-session" role="tab" aria-controls="panel-session" aria-selected="true">Session</button>
       <button type="button" class="tab" id="tab-activity" role="tab" aria-controls="panel-activity" aria-selected="false" tabindex="-1">Activity</button>
@@ -35,7 +35,7 @@
   </header>
 
   <main class="shell">
-    <section id="panel-session" class="panel" role="tabpanel" aria-labelledby="tab-session">
+    <section id="panel-session" class="panel" role="tabpanel" tabindex="0" aria-labelledby="tab-session">
       <div class="card">
         <h1>Current step</h1>
         <p id="step-title" class="step-title">—</p>
@@ -55,14 +55,14 @@
       </details>
     </section>
 
-    <section id="panel-activity" class="panel" role="tabpanel" aria-labelledby="tab-activity" hidden>
+    <section id="panel-activity" class="panel" role="tabpanel" tabindex="0" aria-labelledby="tab-activity" hidden>
       <div class="card">
         <h1>Recent activity</h1>
         <ul id="activity" class="activity"><li class="muted">No activity yet.</li></ul>
       </div>
     </section>
 
-    <section id="panel-settings" class="panel" role="tabpanel" aria-labelledby="tab-settings" hidden>
+    <section id="panel-settings" class="panel" role="tabpanel" tabindex="0" aria-labelledby="tab-settings" hidden>
       <div class="card">
         <h1>Workflow</h1>
         <div class="control">
