@@ -74,10 +74,18 @@ type App struct {
 	hadHistory    bool
 	nextSeq       int
 	showTimestamp bool
-	sidebar       bool
-	status        string
-	statusErr     bool
-	warnedNotices map[string]bool
+
+	// announcedConnected records the agents this interface has already told the
+	// human are connected. A bridge can attach before the interface exists, so the
+	// connection is announced from the session view at startup; the event for that
+	// same connection may still be in the stream, and this set is what keeps it
+	// from being printed twice. It is cleared when the view says the agent is gone,
+	// so a reconnect is announced again.
+	announcedConnected map[protocol.AgentID]bool
+	sidebar            bool
+	status             string
+	statusErr          bool
+	warnedNotices      map[string]bool
 
 	subEvents    <-chan events.Event
 	stop         chan struct{}
@@ -171,6 +179,8 @@ func New(svc Session) *App {
 		openFile:      openFileDefault,
 		saveViewPref:  workspace.SaveProjectTUIView,
 		toastDuration: 2 * time.Second,
+
+		announcedConnected: map[protocol.AgentID]bool{},
 	}
 	a.background = newBackground(t)
 	a.modalBg = newBackground(t)
@@ -278,6 +288,14 @@ func (a *App) showCopiedToast(chars int) {
 func (a *App) refreshView() {
 	if a.svc != nil {
 		a.live = a.svc.View()
+	}
+	// A connection the view no longer reports is over, so the next one is news
+	// again: forgetting it here is what keeps a reconnect from being swallowed by
+	// the startup announcement's marker.
+	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		if !agentConnected(a.live.Agent(id)) {
+			delete(a.announcedConnected, id)
+		}
 	}
 	a.observeNewSession()
 	a.applyLanguage()
@@ -793,15 +811,28 @@ func (a *App) announceResumePending() {
 
 func (a *App) announceRunningAgents() {
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
-		av := a.live.Agent(id)
-		if av.Manifest != nil && av.Manifest.Capabilities.SelfReports {
+		if !agentConnected(a.live.Agent(id)) {
 			continue
 		}
-		if av.Process != agent.ProcessRunning {
-			continue
-		}
+		a.announcedConnected[id] = true
 		a.addLabeled(id, directionLabel(id, ""), fmt.Sprintf("%s %s", id, a.theme.tr("connected")), false, false)
 	}
+}
+
+// agentConnected reports whether the view says this agent is reachable: a bridge
+// client is attached, or — for a driver whose bridge cannot attach until its agent
+// has something to say — the process it runs is up.
+//
+// A driver that reports itself is announced by the connection event its bridge
+// produces, but that event can be emitted while the session is still starting, so
+// the interface may attach after it and never see it. This predicate is how the
+// view answers the same question, which is why it covers every driver and not only
+// the ones that cannot speak for themselves.
+func agentConnected(av session.AgentView) bool {
+	if av.Connected {
+		return true
+	}
+	return !av.Capabilities.SelfReports && av.Process == agent.ProcessRunning
 }
 
 func (a *App) filterEntries(pane string) []entry {

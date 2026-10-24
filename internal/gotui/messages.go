@@ -32,6 +32,18 @@ func (a *App) route(event events.Event) {
 		}
 		return
 	}
+	// A connection event and the session view describe the same fact. The view is
+	// the one the startup announcement reads, so an agent already announced from it
+	// must not be announced again by the event that preceded it.
+	switch event.Connection {
+	case events.ConnectionUp:
+		if a.announcedConnected[event.Agent] {
+			return
+		}
+		a.announcedConnected[event.Agent] = true
+	case events.ConnectionDown:
+		delete(a.announcedConnected, event.Agent)
+	}
 	text := strings.TrimSpace(event.Text)
 	if text == "" {
 		return

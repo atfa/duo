@@ -477,9 +477,11 @@ func (s *Service) observeLifecycle(event agent.LifecycleEvent) {
 	case "agent_start":
 		// A driver whose bridge cannot announce itself is announced here instead,
 		// so every agent produces the same "connected" signal at the same moment.
-		// The answer is the driver's declared capability, not its name.
+		// The answer is the driver's declared capability, not its name. The event is
+		// marked as a connection so a frontend that already announced this agent
+		// from the view does not say it twice.
 		if d, ok := s.agents.Driver(event.Agent); ok && !d.Capabilities().SelfReports {
-			s.bus.Emit(events.Event{Time: time.Now(), Kind: events.KindSystem, Agent: event.Agent, Text: fmt.Sprintf("%s connected", event.Agent)})
+			s.bus.Emit(events.Event{Time: time.Now(), Kind: events.KindSystem, Agent: event.Agent, Text: fmt.Sprintf("%s connected", event.Agent), Connection: events.ConnectionUp})
 		}
 	case "agent_start_failed", "agent_restart":
 		if event.Err != nil {

@@ -785,6 +785,17 @@ func (c *Coordinator) emit(kind events.Kind, agent, peer protocol.AgentID, text 
 	c.bus.Emit(events.Event{Kind: kind, Agent: agent, Peer: peer, Text: text})
 }
 
+// emitConnection publishes the system line a bridge attach or detach produces and
+// marks it as a connection event. The text is the same one the timeline has always
+// shown; the mark is what lets a frontend that attached after this event recognise
+// it as the connection it already announced from the session view.
+func (c *Coordinator) emitConnection(agent protocol.AgentID, state events.ConnectionEvent, text string) {
+	if c.bus == nil {
+		return
+	}
+	c.bus.Emit(events.Event{Kind: events.KindSystem, Agent: agent, Text: text, Connection: state})
+}
+
 // SubmitUserTask is the single human entry point used by the Duo TUI. Goal and
 // Step tasks are sent to both agents; Fast tasks go only to Austin. On a DONE
 // session it first reopens the round, so a composer follow-up is a normal task.
@@ -1219,7 +1230,7 @@ func (c *Coordinator) onConnect(ctx context.Context, agent protocol.AgentID) {
 	// Drivers that cannot announce themselves over the bridge already said so when
 	// their process started, so repeating it here would report one agent twice.
 	if !c.announcedOnStart(agent) {
-		c.emit(events.KindSystem, agent, "", fmt.Sprintf("%s connected", agent))
+		c.emitConnection(agent, events.ConnectionUp, fmt.Sprintf("%s connected", agent))
 	}
 	if err := c.deliverResumeWork(ctx, agent); err != nil {
 		snap := c.project.Snapshot()
@@ -1249,9 +1260,17 @@ func (c *Coordinator) announcedOnStart(agent protocol.AgentID) bool {
 }
 
 func (c *Coordinator) OnDisconnect(client *transport.Client) {
-	c.tracker.Reset(client.Identity())
-	c.recordEvent("bridge_disconnect", map[string]any{"agent": string(client.Identity())})
-	c.emit(events.KindSystem, client.Identity(), "", fmt.Sprintf("%s disconnected", client.Identity()))
+	c.onDisconnect(client.Identity())
+}
+
+// onDisconnect applies a bridge detach for an agent whose identity the transport
+// has already authenticated. It is separate from OnDisconnect for the same reason
+// onConnect is: the routing decision can be exercised without a socket, and no
+// caller can name an agent the transport has not vouched for.
+func (c *Coordinator) onDisconnect(agent protocol.AgentID) {
+	c.tracker.Reset(agent)
+	c.recordEvent("bridge_disconnect", map[string]any{"agent": string(agent)})
+	c.emitConnection(agent, events.ConnectionDown, fmt.Sprintf("%s disconnected", agent))
 }
 
 func (c *Coordinator) OnMessage(ctx context.Context, client *transport.Client, message protocol.Message) {
