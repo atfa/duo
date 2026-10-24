@@ -63,7 +63,13 @@ test("the status line cannot grow the dock without bound", () => {
   const sent = rule(".sent");
   assert.match(sent, /-webkit-line-clamp:\s*2/);
   assert.match(sent, /overflow:\s*hidden/);
-  assert.match(rule(".sent:empty"), /display:\s*none/);
+  // Empty it takes no space, but it may not leave the accessibility tree: this is
+  // the only place the page reports that a command was accepted or refused, and a
+  // live region that is display:none is not reliably announced.
+  const empty = rule(".sent:empty");
+  assert.doesNotMatch(empty, /display:\s*none/);
+  assert.match(empty, /position:\s*absolute/);
+  assert.match(empty, /clip-path:\s*inset\(50%\)/);
 });
 
 test("the header stays on screen while the cards scroll", () => {

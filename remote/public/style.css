@@ -368,7 +368,18 @@ button:disabled { opacity: 0.45; cursor: default; }
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
-.sent:empty { display: none; }
+/* An empty status line costs no height, but it stays in the accessibility tree:
+   this is the only place the page says a command was accepted or refused, and a
+   live region that is display:none is not reliably announced. */
+.sent:empty {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
 
 .composer { display: flex; align-items: flex-end; gap: 0.45rem; }
 .composer textarea {
