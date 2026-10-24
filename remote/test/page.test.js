@@ -72,6 +72,19 @@ test("a sent task leaves the composer empty", () => {
   assert.ok(queued > clear, "the composer must be cleared before the command is pending");
 });
 
+// The phone can change the workflow mode from the session card. One select is
+// the whole control, and the page asks before a switch that would discard the
+// round in progress.
+test("the session card can switch mode", () => {
+  assert.match(page, /<select id="modes"/);
+  for (const mode of ["fast", "step", "goal"]) {
+    assert.match(page, new RegExp(`<option value="${mode}"`));
+  }
+  assert.match(app, /command\("switch_mode"/);
+  assert.match(app, /needsModeConfirm\(model\)/);
+  assert.match(app, /window\.confirm\(/);
+});
+
 // One rule decides when the command in flight is over, and both triggers use it:
 // every state the host publishes, and the bounded wait that keeps a lost answer
 // from disabling the page for good.

@@ -35,6 +35,10 @@ second scan.
   Tony's state and recent activity;
 - send a task, which enters the workflow through the same `SubmitTask` a human
   keystroke uses;
+- switch mode: fast, step or goal. The switch is quiet, like `/mode` on the
+  computer: the agents are not woken up, and the next task is the one that runs
+  in the new mode. A started session that is not `DONE` asks first, because the
+  round in progress is discarded;
 - start a fresh session (`/new`), refresh the observer's status report.
 
 Every command is answered: the phone shows `accepted`, or the reason the host

@@ -75,6 +75,19 @@ h1 { font-size: 0.78rem; margin: 0 0 0.6rem; text-transform: uppercase; letter-s
 .facts { display: grid; grid-template-columns: auto 1fr; gap: 0.3rem 0.8rem; margin: 0; font-size: 0.9rem; }
 .facts dt { color: var(--muted); }
 .facts dd { margin: 0; overflow-wrap: anywhere; }
+.control { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.7rem; font-size: 0.85rem; }
+.control label { color: var(--muted); }
+.control select {
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0.4rem 0.6rem;
+  min-height: 2.6rem;
+  border-radius: 0.6rem;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+}
+.control select:disabled { opacity: 0.5; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; }
 
 .plan { margin: 0.6rem 0 0; font-size: 0.85rem; color: var(--muted); overflow-wrap: anywhere; }

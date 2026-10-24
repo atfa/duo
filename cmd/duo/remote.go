@@ -399,6 +399,24 @@ func (s remoteSink) NewSession() error {
 
 func (s remoteSink) RequestObserverReport() { s.m.svc.RequestObserverReport() }
 
+// SetMode switches the workflow from the phone. It is quiet, like the
+// interface's own mode change: the agents are not woken up, and the task the
+// human sends next is the one that runs in the new mode. A switch to the mode
+// already running is a no-op, because the phone would otherwise report a
+// failure for a tap that changed nothing.
+func (s remoteSink) SetMode(mode string) error {
+	target, err := project.ParseMode(mode)
+	if err != nil {
+		return err
+	}
+	if target == s.m.svc.View().EffectiveMode() {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return s.m.svc.Do(ctx, session.SwitchMode{Mode: target.String(), Quiet: true})
+}
+
 // projectName is the repository's last path element: the phone shows a project
 // name, not a home directory.
 func projectName(view session.View) string {

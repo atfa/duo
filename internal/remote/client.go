@@ -24,6 +24,9 @@ type Sink interface {
 	SubmitTask(text string) error
 	NewSession() error
 	RequestObserverReport()
+	// SetMode switches the workflow. The host validates the name and treats a
+	// switch to the mode already running as a no-op rather than a failure.
+	SetMode(mode string) error
 }
 
 // Options configures a Client.
@@ -483,6 +486,14 @@ func (c *Client) applyCommand(f frame, plaintext []byte) error {
 		}
 	case CmdObserverReport:
 		c.opts.Sink.RequestObserverReport()
+	case CmdSwitchMode:
+		mode := strings.TrimSpace(cmd.Text)
+		if mode == "" {
+			return c.reject(cmd.ID, cmd.Kind, "the mode was empty")
+		}
+		if err := c.opts.Sink.SetMode(mode); err != nil {
+			return c.reject(cmd.ID, cmd.Kind, err.Error())
+		}
 	default:
 		return c.reject(cmd.ID, cmd.Kind, fmt.Sprintf("unsupported command %q", cmd.Kind))
 	}

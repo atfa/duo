@@ -43,6 +43,9 @@ const (
 	CmdTask           = "task"
 	CmdNewSession     = "new_session"
 	CmdObserverReport = "observer_report"
+	// CmdSwitchMode carries the mode name in Text. The host validates it and
+	// switches quietly, so changing mode from a phone never wakes an agent.
+	CmdSwitchMode = "switch_mode"
 )
 
 // Close and error codes. They are stable identifiers: a frontend localises them

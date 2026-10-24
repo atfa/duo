@@ -4,7 +4,7 @@
 // here, so a phone that drops its Wi-Fi catches up on its own.
 
 import { LinkError, decryptEnvelope, deriveKeys, parsePairingKey, parseRoom } from "./crypto.js";
-import { agentLabel, agentMeta, applyEvent, buildCommand, dotClass, nextSeq, PENDING_TIMEOUT_MS, resendText, settlePending, viewModel } from "./console.js";
+import { agentLabel, agentMeta, applyEvent, buildCommand, dotClass, modeKey, needsModeConfirm, nextSeq, PENDING_TIMEOUT_MS, resendText, settlePending, viewModel } from "./console.js";
 
 const RECONNECT_MIN_MS = 500;
 const RECONNECT_MAX_MS = 15000;
@@ -16,6 +16,7 @@ const els = {
   banner: document.getElementById("banner"),
   room: document.getElementById("room"),
   mode: document.getElementById("mode"),
+  modes: document.getElementById("modes"),
   phase: document.getElementById("phase"),
   step: document.getElementById("step"),
   expiry: document.getElementById("expiry"),
@@ -90,6 +91,9 @@ function render() {
   els.title.textContent = model ? model.project : "Duo";
   els.mode.textContent = model?.mode || "—";
   els.phase.textContent = model?.phase || "—";
+  // The select shows the host's mode, except while a switch is in flight: the
+  // choice the human just made must not snap back before the host answers.
+  if (!pending) els.modes.value = modeKey(model?.mode);
   els.step.textContent = model?.step ? `${model.step.index}/${model.step.total} · ${model.step.policy} · ${model.step.title}` : "—";
   els.plan.textContent = model?.plan || "";
 
@@ -145,6 +149,7 @@ function render() {
   els.send.disabled = !ready || Boolean(pending);
   els.newsess.disabled = !ready || Boolean(pending);
   els.refresh.disabled = !ready || Boolean(pending);
+  els.modes.disabled = !ready || Boolean(pending);
 }
 
 function send(frame) {
@@ -437,6 +442,17 @@ els.task.addEventListener("keydown", (event) => {
 });
 els.newsess.addEventListener("click", () => void command("new_session", ""));
 els.refresh.addEventListener("click", () => void command("observer_report", ""));
+els.modes.addEventListener("change", () => {
+  const target = els.modes.value;
+  if (!target) return;
+  // A switch discards the round in progress, so a started session that is not
+  // finished asks first. Before the first task and after DONE it costs nothing.
+  if (needsModeConfirm(model) && !window.confirm(`Switch to ${target.toUpperCase()} mode? The round in progress is discarded.`)) {
+    els.modes.value = modeKey(model?.mode);
+    return;
+  }
+  void command("switch_mode", target);
+});
 
 window.addEventListener("online", () => {
   if (!fatal && (!socket || socket.readyState === WebSocket.CLOSED)) connect();

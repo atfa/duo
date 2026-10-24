@@ -182,6 +182,26 @@ func TestRemoteStartRegistersBeforeReturningPairing(t *testing.T) {
 	manager.stopClient()
 }
 
+// A mode command is validated before it reaches the session, and switching to
+// the mode that is already running is not an error: the phone would otherwise
+// report a failure for a tap that changed nothing.
+func TestRemoteSetModeValidatesAndNoOpsTheRunningMode(t *testing.T) {
+	manager := &remoteManager{svc: session.New(session.Options{}), now: time.Now}
+	sink := remoteSink{m: manager}
+
+	if err := sink.SetMode("turbo"); err == nil || !strings.Contains(err.Error(), "unknown Duo mode") {
+		t.Fatalf("SetMode(turbo) = %v, want the unknown-mode error", err)
+	}
+	// A session that has not started yet runs Goal, which is the mode a zero
+	// snapshot normalizes to.
+	if err := sink.SetMode("goal"); err != nil {
+		t.Errorf("SetMode(goal) on an unstarted session = %v, want nil", err)
+	}
+	if err := sink.SetMode("step"); err == nil {
+		t.Error("SetMode(step) reported success without a running session")
+	}
+}
+
 // A conversation line is cheap and frequent, so it goes out as an event; a
 // workflow change must go out as a whole snapshot, which is the one thing a
 // phone can always render.

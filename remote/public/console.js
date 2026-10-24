@@ -4,8 +4,16 @@
 // Shapes follow docs/remote-protocol.md. Nothing here trusts a field: a newer
 // host may add them, an older one may omit them.
 
-export const COMMAND_KINDS = new Set(["task", "new_session", "observer_report"]);
+export const COMMAND_KINDS = new Set(["task", "new_session", "observer_report", "switch_mode"]);
+// COMMAND_TEXT_KINDS are the commands whose text is the instruction itself. A
+// command outside this set sends no text at all, so a future version cannot
+// start acting on a body nobody signs.
+export const COMMAND_TEXT_KINDS = new Set(["task", "switch_mode"]);
 export const MAX_ACTIVITY = 12;
+
+// MODES is every workflow mode the phone may switch to. The host validates the
+// name again; this only keeps a typo off the wire.
+export const MODES = ["fast", "step", "goal"];
 
 // nextSeq is the sequence rule: the newest sequence number wins, and one that
 // does not move forward means the room was recreated, so the epoch restarts at
@@ -45,6 +53,21 @@ export function agentLabel(value) {
   const id = agentId(value);
   if (id) return id.charAt(0).toUpperCase() + id.slice(1);
   return text(value);
+}
+
+// modeKey folds the host's display spelling ("STEP") onto the wire value
+// ("step"), and reports "" for a mode this page does not know.
+export function modeKey(mode) {
+  const key = text(mode).trim().toLowerCase();
+  return MODES.includes(key) ? key : "";
+}
+
+// needsModeConfirm reports whether a mode switch would discard work: a started
+// session that has not finished loses the round it is in. Before the first task,
+// and after DONE, a switch costs nothing and must not ask.
+export function needsModeConfirm(model) {
+  if (!model || model.started !== true) return false;
+  return text(model.phase) !== "DONE";
 }
 
 // dotClass is the agent's indicator. Green means healthy and idle, blue means
@@ -232,7 +255,7 @@ export function resendText(pending, draft) {
 // so a relay operator can neither rewrite nor duplicate a command.
 export async function buildCommand({ room, encKey, macKey, kind, text: body, nonce, id, randomBytes }) {
   if (!COMMAND_KINDS.has(kind)) throw new Error(`unsupported command kind ${kind}`);
-  const payload = { v: 1, id, kind, text: kind === "task" ? body : "", n: nonce };
+  const payload = { v: 1, id, kind, text: COMMAND_TEXT_KINDS.has(kind) ? body : "", n: nonce };
   const { commandMac } = await import("./crypto.js");
   payload.mac = await commandMac(macKey, id, kind, nonce, payload.text);
   const { sealCommand } = await import("./crypto.js");

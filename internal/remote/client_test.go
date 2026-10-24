@@ -15,6 +15,8 @@ type fakeSink struct {
 	tasks    []string
 	newCount int
 	observer int
+	modes    []string
+	modeErr  error
 }
 
 func (s *fakeSink) SubmitTask(text string) error {
@@ -41,6 +43,28 @@ func (s *fakeSink) snapshot() ([]string, int, int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string(nil), s.tasks...), s.newCount, s.observer
+}
+
+func (s *fakeSink) SetMode(mode string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.modeErr != nil {
+		return s.modeErr
+	}
+	s.modes = append(s.modes, mode)
+	return nil
+}
+
+func (s *fakeSink) setModeError(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.modeErr = err
+}
+
+func (s *fakeSink) modeSnapshot() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.modes...)
 }
 
 func testPairing(t *testing.T, relay *fakeRelay) Pairing {
@@ -395,6 +419,52 @@ func TestPublishedStateCarriesTheCommandResult(t *testing.T) {
 				t.Errorf("note = %q, want it to mention %q", next.Command.Note, tc.notes)
 			}
 		})
+	}
+}
+
+// A mode switch is one more verb a human has, so it reaches the sink with the
+// name the phone sent, and a host that refuses it says why instead of leaving
+// the phone with a tap that did nothing.
+func TestSwitchModeReachesTheSinkAndReportsRefusals(t *testing.T) {
+	relay := newFakeRelay(t)
+	p := testPairing(t, relay)
+	sink := &fakeSink{}
+	c, err := New(Options{Pairing: p, Sink: sink, Snapshot: staticState("duo"),
+		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	startClient(t, c)
+	waitFor(t, "host connection", func() bool { return c.Status().Connected })
+	guest := relay.guest(t, p)
+	state := guest.nextState(t, p, 5*time.Second)
+
+	sendCommand(t, guest, p, "cmd-mode", CmdSwitchMode, " step ", state.N)
+	next := guest.nextState(t, p, 5*time.Second)
+	if next.Command == nil || !next.Command.Accepted {
+		t.Fatalf("the mode switch was not accepted: %+v", next.Command)
+	}
+	if got := sink.modeSnapshot(); len(got) != 1 || got[0] != "step" {
+		t.Fatalf("sink saw modes %v, want [step] with the padding trimmed", got)
+	}
+
+	sendCommand(t, guest, p, "cmd-mode-empty", CmdSwitchMode, "   ", next.N)
+	next = guest.nextState(t, p, 5*time.Second)
+	if next.Command == nil || next.Command.Accepted {
+		t.Fatalf("an empty mode was accepted: %+v", next.Command)
+	}
+	if !strings.Contains(next.Command.Note, "empty") {
+		t.Errorf("note = %q, want it to mention the empty mode", next.Command.Note)
+	}
+
+	sink.setModeError(fmt.Errorf("mode is locked while a step is in review"))
+	sendCommand(t, guest, p, "cmd-mode-refused", CmdSwitchMode, "goal", next.N)
+	next = guest.nextState(t, p, 5*time.Second)
+	if next.Command == nil || next.Command.Accepted {
+		t.Fatalf("a refused mode switch was accepted: %+v", next.Command)
+	}
+	if !strings.Contains(next.Command.Note, "locked") {
+		t.Errorf("note = %q, want the host's own reason", next.Command.Note)
 	}
 }
 

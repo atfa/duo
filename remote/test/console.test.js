@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { agentId, agentLabel, agentMeta, applyEvent, buildCommand, dotClass, nextSeq, PENDING_TIMEOUT_MS, resendText, settlePending, viewModel } from "../public/console.js";
-import { b64uEncode, decryptEnvelope, deriveKeys, parsePairingKey, sealCommand } from "../public/crypto.js";
+import { agentId, agentLabel, agentMeta, applyEvent, buildCommand, COMMAND_KINDS, dotClass, modeKey, needsModeConfirm, nextSeq, PENDING_TIMEOUT_MS, resendText, settlePending, viewModel } from "../public/console.js";
+import { b64uEncode, commandMac, decryptEnvelope, deriveKeys, parsePairingKey, sealCommand } from "../public/crypto.js";
 import { VECTOR } from "./vectors.js";
 
 test("the newest sequence number wins, and a restart moves the epoch", () => {
@@ -166,6 +166,38 @@ test("a command is signed and encrypted the way the host verifies it", async () 
   assert.equal(plain.mac, VECTOR.mac);
 
   await assert.rejects(buildCommand({ room: VECTOR.room, encKey, macKey, kind: "reboot", nonce: 1, id: "x" }));
+});
+
+// A mode switch is a signed command whose text is the mode name: the MAC covers
+// it, so the relay cannot turn "step" into "fast". The page asks before a switch
+// that would discard a round, and never asks when there is nothing to lose.
+test("a mode switch carries the mode name and asks before discarding a round", async () => {
+  assert.ok(COMMAND_KINDS.has("switch_mode"));
+  assert.equal(modeKey("STEP"), "step");
+  assert.equal(modeKey(" step "), "step");
+  assert.equal(modeKey("turbo"), "");
+  assert.equal(modeKey(undefined), "");
+
+  assert.equal(needsModeConfirm({ started: false, phase: "PLAN" }), false);
+  assert.equal(needsModeConfirm({ started: true, phase: "DONE" }), false);
+  assert.equal(needsModeConfirm({ started: true, phase: "EXECUTE" }), true);
+  assert.equal(needsModeConfirm(null), false);
+
+  const { encKey, macKey } = await deriveKeys(parsePairingKey(VECTOR.key));
+  const frame = await buildCommand({
+    room: VECTOR.room,
+    encKey,
+    macKey,
+    kind: "switch_mode",
+    text: "step",
+    nonce: 7,
+    id: "cmd-mode",
+    randomBytes: () => new Uint8Array(12).fill(4),
+  });
+  const plain = await decryptEnvelope(encKey, VECTOR.room, { kind: "cmd", seq: frame.id, iv: frame.iv, ct: frame.ct });
+  assert.equal(plain.kind, "switch_mode");
+  assert.equal(plain.text, "step");
+  assert.equal(plain.mac, await commandMac(macKey, "cmd-mode", "switch_mode", 7, "step"));
 });
 
 test("a sealed command does not decrypt under a message envelope", async () => {
