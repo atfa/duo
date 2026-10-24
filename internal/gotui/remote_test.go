@@ -314,3 +314,51 @@ func TestRemoteStatusTextNamesTheRelayAndThePhone(t *testing.T) {
 		t.Errorf("unpaired status = %q, want it to say off", got)
 	}
 }
+
+// Closing the panel is the obvious next move, and a human cannot tell from the
+// screen whether that ends the phone's access. It does not: only /remote off (or
+// the pairing expiring, or Duo exiting) disconnects. The panel has to say so, and
+// this fails if the hint is dropped.
+func TestQrcodeOverlaySaysClosingItKeepsThePhone(t *testing.T) {
+	q := newQrcode(newTheme())
+	q.rebuild(
+		RemotePairing{URL: "https://relay.example/p/room-1#secret", Display: "https://relay.example/p/room-1"},
+		RemoteStatus{Room: "room-1", Connected: true, Guests: 1, ExpiresAt: time.Now().Add(time.Hour)},
+	)
+
+	shown := overlayText(q.lines)
+	for _, want := range []string{
+		"closing this panel keeps the phone connected",
+		"/remote off revokes the pairing",
+	} {
+		if !strings.Contains(shown, want) {
+			t.Errorf("the pairing overlay does not say %q:\n%s", want, shown)
+		}
+	}
+
+	// A hint wider than the panel is drawn past its border on a narrow terminal,
+	// so no line may be wider than the widest line that was already there.
+	limit := 57
+	for _, line := range q.lines {
+		if width := lineWidth(line); width > limit {
+			t.Errorf("overlay line %q is %d cells wide, want at most %d", overlayLineText(line), width, limit)
+		}
+	}
+}
+
+// overlayText joins the overlay's lines so a test can read what a human sees.
+func overlayText(lines []renderLine) string {
+	texts := make([]string, 0, len(lines))
+	for _, line := range lines {
+		texts = append(texts, overlayLineText(line))
+	}
+	return strings.Join(texts, "\n")
+}
+
+func overlayLineText(line renderLine) string {
+	var b strings.Builder
+	for _, run := range line.runs {
+		b.WriteString(run.text)
+	}
+	return b.String()
+}

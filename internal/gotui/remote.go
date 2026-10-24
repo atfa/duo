@@ -107,6 +107,12 @@ func (q *qrcodeOverlay) rebuild(pairing RemotePairing, status RemoteStatus) {
 		add(q.theme.tr("connecting to the relay…"), q.theme.Warning)
 	}
 	add(q.theme.tr("scan with the phone camera; the secret stays in the code"), q.theme.Timestamp)
+	// Closing the panel is the obvious next move, and it does not disconnect the
+	// phone: only /remote off (or the pairing expiring, or Duo exiting) does. Each
+	// line stays shorter than the longest one above, so a narrow terminal never
+	// has to clip it.
+	add(q.theme.tr("closing this panel keeps the phone connected"), q.theme.Timestamp)
+	add(q.theme.tr("/remote off revokes the pairing"), q.theme.Timestamp)
 	q.width = 0
 	for _, row := range q.code {
 		q.width = max(q.width, len([]rune(row)))

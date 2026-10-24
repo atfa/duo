@@ -115,8 +115,9 @@ stay on your machine; the pairing secret travels in the QR code's URL fragment,
 which a browser never sends to a server.
 
 A pairing lives in `~/.duo/remote.json` (`0600`) for 8 hours and reconnects by
-itself, so `/new` keeps the phone connected. `/remote` shows the status,
-`/remote off` revokes it. Configure the relay with a `remote` section in the
+itself, so `/new` keeps the phone connected. Closing the QR panel does not
+disconnect the phone: only `/remote off`, the pairing expiring, or Duo exiting
+ends it. `/remote` shows the status, `/remote off` revokes it. Configure the relay with a `remote` section in the
 config file or `DUO_REMOTE_URL`; the default is `https://remote.xduo.dev`, and
 the Worker in `remote/` is yours to deploy. See [docs/remote.md](docs/remote.md).
 

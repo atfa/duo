@@ -113,7 +113,8 @@ Cloudflare Worker，只存储密文，因此提示词与仓库路径都留在本
 URL 的 fragment 中，浏览器不会把它发送给服务器。
 
 配对信息保存在 `~/.duo/remote.json`（权限 `0600`），有效期 8 小时，并会自动重连，
-因此 `/new` 之后手机无需重新扫码。`/remote` 查看状态，`/remote off` 撤销配对。
+因此 `/new` 之后手机无需重新扫码。关掉二维码面板不会断开手机：只有 `/remote off`、
+配对过期、或 Duo 退出才会断开。`/remote` 查看状态，`/remote off` 撤销配对。
 可在配置文件的 `remote` 段或 `DUO_REMOTE_URL` 中设置中继地址，默认为
 `https://remote.xduo.dev`；`remote/` 目录中的 Worker 可自行部署。见
 [docs/remote.md](docs/remote.md)。

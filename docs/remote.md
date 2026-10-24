@@ -22,6 +22,13 @@ hours. While it is live, a new or resumed session reconnects by itself, so
 `/new` keeps the phone connected and no rescan is needed. A machine that has
 never paired sends nothing to the relay at all.
 
+Closing the QR panel does not end the pairing: `Esc` only hides it, and the
+phone keeps controlling the session. Access ends in exactly three ways —
+`/remote off` (which revokes the room on the relay), the pairing expiring after
+8 hours, or Duo itself exiting. While the pairing is live, `/qrcode` shows the
+same room and the same link again, so a phone that is still open needs no
+second scan.
+
 ## What the phone can do
 
 - show the project, session, mode, phase, the current step, and Austin's and

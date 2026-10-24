@@ -203,6 +203,8 @@ var zhUI = map[string]string{
 	"connecting to the relay…":                "正在连接中继…",
 	"scan with the phone camera; the secret stays in the code":     "用手机相机扫码；密钥只存在于二维码中",
 	"the pairing code could not be drawn":                          "无法绘制配对二维码",
+	"closing this panel keeps the phone connected":                 "关闭本面板不会断开手机",
+	"/remote off revokes the pairing":                              "只有 /remote off 会撤销配对",
 	"remote: off (no pairing on this machine)":                     "远程：已关闭（本机没有配对）",
 	"%d phone(s) connected":                                        "已连接 %d 台手机",
 	"remote:":                                                      "远程：",
