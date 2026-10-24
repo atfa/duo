@@ -30,6 +30,18 @@ All notable project milestones are documented here.
   task is never run twice, and a command that did not run gives its text back to
   the composer instead of asking for a prompt the phone no longer has.
 
+### Remote access
+
+- The relay at https://remote.xduo.dev serves the page in this tree, so the fixes
+  above reach a phone. `scripts/remote-deploy.sh` deploys and then compares
+  `index.html`, `app.js`, `console.js`, `crypto.js` and `style.css` with the live
+  assets; `--check-only` runs the comparison without deploying. A page fix that was
+  never deployed looks exactly like a fix that does not work, so the comparison is
+  part of delivering it rather than a separate chore.
+- The binary installed at `~/.local/bin/duo` is built from the commit that lands this
+  entry; `go version -m ~/.local/bin/duo` reports the `vcs.revision` it came from, which
+  `duo --version` (a static version string) cannot show.
+
 ### Cost and context pressure
 
 - `/cost` shows what a session has spent: per agent and per phase, with the session
