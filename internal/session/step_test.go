@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/atfa/duo/internal/coordinator"
+	"github.com/atfa/duo/internal/events"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/recovery"
@@ -226,7 +227,9 @@ func TestRestartRequestReachesTheView(t *testing.T) {
 }
 
 func TestNewSessionRequestReachesTheView(t *testing.T) {
-	svc := &Service{coord: &coordinator.Coordinator{}}
+	svc := &Service{coord: &coordinator.Coordinator{}, bus: events.NewBus()}
+	ch, cancel := svc.bus.Subscribe(8)
+	defer cancel()
 	if svc.View().NewSession {
 		t.Fatal("a fresh session must not ask for a new session")
 	}
@@ -235,6 +238,18 @@ func TestNewSessionRequestReachesTheView(t *testing.T) {
 	}
 	if !svc.View().NewSession {
 		t.Fatal("the /new request must reach the view")
+	}
+	// The request is view state, so a frontend can only act on it when it is told
+	// the view changed. Without this pulse the TUI stops on some later, unrelated
+	// event instead — which is how a phone's /new closed a session that had just
+	// accepted a task.
+	select {
+	case ev := <-ch:
+		if ev.Kind != events.KindActivity || ev.Text != "" {
+			t.Fatalf("pulse = %+v; want an empty-text activity event", ev)
+		}
+	default:
+		t.Fatal("Do(NewSession) published no event; an idle frontend would never see the request")
 	}
 }
 

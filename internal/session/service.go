@@ -899,7 +899,20 @@ func (s *Service) Do(ctx context.Context, cmd Command) error {
 	case RestartDuo:
 		return s.requestRestart(c)
 	case NewSession:
-		return s.requestNewSession()
+		if err := s.requestNewSession(); err != nil {
+			return err
+		}
+		// A frontend only learns about this request from the view, and it reads the
+		// view on its own schedule, so recording the request without a pulse leaves
+		// the interface showing the old session until some unrelated event refreshes
+		// it — and by then the request closes a session that had already accepted new
+		// work. This is the same empty-text activity pulse the agent lifecycle uses
+		// as a refresh signal: the interface redraws and acts, the timeline says
+		// nothing.
+		if s.bus != nil {
+			s.bus.Emit(events.Event{Time: time.Now(), Kind: events.KindActivity, Agent: protocol.Duo})
+		}
+		return nil
 	default:
 		return fmt.Errorf("unsupported command %T", cmd)
 	}

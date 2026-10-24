@@ -15,6 +15,12 @@ All notable project milestones are documented here.
   not even Ctrl+Q was read. `/new` also no longer prints a stop notice onto the
   screen the next session is about to paint over.
 
+- Fixed: `/new` pressed on the phone did nothing visible and then closed the session
+  at some later moment, discarding anything submitted in between — the request was
+  recorded but no frontend was told, so the interface only noticed on an unrelated
+  refresh. The request is now published the moment it is recorded, and the phone's
+  New Session starts a fresh session as immediately as typing `/new` does.
+
 - Fixed: a command sent from the phone could leave the page with every button
   disabled. The one command in flight was cleared only by a state carrying its
   answer, and a session restart, a lost frame or a relay that dropped the
