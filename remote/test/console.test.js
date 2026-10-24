@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { agentId, agentLabel, agentMeta, applyEvent, buildCommand, COMMAND_KINDS, dotClass, driverChangeAllowed, filterModels, mergeCatalog, modeKey, needsModeConfirm, nextSeq, PENDING_TIMEOUT_MS, pendingTimeout, resendText, settlePending, viewModel } from "../public/console.js";
+import { agentId, agentLabel, agentMeta, applyEvent, buildCommand, COMMAND_KINDS, dotClass, driverChangeAllowed, filterModels, isCurrentModel, mergeCatalog, modeKey, needsModeConfirm, nextSeq, PENDING_TIMEOUT_MS, pendingTimeout, resendText, settlePending, viewModel } from "../public/console.js";
 import { b64uEncode, commandMac, decryptEnvelope, deriveKeys, parsePairingKey, sealCommand } from "../public/crypto.js";
 import { VECTOR } from "./vectors.js";
 
@@ -258,6 +258,32 @@ test("the model filter matches a substring", () => {
   assert.deepEqual(filterModels(models, "gemini"), ["google/gemini-3.8-flash-high"]);
   assert.deepEqual(filterModels(models, "nope"), []);
   assert.deepEqual(filterModels(null, "x"), []);
+});
+
+// A reference is a command value, not display text: the page sends it back
+// verbatim, so a long model id must survive the round trip unchanged or the host
+// refuses a model the human can see.
+test("a long model reference survives the picker unchanged", () => {
+  const long = "openrouter/meta-llama/llama-4-maverick-17b-128e-instruct-preview-2025";
+  assert.ok(long.length > 60, "the fixture has to be longer than the old clip limit");
+  const catalog = mergeCatalog(null, { agent: "austin", loading: false, models: [long], total: 1 });
+  assert.deepEqual(catalog.models, [long]);
+  assert.deepEqual(filterModels(catalog.models, "maverick-17b"), [long]);
+  assert.deepEqual(filterModels(catalog.models, long), [long]);
+});
+
+// The current model is marked even when the driver reports a bare id while its
+// catalog shows provider/id — without matching a different model by suffix.
+test("the current model is recognised with and without a provider", () => {
+  assert.equal(isCurrentModel("openai/gpt-5", "openai/gpt-5"), true);
+  assert.equal(isCurrentModel("agy/gemini-3.8-flash-high", "gemini-3.8-flash-high"), true);
+  assert.equal(isCurrentModel("agy/gemini-3.8-flash-high", "other-model"), false);
+  assert.equal(isCurrentModel("agy/gemini-3.8-flash-high", "flash-high"), false);
+  // A bare id is the same model as its provider-qualified row.
+  assert.equal(isCurrentModel("openai/gpt-5", "gpt-5"), true);
+  assert.equal(isCurrentModel("openai/gpt-5", "5"), false);
+  assert.equal(isCurrentModel("", "gpt-5"), false);
+  assert.equal(isCurrentModel("openai/gpt-5", ""), false);
 });
 
 // A mode switch is a signed command whose text is the mode name: the MAC covers

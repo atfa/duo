@@ -4,7 +4,7 @@
 // here, so a phone that drops its Wi-Fi catches up on its own.
 
 import { LinkError, decryptEnvelope, deriveKeys, parsePairingKey, parseRoom } from "./crypto.js";
-import { agentLabel, agentMeta, applyEvent, buildCommand, dotClass, driverChangeAllowed, filterModels, mergeCatalog, modeKey, needsModeConfirm, nextSeq, pendingTimeout, resendText, settlePending, viewModel } from "./console.js";
+import { agentLabel, agentMeta, applyEvent, buildCommand, dotClass, driverChangeAllowed, filterModels, isCurrentModel, mergeCatalog, modeKey, needsModeConfirm, nextSeq, pendingTimeout, resendText, settlePending, viewModel } from "./console.js";
 
 const RECONNECT_MIN_MS = 500;
 const RECONNECT_MAX_MS = 15000;
@@ -224,7 +224,7 @@ function renderModels() {
         const li = document.createElement("li");
         const button = document.createElement("button");
         button.type = "button";
-        button.className = reference === current ? "model current" : "model";
+        button.className = isCurrentModel(reference, current) ? "model current" : "model";
         button.dataset.model = reference;
         button.textContent = reference;
         button.disabled = !ready || Boolean(pending);

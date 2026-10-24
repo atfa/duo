@@ -94,9 +94,11 @@ export function mergeCatalog(current, incoming) {
   const same = Boolean(current) && current.agent === agent;
   let models = [];
   if (Array.isArray(incoming.models)) {
-    models = incoming.models
-      .filter((name) => typeof name === "string" && name.trim() !== "")
-      .map((name) => clip(name, 60));
+    // A reference is a command value, not display text: the page sends it back
+    // verbatim, so truncating it here would make a long model id impossible to
+    // choose. The host already bounds the list to 40 rows and the frame to 3000
+    // bytes, and the button is what wraps a long name.
+    models = incoming.models.filter((name) => typeof name === "string" && name.trim() !== "");
   } else if (same) {
     // The list was dropped from the state, not emptied by the driver.
     models = current.models;
@@ -113,6 +115,17 @@ export function filterModels(models, query) {
   const q = text(query).trim().toLowerCase();
   if (!q) return list.slice();
   return list.filter((name) => name.toLowerCase().includes(q));
+}
+
+// isCurrentModel reports whether a reference is the model an agent is running. A
+// driver that takes bare ids reports the id alone while its catalog shows
+// provider/id, so a suffix match covers that case without matching another model.
+export function isCurrentModel(reference, current) {
+  const ref = text(reference);
+  const now = text(current).trim();
+  if (!ref || !now) return false;
+  if (ref === now) return true;
+  return !now.includes("/") && ref.endsWith("/" + now);
 }
 
 // dotClass is the agent's indicator. Green means healthy and idle, blue means
