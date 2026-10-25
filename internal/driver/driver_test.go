@@ -376,8 +376,8 @@ func TestStartRealProcess(t *testing.T) {
 // buildExamplePlugin compiles the reference plugin once per test run.
 func buildExamplePlugin(t *testing.T) string {
 	t.Helper()
-	bin := t.TempDir() + "/duo-plugin-example"
-	cmd := exec.Command("go", "build", "-o", bin, "github.com/atfa/duo/cmd/duo-plugin-example")
+	bin := t.TempDir() + "/duo-plugin-reference"
+	cmd := exec.Command("go", "build", "-o", bin, "github.com/atfa/duo/internal/driver/referenceplugin")
 	cmd.Dir = ".."
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("build reference plugin: %v\n%s", err, out)
@@ -473,7 +473,7 @@ func TestResolvedPluginOutlivesRequestContext(t *testing.T) {
 		t.Run(stop, func(t *testing.T) {
 			lifetime, cancelLifetime := context.WithCancel(context.Background())
 			defer cancelLifetime()
-			caller, err := Resolve(lifetime, "example", nil, nil)
+			caller, err := Resolve(lifetime, "reference", nil, nil)
 			if err != nil {
 				t.Fatalf("resolve: %v", err)
 			}

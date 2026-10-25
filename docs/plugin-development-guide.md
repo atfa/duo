@@ -76,8 +76,8 @@ are reserved.
 Any language. The wire format is newline-delimited JSON on stdin/stdout, so Python,
 TypeScript, Rust and Go are all equally viable. If you write Go, the reference
 implementation below is directly usable and there is an SDK in Duo's repository at
-`internal/driver` plus a runnable example at `cmd/duo-plugin-example`. If you write
-something else, this guide plus the protocol document is all you need.
+`internal/driver` plus a reference plugin at `internal/driver/referenceplugin`. If
+you write something else, this guide plus the protocol document is all you need.
 
 ## Step 1: answer `describe`
 
@@ -473,7 +473,7 @@ func TestBinarySpeaksTheProtocol(t *testing.T) {
 You can also do this by hand in one line, and it is worth doing before anything else:
 
 ```sh
-echo '{"protocol":1,"id":1,"method":"describe"}' | ./duo-plugin-example
+echo '{"protocol":1,"id":1,"method":"describe"}' | ./duo-plugin-<name>
 ```
 
 **Then let Duo check it.** `duo plugins test` runs the shared conformance suite
@@ -481,7 +481,7 @@ against your executable and prints one line per check, so you do not have to
 reproduce Duo's own expectations by hand:
 
 ```sh
-duo plugins test ./duo-plugin-example -v
+duo plugins test ./duo-plugin-<name> -v
 duo plugins test --all      # every driver this Duo can see
 ```
 
@@ -500,7 +500,7 @@ miss most.
 
 ```sh
 mkdir -p ~/.duo/plugins
-cp ./duo-plugin-example ~/.duo/plugins/
+cp ./duo-plugin-<name> ~/.duo/plugins/
 duo plugins     # listed, with the path that will actually run
 ```
 

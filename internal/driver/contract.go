@@ -455,12 +455,16 @@ func checkCrashPolicy(ctx context.Context, workDir string) []Result {
 	return out
 }
 
+// referencePluginName is the file name the positive control is built as. It is not
+// a shipped binary: the contract builds it into a scratch directory on demand.
+const referencePluginName = "duo-plugin-reference"
+
 // goodPluginPath finds a plugin known to work, so respawn can be checked against
 // something that answers. The reference plugin is built into workDir by the caller;
 // if it is not there the respawn check is skipped rather than failed, because a
 // missing positive control is not a broken plugin.
 func goodPluginPath(workDir string) string {
-	candidate := filepath.Join(workDir, "duo-plugin-example")
+	candidate := filepath.Join(workDir, referencePluginName)
 	if info, err := os.Stat(candidate); err == nil && info.Mode()&0111 != 0 {
 		return candidate
 	}
@@ -563,11 +567,12 @@ func DiscoverAndRun(ctx context.Context, workDir string) []Report {
 
 // ReferencePluginBinary builds the reference plugin into dir and returns its path.
 // The contract needs a plugin known to work so respawn and framing can be checked
-// against something that answers; shipping the reference plugin is what makes that
-// possible without a real coding agent installed.
+// against something that answers; the reference plugin in
+// internal/driver/referenceplugin is built on demand, which makes that possible
+// without a real coding agent installed and without shipping a fake driver.
 func ReferencePluginBinary(ctx context.Context, dir string) (string, error) {
-	out := filepath.Join(dir, "duo-plugin-example")
-	cmd := exec.CommandContext(ctx, "go", "build", "-o", out, "github.com/atfa/duo/cmd/duo-plugin-example")
+	out := filepath.Join(dir, referencePluginName)
+	cmd := exec.CommandContext(ctx, "go", "build", "-o", out, "github.com/atfa/duo/internal/driver/referenceplugin")
 	cmd.Env = append(os.Environ(), "GOFLAGS=")
 	if combined, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("build the reference plugin: %v\n%s", err, combined)

@@ -51,7 +51,7 @@ func TestContractPassesForTheReferencePlugin(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping subprocess contract test in short mode")
 	}
-	bin := buildPlugin(t, "github.com/atfa/duo/cmd/duo-plugin-example", "duo-plugin-example")
+	bin := buildPlugin(t, "github.com/atfa/duo/internal/driver/referenceplugin", "duo-plugin-reference")
 	work := t.TempDir()
 
 	report := RunContract(context.Background(), bin, work)

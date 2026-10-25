@@ -1,7 +1,8 @@
-// Command duo-plugin-example is the reference implementation of the Duo Driver
-// Plugin Protocol v1. It drives no real coding agent: it exists so the protocol
-// is executable documentation, and so `duo plugins test` has something to verify
-// that is known-good by construction.
+// Command referenceplugin is the reference implementation of the Duo Driver
+// Plugin Protocol v1. It drives no real coding agent and is not a shipped
+// command: it exists so the protocol is executable documentation, and so the
+// contract suite and `duo plugins test` have a positive control that is
+// known-good by construction.
 //
 // A real plugin is a main that serves the protocol on stdin/stdout and keeps
 // whatever state it needs in the blob it returns from Prepare. Everything else —
@@ -177,12 +178,12 @@ func main() {
 	// --version is answered without touching the protocol so an operator can
 	// check which plugin binary they have.
 	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "version") {
-		fmt.Printf("duo-plugin-example 1.0.0 (protocol %d)\n", driver.ProtocolVersion)
+		fmt.Printf("duo-plugin-reference 1.0.0 (protocol %d)\n", driver.ProtocolVersion)
 		return
 	}
 	_ = context.Background()
 	if err := driver.Serve(os.Stdin, os.Stdout, plugin{}); err != nil {
-		log.Fatalf("duo-plugin-example: %v", err)
+		log.Fatalf("duo-plugin-reference: %v", err)
 	}
 }
 
