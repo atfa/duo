@@ -46,25 +46,37 @@ func TestDecoratedGlyphsMeasureOneCell(t *testing.T) {
 
 // TestTableFitDoesNotStarveColumns runs the real fixture across the widths a
 // split dashboard can produce and asserts the allocator spreads the budget
-// instead of pinning short columns at the floor. The greedy allocator this
-// replaces produced a 6-cell floor; the water-filling allocator keeps short
-// columns near their natural size, so no border segment below 4 dashes appears
-// when the pane has room for more.
+// instead of pinning short columns at the floor. Under the greedy allocator
+// this replaced, width 96 produced columns (6, 6, 74): the first column lost
+// its natural 12 cells, so the pin on that width and column is what makes the
+// test red again if the greedy pass ever comes back.
 func TestTableFitDoesNotStarveColumns(t *testing.T) {
 	tm := newTheme()
 	for _, width := range []int{40, 50, 60, 70, 80, 96, 100, 120} {
 		lines := wrapRuns(markdownRuns(tableFitFixture, tm.Body, tm, width), width)
 		borders, dataRows := 0, 0
-		content := ""
+		var content strings.Builder
+		var border string
 		for _, line := range lines {
 			text := line.text()
 			if line.width() > width {
 				t.Fatalf("width %d: line exceeds the pane: %q", width, text)
 			}
-			content += strings.ReplaceAll(text, " ", "")
+			// Strip table chrome so content joined across wrapped rows and
+			// column borders reads contiguously.
+			content.WriteString(strings.Map(func(r rune) rune {
+				switch r {
+				case ' ', '|', '+', '-':
+					return -1
+				}
+				return r
+			}, text))
 			trimmed := strings.TrimSpace(text)
 			if strings.HasPrefix(trimmed, "+") && strings.Trim(trimmed, "+-") == "" {
 				borders++
+				if border == "" {
+					border = text
+				}
 				continue
 			}
 			if strings.HasPrefix(trimmed, "|") {
@@ -73,6 +85,25 @@ func TestTableFitDoesNotStarveColumns(t *testing.T) {
 		}
 		if borders == 0 || dataRows == 0 {
 			t.Fatalf("width %d: table not laid out with borders (borders=%d rows=%d):\n%v", width, borders, dataRows, lines)
+		}
+		// The allocator shares the budget: below width 50 the two long columns
+		// compress evenly around the short one; from 50 up the shortest column
+		// keeps its natural width and the two long ones stay within one cell
+		// of each other. Under the greedy allocator the first column was
+		// pinned at 6 while the last absorbed the entire remaining budget.
+		parts := strings.Split(strings.Trim(strings.TrimSpace(border), "+"), "+")
+		if len(parts) != 3 {
+			t.Fatalf("width %d: border %q does not describe three columns", width, border)
+		}
+		widths := make([]int, len(parts))
+		for i, part := range parts {
+			widths[i] = rw.StringWidth(part) - 2
+		}
+		if width >= 50 && widths[0] != 12 {
+			t.Fatalf("width %d: first column width = %d, want its natural 12: %v", width, widths[0], widths)
+		}
+		if diff := widths[1] - widths[2]; diff > 1 || diff < -1 {
+			t.Fatalf("width %d: long columns were not shared evenly: %v", width, widths)
 		}
 		// No column starved: every border must carry three segments of at
 		// least 4 dashes when the pane is this wide.
@@ -89,25 +120,34 @@ func TestTableFitDoesNotStarveColumns(t *testing.T) {
 		}
 		// Content survives.
 		for _, want := range []string{"安装命令", "避免自审自批", "运行时可切换", "关卡关闭", "任意Git仓库", "可自托管", "中运行", "离开本机"} {
-			if !strings.Contains(content, want) {
+			if !strings.Contains(content.String(), want) {
 				t.Fatalf("width %d: content %q lost", width, want)
 			}
 		}
 	}
 }
 
-// TestTablePlainFallbackKeepsAllCells covers the too-narrow window: no borders
-// can fit, the fallback keeps every cell's text so nothing is silently dropped.
+// TestTablePlainFallbackKeepsAllCells covers the too-narrow window: below the
+// 3-cell-per-column floor the grid reads worse than plain rows, so the fallback
+// drops the borders and keeps every cell's text inline. Width 12 is below the
+// 3*3 floor (budget 9 < 9 needs width < 19) yet wide enough for the fixture's
+// own header cells to keep their text.
 func TestTablePlainFallbackKeepsAllCells(t *testing.T) {
 	tm := newTheme()
-	runs := markdownRuns(tableFitFixture, tm.Body, tm, 20)
-	joined := ""
+	runs := markdownRuns(tableFitFixture, tm.Body, tm, 12)
+	var joined strings.Builder
 	for _, line := range wrapRuns(runs, 20) {
-		joined += strings.ReplaceAll(line.text(), " ", "")
+		joined.WriteString(strings.Map(func(r rune) rune {
+			switch r {
+			case ' ', '|', '+', '-':
+				return -1
+			}
+			return r
+		}, line.text()))
 	}
 	for _, want := range []string{"Hero", "WhyDuo", "FAQ", "安装命令", "关卡关闭"} {
-		if !strings.Contains(joined, want) {
-			t.Fatalf("narrow fallback lost cell content %q:\n%s", want, joined)
+		if !strings.Contains(joined.String(), want) {
+			t.Fatalf("narrow fallback lost cell content %q:\n%s", want, joined.String())
 		}
 	}
 }
