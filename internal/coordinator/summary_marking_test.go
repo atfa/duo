@@ -38,18 +38,25 @@ func TestFinalSummaryMarkedByRequestNotDecoration(t *testing.T) {
 	writeAndCommit(t, set.Austin.Path, "result.md", "hello Duo\n", "add result.md")
 	driveToDone(t, project.ModeFast, runtime, austin, tony)
 
+	// The DONE transition may already have armed the real request; consume it
+	// so the box-shaped message below is genuinely "no outstanding request".
+	runtime.coord.takeSummaryOwed()
+
 	// Half (b): a box-shaped message while nothing is owed must arrive as
-	// ordinary agent traffic. The old detection read the shape and marked it.
+	// ordinary agent traffic. The old detection read the shape and marked it,
+	// so a regression that adds it back turns sawBox true and this test red.
 	const boxLike = "============================================\n| IMITATION |\n============================================"
 	austin.send(t, protocol.Message{
 		Version: protocol.Version, Type: protocol.MsgAssistantMessage,
 		Agent: protocol.Austin, Text: boxLike, Timestamp: time.Now().UnixMilli(),
 	})
+	var sawBox bool
 	waitFor(t, func() bool {
 		for {
 			select {
 			case event := <-seen:
 				if event.Kind == events.KindAssistant && event.Agent == protocol.Austin && event.Text == boxLike {
+					sawBox = event.Summary
 					return true
 				}
 			default:
@@ -57,6 +64,9 @@ func TestFinalSummaryMarkedByRequestNotDecoration(t *testing.T) {
 			}
 		}
 	}, "the box-shaped message to reach the bus")
+	if sawBox {
+		t.Fatalf("a box-shaped message with no outstanding request was marked")
+	}
 
 	// Half (a): the request goes out; the plain report that answers it is the
 	// one the human gets marked and notified about.
@@ -67,18 +77,13 @@ func TestFinalSummaryMarkedByRequestNotDecoration(t *testing.T) {
 		Agent: protocol.Austin, Text: report, Timestamp: time.Now().UnixMilli(),
 	})
 
-	var sawReport, sawBox, sawAttention bool
+	var sawReport, sawAttention bool
 	waitFor(t, func() bool {
 		for {
 			select {
 			case event := <-seen:
-				if event.Kind == events.KindAssistant && event.Agent == protocol.Austin {
-					switch event.Text {
-					case report:
-						sawReport = event.Summary
-					case boxLike:
-						sawBox = event.Summary
-					}
+				if event.Kind == events.KindAssistant && event.Agent == protocol.Austin && event.Text == report {
+					sawReport = event.Summary
 				}
 				if event.Kind == events.KindAttention && event.Attention == events.AttentionSummary {
 					sawAttention = true
@@ -88,9 +93,6 @@ func TestFinalSummaryMarkedByRequestNotDecoration(t *testing.T) {
 			}
 		}
 	}, "the plain report to be marked")
-	if sawBox {
-		t.Fatalf("a box-shaped message with no outstanding request was marked")
-	}
 	if !sawAttention {
 		t.Fatalf("the marked report did not fire the summary attention")
 	}
