@@ -82,13 +82,14 @@ func TestDoneAsksAustinToSummariseTheSession(t *testing.T) {
 			if notice.From != protocol.Duo || notice.To != protocol.Austin {
 				t.Fatalf("summary request is %s → %s, want Duo → Austin", notice.From, notice.To)
 			}
-			// The three questions are the contract: the result, the points of
-			// agreement and disagreement, and whether the collaboration improved
-			// anything. A prompt asking only for "process and results" is
-			// answered by narrating the timeline, which the human has read.
+			// The four questions are the contract: the result, what the human does
+			// with it next, the points of agreement and disagreement, and whether
+			// the collaboration improved anything. A prompt asking only for
+			// "process and results" is answered by narrating the timeline, which
+			// the human has read.
 			for _, want := range []string{
-				"Answer three questions", "1. Result.", "2. Where you and Tony agreed",
-				"3. Whether having two agents improved the work", "yes or no in the first sentence",
+				"Answer four questions", "1. Result.", "2. Handoff.", "3. Where you and Tony agreed",
+				"4. Whether having two agents improved the work", "yes or no in the first sentence",
 				"If you overruled Tony", "Do not narrate the session",
 				"Austin → Human", "Do not use duo_send", "do not start new work", mode.Display(),
 			} {
@@ -180,16 +181,49 @@ func TestFinalSummaryIsRequestedOncePerRound(t *testing.T) {
 	}
 }
 
-// TestFinalSummaryPromptAsksTheSameThreeQuestionsInBothLanguages guards the one
+// TestFinalSummaryPromptAsksTheSameFourQuestionsInBothLanguages guards the one
 // place this contract can quietly rot. The two strings are written by hand, so a
 // rewrite of the English half leaves the Chinese half asking the old, weaker
 // questions — and the human who set --language zh is the one who would keep
 // getting a report they did not ask for, with nothing to show it.
-func TestFinalSummaryPromptAsksTheSameThreeQuestionsInBothLanguages(t *testing.T) {
+// TestFinalSummaryPromptAsksHowToPickTheWorkUpGenericly pins the shape of question
+// 2, which is the answer the timeline cannot give the human: the work is visible,
+// the state of the delivered thing is not. It must stay a question about what the
+// human does next — start point, prerequisites, known limits — because a task can
+// deliver a document or a decision with nothing to run. Demanding "how to run it"
+// in so many words produces invented commands for those tasks, so the words must
+// not be in the prompt either.
+func TestFinalSummaryPromptAsksHowToPickTheWorkUpGenerically(t *testing.T) {
+	generic := map[string][]string{
+		"en": {"2. Handoff.", "where to start", "what has to be ready first", "not a tutorial", "say what the human should look at first", "rather than inventing steps"},
+		"zh": {"2. 接手。", "从哪里开始", "需要先准备什么", "不要写成教程", "写用户最先该看哪里", "不要编造步骤"},
+	}
+	hardcoded := map[string][]string{
+		"en": {"how to run", "how to install"},
+		"zh": {"如何运行", "如何安装"},
+	}
+	for _, language := range []string{"en", "zh"} {
+		coord := promptCoordinator()
+		coord.language = language
+		got := coord.finalSummaryPrompt(project.Snapshot{PlanVersion: 1})
+		for _, want := range generic[language] {
+			if !strings.Contains(got, want) {
+				t.Fatalf("%s prompt missing the generic handoff clause %q:\n%s", language, want, got)
+			}
+		}
+		for _, bad := range hardcoded[language] {
+			if strings.Contains(got, bad) {
+				t.Fatalf("%s prompt hardcodes %q, which does not apply to every task:\n%s", language, bad, got)
+			}
+		}
+	}
+}
+
+func TestFinalSummaryPromptAsksTheSameFourQuestionsInBothLanguages(t *testing.T) {
 	snap := project.Snapshot{PlanVersion: 1}
 	questions := map[string][]string{
-		"en": {"1. Result.", "2. Where you and Tony agreed", "3. Whether having two agents improved the work"},
-		"zh": {"1. 结果。", "2. 你和 Tony 达成一致的地方", "3. 两个 agent 有没有真的提高工作质量"},
+		"en": {"1. Result.", "2. Handoff.", "3. Where you and Tony agreed", "4. Whether having two agents improved the work"},
+		"zh": {"1. 结果。", "2. 接手。", "3. 你和 Tony 达成一致的地方", "4. 两个 agent 有没有真的提高工作质量"},
 	}
 	// The verdict must be an answerable question in both languages, not a request
 	// to describe the review.

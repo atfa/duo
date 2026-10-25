@@ -2,6 +2,20 @@
 
 All notable project milestones are documented here.
 
+## Unreleased
+
+### Finishing report
+
+- The report Duo asks Austin for when a session finishes answers four questions
+  instead of three: what the repository gained, what the human does with it next,
+  where the two agents agreed and disagreed, and whether having two agents
+  improved the work. The new question is the handoff — where the human starts,
+  what has to be ready first, and which limits or unverified parts they should
+  know about — worded that way rather than as "how do I run it" because a task
+  that delivers a document or a decision has no command to run, and demanding one
+  produces invented steps. The cost line, the ban on banners and the "do not
+  narrate the session" rule are unchanged.
+
 ## v0.14.2 — 2026-10-25
 
 ### Verified self-install
