@@ -2,11 +2,13 @@ package gotui
 
 import (
 	"image"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/session"
+	rw "github.com/mattn/go-runewidth"
 	ui "github.com/metaspartan/gotui/v5"
 )
 
@@ -21,7 +23,7 @@ func TestStepGateChainFastMapsPhases(t *testing.T) {
 		if stage != tc.stage {
 			t.Fatalf("FAST step phase %s stage = %q, want %q", tc.phase, stage, tc.stage)
 		}
-		if len(gotChain) != len(chain) {
+		if !reflect.DeepEqual(gotChain, chain) {
 			t.Fatalf("FAST step chain = %v, want %v", gotChain, chain)
 		}
 	}
@@ -40,7 +42,7 @@ func TestStepGateChainGoalPassesPhasesThrough(t *testing.T) {
 		if stage != string(phase) {
 			t.Fatalf("GOAL step phase %s stage = %q, want passthrough", phase, stage)
 		}
-		if len(gotChain) != len(chain) {
+		if !reflect.DeepEqual(gotChain, chain) {
 			t.Fatalf("GOAL step chain = %v, want %v", gotChain, chain)
 		}
 	}
@@ -82,13 +84,14 @@ func TestPackChainRunsKeepsTokensWhole(t *testing.T) {
 }
 
 func TestWorkflowPanelDrawsStepGate(t *testing.T) {
+	tset := newTheme()
 	snap := project.Snapshot{
 		Mode:  project.ModeStep,
 		Phase: project.PhaseReview,
 		Step:  1,
 		Steps: []project.Step{{Title: "ship it"}},
 	}
-	w := newWorkflow(newTheme())
+	w := newWorkflow(tset)
 	w.view = session.View{Project: snap}
 	w.SetRect(0, 0, 48, 10)
 	buf := ui.NewBuffer(w.GetRect())
@@ -105,12 +108,38 @@ func TestWorkflowPanelDrawsStepGate(t *testing.T) {
 	}
 }
 
+func TestWorkflowPanelDrawsStepGateZhNarrow(t *testing.T) {
+	lang := "zh"
+	tset := newTheme()
+	tset.Lang = &lang
+	snap := project.Snapshot{
+		Mode:  project.ModeStep,
+		Phase: project.PhaseReview,
+		Step:  1,
+		Steps: []project.Step{{Title: "ship it"}},
+	}
+	w := newWorkflow(tset)
+	w.view = session.View{Project: snap}
+	w.SetRect(0, 0, 30, 14)
+	buf := ui.NewBuffer(w.GetRect())
+	w.Draw(buf)
+	text := bufferText(buf)
+	for _, want := range []string{"步骤环节  [FAST]", "✓ RUNNING", "▶ VERIFY", "○ DONE"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("narrow zh panel missing %q:\n%s", want, text)
+		}
+	}
+}
+
+// bufferText reads a drawn buffer back as text, skipping the second half of
+// wide cells so CJK strings compare equal to their source text.
 func bufferText(buf *ui.Buffer) string {
 	var b strings.Builder
 	for y := buf.Bounds().Min.Y; y < buf.Bounds().Max.Y; y++ {
-		for x := buf.Bounds().Min.X; x < buf.Bounds().Max.X; x++ {
-			r, _, _ := buf.GetCell(image.Pt(x, y)).Rune, 0, 0
+		for x := buf.Bounds().Min.X; x < buf.Bounds().Max.X; {
+			r := buf.GetCell(image.Pt(x, y)).Rune
 			b.WriteRune(r)
+			x += max(1, rw.RuneWidth(r))
 		}
 		b.WriteByte('\n')
 	}
