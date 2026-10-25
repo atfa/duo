@@ -196,6 +196,41 @@ func DriverSeeds(snap sessionstore.Snapshot) map[protocol.AgentID]sessionstore.D
 	return driverState
 }
 
+// Sessions lists what this repository can resume right now, newest first. The
+// dashboard's /sessions picker reads this instead of walking the store itself, so
+// "resumable" means the same thing there and in `duo resume`.
+func (s *Service) Sessions() []sessionstore.Summary {
+	s.mu.RLock()
+	baseDir, repoID, current := s.baseDir, s.repoID, s.sessionID
+	s.mu.RUnlock()
+	if baseDir == "" || repoID == "" {
+		return nil
+	}
+	list, err := sessionstore.List(baseDir, repoID)
+	if err != nil {
+		return nil
+	}
+	return resumeCandidates(list, current)
+}
+
+// resumeCandidates keeps the sessions a human may switch to: unfinished, readable
+// and not owned by a live Duo process. The open session is excluded because
+// "resuming" it would only close it, and a locked one is excluded because the
+// resume that followed would fail after this session was already closed.
+func resumeCandidates(list []sessionstore.Summary, current string) []sessionstore.Summary {
+	out := make([]sessionstore.Summary, 0, len(list))
+	for _, item := range list {
+		if item.SessionID == current || item.Err != nil || !item.Unfinished() {
+			continue
+		}
+		if sessionstore.SessionActive(item.Dir) {
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
 // SelectSession resolves which persisted session to resume: an explicit id, the
 // single stored session, or an error listing the choices. Completed sessions may
 // be reopened for follow-up work. Unreadable sessions are reported rather than

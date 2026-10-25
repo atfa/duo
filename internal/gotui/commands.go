@@ -80,6 +80,12 @@ func (a *App) runSlash(text string) bool {
 	case "/plan":
 		a.openPlan()
 		return true
+	case "/search":
+		a.openSearch(strings.TrimSpace(text[len(fields[0]):]))
+		return true
+	case "/sessions":
+		a.openSessions()
+		return true
 	case "/cost":
 		a.cost.begin(a.live)
 		a.overlay = overlayCost

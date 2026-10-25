@@ -25,6 +25,9 @@ type Session interface {
 	StatusText(ctx context.Context) string
 	Changes(ctx context.Context) []string
 	Notices() []string
+	// Sessions lists the sessions this repository can resume right now. It is
+	// empty for a session that never started; the picker then says so.
+	Sessions() []sessionstore.Summary
 	RecordEntry(entry sessionstore.TUIEntry)
 	// RequestObserverReport asks the advisory observer for one status report. It
 	// returns immediately; the answer arrives through View().Observer.Reports.

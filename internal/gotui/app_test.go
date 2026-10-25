@@ -39,6 +39,7 @@ type fakeSession struct {
 
 	reportRequests int
 	statusText     string
+	sessions       []sessionstore.Summary
 }
 
 func newFakeSession() *fakeSession {
@@ -174,6 +175,12 @@ func (f *fakeSession) Changes(ctx context.Context) []string {
 }
 
 func (f *fakeSession) Notices() []string { return nil }
+
+func (f *fakeSession) Sessions() []sessionstore.Summary {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]sessionstore.Summary(nil), f.sessions...)
+}
 
 func (f *fakeSession) RecordEntry(entry sessionstore.TUIEntry) {
 	f.mu.Lock()

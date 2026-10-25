@@ -199,6 +199,11 @@ func run(ctx context.Context, cfg config) error {
 			cfg = cfg.freshSession(req)
 			continue
 		}
+		var resumeReq *resumeSessionRequest
+		if errors.As(err, &resumeReq) && ctx.Err() == nil {
+			cfg = cfg.resumedSession(resumeReq.SessionID)
+			continue
+		}
 		return err
 	}
 }
@@ -260,6 +265,12 @@ func runWith(ctx context.Context, cfg config, attach func(context.Context, *sess
 	// Ctrl+Q would have left it.
 	if view.NewSession {
 		return newSessionFromView(live)
+	}
+	// /sessions picked another session: this one is closed and preserved, and the
+	// caller resumes the chosen id, so a switch in the dashboard is the same path
+	// `duo resume <id>` takes.
+	if view.ResumeSession != "" {
+		return &resumeSessionRequest{SessionID: view.ResumeSession}
 	}
 	// A session that never started has been removed, so telling the human to
 	// resume it would hand them a command that fails and a session that `duo

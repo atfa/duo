@@ -22,6 +22,33 @@ import (
 // entry points, and they must share exactly one implementation with the session
 // rather than a second copy that could drift.
 
+// resumeSessionRequest is what runWith returns when the human picked another
+// session in /sessions: the current session was closed and preserved, and run
+// resumes the chosen id in this same process, on exactly the path
+// `duo resume <id>` takes. It is an error so it travels the same way every other
+// way a session ends does.
+type resumeSessionRequest struct{ SessionID string }
+
+func (*resumeSessionRequest) Error() string { return "duo session switch requested" }
+
+// resumedSession is the configuration of the session /sessions picks. Its mode
+// comes from that session's persisted state, so nothing here overrides it; what a
+// resume needs from the launch configuration is the resume flag, the id and the
+// harness grace period that keeps a reconnecting agent from looking stalled.
+//
+// The launch-time mode override is dropped. `--mode goal` belongs to the session
+// the human started, not to a session picked from the list: keeping it would make
+// resumeMode refuse a target persisted as FAST, and the picker would fail after
+// this session was already closed. Dropping it is what `duo resume <id>` does
+// without a flag.
+func (c config) resumedSession(id string) config {
+	c.resume = true
+	c.resumeSession = id
+	c.mode, c.modeRaw, c.modeSource, c.modeExplicit = "", "", "", false
+	c.harness.RecoveryGrace = resumeRecoveryGrace()
+	return c
+}
+
 // setFromSnapshot rebuilds the workspace set from persisted state.
 func setFromSnapshot(snap sessionstore.Snapshot) workspace.Set {
 	return session.SetFromSnapshot(snap)

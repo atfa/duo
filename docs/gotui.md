@@ -54,10 +54,22 @@ workflow state or makes project transitions:
   `/driver` is available before the first task, while fully paused, or after
   `DONE`: agent tabs, typing filter, a marker on the current driver, and no
   resume when a choice is applied.
+- **Transcript search.** `Ctrl+F` or `/search [term]` searches the active pane
+  case-insensitively and highlights every hit in place, with the current one in
+  the accent colour. `Enter` keeps the highlight and hands `n` / `N` to the
+  transcript for next/previous (wrapping); `Esc` ends the search and restores the
+  viewport it opened on. The match is a plain substring, and column positions are
+  counted in cells, so wide CJK text highlights exactly.
+- **Session picker.** `/sessions` lists this repository's unfinished sessions
+  with their mode, phase, time on the session and measured cost. `Enter` resumes
+  the highlighted one: this session is closed and preserved exactly as `/quit`
+  would leave it, and the outer process re-opens the chosen session, so a switch
+  is the same path `duo resume <id>` takes. A session another live Duo owns is
+  not listed, and neither is a completed one.
 - **Overlays.** Help, session details, the plan & steps view, model picker,
-  driver picker and destructive confirmations are centered modals with a cleared
-  content backdrop. The slash palette occupies the conversation pane so no text
-  or border fragments show through it.
+  driver picker, the session picker and destructive confirmations are centered
+  modals with a cleared content backdrop. The slash palette occupies the
+  conversation pane so no text or border fragments show through it.
 - **Copy feedback.** Copying a transcript selection or Austin's latest message
   briefly overlays a `COPIED` panel in the top-right; it dismisses itself after
   two seconds and does not consume layout space.
@@ -98,6 +110,8 @@ variables. The dashboard adds:
 | `Ctrl+M` / `Alt+M` | Open the model and thinking picker |
 | `Ctrl+S` / `Alt+S` | Open the FAST/GOAL/STEP mode picker |
 | `Ctrl+G` | Toggle message timestamps |
+| `Ctrl+F` / `/search` | Search the active pane; `n` / `N` next hit, `Esc` restores the viewport |
+| `/sessions` | List unfinished sessions; `Enter` resumes the selected one |
 | `Ctrl+A` / `Alt+A` | Attach to Austin |
 | `Ctrl+T` / `Alt+T` | Attach to Tony |
 | `Ctrl+]` / `Ctrl+\` / `Ctrl+】` | Detach from an attached agent |

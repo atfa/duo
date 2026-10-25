@@ -77,6 +77,10 @@ type View struct {
 	// then re-run duo as a fresh session.
 	NewSession bool
 
+	// ResumeSession is the id the human picked in /sessions: quit preserving this
+	// session, then resume that one. It is empty unless a switch was requested.
+	ResumeSession string
+
 	Agents   map[protocol.AgentID]AgentView
 	Pause    PauseView
 	Observer ObserverView

@@ -86,6 +86,10 @@ type Service struct {
 	// re-run duo as a fresh session.
 	newSession bool
 
+	// resumeSession is the id the /sessions picker chose: quit preserving this
+	// session, then resume that one in its place.
+	resumeSession string
+
 	ctx    context.Context
 	cancel context.CancelFunc
 
@@ -726,15 +730,16 @@ func (s *Service) View() View {
 
 func (s *Service) view() View {
 	v := View{
-		Version:     versionString(),
-		SessionID:   s.sessionID,
-		Mode:        s.mode,
-		Language:    effectiveLanguage(s.opts.Language),
-		TestCommand: s.opts.TestCommand,
-		Notices:     append([]string(nil), s.notices...),
-		Restart:     s.restart,
-		NewSession:  s.newSession,
-		Notify:      s.opts.Notify == nil || *s.opts.Notify,
+		Version:       versionString(),
+		SessionID:     s.sessionID,
+		Mode:          s.mode,
+		Language:      effectiveLanguage(s.opts.Language),
+		TestCommand:   s.opts.TestCommand,
+		Notices:       append([]string(nil), s.notices...),
+		Restart:       s.restart,
+		NewSession:    s.newSession,
+		ResumeSession: s.resumeSession,
+		Notify:        s.opts.Notify == nil || *s.opts.Notify,
 	}
 	v.ContextWarnPercent = s.opts.ContextWarnPercent
 	// The cost ledger is read from the coordinator, which owns the live totals. A
@@ -904,16 +909,13 @@ func (s *Service) Do(ctx context.Context, cmd Command) error {
 		if err := s.requestNewSession(); err != nil {
 			return err
 		}
-		// A frontend only learns about this request from the view, and it reads the
-		// view on its own schedule, so recording the request without a pulse leaves
-		// the interface showing the old session until some unrelated event refreshes
-		// it — and by then the request closes a session that had already accepted new
-		// work. This is the same empty-text activity pulse the agent lifecycle uses
-		// as a refresh signal: the interface redraws and acts, the timeline says
-		// nothing.
-		if s.bus != nil {
-			s.bus.Emit(events.Event{Time: time.Now(), Kind: events.KindActivity, Agent: protocol.Duo})
+		s.pulse()
+		return nil
+	case ResumeSession:
+		if err := s.requestResumeSession(c.SessionID); err != nil {
+			return err
 		}
+		s.pulse()
 		return nil
 	default:
 		return fmt.Errorf("unsupported command %T", cmd)
@@ -1082,6 +1084,33 @@ func (s *Service) requestRestart(c RestartDuo) error {
 func (s *Service) requestNewSession() error {
 	s.newSession = true
 	return nil
+}
+
+// requestResumeSession records the /sessions choice. In-memory for the same
+// reason as /new, and it refuses the open session and an empty id: a switch to
+// the session the human is already in would close it for nothing.
+func (s *Service) requestResumeSession(id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return errors.New("resume needs a session id")
+	}
+	if id == s.sessionID {
+		return fmt.Errorf("session %s is already open", id)
+	}
+	s.resumeSession = id
+	return nil
+}
+
+// pulse tells the frontend that a request it can only see in the View was
+// recorded. A frontend reads the view on its own schedule, so without an event
+// the interface keeps showing the old state until something unrelated refreshes
+// it — and by then the request closes a session that had already accepted new
+// work. This is the same empty-text activity pulse the agent lifecycle uses as a
+// refresh signal: the interface redraws and acts, the timeline says nothing.
+func (s *Service) pulse() {
+	if s.bus != nil {
+		s.bus.Emit(events.Event{Time: time.Now(), Kind: events.KindActivity, Agent: protocol.Duo})
+	}
 }
 
 // setLanguage switches the language Duo writes in and makes the switch real

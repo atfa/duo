@@ -55,7 +55,13 @@ type transcript struct {
 	emptyText      string
 	pathRoots      map[string][]string
 	sel            selection
-	entrySeq       int
+	// Search hits are cell-column ranges on the rendered lines and the index of
+	// the emphasised one. The app owns the query and computes the hits; the
+	// transcript only draws them, so a search never becomes a second source of
+	// transcript state.
+	searchHits []searchHit
+	searchHit  int
+	entrySeq   int
 
 	// blocks caches each entry's rendered lines, aligned with entries; lines is
 	// their concatenation with one blank separator between entries. A message
@@ -438,6 +444,8 @@ func (v *transcript) Draw(buf *ui.Buffer) {
 		}
 		line := v.lines[idx]
 		x := v.Inner.Min.X
+		hits, hitBase := v.searchHitsOnLine(idx)
+		hit := 0
 		for _, run := range line.runs {
 			for _, r := range run.text {
 				w := rw.RuneWidth(r)
@@ -447,8 +455,17 @@ func (v *transcript) Draw(buf *ui.Buffer) {
 				if x+w > v.Inner.Max.X {
 					break
 				}
+				col := x - v.Inner.Min.X
 				style := run.style
-				if v.sel.active && selectedCell(v.sel, idx, x-v.Inner.Min.X) {
+				for hit < len(hits) && hits[hit].end <= col {
+					hit++
+				}
+				if hit < len(hits) && col >= hits[hit].col {
+					style = v.theme.searchStyle(hitBase+hit == v.searchHit)
+				}
+				// A text selection outranks a search highlight: the human marking
+				// text to copy must see exactly what will be copied.
+				if v.sel.active && selectedCell(v.sel, idx, col) {
 					style = v.theme.Selected
 				}
 				buf.SetCell(ui.NewCell(r, style), image.Pt(x, v.Inner.Min.Y+y))
