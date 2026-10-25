@@ -4,7 +4,9 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/sessionstore"
 )
 
@@ -74,5 +76,20 @@ func TestResumeChoicesReportBrokenWithoutMakingThemSelectable(t *testing.T) {
 	writeResumeDiagnostics(&diagnostics, broken)
 	if !strings.Contains(diagnostics.String(), "bad") || !strings.Contains(diagnostics.String(), "corrupt state") {
 		t.Fatalf("broken session diagnostics = %q", diagnostics.String())
+	}
+}
+
+// TestResumedSessionTakesTheResumePath covers what the dashboard's /sessions
+// picker reuses: the chosen id goes down the same configuration path a
+// `duo resume <id>` launch takes, including the recovery grace a revived agent
+// needs before the watchdog may call it idle.
+func TestResumedSessionTakesTheResumePath(t *testing.T) {
+	cfg := config{harness: harness.Config{}}
+	got := cfg.resumedSession("20261025-081016-67064425")
+	if !got.resume || got.resumeSession != "20261025-081016-67064425" {
+		t.Fatalf("resumedSession = resume=%t id=%q, want a resume of the chosen id", got.resume, got.resumeSession)
+	}
+	if got.harness.RecoveryGrace < 30*time.Second || got.harness.RecoveryGrace > 60*time.Second {
+		t.Fatalf("recovery grace %s is outside the required 30-60s window", got.harness.RecoveryGrace)
 	}
 }

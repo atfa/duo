@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -70,6 +71,26 @@ func (s *Store) Lock() (*Lock, error) {
 }
 
 func (l *Lock) Path() string { return l.path }
+
+// SessionActive reports whether a live Duo process owns this session directory.
+//
+// It asks for a shared lock the way another launcher would, so it neither
+// creates the lock file nor takes ownership; an exclusive owner answers with
+// EWOULDBLOCK. Every frontend that lists resumable sessions uses it, so "this
+// session cannot be resumed" means the same thing in `duo sessions`, the resume
+// chooser and the dashboard.
+func SessionActive(dir string) bool {
+	file, err := os.Open(filepath.Join(dir, "lock"))
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+	if err := unix.Flock(int(file.Fd()), unix.LOCK_SH|unix.LOCK_NB); err != nil {
+		return errors.Is(err, unix.EWOULDBLOCK)
+	}
+	_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
+	return false
+}
 
 // Release drops the lock. It is safe to call on a nil lock.
 func (l *Lock) Release() error {

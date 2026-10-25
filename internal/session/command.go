@@ -119,6 +119,16 @@ type RestartDuo struct {
 // instruction to the process that is about to exit, not durable state.
 type NewSession struct{}
 
+// ResumeSession asks Duo to stop this session and resume another one in its
+// place. It is what the /sessions picker sends: this session is preserved exactly
+// as /quit would leave it, and the outer CLI re-runs Duo on the chosen id, so the
+// selected session takes the same path `duo resume <id>` takes. In-memory for the
+// same reason as NewSession: a switch that never happened is recoverable with
+// `duo resume`, a persisted one would switch back forever.
+type ResumeSession struct {
+	SessionID string `json:"sessionId"`
+}
+
 func (SubmitTask) Kind() string     { return "submit_task" }
 func (SwitchMode) Kind() string     { return "switch_mode" }
 func (ResumeModeWork) Kind() string { return "resume_mode_work" }
@@ -135,6 +145,7 @@ func (SetLanguage) Kind() string    { return "set_language" }
 func (SetObserver) Kind() string    { return "set_observer" }
 func (RestartDuo) Kind() string     { return "restart_duo" }
 func (NewSession) Kind() string     { return "new_session" }
+func (ResumeSession) Kind() string  { return "resume_session" }
 
 func (SubmitTask) command()     {}
 func (SwitchMode) command()     {}
@@ -152,3 +163,4 @@ func (SetLanguage) command()    {}
 func (SetObserver) command()    {}
 func (RestartDuo) command()     {}
 func (NewSession) command()     {}
+func (ResumeSession) command()  {}

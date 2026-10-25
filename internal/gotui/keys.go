@@ -87,6 +87,8 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 			if ev.Key() == tcell.KeyEsc {
 				a.closeOverlay()
 			}
+		case overlaySessions:
+			a.handleSessionsKey(ev)
 		}
 		return
 	}

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,7 +10,6 @@ import (
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/sessionstore"
 	"github.com/atfa/duo/internal/workspace"
-	"golang.org/x/sys/unix"
 )
 
 type sessionsArgs struct {
@@ -103,19 +101,12 @@ func writeUnfinishedSessionIDs(list []sessionstore.Summary) {
 	}
 }
 
-// sessionIsActive probes the advisory lock without creating or modifying the
-// lock file. Sessions with an active owner cannot be resumed by a new launcher.
+// sessionIsActive reports whether a live Duo process owns this session, so a
+// session it holds cannot be resumed by a new launcher. The probe itself lives in
+// sessionstore, where the dashboard's resume list shares it: one definition of
+// "resumable" for every frontend.
 func sessionIsActive(sessionDir string) bool {
-	file, err := os.Open(filepath.Join(sessionDir, "lock"))
-	if err != nil {
-		return false
-	}
-	defer file.Close()
-	if err := unix.Flock(int(file.Fd()), unix.LOCK_SH|unix.LOCK_NB); err != nil {
-		return errors.Is(err, unix.EWOULDBLOCK)
-	}
-	_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
-	return false
+	return sessionstore.SessionActive(sessionDir)
 }
 
 func safeSessionIDLine(value string) bool {

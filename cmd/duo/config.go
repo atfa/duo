@@ -360,6 +360,16 @@ func parseResumeArgs(args []string) (cliArgs, error) {
 	return parsed, nil
 }
 
+// resumeRecoveryGrace is the period a resumed session gets before the watchdog
+// may call it idle or stalled: the agents' processes must reconnect and reload
+// their context first. Every resume path shares it, whether the session was
+// opened by `duo resume <id>` or picked from the dashboard's /sessions list.
+// A resumed session needs the grace period because Pi must reconnect and reload
+// context, and that must not be mistaken for an idle or stalled run.
+func resumeRecoveryGrace() time.Duration {
+	return time.Duration(envInt("DUO_HARNESS_RESUME_GRACE_SECONDS", 45)) * time.Second
+}
+
 func loadConfigCommand(args []string, resume bool) (config, error) {
 	var parsed cliArgs
 	var err error
@@ -418,9 +428,7 @@ func loadConfigCommand(args []string, resume bool) (config, error) {
 		TickInterval:   2 * time.Second,
 	}
 	if parsed.resume {
-		// A resumed session needs a grace period: Pi must reconnect and reload
-		// context, and that must not be mistaken for an idle or stalled run.
-		harnessConfig.RecoveryGrace = time.Duration(envInt("DUO_HARNESS_RESUME_GRACE_SECONDS", 45)) * time.Second
+		harnessConfig.RecoveryGrace = resumeRecoveryGrace()
 	}
 
 	harnessEnabled := true

@@ -123,6 +123,7 @@ type App struct {
 	observer          *observerConfigOverlay
 	observerReports   *observerReportOverlay
 	qr                *qrcodeOverlay
+	sessions          *sessionsOverlay
 	remote            Remote
 	qrPairing         RemotePairing
 	onboarding        bool
@@ -213,6 +214,7 @@ func New(svc Session) *App {
 	a.observer = newObserverConfig(t)
 	a.observerReports = newObserverReports(t)
 	a.qr = newQrcode(t)
+	a.sessions = newSessions(t)
 	a.slash = newSlashMenu(t)
 	a.fileMenu = newMentionMenu(t)
 	a.listFiles = gitListFiles
@@ -302,6 +304,7 @@ func (a *App) refreshView() {
 		}
 	}
 	a.observeNewSession()
+	a.observeResumeSession()
 	a.applyLanguage()
 }
 
@@ -309,6 +312,14 @@ func (a *App) refreshView() {
 // The outer CLI owns restarting Duo; the TUI only returns control to it.
 func (a *App) observeNewSession() {
 	if a.live.NewSession {
+		a.stopApp()
+	}
+}
+
+// observeResumeSession is the same hand-over for /sessions: the session recorded
+// the id the human picked, so the interface stops and the outer CLI resumes it.
+func (a *App) observeResumeSession() {
+	if a.live.ResumeSession != "" {
 		a.stopApp()
 	}
 }
@@ -464,6 +475,7 @@ func (a *App) run(ctx context.Context, backend *ui.Backend) error {
 		a.live = sub.View
 	}
 	a.observeNewSession()
+	a.observeResumeSession()
 	a.applyLanguage()
 	if a.onboarding && !a.onboardingChecked {
 		a.onboardingChecked = true
@@ -668,6 +680,8 @@ func (a *App) draw() {
 			items = append(items, a.observer)
 		case overlayQrcode:
 			items = append(items, a.qr)
+		case overlaySessions:
+			items = append(items, a.sessions)
 		}
 	}
 	a.backend.Render(items...)
@@ -755,6 +769,7 @@ func (a *App) updateWidgets() {
 	a.confirm.place(l)
 	a.observer.place(l)
 	a.observerReports.place(l)
+	a.sessions.place(l)
 	if a.overlay == overlayQrcode {
 		a.qr.rebuild(a.qrPairing, a.remoteStatus())
 	}

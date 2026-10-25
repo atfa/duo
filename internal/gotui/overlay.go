@@ -24,6 +24,7 @@ const (
 	overlayObserver
 	overlayObserverReports
 	overlayQrcode
+	overlaySessions
 )
 
 func newModalBlock(t theme) *ui.Block {
