@@ -2,6 +2,109 @@
 
 All notable project milestones are documented here.
 
+## v0.14.2 — 2026-10-25
+
+### Verified self-install
+
+- `duo upgrade [--dry-run]` replaces the release install that was a `curl | bash`
+  pipe with no version check, no checksum and no atomic replace. It looks up the
+  latest release, downloads this platform's archive, proves it against the
+  release's published `SHA256SUMS`, and swaps the binary through a fsynced temp
+  file and a rename in the target's own directory. A release with no checksum file
+  is refused outright, because skipping verification would make the command a
+  wrapper around curl. Before replacing anything it applies the step loop's
+  session-schema guard to the release tag's own source, so a binary that could not
+  carry this machine's sessions forward is refused while the working one stays in
+  place. It restarts nothing: the running process keeps the old binary and the new
+  one takes effect on the next start, where the step loop's exit-code handoff
+  already performs the restart.
+- Every release now publishes one `SHA256SUMS` over the exact archives it ships,
+  in `sha256sum`'s own `<hash>  <name>` format, so `sha256sum -c` verifies a hand
+  download and `duo upgrade` can refuse an archive the release does not account
+  for. A release without the file is a visible failure, which is the safe
+  direction: refusing to upgrade beats installing an archive nobody vouched for.
+
+### Session export
+
+- `duo export <session-id>` writes one session's evidence chain to stdout as
+  self-contained Markdown: the plan and queue with their versions, each agent's
+  signature and the exact HEAD it signed, the Fast-mode verdict, the delivery
+  record, a diffstat and the timeline the human saw, closed by a summary of what
+  landed. It reads the durable snapshot and the event journal, so it works on a
+  session that is not running and on a checkout that no longer exists; the diffstat
+  is best effort and says why when Git is gone. An id stored in more than one
+  repository asks for `--repo` instead of exporting whichever was found first.
+
+### Verification order
+
+- The Fast and Fast-step verification handlers ran the automated test gate after
+  recording a passed verdict, so a gate failure left the pass in place: a resume or
+  `duo apply` could deliver an artifact whose tests fail, and a Fast step landed in
+  INTEGRATE where Tony cannot report again, Austin cannot withdraw, and the only
+  exit skipped the gate. The gate now runs first, as the Goal path already did, so a
+  failure leaves the request open and the same HEAD verifiable once it is fixed.
+- Duo owns the step checkboxes. `ParseSteps` read ticked lines and `setSteps`
+  accepted them, so an agent could submit a queue claiming work landed that no
+  delivery recorded — a ticked step skips REVIEW and its landing, and a fully
+  ticked queue skips every per-step gate on the way to the final sign-off. A queue
+  containing a ticked line is now refused, in PLAN and when appending during
+  EXECUTE, and the refusal leaves the existing queue untouched.
+- A resumed STEP session keeps a landing that recovery reconciliation had just
+  applied. `startResume` composed its snapshot from the state it restored before
+  `ReconcileDelivery`, so a step landed during reconciliation was undone on disk and
+  the live session sat in INTEGRATE on a FAST step with no signature to give; and
+  `ReconcileDelivery` stopped after landing a non-final step, so the rest of the
+  queue needed a second resume. Both halves are pinned by regression tests.
+
+### Phone remote
+
+- The phone gains the four resume verbs the terminal already offers — pause,
+  unpause, continue and `resume_work` — because being away from the keyboard is
+  exactly when a paused Duo has nobody to release it. None carries a payload and
+  none signs a gate (a signature stays authorized by an agent's live bridge alone),
+  so they reuse the existing MAC, nonce and deduplication instead of adding protocol
+  fields. A refusal is answered with the session's own reason: a phone that believes
+  it released a session that is still paused is worse than one that shows why it did
+  not.
+- The page is no longer one column ending in the composer, six screens below the
+  controls. A sticky header keeps mode, phase, step and expiry on screen, the
+  content folds into three tabs with the rare controls in a settings area, and the
+  composer is pinned above the home indicator. The dock's ceiling and the space the
+  cards reserve below themselves are one custom property, so the last card always
+  scrolls clear of the composer, including when the status line wraps. Contrast is
+  AA in both schemes, targets are 44px, fields are 16px so a phone does not zoom on
+  focus, and reduced motion drops the pulse.
+
+### Terminal
+
+- `/search` and `Ctrl+F` search the active pane: case-insensitive substring
+  matching, `n`/`N` with wrap-around, in-line highlight with the current hit in the
+  accent colour, and Esc restoring the viewport the search opened on. The query and
+  hit list live in the App, so search cannot become a second source of transcript
+  state; columns are counted in cells, so wide CJK text highlights exactly, and hits
+  are recomputed when a pane reflows or receives output, so a highlight can never
+  stay on a row that no longer holds the match.
+- `/sessions` lists this repository's unfinished sessions with the facts a choice
+  needs — mode, phase, time on the session, measured cost — and Enter resumes the
+  highlighted one, replacing the quit, `duo sessions`, copy id, `duo resume <id>`
+  round trip. The switch reuses the `/new` hand-over and persists nothing new, and a
+  picked session takes its mode from its own persisted state, so a launch `--mode`
+  no longer aborts a switch after the current session has already closed.
+- The transcript renders only the message that arrived. It had re-parsed its whole
+  window per append: 400 entries of 1KB at 100x40 cost 16.2ms and 17.3MB, twice per
+  message. Each entry's rendered lines are cached by seq, an entry leaving the window
+  takes its lines with it, and everything the lines depend on invalidates them —
+  wrap width, timestamp prefix, path roots and the interface language. The same
+  benchmark is now 41µs and 42KB.
+
+### Drivers
+
+- The example plugin is no longer shipped as a binary. It cannot run a coding agent,
+  so it only ever served as the conformance suite's positive control; it lives in
+  `internal/driver/referenceplugin`, where the contract and `duo plugins test` build
+  it on demand, and the plugin guide points at it and at generic
+  `duo-plugin-<name>` commands.
+
 ## v0.14.1 — 2026-10-25
 
 ### Delivery exits
