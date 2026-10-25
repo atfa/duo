@@ -38,7 +38,7 @@ const (
 	DefaultMaxEvents = 40
 	// Default per-request budget.
 	DefaultTimeout = 60 * time.Second
-	// Default answer length; a status report has three required sections.
+	// Default answer length; a status report has four required sections.
 	DefaultMaxTokens = 800
 
 	// busBuffer is large enough for a burst of tool activity. The bus drops when
@@ -47,10 +47,9 @@ const (
 
 	// maxEventRunes bounds one event's contribution to a prompt,
 	// maxTranscriptRunes bounds the whole recent log so a chatty session cannot
-	// price a human's Ctrl+E out of reach, and maxErrorBody bounds how much of a
-	// failed response is logged.
-	// maxTaskRunes bounds the remembered original task so one long human prompt
-	// cannot dominate every later report.
+	// price a human's Ctrl+E out of reach, maxTaskRunes bounds the remembered
+	// original task so one long human prompt cannot dominate every later report,
+	// and maxErrorBody bounds how much of a failed response is logged.
 	maxTaskRunes       = 2000
 	maxEventRunes      = 1200
 	maxTranscriptRunes = 6000
@@ -76,8 +75,9 @@ const DefaultSystemPrompt = "You are Duo's observer. Duo is a coding workflow wh
 	"1. Progress - the task in one sentence (from the Task block), then where the work stands in the task's own " +
 	"decomposition: how many steps the work was split into, how many are done, which step is current, and what " +
 	"remains. Everything here comes ONLY from the Current state block (plan text and step queue); never infer " +
-	"progress from the log. When the work has no explicit decomposition, say what phase the workflow is in " +
-	"instead, in one line.\n" +
+	"progress from the log. In Step mode the step queue is the decomposition. In Goal mode the shared plan's " +
+	"numbered items are the decomposition. When neither exists, say what phase the workflow is in instead, in " +
+	"one line.\n" +
 	"2. Just finished - at most three bullets, newest first, each a concrete result, kept relevant to the " +
 	"current step or phase. Never repeat a bullet from the previous report, never accumulate history, and drop " +
 	"anything newer events have superseded.\n" +

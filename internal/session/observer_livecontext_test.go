@@ -28,7 +28,6 @@ func TestSnapshotLiveBlockCarriesPlanAndSteps(t *testing.T) {
 	tony.sign(t)
 	round.waitPhase(t, project.PhaseExecute)
 
-	// Land the first step so the queue shows one done, one open.
 	austinPath := round.svc.View().Worktrees.Austin.Path
 	commitInWorktree(t, austinPath, "first.md", "first\n", "add first.md")
 	austin.sign(t)
@@ -52,6 +51,49 @@ func TestSnapshotLiveBlockCarriesPlanAndSteps(t *testing.T) {
 		if !strings.Contains(live, want) {
 			t.Errorf("live block missing %q:\n%s", want, live)
 		}
+	}
+}
+
+// TestSnapshotLiveBlockAfterTheLastStepLands pins the queue tally at the moment
+// a progress report is most likely opened: the last step has landed but the
+// session is still in INTEGRATE, where Snapshot.Step is len+1 by contract. The
+// header's step=3/2 is fine (it is the cursor), but the queue must not claim a
+// "current step" that is past the end.
+func TestSnapshotLiveBlockAfterTheLastStepLands(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("DUO_OBSERVER_API_KEY", "sk-test")
+	ctx := context.Background()
+	round := startSessionRound(t, ctx, project.ModeStep)
+	austin := round.dial(t, protocol.Austin)
+	tony := round.dial(t, protocol.Tony)
+	round.waitConnected(t)
+
+	austin.mustRequest(t, protocol.Message{Version: protocol.Version, Type: protocol.MsgSetPlan, Plan: "One step"})
+	austin.mustRequest(t, protocol.Message{Version: protocol.Version, Type: protocol.MsgSetSteps, Steps: "- [ ] add only.md"})
+	austin.sign(t)
+	tony.sign(t)
+	round.waitPhase(t, project.PhaseExecute)
+
+	commitInWorktree(t, round.svc.View().Worktrees.Austin.Path, "only.md", "only\n", "add only.md")
+	austin.sign(t)
+	round.waitPhase(t, project.PhaseReview)
+	tony.mustRequest(t, protocol.Message{Version: protocol.Version, Type: protocol.MsgSetVerification, Verification: "passed", Note: "ok"})
+	// Land the last step: its dual INTEGRATE sign-off delivers and ticks the
+	// queue, leaving the cursor at len+1 in INTEGRATE — the state the tally
+	// below must survive.
+	austin.sign(t)
+	tony.sign(t)
+	waitUntil(t, func() bool {
+		snap := round.svc.View().Project
+		return len(snap.Steps) == 1 && snap.Steps[0].Done && snap.Step == len(snap.Steps)+1
+	}, "the only step to land with the cursor past the end")
+
+	live := round.svc.observerLiveContext()
+	if !strings.Contains(live, "Step queue (1 steps, 1 landed, all steps landed):") {
+		t.Fatalf("live block missing the all-landed tally:\n%s", live)
+	}
+	if strings.Contains(live, "current step") {
+		t.Fatalf("all-landed queue must not name a current step:\n%s", live)
 	}
 }
 

@@ -16,6 +16,11 @@ import (
 // a growing log is exactly what the old timer-driven observer got wrong.
 const observerReportsKept = 3
 
+// maxPlanRunes bounds the plan text the live block carries. Goal-mode plans are
+// the task's decomposition, so the bound is generous and the cut falls back to
+// the last newline (see clipPlan).
+const maxPlanRunes = 2400
+
 // RequestObserverReport asks the observer for a fresh status report.
 //
 // It returns immediately. A model call may take its whole timeout, and no
@@ -147,25 +152,43 @@ func (s *Service) observerLiveContext() string {
 	}
 	if snap.EffectiveMode() == project.ModeStep && len(snap.Steps) > 0 {
 		fmt.Fprintf(&b, " step=%d/%d", snap.Step, len(snap.Steps))
-		if i := snap.Step - 1; i >= 0 && i < len(snap.Steps) {
-			fmt.Fprintf(&b, " currentStep=%q", clipRunes(snap.Steps[i].Title, 120))
-		}
 	}
 	b.WriteString("\n")
 	// The shared plan text and the step queue are the only source for how the
 	// task was decomposed and how far it has come, so they are rendered here
 	// (bounded), not left for the report model to guess from the log.
 	if plan := strings.TrimSpace(snap.Plan); plan != "" {
-		fmt.Fprintf(&b, "\nShared plan (version %d):\n%s\n", snap.PlanVersion, clipRunes(plan, 1200))
+		fmt.Fprintf(&b, "\nShared plan (version %d):\n%s\n", snap.PlanVersion, clipPlan(plan))
 	}
 	if len(snap.Steps) > 0 {
-		fmt.Fprintf(&b, "\nStep queue (%d steps, %d landed, current step %d of %d):\n%s",
-			len(snap.Steps), landedSteps(snap.Steps), snap.Step, len(snap.Steps), snap.Steps.Render())
+		fmt.Fprintf(&b, "\nStep queue (%d steps, %d landed", len(snap.Steps), landedSteps(snap.Steps))
+		// FirstOpenStep returns len+1 once every step has landed, so a naive
+		// "current step N of M" runs past the end exactly when the last step is
+		// sitting in review or integration — the moment a progress report is most
+		// likely to be opened.
+		if open := project.FirstOpenStep(snap.Steps); open <= len(snap.Steps) {
+			fmt.Fprintf(&b, ", current step %d of %d):\n", open, len(snap.Steps))
+		} else {
+			b.WriteString(", all steps landed):\n")
+		}
+		b.WriteString(snap.Steps.Render())
 	}
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
 		fmt.Fprintf(&b, "%s: %s\n", id, agentActivity(v.Agents[id], now))
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// clipPlan shortens a plan to maxPlanRunes, falling back to the last newline so
+// a cut never leaves half a numbered item: in Goal mode the plan's items are the
+// decomposition, and a truncated item undercounts the steps a report can cite.
+func clipPlan(plan string) string {
+	if clipped := clipRunes(plan, maxPlanRunes); clipped != plan {
+		if i := strings.LastIndex(clipped, "\n"); i > 0 {
+			return clipped[:i]
+		}
+	}
+	return plan
 }
 
 // landedSteps counts the queue's done steps for the live block's one-line tally.
