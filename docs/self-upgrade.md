@@ -27,3 +27,15 @@ running; commit or discard those changes before requesting it again. If installa
 or the schema check fails, the launcher stops and the saved session can be resumed
 manually with a compatible Duo. See the [CLI overview](../README.md) for command
 invocation details.
+
+## Installing a release instead
+
+`duo upgrade` is the other install path, for machines that run a published release
+rather than a checkout. It downloads this platform's archive, verifies it against
+the release's own `SHA256SUMS`, and refuses an archive the release does not list.
+Before replacing anything it applies the same session-schema guard as the loop
+above, read from the release tag's source, so a binary that could not carry this
+machine's sessions forward is refused while the working one stays in place. It
+never restarts anything: the process that ran it keeps the old binary, and the new
+one takes effect on the next start. Under `duo step-loop` the exit-code handoff
+above is what performs the restart.

@@ -31,6 +31,8 @@ Duo 运行于 macOS 与 Linux，需要 Git 以及至少一种受支持的 Agent 
 curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash
 ```
 
+`duo upgrade` 用同样的发布归档安装，但不需要脚本：它下载本平台归档，按 release 发布的 `SHA256SUMS` 校验，release 没有校验文件就拒绝安装；替换前还会读取该 tag 的会话 schema，无法继续本机会话的新二进制会被拒绝而不是装上去。`duo upgrade --dry-run` 只报告会装什么；无论哪种情况，当前进程都继续跑旧二进制，新二进制下次启动生效。
+
 或从源码安装（需要 Go 1.24+；脚本会先运行 Go 测试）：
 
 ```bash

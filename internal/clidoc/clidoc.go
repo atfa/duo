@@ -74,6 +74,11 @@ var commands = []Command{
 		Summary:   "list the Markdown transcripts written to .duo/logs",
 	},
 	{
+		Name:      "upgrade",
+		Signature: "duo upgrade [--dry-run]",
+		Summary:   "install the latest release after verifying its published SHA256SUMS",
+	},
+	{
 		Name:      "export",
 		Signature: "duo export <session-id> [--repo <path>]",
 		Summary:   "write one session's plan, queue, signatures and delivery record as Markdown",
