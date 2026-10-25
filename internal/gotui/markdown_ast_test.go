@@ -101,7 +101,8 @@ func TestMarkdownASTTableWideCJKCellWraps(t *testing.T) {
 		}
 	}
 	got := strings.Map(func(r rune) rune {
-		if r == ' ' || r == '-' || r == 'k' || r == 'v' || r == 'x' {
+		switch r {
+		case ' ', '-', '|', 'k', 'v', 'x':
 			return -1
 		}
 		return r
