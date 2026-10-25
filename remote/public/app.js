@@ -187,7 +187,10 @@ function render() {
 const PAUSE_ACTIONS = { running: ["pause", "Pause work"], pausing: ["unpause", "Cancel pause"], paused: ["continue", "Resume work"] };
 
 function renderPause(ready) {
-  const [kind, label] = PAUSE_ACTIONS[model?.pause?.state] ?? [null, "—"];
+  // viewModel flattens the host's pause projection to its state string, so the
+  // table is keyed by that value and a pause the page cannot read keeps the
+  // button dark rather than offering an action it does not mean.
+  const [kind, label] = PAUSE_ACTIONS[model?.pause] ?? [null, "—"];
   els.pausectl.textContent = label;
   els.pausectl.disabled = !ready || Boolean(pending);
   els.pausectl.dataset.kind = kind ?? "";

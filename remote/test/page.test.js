@@ -252,8 +252,15 @@ test("the work-state button follows the pause state and sends bare commands", as
   assert.match(app, /running: \["pause", "Pause work"\]/);
   assert.match(app, /pausing: \["unpause", "Cancel pause"\]/);
   assert.match(app, /paused: \["continue", "Resume work"\]/);
-  assert.match(app, /PAUSE_ACTIONS\[model\?\.pause\?\.state\]/);
+  assert.match(app, /PAUSE_ACTIONS\[model\?\.pause\]/);
   assert.match(app, /els\.pausectl\.dataset\.kind/);
+  // The keys are the values viewModel actually produces: the host's pause
+  // projection is flattened to its state string before the page sees it.
+  const { viewModel } = await import("../public/console.js");
+  for (const state of ["running", "pausing", "paused"]) {
+    assert.equal(viewModel({ pause: { state } }).pause, state, `viewModel must flatten pause state ${state}`);
+    assert.ok(state in { running: 1, pausing: 1, paused: 1 }, `${state} must have a button action`);
+  }
   assert.match(app, /command\(kind, ""\)/);
   // The command must still be signed like any other: buildCommand covers the
   // fields the relay could change, so the button goes through the same path.

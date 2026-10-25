@@ -285,9 +285,12 @@ the next `state`; the host republishes one after a reconnect.
 `pause`, `unpause`, `continue` and `resume_work` carry no text. They drive the
 same workflow-pause lifecycle the desktop TUI offers: `pause` asks Duo to hold
 new work once the agents reach an idle boundary, `unpause` cancels a request
-that has not completed yet, `continue` resumes a fully paused session, and
-`resume_work` sends the current mode's work notice to both agents after a
-restored session. The host maps each one onto the matching session command and
+that has not completed yet, and `continue` resumes a fully paused session.
+`resume_work` resumes a restored session whose work notice is still pending
+human confirmation: the host refuses it when nothing is pending, when the
+session is paused, or after `DONE`. The page itself offers no button for it,
+because a state alone does not tell a phone that a restored session is waiting.
+The host maps each one onto the matching session command and
 refuses it when the session state cannot take it. They are workflow verbs, not
 gate signatures: nothing here signs a plan, a readiness or a verification, which
 only an agent's live bridge connection may do.
