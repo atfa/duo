@@ -32,6 +32,10 @@ type Session interface {
 	// RequestObserverReport asks the advisory observer for one status report. It
 	// returns immediately; the answer arrives through View().Observer.Reports.
 	RequestObserverReport()
+	// RequestObserverAnswer asks the advisory observer one human-typed question.
+	// It returns immediately; the answer arrives through the same Reports list
+	// with the question attached. Blank input is a no-op.
+	RequestObserverAnswer(question string)
 
 	Attach(agent protocol.AgentID, w io.Writer) ([]byte, error)
 	Detach(agent protocol.AgentID)

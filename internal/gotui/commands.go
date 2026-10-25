@@ -530,6 +530,19 @@ func (a *App) requestObserverReport() {
 	a.svc.RequestObserverReport()
 }
 
+// requestObserverAnswer sends the question the human typed. The session trims
+// and normalizes it, so the panel hands over the raw line; the guard here only
+// keeps an empty send from touching the session at all.
+func (a *App) requestObserverAnswer(question string) {
+	if a.svc == nil {
+		return
+	}
+	if !a.live.Observer.Enabled || !a.live.Observer.HasKey {
+		return
+	}
+	a.svc.RequestObserverAnswer(question)
+}
+
 // openPlan shows the read-only plan and Step queue overlay. It reads the live
 // snapshot once when opened and refreshes lazily while the overlay is visible.
 func (a *App) openPlan() {

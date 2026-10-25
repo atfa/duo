@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/atfa/duo/internal/session"
+	"github.com/gdamore/tcell/v3"
 	rw "github.com/mattn/go-runewidth"
 	ui "github.com/metaspartan/gotui/v5"
 )
@@ -15,7 +16,9 @@ import (
 // The observer runs only when a human asks for one, so this panel is where its
 // output belongs: a report is never a Timeline entry. Opening the panel asks for
 // a fresh report, R asks again, and an in-flight request shows its elapsed time
-// instead of looking frozen.
+// instead of looking frozen. `?` lets the human ask the observer one question of
+// their own; the answer lands in the same history with the question shown above
+// it.
 type observerReportOverlay struct {
 	*ui.Block
 	theme    theme
@@ -24,6 +27,10 @@ type observerReportOverlay struct {
 	offset   int
 	lines    []renderLine
 	observer session.ObserverView
+	// asking holds the question being typed; empty means the panel is not in
+	// input mode. Typed keys then edit the question instead of scrolling.
+	asking   bool
+	question string
 }
 
 func newObserverReports(t theme) *observerReportOverlay {
@@ -76,6 +83,11 @@ func (o *observerReportOverlay) reflow() {
 		o.lines = append(o.lines, wrapText(o.analyzingLine(), o.theme.BodyMuted, width)...)
 		o.lines = append(o.lines, makeLine("", o.theme.BodyMuted, 0))
 	}
+	if o.asking {
+		prompt := o.theme.tr("Your question (? sends as typed · Enter ask · Esc cancel)") + " " + o.question
+		o.lines = append(o.lines, wrapText(prompt, o.theme.Warning, width)...)
+		o.lines = append(o.lines, makeLine("", o.theme.BodyMuted, 0))
+	}
 	if !o.hasReports() {
 		o.lines = append(o.lines, wrapText(o.emptyMessage(), o.theme.BodyMuted, width)...)
 		o.clampOffset()
@@ -84,6 +96,9 @@ func (o *observerReportOverlay) reflow() {
 	for _, report := range o.observer.Reports {
 		o.lines = append(o.lines, makeLine(report.At.Format("15:04"),
 			ui.Style{Fg: o.theme.Accent, Bg: o.theme.Panel, Modifier: ui.ModifierBold}, 0))
+		if report.Question != "" {
+			o.lines = append(o.lines, wrapText(o.theme.tr("Q:")+" "+report.Question, o.theme.Warning, width)...)
+		}
 		o.lines = append(o.lines, wrapText(strings.TrimSpace(report.Text), o.theme.BodyMuted, width)...)
 		o.lines = append(o.lines, makeLine("", o.theme.BodyMuted, 0))
 	}
@@ -106,6 +121,9 @@ func (o *observerReportOverlay) clampOffset() {
 // is still working.
 func (o *observerReportOverlay) analyzingLine() string {
 	line := o.theme.tr("Asking the observer what the agents are doing right now…")
+	if o.observer.PendingQuestion != "" {
+		line = o.theme.tr("Answering your question") + ": " + o.observer.PendingQuestion
+	}
 	if o.observer.RequestedAt.IsZero() {
 		return line
 	}
@@ -162,7 +180,7 @@ func (o *observerReportOverlay) Draw(buf *ui.Buffer) {
 			x += rw.StringWidth(run.text)
 		}
 	}
-	hint := o.theme.tr("R re-analyze  ·  ↑/↓ scroll  ·  Esc close")
+	hint := o.theme.tr("R re-analyze  ·  ? ask a question  ·  ↑/↓ scroll  ·  Esc close")
 	if o.Inner.Dy() > 0 {
 		buf.SetString(fitText(hint, o.Inner.Dx()), o.theme.Timestamp, image.Pt(o.Inner.Min.X, o.Inner.Max.Y-1))
 	}
@@ -170,4 +188,52 @@ func (o *observerReportOverlay) Draw(buf *ui.Buffer) {
 
 func (o *observerReportOverlay) Scroll(delta int) {
 	o.offset = min(max(0, o.offset+delta), o.maxOffset())
+}
+
+// beginQuestion enters input mode on `?`. Any text typed so far is discarded;
+// the mode is a one-line prompt, not an editor.
+func (o *observerReportOverlay) beginQuestion() {
+	o.asking = true
+	o.question = ""
+	o.reflow()
+}
+
+// endQuestion leaves input mode without sending.
+func (o *observerReportOverlay) endQuestion() {
+	o.asking = false
+	o.question = ""
+	o.reflow()
+}
+
+// handleQuestionKey edits the one-line question while input mode is active. It
+// reports whether the key was consumed; Enter hands the text to the caller, and
+// a plain character appends to the line. Anything else (paste, control keys)
+// is ignored rather than half-handled.
+func (o *observerReportOverlay) handleQuestionKey(ev *tcell.EventKey) (sent string, consumed bool) {
+	switch ev.Key() {
+	case tcell.KeyEnter, tcell.KeyCtrlJ:
+		o.asking = false
+		sent, o.question = o.question, ""
+		if strings.TrimSpace(sent) == "" {
+			o.reflow()
+			return "", true
+		}
+		return sent, true
+	case tcell.KeyEsc:
+		o.endQuestion()
+		return "", true
+	case tcell.KeyBackspace, tcell.KeyBackspace2:
+		runes := []rune(o.question)
+		if len(runes) > 0 {
+			o.question = string(runes[:len(runes)-1])
+			o.reflow()
+		}
+		return "", true
+	}
+	if ev.Key() == tcell.KeyRune && !strings.ContainsFunc(ev.Str(), func(r rune) bool { return r < ' ' }) {
+		o.question += ev.Str()
+		o.reflow()
+		return "", true
+	}
+	return "", false
 }

@@ -578,13 +578,26 @@ func (a *App) handlePickerKey(ev *tcell.EventKey) {
 	}
 }
 
-// handleObserverReportKey scrolls the report panel and re-asks the observer on R.
-// The panel is the only place observer output lives, so asking again is one key.
+// handleObserverReportKey scrolls the report panel, re-asks the observer on R,
+// and opens the one-line question input on `?`. While the input is open, keys
+// edit the question; Enter sends it and Esc cancels. The panel is the only
+// place observer output lives, so asking is one key.
 func (a *App) handleObserverReportKey(ev *tcell.EventKey) {
+	if a.observerReports.asking {
+		if sent, consumed := a.observerReports.handleQuestionKey(ev); consumed {
+			if sent != "" {
+				a.requestObserverAnswer(sent)
+			}
+			return
+		}
+	}
 	if ev.Key() == tcell.KeyRune {
 		switch strings.ToLower(ev.Str()) {
 		case "r":
 			a.requestObserverReport()
+			return
+		case "?":
+			a.observerReports.beginQuestion()
 			return
 		}
 	}
