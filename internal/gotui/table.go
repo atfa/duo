@@ -96,6 +96,13 @@ func tableWidths(header [][]textRun, rows [][][]textRun, columns, width int) ([]
 		return nil, false
 	}
 	budget := width - overhead
+	// A column narrower than this cannot hold a word or a CJK pair, so the box
+	// stops helping: at that point the fallback rows read better than a grid of
+	// single characters.
+	const minColumnWidth = 3
+	if budget < minColumnWidth*columns {
+		return nil, false
+	}
 	natural := make([]int, columns)
 	for i, cell := range header {
 		natural[i] = max(natural[i], runsWidth(cell))
