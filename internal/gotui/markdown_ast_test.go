@@ -50,28 +50,22 @@ func TestMarkdownASTOrderedAndTaskLists(t *testing.T) {
 
 func TestMarkdownASTTableAlignments(t *testing.T) {
 	tm := newTheme()
-	runs := markdownRuns("| a | b | c |\n|:--|--:|:-:|\n| L | R | C |", tm.Body, tm, 40)
+	runs := markdownRuns("| left | mid | right |\n|:--|:-:|--:|\n| L | M | R |", tm.Body, tm, 40)
 	lines := wrapRuns(runs, 40)
 	var dataRow string
 	for _, line := range lines {
-		text := line.text()
-		if strings.Contains(text, "L") && strings.Contains(text, "R") && strings.Contains(text, "C") {
+		if text := line.text(); strings.Contains(text, "| L ") && strings.Contains(text, "R |") {
 			dataRow = text
 		}
 	}
 	if dataRow == "" {
 		t.Fatalf("table data row missing:\n%v", lines)
 	}
-	// Left-aligned cell starts right after its border pipe; the center cell
-	// keeps symmetric padding around the single character.
-	if !strings.Contains(dataRow, "| L ") {
-		t.Fatalf("left alignment lost:\n%s", dataRow)
-	}
-	if !strings.Contains(dataRow, "| C |") && !strings.Contains(dataRow, "|  C  ") {
-		t.Fatalf("center alignment lost:\n%s", dataRow)
-	}
-	if !strings.HasSuffix(strings.TrimRight(dataRow, " "), "R | C |") && !strings.Contains(dataRow, "| R ") {
-		t.Fatalf("right alignment lost:\n%s", dataRow)
+	// Wide headers make padding observable: left cell touches its left
+	// border, center cell keeps symmetric padding, right cell touches the
+	// right border.
+	if want := "| L    |  M  |     R |"; dataRow != want {
+		t.Fatalf("alignment row mismatch:\n got %q\nwant %q", dataRow, want)
 	}
 }
 
@@ -91,27 +85,26 @@ func TestMarkdownASTTableWideCJKCellWraps(t *testing.T) {
 	tm := newTheme()
 	long := strings.Repeat("宽", 30)
 	runs := markdownRuns("| k | v |\n|---|---|\n| x | "+long+" |", tm.Body, tm, 30)
-	var sawLong bool
-	for _, line := range wrapRuns(runs, 30) {
+	lines := wrapRuns(runs, 30)
+	var cell strings.Builder
+	for _, line := range lines {
 		if line.width() > 30 {
 			t.Fatalf("line exceeds width: %q", line.text())
 		}
-	}
-	joined := strings.ReplaceAll(joinLines(t, runs), " ", "")
-	if !strings.Contains(joined, long) {
-		// wrapped across lines; each fragment must still be present in order
-		remaining := long
-		for i := 0; i < len(joined); i++ {
-			if strings.HasPrefix(remaining, joined[i:i+1]) {
-				remaining = remaining[1:]
+		text := line.text()
+		// Second column of each table row, across wrapped lines. Border
+		// rows are all dashes and contribute nothing after trimming.
+		if i := strings.Index(text, "|"); i >= 0 {
+			if j := strings.LastIndex(text, "|"); j > i {
+				cell.WriteString(strings.TrimSpace(text[i+1 : j]))
 			}
 		}
-		if remaining != "" {
-			t.Fatalf("wide CJK cell content lost:\n%s", joined)
-		}
 	}
-	sawLong = true
-	_ = sawLong
+	got := strings.ReplaceAll(cell.String(), " ", "")
+	got = strings.ReplaceAll(got, "-", "")
+	if got != long {
+		t.Fatalf("wide CJK cell content lost or reordered:\n got %q\nwant %q", got, long)
+	}
 }
 
 func TestMarkdownASTFenceTableNotParsed(t *testing.T) {
@@ -130,8 +123,14 @@ func TestMarkdownASTIndentedCodeBlock(t *testing.T) {
 	tm := newTheme()
 	runs := markdownRuns("para\n\n    indented code\n    more", tm.Body, tm, 60)
 	joined := joinLines(t, runs)
-	if !strings.Contains(joined, "indented code") {
-		t.Fatalf("indented code block lost:\n%s", joined)
+	code := false
+	for _, run := range runs {
+		if strings.Contains(run.text, "indented code") && run.style == tm.Code {
+			code = true
+		}
+	}
+	if !code || !strings.Contains(joined, "indented code") {
+		t.Fatalf("indented code block lost or unstyled:\n%s\n%#v", joined, runs)
 	}
 }
 
@@ -189,7 +188,7 @@ func TestMarkdownASTEmphasisRuns(t *testing.T) {
 		case "it":
 			italic = run.style.Modifier&italicMod != 0
 		case "code":
-			code = true
+			code = run.style == tm.Code
 		}
 	}
 	if !bold || !italic || !code {
