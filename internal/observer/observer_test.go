@@ -125,20 +125,112 @@ func TestSettingsDefaults(t *testing.T) {
 	}
 }
 
-func TestDefaultReportPromptRequiresBoundedFourSectionReport(t *testing.T) {
+func TestDefaultReportPromptRequiresBoundedFiveSectionReport(t *testing.T) {
 	for _, want := range []string{
-		"exactly four sections", "Progress", "Just finished", "Doing now",
+		"exactly five sections", "Progress", "Just finished", "Doing now", "Watch out",
 		"derived ONLY from the Current state block", "Never describe a finished tool as running",
 		"only what the agents explicitly stated they will do", "Needs your decision:",
-		"at most eighteen short lines", "including the section headings",
+		"at most twenty short lines", "including the section headings",
 		"Task", "comes ONLY from the Current state block",
+		// Watch out is optional by design: it is omitted rather than filled.
+		"omit this " + "section and its heading entirely",
+		// A question turns the same blocks into a direct answer.
+		"Question from the human", "at most eight short lines",
 	} {
 		if !strings.Contains(DefaultSystemPrompt, want) {
 			t.Errorf("DefaultSystemPrompt missing %q", want)
 		}
 	}
-	if DefaultMaxTokens != 800 {
-		t.Fatalf("DefaultMaxTokens = %d, want 800", DefaultMaxTokens)
+	if DefaultMaxTokens != 1000 {
+		t.Fatalf("DefaultMaxTokens = %d, want 1000", DefaultMaxTokens)
+	}
+}
+
+// A question is the human asking the observer to look at one thing, so the
+// prompt carries the question last and the answer keeps the previous report as
+// continuity: asking follow-up questions must not cost the observer its context.
+func TestAnswerCarriesQuestionAndSharesReportContinuity(t *testing.T) {
+	t.Setenv("DUO_OBSERVER_API_KEY", "sk-test")
+
+	var (
+		mu      sync.Mutex
+		prompts []string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Messages []struct {
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		mu.Lock()
+		prompts = append(prompts, payload.Messages[1].Content)
+		mu.Unlock()
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"answer"}}]}`)
+	}))
+	defer srv.Close()
+
+	obs, _ := newTestObserver(t, testConfig(srv.URL+"/v1"), "Austin: idle")
+
+	if got, err := obs.Report(context.Background()); err != nil || got != "answer" {
+		t.Fatalf("report = %q, %v", got, err)
+	}
+	question := "why is Tony stuck?\n  he has been on the same tool"
+	if got, err := obs.Answer(context.Background(), question); err != nil || got != "answer" {
+		t.Fatalf("answer = %q, %v", got, err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(prompts) != 2 {
+		t.Fatalf("prompts = %d, want 2", len(prompts))
+	}
+	if strings.Contains(prompts[0], "Question from the human") {
+		t.Fatalf("a plain report carried a question block:\n%s", prompts[0])
+	}
+	second := prompts[1]
+	// The question stays one line, so a wrapped panel and the prompt agree.
+	if want := "Question from the human (answer this instead of writing the report):\nwhy is Tony stuck? he has been on the same tool\n"; !strings.Contains(second, want) {
+		t.Fatalf("answer prompt is missing the normalized question %q:\n%s", want, second)
+	}
+	if !strings.Contains(second, "Previous report (continuity only; do not repeat its finished bullets):\nanswer") {
+		t.Fatalf("the answer dropped the previous report:\n%s", second)
+	}
+	if strings.LastIndex(second, "Question from the human") < strings.LastIndex(second, "Previous report") {
+		t.Fatalf("the question is not the last block:\n%s", second)
+	}
+}
+
+// An empty question is not a request: nothing is sent and the caller is told why.
+func TestAnswerRejectsAnEmptyQuestion(t *testing.T) {
+	t.Setenv("DUO_OBSERVER_API_KEY", "sk-test")
+
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"answer"}}]}`)
+	}))
+	defer srv.Close()
+
+	obs, _ := newTestObserver(t, testConfig(srv.URL+"/v1"), "Austin: idle")
+	if _, err := obs.Answer(context.Background(), "  \n\t "); err == nil {
+		t.Fatal("an empty question was accepted")
+	}
+	if got := requests.Load(); got != 0 {
+		t.Fatalf("an empty question sent %d request(s)", got)
+	}
+}
+
+func TestNormalizeQuestionKeepsOneBoundedLine(t *testing.T) {
+	if got, want := NormalizeQuestion("  what\n is\tthe  plan?  "), "what is the plan?"; got != want {
+		t.Fatalf("NormalizeQuestion = %q, want %q", got, want)
+	}
+	long := NormalizeQuestion(strings.Repeat("x", maxQuestionRunes+50))
+	if got := len([]rune(long)); got != maxQuestionRunes+1 {
+		t.Fatalf("bounded question is %d runes, want %d plus the cut marker", got, maxQuestionRunes)
+	}
+	if !strings.HasSuffix(long, "…") {
+		t.Fatalf("a cut question lost its marker: %q", long[max(0, len(long)-10):])
 	}
 }
 
