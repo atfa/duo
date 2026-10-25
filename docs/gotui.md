@@ -167,7 +167,7 @@ The frontend lives entirely under `internal/gotui/`:
 | `panels.go` | header, workflow, workflow status, agent cards, footer |
 | `transcript.go`, `text.go` | transcript projection, wrapping, selection |
 | `links.go` | URL/path detection, click hit-testing and OS openers |
-| `markdown.go`, `format.go` | styled Markdown and display formatting |
+| `markdown.go`, `table.go`, `format.go` | goldmark-AST Markdown rendering, table layout, display formatting; `markdown.go` parses with `github.com/yuin/goldmark` (GFM extensions) into structured `textRun`s that `table.go` lays out as `+---+` bordered grids |
 | `messages.go` | event-to-entry projection and recording |
 | `session.go` | local Session seam over `session.Service` |
 | `theme.go` | TrueColor palette and shared styles |
