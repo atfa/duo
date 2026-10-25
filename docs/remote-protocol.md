@@ -276,7 +276,21 @@ the next `state`; the host republishes one after a reconnect.
 {"v":1,"id":"<uuid>","kind":"set_driver","text":"austin pi"}
 {"v":1,"id":"<uuid>","kind":"catalog","text":"austin"}
 {"v":1,"id":"<uuid>","kind":"set_model","text":"austin openai/gpt-5"}
+{"v":1,"id":"<uuid>","kind":"pause"}
+{"v":1,"id":"<uuid>","kind":"unpause"}
+{"v":1,"id":"<uuid>","kind":"continue"}
+{"v":1,"id":"<uuid>","kind":"resume_work"}
 ```
+
+`pause`, `unpause`, `continue` and `resume_work` carry no text. They drive the
+same workflow-pause lifecycle the desktop TUI offers: `pause` asks Duo to hold
+new work once the agents reach an idle boundary, `unpause` cancels a request
+that has not completed yet, `continue` resumes a fully paused session, and
+`resume_work` sends the current mode's work notice to both agents after a
+restored session. The host maps each one onto the matching session command and
+refuses it when the session state cannot take it. They are workflow verbs, not
+gate signatures: nothing here signs a plan, a readiness or a verification, which
+only an agent's live bridge connection may do.
 
 `switch_mode` carries `fast`, `step` or `goal` in `text`. The host validates the
 name and switches quietly, so a mode change from a phone never wakes an agent:
@@ -313,8 +327,8 @@ cannot swap or duplicate it. The host:
 2. rejects a command whose `n` is not one of the last 8 nonces it issued;
 3. ignores an `id` it already executed, and re-sends its current state instead;
 4. applies the command through the session seam (`SubmitTask`, `NewSession`,
-   `RequestObserverReport`, `SwitchMode`, `SetDriver`, `SetModel`) and publishes
-   a new state.
+   `RequestObserverReport`, `SwitchMode`, `SetDriver`, `SetModel`, `Pause`,
+   `Unpause`, `Continue`, `ResumeWork`) and publishes a new state.
 
 The command MAC is:
 
