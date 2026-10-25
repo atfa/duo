@@ -48,7 +48,7 @@ func TestSnapshotLiveBlockCarriesGodViewFacts(t *testing.T) {
 		"Tony head=",
 		"ahead=2 dirty=true",
 		"Changed files vs base: Austin [austin-only.md, shared.md] (2 file(s))",
-		"Tony [shared.md, tony-only.md] (2 file(s))",		"overlap [shared.md] (1 file(s))",
+		"Tony [shared.md, tony-only.md] (2 file(s))", "overlap [shared.md] (1 file(s))",
 	} {
 		if !strings.Contains(live, want) {
 			t.Errorf("live block missing %q:\n%s", want, live)
