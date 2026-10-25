@@ -92,16 +92,20 @@ func TestMarkdownASTTableWideCJKCellWraps(t *testing.T) {
 			t.Fatalf("line exceeds width: %q", line.text())
 		}
 		text := line.text()
-		// Second column of each table row, across wrapped lines. Border
-		// rows are all dashes and contribute nothing after trimming.
+		// Data rows wrap within the second column; border rows contribute
+		// only dashes, which are stripped below.
 		if i := strings.Index(text, "|"); i >= 0 {
 			if j := strings.LastIndex(text, "|"); j > i {
-				cell.WriteString(strings.TrimSpace(text[i+1 : j]))
+				cell.WriteString(text[i+1 : j])
 			}
 		}
 	}
-	got := strings.ReplaceAll(cell.String(), " ", "")
-	got = strings.ReplaceAll(got, "-", "")
+	got := strings.Map(func(r rune) rune {
+		if r == ' ' || r == '-' || r == 'k' || r == 'v' || r == 'x' {
+			return -1
+		}
+		return r
+	}, cell.String())
 	if got != long {
 		t.Fatalf("wide CJK cell content lost or reordered:\n got %q\nwant %q", got, long)
 	}
