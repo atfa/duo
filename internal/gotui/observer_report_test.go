@@ -194,3 +194,101 @@ func TestObserverReportKeepsTheScrollInsideTheNewContent(t *testing.T) {
 		t.Fatalf("panel after the clamp = %q, want the new report", got)
 	}
 }
+
+// `?` turns the panel into a one-line prompt; Enter sends the typed question
+// to the session and Esc closes the prompt without touching the session.
+func TestObserverPanelQuestionInput(t *testing.T) {
+	fake := newFakeSession()
+	fake.view.Observer = reportView("a report")
+	app := New(fake)
+	app.handleKey(tcell.NewEventKey(tcell.KeyCtrlE, "", tcell.ModNone))
+
+	app.handleKey(tcell.NewEventKey(tcell.KeyRune, "?", tcell.ModNone))
+	if !app.observerReports.asking {
+		t.Fatal("? did not open the question input")
+	}
+	if got := fake.snapshotAnswerRequests(); len(got) != 0 {
+		t.Fatalf("opening the input sent %v", got)
+	}
+
+	for _, r := range "Tony stuck?" {
+		app.handleKey(tcell.NewEventKey(tcell.KeyRune, string(r), tcell.ModNone))
+	}
+	app.handleKey(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))
+	if app.observerReports.asking {
+		t.Fatal("Enter did not close the question input")
+	}
+	if got := fake.snapshotAnswerRequests(); len(got) != 1 || got[0] != "Tony stuck?" {
+		t.Fatalf("Enter sent %q, want the typed question", got)
+	}
+
+	// Esc cancels: type a question and leave without sending.
+	app.handleKey(tcell.NewEventKey(tcell.KeyRune, "?", tcell.ModNone))
+	for _, r := range "never sent" {
+		app.handleKey(tcell.NewEventKey(tcell.KeyRune, string(r), tcell.ModNone))
+	}
+	app.handleKey(tcell.NewEventKey(tcell.KeyEsc, "", tcell.ModNone))
+	if app.observerReports.asking {
+		t.Fatal("Esc did not close the question input")
+	}
+	if got := fake.snapshotAnswerRequests(); len(got) != 1 {
+		t.Fatalf("Esc sent %v, want no second request", got)
+	}
+
+	// Backspace edits, and an empty line sends nothing.
+	app.handleKey(tcell.NewEventKey(tcell.KeyRune, "?", tcell.ModNone))
+	app.handleKey(tcell.NewEventKey(tcell.KeyRune, "a", tcell.ModNone))
+	app.handleKey(tcell.NewEventKey(tcell.KeyBackspace, "", tcell.ModNone))
+	app.handleKey(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))
+	if got := fake.snapshotAnswerRequests(); len(got) != 1 {
+		t.Fatalf("empty question sent %v", got)
+	}
+
+	// While typing, r and ? are characters, not panel commands: typing them
+	// must neither re-analyze nor reopen the prompt.
+	app.handleKey(tcell.NewEventKey(tcell.KeyRune, "?", tcell.ModNone))
+	app.handleKey(tcell.NewEventKey(tcell.KeyRune, "r", tcell.ModNone))
+	app.handleKey(tcell.NewEventKey(tcell.KeyRune, "?", tcell.ModNone))
+	if !app.observerReports.asking {
+		t.Fatal("typing ? while the input is open closed the input")
+	}
+	if got := app.observerReports.question; got != "r?" {
+		t.Fatalf("typed keys left the question as %q, want %q", got, "r?")
+	}
+	if got := fake.snapshotReportRequests(); got != 1 {
+		t.Fatalf("typing r while the input is open made %d report requests, want 1 (the initial Ctrl+E)", got)
+	}
+}
+
+// An answer is one history entry: the question renders above the text, and an
+// ordinary report stays question-less.
+func TestObserverPanelRendersQuestionAboveAnswer(t *testing.T) {
+	view := reportView("Tony is waiting on review.")
+	view.Reports[0].Question = "Tony stuck?"
+	overlay := newObserverReports(newTheme())
+	overlay.begin(view)
+	got := normalizeText(panelText(overlay))
+	q, a := strings.Index(got, normalizeText("Q: Tony stuck?")), strings.Index(got, normalizeText("Tony is waiting on review."))
+	if q == -1 || a == -1 {
+		t.Fatalf("panel missing question or answer: %q", got)
+	}
+	if q > a {
+		t.Fatalf("question rendered below the answer: %q", got)
+	}
+}
+
+// While an answer is in flight the panel names the question instead of claiming
+// a status report is running.
+func TestObserverPanelPendingQuestionLine(t *testing.T) {
+	overlay := newObserverReports(newTheme())
+	view := session.ObserverView{
+		Enabled: true, HasKey: true, Analyzing: true,
+		RequestedAt:     time.Now(),
+		PendingQuestion: "merge conflict?",
+	}
+	overlay.begin(view)
+	got := normalizeText(panelText(overlay))
+	if !strings.Contains(got, "Answeringyourquestion") || !strings.Contains(got, "mergeconflict?") {
+		t.Fatalf("pending panel = %q", got)
+	}
+}

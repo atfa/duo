@@ -38,6 +38,7 @@ type fakeSession struct {
 	doErr    error
 
 	reportRequests int
+	answerRequests []string
 	statusText     string
 	sessions       []sessionstore.Summary
 }
@@ -222,6 +223,18 @@ func (f *fakeSession) RequestObserverReport() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reportRequests++
+}
+
+func (f *fakeSession) RequestObserverAnswer(question string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.answerRequests = append(f.answerRequests, question)
+}
+
+func (f *fakeSession) snapshotAnswerRequests() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.answerRequests...)
 }
 
 func (f *fakeSession) snapshotReportRequests() int {

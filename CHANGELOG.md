@@ -2,6 +2,22 @@
 
 All notable project milestones are documented here.
 
+## Unreleased
+
+### Observer: ask questions and a god-view report
+
+- The `Ctrl+E` report panel accepts your own questions: press `?`, type one
+  line, `Enter` sends it and the observer answers directly in at most eight
+  short lines instead of writing a full report; the question is shown above its
+  answer in the same three-entry history. A newer question replaces a pending
+  one; `Esc` or empty input asks nothing.
+- The live snapshot now carries each agent's gate sign-off and verification
+  state, worktree branch head with ahead count and dirty flag, per-branch
+  changed files and their overlap, session usage totals and the test command.
+- Reports gain an optional `Watch out:` section: at most two bullets, each
+  citing concrete evidence from the live snapshot or the recent log, omitted
+  entirely when nothing concrete is observed.
+
 ## v0.14.3 — 2026-10-25
 
 ### Shutdown
