@@ -43,8 +43,11 @@ const (
 	DefaultMaxEvents = 40
 	// Default per-request budget.
 	DefaultTimeout = 60 * time.Second
-	// Default answer length; a status report has four required sections.
-	DefaultMaxTokens = 800
+	// Default answer length; a status report has four required sections plus an
+	// optional fifth, and a direct answer to a question has to fit in the same
+	// budget. Too small a budget shows up as a truncated report, which is worse
+	// than a few unused tokens.
+	DefaultMaxTokens = 1000
 
 	// busBuffer is large enough for a burst of tool activity. The bus drops when
 	// a subscriber falls behind, which is the behaviour this package relies on.
@@ -59,10 +62,13 @@ const (
 	maxEventRunes      = 1200
 	maxTranscriptRunes = 6000
 	maxErrorBody       = 512
+	// maxQuestionRunes bounds the question a human types into the report panel,
+	// so one long pasted question cannot dominate the prompt.
+	maxQuestionRunes = 500
 )
 
 // DefaultSystemPrompt asks for a status report about the task and the agents,
-// not for advice.
+// and for a direct answer when the human asks the observer a question.
 //
 // The four sections are the human's own questions. Progress comes first because
 // it is the question the timeline answers worst: a report that only lists recent
@@ -71,17 +77,26 @@ const (
 // state, not a log. The "Doing now" rule is the part that makes the rest of the
 // report worth opening: it may only use the live block, so a finished tool can
 // never be presented as work in progress, which is exactly what an event-only
-// observer used to get wrong.
+// observer used to get wrong. "Watch out" exists because the observer sees both
+// what the agents say and what the evidence shows; it is optional so a healthy
+// session is never padded with invented concerns.
 const DefaultSystemPrompt = "You are Duo's observer. Duo is a coding workflow where two agents, Austin and Tony, " +
 	"work on one task in separate Git worktrees. You write a short status report for the human watching them, in " +
 	"the human's language, including the section headings. Each request carries four blocks, in this order: 'Task' " +
 	"(the human's original request for this round, verbatim); 'Current state' (sampled live right now from Duo's " +
 	"runtime: mode, phase, the shared plan text, the step queue with which steps have landed, the current step, " +
-	"and per agent whether it is busy or idle, the tool it is running with its arguments and elapsed time, how " +
-	"long the current turn has lasted, the last few finished tools, the text it is currently writing, and its " +
-	"context usage); 'Recent session log' (the newest messages between the agents, the human and Duo); and " +
-	"'Previous report' (your last report, for continuity only).\n\n" +
-	"Write exactly four sections:\n" +
+	"each agent's sign-off with its note or evidence, the Fast-mode verification verdict, each agent's worktree " +
+	"with its branch, short head, commits ahead of the base commit and whether it has uncommitted changes, the " +
+	"files each branch changed and which of those both branches touched, the session's token and cost totals, " +
+	"the test command, and per agent whether it is busy or idle, the tool it is running with its arguments and " +
+	"elapsed time, how long the current turn has lasted, the last few finished tools, the text it is currently " +
+	"writing, and its context usage); 'Recent session log' (the newest messages between the agents, the human and " +
+	"Duo); and 'Previous report' (your last report, for continuity only).\n\n" +
+	"When a request also carries a 'Question from the human' block, do not write the report: answer that question " +
+	"directly, in the human's language, in at most eight short lines, using the same blocks as your evidence. The " +
+	"question is the human asking you to look at something specific, not a request to repeat the report.\n\n" +
+	"Otherwise write exactly five sections:" +
+	"\n" +
 	"1. Progress - the task in one sentence (from the Task block), then where the work stands in the task's own " +
 	"decomposition: how many steps the work was split into, how many are done, which step is current, and what " +
 	"remains. Everything here comes ONLY from the Current state block (plan text and step queue); never infer " +
@@ -97,10 +112,17 @@ const DefaultSystemPrompt = "You are Duo's observer. Duo is a coding workflow wh
 	"writing. An idle agent is reported as idle together with what it finished last. Never describe a finished " +
 	"tool as running.\n" +
 	"4. Next - only what the agents explicitly stated they will do, in their order, at most three bullets. When " +
-	"they stated nothing, say so in one short line.\n\n" +
+	"they stated nothing, say so in one short line.\n" +
+	"5. Watch out - at most two bullets, and only when the Current state block or the log shows a concrete " +
+	"problem the agents may not have noticed: a claim with no evidence behind it (an agent says work is done or " +
+	"tests pass, while the log shows a failing tool, or its worktree has no commits ahead of the base), the same " +
+	"tool failing repeatedly, both agents idle in a phase that needs one of them, a gate nobody can pass because " +
+	"each agent is waiting for the other, or both branches changing the same files so integration will conflict. " +
+	"Each bullet states the risk and names the evidence for it. When nothing concrete is visible, omit this " +
+	"section and its heading entirely; never fill it with generic advice, style opinions or speculation.\n\n" +
 	"End with one final line starting with the human's words for 'Needs your decision:' only when a decision " +
 	"genuinely blocks the agents; otherwise omit that line entirely. Do not invent facts, do not advise the " +
-	"agents, do not repeat a bullet twice, and keep the whole report to at most eighteen short lines."
+	"agents, do not repeat a bullet twice, and keep the whole report to at most twenty short lines."
 
 // Config is the resolved observer configuration. It is what the session runs
 // with; Settings is the file-facing shape.
@@ -409,6 +431,35 @@ func (o *Observer) collect(ctx context.Context, in <-chan events.Event) {
 // when the human pressed the key. A truncated answer returns its text together
 // with the diagnostic, because a partial report is still worth showing.
 func (o *Observer) Report(ctx context.Context) (string, error) {
+	return o.ask(ctx, "")
+}
+
+// Answer asks the model one question the human typed, using the same blocks a
+// report is written from, and returns its answer.
+//
+// It shares the report path on purpose: one in-flight call, one previous-report
+// continuity field, one failure mode. Only the prompt differs, so a question can
+// reach the evidence a plain report never mentions without a second code path to
+// keep honest.
+func (o *Observer) Answer(ctx context.Context, question string) (string, error) {
+	question = NormalizeQuestion(question)
+	if question == "" {
+		return "", errors.New("observer: empty question")
+	}
+	return o.ask(ctx, question)
+}
+
+// NormalizeQuestion makes a typed question safe to put in a prompt line: it is
+// trimmed, every run of whitespace becomes one space so it stays a single line,
+// and it is bounded. Both frontends and the observer itself use this one rule, so
+// a question cannot render one way in a panel and another in the prompt.
+func NormalizeQuestion(question string) string {
+	return clip(strings.Join(strings.Fields(question), " "), maxQuestionRunes)
+}
+
+// ask performs the one model call both Report and Answer use. An empty question
+// means "write the report".
+func (o *Observer) ask(ctx context.Context, question string) (string, error) {
 	if o == nil {
 		return "", errors.New("observer: not running")
 	}
@@ -426,7 +477,7 @@ func (o *Observer) Report(ctx context.Context) (string, error) {
 		"model": o.cfg.Model,
 		"messages": []map[string]string{
 			{"role": "system", "content": o.cfg.SystemPrompt},
-			{"role": "user", "content": userPrompt(task, live, transcript(batch), previous)},
+			{"role": "user", "content": userPrompt(task, live, transcript(batch), previous, question)},
 		},
 	}
 	if o.cfg.MaxTokens > 0 {
@@ -488,10 +539,12 @@ func (o *Observer) Report(ctx context.Context) (string, error) {
 	return text, nil
 }
 
-// userPrompt assembles the four blocks a report is written from. The task
-// comes first because it anchors the Progress section: everything after it is
-// the present, while the task is why the work is being done at all.
-func userPrompt(task, live, log, previous string) string {
+// userPrompt assembles the four blocks a report is written from, plus the
+// human's question when there is one. The task comes first because it anchors the
+// Progress section: everything after it is the present, while the task is why the
+// work is being done at all. The question comes last because it is the one thing
+// the answer has to address.
+func userPrompt(task, live, log, previous, question string) string {
 	var b strings.Builder
 	b.WriteString("Task (the human's original request for this round):\n")
 	if strings.TrimSpace(task) == "" {
@@ -516,6 +569,11 @@ func userPrompt(task, live, log, previous string) string {
 	if previous = strings.TrimSpace(previous); previous != "" {
 		b.WriteString("\nPrevious report (continuity only; do not repeat its finished bullets):\n")
 		b.WriteString(previous)
+		b.WriteString("\n")
+	}
+	if question != "" {
+		b.WriteString("\nQuestion from the human (answer this instead of writing the report):\n")
+		b.WriteString(question)
 		b.WriteString("\n")
 	}
 	return b.String()

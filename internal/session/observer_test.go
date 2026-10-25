@@ -54,7 +54,7 @@ func TestObserverDisabledLeavesEventsAloneAndMakesNoRequest(t *testing.T) {
 	if got := requests.Load(); got != 0 {
 		t.Fatalf("disabled observer made %d model requests, want 0", got)
 	}
-	if reports, analyzing, _ := svc.observerReportSnapshot(); len(reports) != 0 || analyzing {
+	if reports, analyzing, _, _ := svc.observerReportSnapshot(); len(reports) != 0 || analyzing {
 		t.Fatalf("disabled observer reported state: %v %v", reports, analyzing)
 	}
 }
@@ -194,11 +194,11 @@ func TestRequestedReportKeepsANewestFirstHistoryOfThree(t *testing.T) {
 		want := fmt.Sprintf("report %d", i)
 		svc.RequestObserverReport()
 		waitFor(t, 3*time.Second, func() bool {
-			reports, analyzing, _ := svc.observerReportSnapshot()
+			reports, analyzing, _, _ := svc.observerReportSnapshot()
 			return !analyzing && len(reports) > 0 && reports[0].Text == want
 		})
 	}
-	reports, _, _ := svc.observerReportSnapshot()
+	reports, _, _, _ := svc.observerReportSnapshot()
 	if len(reports) != observerReportsKept {
 		t.Fatalf("kept %d reports, want %d", len(reports), observerReportsKept)
 	}
@@ -246,7 +246,7 @@ func TestRepeatedRequestsCollapseToOneQueuedRerun(t *testing.T) {
 	}
 	close(release)
 	waitFor(t, 2*time.Second, func() bool {
-		reports, analyzing, _ := svc.observerReportSnapshot()
+		reports, analyzing, _, _ := svc.observerReportSnapshot()
 		return !analyzing && len(reports) == 2
 	})
 	if got := requests.Load(); got != 2 {

@@ -127,8 +127,14 @@ type Service struct {
 	observerReports     []ObserverReport
 	observerAnalyzing   bool
 	observerRequestedAt time.Time
-	observerTrigger     chan struct{}
-	observerCancel      context.CancelFunc
+	// observerAnswering is the question the in-flight request is answering, and
+	// is empty while a status report is in flight.
+	observerAnswering string
+	// observerPending is the request waiting for the worker, if any. It is
+	// replaced rather than queued so the newest request always runs next.
+	observerPending *observerRequest
+	observerTrigger chan struct{}
+	observerCancel  context.CancelFunc
 
 	driverState map[protocol.AgentID]sessionstore.DriverState
 	pauseState  PauseState
@@ -712,7 +718,7 @@ func (s *Service) setObserver(c SetObserver) error {
 func (s *Service) observerView() ObserverView {
 	hasKey := s.opts.Observer.APIKey() != ""
 	lastNotice, lastNoticeAt := s.observerNoticeSnapshot()
-	reports, analyzing, requestedAt := s.observerReportSnapshot()
+	reports, analyzing, requestedAt, pendingQuestion := s.observerReportSnapshot()
 	keyFile := observer.KeyFileExists()
 	enabledOverride, endpointOverride, modelOverride := observer.EnvOverrides()
 	return ObserverView{
@@ -725,6 +731,7 @@ func (s *Service) observerView() ObserverView {
 		Reports:             reports,
 		Analyzing:           analyzing,
 		RequestedAt:         requestedAt,
+		PendingQuestion:     pendingQuestion,
 		HasKey:              hasKey,
 		KeyFile:             keyFile,
 		EnvOverride:         enabledOverride,

@@ -3,18 +3,41 @@ package session
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/atfa/duo/internal/harness"
+	"github.com/atfa/duo/internal/observer"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
+	"github.com/atfa/duo/internal/sessionstore"
+	"github.com/atfa/duo/internal/workspace"
 )
 
 // observerReportsKept is how many reports the panel can look back on. The
 // observer runs only when a human asks for one, so a short history is enough and
 // a growing log is exactly what the old timer-driven observer got wrong.
 const observerReportsKept = 3
+
+// observerGitTimeout bounds the git work one report samples. A status report must
+// never hang behind a busy worktree: whatever git cannot answer in time is simply
+// missing from the live block.
+const observerGitTimeout = 2 * time.Second
+
+// maxLiveBranchFiles bounds how many changed files one branch contributes to the
+// live block. The overlap is computed from the full sets, so the display cut can
+// never hide a collision.
+const maxLiveBranchFiles = 12
+
+// maxLiveNoteRunes bounds a sign-off note or verification note in the live block.
+const maxLiveNoteRunes = 200
+
+// observerRequest is one queued request: a status report when question is empty,
+// or the human's question for the observer to answer.
+type observerRequest struct {
+	question string
+}
 
 // maxPlanRunes bounds the plan text the live block carries. Goal-mode plans are
 // the task's decomposition, so the bound is generous and the cut falls back to
@@ -25,12 +48,33 @@ const maxPlanRunes = 2400
 //
 // It returns immediately. A model call may take its whole timeout, and no
 // frontend may be blocked behind one, so the request is handed to a worker. A
-// request that arrives while another is in flight is queued once: pressing the
-// key repeatedly cannot fan out requests.
+// request that arrives while another is waiting replaces it: the panel keeps one
+// in-flight call and one waiting slot, so pressing keys cannot fan out requests.
 func (s *Service) RequestObserverReport() {
-	s.observerReportMu.RLock()
+	s.requestObserver(observerRequest{})
+}
+
+// RequestObserverAnswer asks the observer one question the human typed.
+//
+// A blank question is not a request, so nothing is sent and no notice appears. A
+// question that arrives while another request is waiting replaces it rather than
+// being dropped: the human typed it last and expects it answered.
+func (s *Service) RequestObserverAnswer(question string) {
+	question = observer.NormalizeQuestion(question)
+	if question == "" {
+		return
+	}
+	s.requestObserver(observerRequest{question: question})
+}
+
+// requestObserver queues one request and wakes the worker.
+func (s *Service) requestObserver(req observerRequest) {
+	s.observerReportMu.Lock()
 	trigger := s.observerTrigger
-	s.observerReportMu.RUnlock()
+	if trigger != nil {
+		s.observerPending = &req
+	}
+	s.observerReportMu.Unlock()
 	if trigger == nil {
 		return
 	}
@@ -61,23 +105,43 @@ func (s *Service) runObserverReports(ctx context.Context, trigger <-chan struct{
 		case <-ctx.Done():
 			return
 		case <-trigger:
-			s.analyzeObserverReport(ctx)
+			req, ok := s.takeObserverRequest()
+			if !ok {
+				continue
+			}
+			s.analyzeObserverReport(ctx, req)
 		}
 	}
+}
+
+// takeObserverRequest claims the waiting request and marks it in flight.
+//
+// Marking it here, not when the request was queued, is what keeps the panel
+// honest: the elapsed time and the question it reports belong to the call that is
+// actually running.
+func (s *Service) takeObserverRequest() (observerRequest, bool) {
+	s.observerReportMu.Lock()
+	defer s.observerReportMu.Unlock()
+	if s.observerPending == nil {
+		return observerRequest{}, false
+	}
+	req := *s.observerPending
+	s.observerPending = nil
+	s.observerAnalyzing = true
+	s.observerRequestedAt = time.Now()
+	s.observerAnswering = req.question
+	return req, true
 }
 
 // analyzeObserverReport performs one request and files the result.
 //
 // The live block is rendered here, at request time, so a queued re-run reports
 // what is true when it runs rather than what was true when the key was pressed.
-func (s *Service) analyzeObserverReport(ctx context.Context) {
-	s.observerReportMu.Lock()
-	s.observerAnalyzing = true
-	s.observerRequestedAt = time.Now()
-	s.observerReportMu.Unlock()
+func (s *Service) analyzeObserverReport(ctx context.Context, req observerRequest) {
 	defer func() {
 		s.observerReportMu.Lock()
 		s.observerAnalyzing = false
+		s.observerAnswering = ""
 		s.observerReportMu.Unlock()
 	}()
 
@@ -88,9 +152,17 @@ func (s *Service) analyzeObserverReport(ctx context.Context) {
 		return
 	}
 
-	text, err := obs.Report(ctx)
+	var (
+		text string
+		err  error
+	)
+	if req.question != "" {
+		text, err = obs.Answer(ctx, req.question)
+	} else {
+		text, err = obs.Report(ctx)
+	}
 	if strings.TrimSpace(text) != "" {
-		s.setObserverReport(text)
+		s.setObserverReport(text, req.question)
 		// A successful report clears a stale notice; a truncation notice is set
 		// again immediately below.
 		s.clearObserverNotice()
@@ -101,24 +173,26 @@ func (s *Service) analyzeObserverReport(ctx context.Context) {
 }
 
 // setObserverReport files one report, newest first, keeping a short history.
-func (s *Service) setObserverReport(text string) {
+func (s *Service) setObserverReport(text, question string) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return
 	}
 	s.observerReportMu.Lock()
 	defer s.observerReportMu.Unlock()
-	s.observerReports = append([]ObserverReport{{At: time.Now(), Text: text}}, s.observerReports...)
+	report := ObserverReport{At: time.Now(), Question: question, Text: text}
+	s.observerReports = append([]ObserverReport{report}, s.observerReports...)
 	if len(s.observerReports) > observerReportsKept {
 		s.observerReports = s.observerReports[:observerReportsKept]
 	}
 }
 
 // observerReportSnapshot projects the report panel state.
-func (s *Service) observerReportSnapshot() ([]ObserverReport, bool, time.Time) {
+func (s *Service) observerReportSnapshot() ([]ObserverReport, bool, time.Time, string) {
 	s.observerReportMu.RLock()
 	defer s.observerReportMu.RUnlock()
-	return append([]ObserverReport(nil), s.observerReports...), s.observerAnalyzing, s.observerRequestedAt
+	return append([]ObserverReport(nil), s.observerReports...),
+		s.observerAnalyzing, s.observerRequestedAt, s.observerAnswering
 }
 
 // observerLogf is the one place an observer failure becomes a log line and a
@@ -139,6 +213,10 @@ func (s *Service) observerLogf() func(string, ...any) {
 // at this instant. It is the only input that can answer "what are they doing
 // right now", because a running tool never becomes a message.
 func (s *Service) observerLiveContext() string {
+	// Branch facts come from git, so they are sampled before the session lock is
+	// taken: a report that waited for a worktree would hold the session.
+	austinBranch, tonyBranch := s.observerBranches(context.Background())
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	v := s.view()
@@ -158,6 +236,35 @@ func (s *Service) observerLiveContext() string {
 		}
 	}
 	b.WriteString("\n")
+	// Who is blocking, and what each branch actually contains: the observer sees
+	// promises and evidence side by side, so these facts are what let a report say
+	// why nothing is moving instead of guessing from the log. Everything here is
+	// omitted when the session has nothing to say (Fast mode has no sign-offs, and
+	// unknown git facts are silence, never "empty").
+	if snap.EffectiveMode() != project.ModeFast {
+		fmt.Fprintf(&b, "Sign-offs: Austin ready=%t%s%s, Tony ready=%t%s%s\n",
+			snap.Ready[protocol.Austin], signoffNote(snap.Notes[protocol.Austin]), signoffEvidence(snap.Evidence[protocol.Austin]),
+			snap.Ready[protocol.Tony], signoffNote(snap.Notes[protocol.Tony]), signoffEvidence(snap.Evidence[protocol.Tony]))
+	}
+	if line := verificationLine(snap.Verification); line != "" {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	if line := branchLine(austinBranch, tonyBranch); line != "" {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	if line := changeLine(austinBranch, tonyBranch); line != "" {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	if line := usageLine(v.Usage); line != "" {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	if command := strings.TrimSpace(v.TestCommand); command != "" {
+		fmt.Fprintf(&b, "Test command: %s\n", clipRunes(command, maxLiveNoteRunes))
+	}
 	// The shared plan text and the step queue are the only source for how the
 	// task was decomposed and how far it has come, so they are rendered here
 	// (bounded), not left for the report model to guess from the log.
@@ -288,6 +395,210 @@ func shortDuration(d time.Duration) string {
 		return fmt.Sprintf("%dm%02ds", int(d.Minutes()), int(d.Seconds())%60)
 	default:
 		return fmt.Sprintf("%dh%02dm", int(d.Hours()), int(d.Minutes())%60)
+	}
+}
+
+// observerBranch is what one agent's branch actually contains: its head, how far
+// it is ahead of the session's base commit, whether it has uncommitted work, and
+// the files it changed. ok is false when git could not answer in time, and the
+// live block then says nothing about that branch rather than calling it empty.
+type observerBranch struct {
+	head  string
+	ahead int
+	dirty bool
+	files []string
+	ok    bool
+}
+
+// observerBranches samples both worktrees for one report. It is best-effort by
+// design: the observer is advisory, so a git failure costs one line of context
+// instead of producing a notice the human has to dismiss.
+func (s *Service) observerBranches(ctx context.Context) (observerBranch, observerBranch) {
+	s.mu.RLock()
+	ws := s.ws
+	s.mu.RUnlock()
+	if ws == nil {
+		return observerBranch{}, observerBranch{}
+	}
+	ctx, cancel := context.WithTimeout(ctx, observerGitTimeout)
+	defer cancel()
+	return observerBranchOf(ctx, ws, protocol.Austin), observerBranchOf(ctx, ws, protocol.Tony)
+}
+
+func observerBranchOf(ctx context.Context, ws *workspace.GitManager, id protocol.AgentID) observerBranch {
+	status, err := ws.Status(ctx, id)
+	if err != nil {
+		return observerBranch{}
+	}
+	branch := observerBranch{head: status.Head, ahead: status.Ahead, dirty: status.Dirty, ok: true}
+	if status.Ahead > 0 {
+		branch.files = gitChangedFiles(ctx, status.Path, ws.Set().BaseCommit)
+	}
+	return branch
+}
+
+// gitChangedFiles lists the files a branch committed relative to base.
+//
+// Uncommitted work is reported by the worktree's dirty flag instead, because what
+// the two branches will bring to integration is their commits.
+func gitChangedFiles(ctx context.Context, dir, base string) []string {
+	if dir == "" || strings.TrimSpace(base) == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, observerGitTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "git", "-C", dir, "diff", "--name-only", base+"..HEAD").Output()
+	if err != nil {
+		return nil
+	}
+	var files []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if name := strings.TrimSpace(line); name != "" {
+			files = append(files, name)
+		}
+	}
+	return files
+}
+
+// branchLine names what each branch holds, so a report can tell a claim from a
+// commit. A branch git could not describe is left out entirely.
+func branchLine(austin, tony observerBranch) string {
+	var parts []string
+	for _, entry := range []struct {
+		name   string
+		branch observerBranch
+	}{{"Austin", austin}, {"Tony", tony}} {
+		if !entry.branch.ok {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s head=%s ahead=%d dirty=%t",
+			entry.name, shortLiveCommit(entry.branch.head), entry.branch.ahead, entry.branch.dirty))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "Worktrees: " + strings.Join(parts, "; ")
+}
+
+// changeLine names the files each branch changed and, explicitly, the ones both
+// changed: that overlap is the one integration risk Duo can see before the merge.
+func changeLine(austin, tony observerBranch) string {
+	if len(austin.files) == 0 && len(tony.files) == 0 {
+		return ""
+	}
+	return "Changed files vs base: Austin " + fileSetText(austin.files) +
+		"; Tony " + fileSetText(tony.files) +
+		"; overlap " + fileSetText(overlappingFiles(austin.files, tony.files))
+}
+
+// fileSetText renders one file set compactly, bounding the display only. The
+// count is always the real one, so a cut list cannot read as the whole set.
+func fileSetText(files []string) string {
+	if len(files) == 0 {
+		return "none"
+	}
+	shown := files
+	if len(shown) > maxLiveBranchFiles {
+		shown = shown[:maxLiveBranchFiles]
+	}
+	text := strings.Join(shown, ", ")
+	if extra := len(files) - len(shown); extra > 0 {
+		text += fmt.Sprintf(", … +%d more", extra)
+	}
+	return fmt.Sprintf("[%s] (%d file(s))", text, len(files))
+}
+
+// overlappingFiles returns the files both branches changed, in the order they
+// appear in austin. It compares the full sets, so a bounded display can never
+// hide a collision.
+func overlappingFiles(austin, tony []string) []string {
+	if len(austin) == 0 || len(tony) == 0 {
+		return nil
+	}
+	inTony := make(map[string]bool, len(tony))
+	for _, name := range tony {
+		inTony[name] = true
+	}
+	var shared []string
+	for _, name := range austin {
+		if inTony[name] {
+			shared = append(shared, name)
+		}
+	}
+	return shared
+}
+
+// verificationLine renders the Fast-mode verdict and the head it is bound to.
+func verificationLine(v project.Verification) string {
+	if v.Status == project.VerificationNone {
+		return ""
+	}
+	line := "Verification: " + v.Label()
+	if head := shortLiveCommit(v.Head); head != "" {
+		line += " target=" + head
+	}
+	if note := liveNote(v.Note); note != "" {
+		line += " (note: " + note + ")"
+	}
+	return line
+}
+
+// usageLine renders the session's measured cost, which is the one fact that says
+// whether a slow round is expensive as well as slow. It stays silent until
+// something has been measured, so a report never shows a cost of zero.
+func usageLine(usage *sessionstore.UsageLedger) string {
+	if usage == nil {
+		return ""
+	}
+	total := usage.Total()
+	if total.Turns == 0 && total.TotalTokens == 0 && total.CostUSD == 0 {
+		return ""
+	}
+	parts := []string{fmt.Sprintf("%d turn(s)", total.Turns), compactCount(total.TotalTokens) + " token(s)"}
+	if total.CostUSD > 0 {
+		parts = append(parts, fmt.Sprintf("$%.2f", total.CostUSD))
+	}
+	return "Usage so far: " + strings.Join(parts, ", ")
+}
+
+func signoffNote(note string) string {
+	if note = liveNote(note); note == "" {
+		return ""
+	}
+	return " (note: " + note + ")"
+}
+
+func signoffEvidence(evidence string) string {
+	if evidence = liveNote(evidence); evidence == "" {
+		return ""
+	}
+	return " (evidence: " + evidence + ")"
+}
+
+// liveNote collapses a free-text note to one bounded line, so a multi-line
+// sign-off cannot make the live block look like several facts.
+func liveNote(note string) string {
+	return clipRunes(strings.Join(strings.Fields(note), " "), maxLiveNoteRunes)
+}
+
+// shortLiveCommit shortens a commit hash the way the status line does.
+func shortLiveCommit(head string) string {
+	head = strings.TrimSpace(head)
+	if len(head) > 7 {
+		return head[:7]
+	}
+	return head
+}
+
+// compactCount renders a large count in the short form a status line uses.
+func compactCount(n int) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fk", float64(n)/1_000)
+	default:
+		return fmt.Sprintf("%d", n)
 	}
 }
 
