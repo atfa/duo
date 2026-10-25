@@ -199,6 +199,11 @@ func (r *mdRenderer) list(n *ast.List, depth int) {
 				marker = "☐ "
 			}
 		}
+		// A loose list separates its items the way it separates the blocks
+		// inside them; a tight list packs both.
+		if !n.IsTight && li.PreviousSibling() != nil {
+			r.newline()
+		}
 		r.listItem(li, marker, depth, !n.IsTight)
 	}
 }
@@ -211,7 +216,8 @@ func (r *mdRenderer) listItem(li *ast.ListItem, marker string, depth int, gap bo
 		switch child.(type) {
 		case *ast.Paragraph, *ast.TextBlock:
 			if !first {
-				r.newline()
+				// The previous block already ended its line, so only a loose
+				// item adds the blank line between them.
 				if gap {
 					r.newline()
 				}
