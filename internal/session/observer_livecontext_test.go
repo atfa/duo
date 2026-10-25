@@ -44,7 +44,7 @@ func TestSnapshotLiveBlockCarriesPlanAndSteps(t *testing.T) {
 		"step=2/2",
 		"Shared plan (version 1):",
 		"Add two files, one step each",
-		"Step queue (2 steps, 1 landed, current step 2 of 2):",
+		"Step queue (2 step(s), 1 landed, current step 2 of 2):",
 		"1. [x] [fast] add first.md — landed ",
 		"2. [ ] [fast] add second.md",
 	} {
@@ -89,7 +89,7 @@ func TestSnapshotLiveBlockAfterTheLastStepLands(t *testing.T) {
 	}, "the only step to land with the cursor past the end")
 
 	live := round.svc.observerLiveContext()
-	if !strings.Contains(live, "Step queue (1 steps, 1 landed, all steps landed):") {
+	if !strings.Contains(live, "Step queue (1 step(s), 1 landed, all steps landed):") {
 		t.Fatalf("live block missing the all-landed tally:\n%s", live)
 	}
 	if strings.Contains(live, "current step") {
@@ -120,5 +120,45 @@ func TestSnapshotLiveBlockCarriesPlanInGoalMode(t *testing.T) {
 	}
 	if strings.Contains(live, "Step queue") {
 		t.Fatalf("goal mode must not render a step queue:\n%s", live)
+	}
+}
+
+// TestClipPlanNeverExceedsItsBound pins the fallback rule: a plan without
+// newlines — the common goal-mode shape where the numbered items are inlined —
+// is still cut at maxPlanRunes, and every cut keeps the truncation marker so a
+// report cannot read a partial plan as the whole decomposition.
+func TestClipPlanNeverExceedsItsBound(t *testing.T) {
+	long := strings.Repeat("1) step one 2) step two 3) step three ", 300) // > 2× maxPlanRunes, one line
+	got := clipPlan(long)
+	if cut, ok := clipRunesMarked(long, maxPlanRunes); !ok || got != cut {
+		t.Fatalf("a one-line plan must be cut at the bound with a marker, got %d runes", len([]rune(got)))
+	}
+	if strings.HasSuffix(got, "1)") || strings.HasSuffix(got, "1") {
+		t.Fatalf("cut must not land mid-token without a marker: %q", clipRunes(got, 40))
+	}
+	if !strings.Contains(got, "…") {
+		t.Fatalf("the truncation marker is lost:\n%q", clipRunes(got, 80))
+	}
+
+	multi := "1) first item\n2) second item\n" + strings.Repeat("filler line\n", 500) + "3) third item"
+	got = clipPlan(multi)
+	if len([]rune(got)) > maxPlanRunes+10 { // marker only
+		t.Fatalf("a multi-line plan exceeded the bound: %d runes", len([]rune(got)))
+	}
+	if strings.Contains(got, "3) third item") {
+		t.Fatalf("the newline fallback must drop content past the cut:\n%q", clipRunes(got, 200))
+	}
+	// The fallback dropped everything from the cut's line onward, so the kept
+	// body ends at a line boundary — no half item, no partial filler line.
+	body := strings.TrimSuffix(got, "\n…")
+	if !strings.HasSuffix(body, "\n") {
+		t.Fatalf("the newline fallback left a partial line:\n%q", clipRunes(got, 200))
+	}
+	if !strings.Contains(got, "…") {
+		t.Fatalf("the truncation marker is lost after the newline fallback")
+	}
+
+	if got := clipPlan("short plan"); got != "short plan" {
+		t.Fatalf("a plan under the bound must pass through unchanged, got %q", got)
 	}
 }

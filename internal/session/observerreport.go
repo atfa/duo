@@ -151,7 +151,11 @@ func (s *Service) observerLiveContext() string {
 		fmt.Fprintf(&b, " planVersion=%d", snap.PlanVersion)
 	}
 	if snap.EffectiveMode() == project.ModeStep && len(snap.Steps) > 0 {
-		fmt.Fprintf(&b, " step=%d/%d", snap.Step, len(snap.Steps))
+		if open := project.FirstOpenStep(snap.Steps); open <= len(snap.Steps) {
+			fmt.Fprintf(&b, " step=%d/%d", open, len(snap.Steps))
+		} else {
+			b.WriteString(" step=all landed")
+		}
 	}
 	b.WriteString("\n")
 	// The shared plan text and the step queue are the only source for how the
@@ -161,12 +165,14 @@ func (s *Service) observerLiveContext() string {
 		fmt.Fprintf(&b, "\nShared plan (version %d):\n%s\n", snap.PlanVersion, clipPlan(plan))
 	}
 	if len(snap.Steps) > 0 {
-		fmt.Fprintf(&b, "\nStep queue (%d steps, %d landed", len(snap.Steps), landedSteps(snap.Steps))
+		open := project.FirstOpenStep(snap.Steps)
+		fmt.Fprintf(&b, "\nStep queue (%d step(s), %d landed", len(snap.Steps), landedSteps(snap.Steps))
 		// FirstOpenStep returns len+1 once every step has landed, so a naive
 		// "current step N of M" runs past the end exactly when the last step is
 		// sitting in review or integration — the moment a progress report is most
-		// likely to be opened.
-		if open := project.FirstOpenStep(snap.Steps); open <= len(snap.Steps) {
+		// likely to be opened. The header uses the same source, so the block never
+		// carries two readings of one number.
+		if open <= len(snap.Steps) {
 			fmt.Fprintf(&b, ", current step %d of %d):\n", open, len(snap.Steps))
 		} else {
 			b.WriteString(", all steps landed):\n")
@@ -179,16 +185,24 @@ func (s *Service) observerLiveContext() string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// clipPlan shortens a plan to maxPlanRunes, falling back to the last newline so
-// a cut never leaves half a numbered item: in Goal mode the plan's items are the
-// decomposition, and a truncated item undercounts the steps a report can cite.
+// clipPlan shortens a plan to maxPlanRunes. The cut falls back to the last
+// newline when there is one, so a cut never leaves half a numbered item: in Goal
+// mode the plan's items are the decomposition, and a truncated item undercounts
+// the steps a report can cite. A plan without newlines is cut at the bound, and
+// every cut keeps the truncation marker so the report cannot read a partial plan
+// as the whole decomposition.
 func clipPlan(plan string) string {
-	if clipped := clipRunes(plan, maxPlanRunes); clipped != plan {
-		if i := strings.LastIndex(clipped, "\n"); i > 0 {
-			return clipped[:i]
-		}
+	clipped, cut := clipRunesMarked(plan, maxPlanRunes)
+	if !cut {
+		return clipped
 	}
-	return plan
+	// Drop the marker before the newline search: the cut line is partial and
+	// must be dropped whole, not kept up to its last interior newline.
+	body := strings.TrimSuffix(clipped, "…")
+	if i := strings.LastIndex(body, "\n"); i >= 0 {
+		return body[:i+1] + "…"
+	}
+	return clipped
 }
 
 // landedSteps counts the queue's done steps for the live block's one-line tally.
@@ -279,12 +293,19 @@ func shortDuration(d time.Duration) string {
 
 // clipRunes shortens text to at most limit runes, marking the cut.
 func clipRunes(text string, limit int) string {
+	clipped, _ := clipRunesMarked(text, limit)
+	return clipped
+}
+
+// clipRunesMarked is clipRunes that also reports whether it cut, so a caller can
+// decide what the truncation marker means.
+func clipRunesMarked(text string, limit int) (string, bool) {
 	if limit <= 0 {
-		return ""
+		return "", text != ""
 	}
 	runes := []rune(text)
 	if len(runes) <= limit {
-		return text
+		return text, false
 	}
-	return string(runes[:limit]) + "…"
+	return string(runes[:limit]) + "…", true
 }
