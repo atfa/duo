@@ -856,6 +856,72 @@ p {
   color: var(--muted);
 }
 
+/* ---------- screenshots ---------- */
+
+.shots {
+  display: grid;
+  gap: clamp(26px, 3vw, 40px);
+  margin-top: 44px;
+}
+
+.shot {
+  margin: 0;
+}
+
+.shot-frame {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  overflow: hidden;
+}
+
+.shot-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--faint);
+}
+
+.shot-scroll {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+}
+
+/* The frames keep a 120-column grid. Below ~640px the glyphs stop being
+   readable, so the frame pans instead of shrinking further. */
+.shot-scroll img {
+  display: block;
+  width: 100%;
+  min-width: 640px;
+  height: auto;
+}
+
+/* The compact frame is only 64 columns wide, so it renders at a narrower
+   width to keep its glyphs the same size as the 120-column frames. */
+.shot--compact {
+  max-width: 580px;
+}
+
+.shot--compact .shot-scroll img {
+  min-width: 520px;
+}
+
+.shot figcaption {
+  margin-top: 12px;
+  font-size: 0.92rem;
+  color: var(--muted);
+}
+
+.shot figcaption b {
+  color: var(--text);
+  font-weight: 600;
+}
+
 /* ---------- agents ---------- */
 
 .agents {

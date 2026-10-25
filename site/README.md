@@ -17,6 +17,7 @@ site/
     sitemap.xml
     _headers            security + cache headers
     assets/             css, js, brand images
+      shots/            real TUI screenshots, exported by the capture test
 ```
 
 ## Preview locally
@@ -65,7 +66,11 @@ Local Wrangler state lives in `site/.wrangler/` and is git-ignored.
 ## Conventions
 
 - Palette comes from `internal/gotui/theme.go`; keep the site in sync with it.
-- Both pages share section order and IDs: `#why #workflows #how #features #remote #start #faq`.
+- Both pages share section order and IDs: `#why #workflows #how #screens #features #remote #start #faq`.
+- `assets/shots/*.svg` are not drawn by hand. `internal/gotui/capture_test.go`
+  renders the real TUI and exports them with `DUO_GOTUI_SHOT_DIR` (see
+  [docs/gotui.md](../docs/gotui.md#screenshots-for-the-site)); the same test
+  produces the text frames in `docs/gotui/screens/`.
 - Keep copy factual: v0.14.3, MIT, drivers pi/agy/opencode/codex, eight Duo tools,
   MCP subset, gotui, remote control (`/qrcode`, pause/continue, mode/driver/model,
   ciphertext-only relay). Do not claim the removed desktop GUI.

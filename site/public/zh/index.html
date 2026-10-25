@@ -267,6 +267,46 @@
     </div>
   </section>
 
+  <section class="container section" id="screens">
+    <div class="section-head reveal">
+      <p class="section-eyebrow">实际运行</p>
+      <h2 class="section-title">运行中的仪表盘，逐帧截图。</h2>
+      <p class="lede">下面都是真实运行中的画面，不是示意图：Duo 自己的 tcell 前端在 120×42 与 64×22 下的渲染，配色取自它实际使用的主题。</p>
+    </div>
+
+    <div class="shots">
+      <figure class="shot reveal">
+        <div class="shot-frame">
+          <div class="shot-bar"><span class="dots"><i></i><i></i><i></i></span><span>duo · 120×42 · split</span></div>
+          <div class="shot-scroll">
+            <img src="/assets/shots/01-dashboard-120x42.svg" width="1040" height="788" loading="lazy" decoding="async" alt="Duo 在 120×42 下的分屏仪表盘。顶栏显示 DUO v0.14.3、仓库路径和 FAST · RUNNING 徽章。工作流侧栏显示 RUNNING、验证已通过、等待交付。Austin 卡片正在工作，运行 go test ./...，上下文占用 24%；Tony 卡片空闲待命。Duo/Human 面板里是任务原文与验证通过的提示。">
+          </div>
+        </div>
+        <figcaption><b>分屏仪表盘。</b> 两个 agent 的模型、上下文与工具状态实时显示在同一屏，旁边是共享对话。验证已通过，交付还在等待。</figcaption>
+      </figure>
+
+      <figure class="shot reveal">
+        <div class="shot-frame">
+          <div class="shot-bar"><span class="dots"><i></i><i></i><i></i></span><span>duo · 120×42 · timeline</span></div>
+          <div class="shot-scroll">
+            <img src="/assets/shots/02-timeline-120x42.svg" width="1040" height="788" loading="lazy" decoding="async" alt="同一会话切到 120×42 的时间线视图。对话面板按顺序显示完整往返：关于游标分页的任务、Austin 带代码块和测试命令的结果，以及 Tony 指出过期游标应返回 400 而不是静默重启。">
+          </div>
+        </div>
+        <figcaption><b>单一对话。</b> 同一会话的时间线视图：任务、结果、审查者的异议按顺序排列。</figcaption>
+      </figure>
+
+      <figure class="shot shot--compact reveal">
+        <div class="shot-frame">
+          <div class="shot-bar"><span class="dots"><i></i><i></i><i></i></span><span>duo · 64×22 · compact</span></div>
+          <div class="shot-scroll">
+            <img src="/assets/shots/08-narrow-64x22.svg" width="569" height="428" loading="lazy" decoding="async" alt="64×22 的紧凑布局：工作流侧栏收起，对话区保留结果与审查者回复，输入框和单行快捷键提示仍在。">
+          </div>
+        </div>
+        <figcaption><b>紧凑布局。</b> 终端变小的时候收起侧栏，而不是把它压成读不清的一列。</figcaption>
+      </figure>
+    </div>
+  </section>
+
   <section class="container section" id="features">
     <div class="section-head reveal">
       <p class="section-eyebrow">为真实工作而建</p>
