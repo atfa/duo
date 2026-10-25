@@ -477,6 +477,13 @@ func ReconcileDelivery(
 			"targetBranch": outcome.Snapshot.Delivery.TargetBranch,
 			"changedFiles": len(outcome.Result.Changes),
 		})
+		// A landed non-final step is not the end of the session: the queue has more
+		// work and this transaction runs once per step. Stopping here would end the
+		// resumed process after one landing, while the live coordinator continues to
+		// the next step, so the human would have to resume a second time.
+		if outcome.Snapshot.EffectiveMode() == project.ModeStep && !project.QueueFinished(outcome.Snapshot.Steps) {
+			return outcome, false, nil
+		}
 	} else {
 		journal.Record("session_delivery_pending", map[string]any{
 			"sessionId": outcome.Snapshot.SessionID,

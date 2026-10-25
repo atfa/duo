@@ -292,3 +292,97 @@ func persist(t *testing.T, store *sessionstore.Store, id string) sessionstore.Sn
 	}
 	return snap
 }
+
+// TestResumeAdoptsALandedStepAndContinuesTheQueue is the resume-level half of the
+// interrupted-landing bug. ReconcileDelivery lands the step and saves the advanced
+// queue, but the service then ran on the state it had restored before reconciliation
+// and composed the final checkpoint from it, writing the landing back out. The live
+// session sat in INTEGRATE on a step it had already delivered, where a FAST step
+// has no signature to give and the harness has no agent to nudge, so it deadlocked
+// and every further resume repeated the same landing.
+func TestResumeAdoptsALandedStepAndContinuesTheQueue(t *testing.T) {
+	ctx := context.Background()
+	repo := gitRepo(t)
+	baseDir := t.TempDir()
+	envDir := t.TempDir()
+	script := writeFakeBridgeAgent(t, envDir)
+	const id = "e2e-step-landing-resume"
+
+	options := func(resume bool) Options {
+		return Options{
+			LaunchDir:          repo,
+			BaseDir:            baseDir,
+			Session:            id,
+			Listen:             "127.0.0.1:0",
+			Mode:               project.ModeStep,
+			DefaultAgentDriver: "stub",
+			HarnessEnabled:     false,
+			Resume:             resume,
+			ResumeSession:      id,
+			RegisterDrivers:    registerJournalStub(script),
+		}
+	}
+
+	// A fresh Step session creates the worktrees; the commit makes the worktree
+	// non-empty, so closing the session keeps it for the resume below.
+	fresh := New(options(false))
+	if _, err := fresh.Start(ctx); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	view := fresh.View()
+	artifact := commitInWorktree(t, view.Worktrees.Austin.Path, "step2.md", "two\n", "step two")
+	fresh.Close()
+
+	// The checkpoint a crash between the applied delivery record and the queue
+	// advance leaves: step 2 is reviewed and its artifact is delivered, but the
+	// cursor still points at it and step 1's landing is the delivery record.
+	store := openSessionStore(t, baseDir, repo, id)
+	snap := persist(t, store, id)
+	base := snap.BaseCommit
+	snap.Mode = project.ModeStep
+	snap.Phase = string(project.PhaseIntegrate)
+	snap.Plan = "the plan"
+	snap.PlanVersion = 1
+	snap.Step = 2
+	snap.Steps = project.Steps{
+		{Title: "one", Done: true, Head: base, DeliveryHead: base},
+		{Title: "two", Head: artifact, Verification: project.Verification{Status: project.VerificationPassed, Head: artifact}},
+		{Title: "three"},
+	}
+	snap.Delivery = sessionstore.Delivery{
+		Status: sessionstore.DeliveryApplied, FinalHead: base, AppliedHead: base,
+		FinalBranch: view.Worktrees.Austin.Branch, TargetRepo: repo, TargetBranch: view.Worktrees.BaseBranch,
+	}
+	if err := store.Save(snap); err != nil {
+		t.Fatal(err)
+	}
+
+	resumed := New(options(true))
+	if _, err := resumed.Start(ctx); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	defer resumed.Close()
+
+	got := resumed.View().Project
+	if got.Phase != project.PhaseExecute {
+		t.Fatalf("resumed phase = %s, want EXECUTE: the landed step must not leave the session in INTEGRATE", got.Phase)
+	}
+	if got.Step != 3 {
+		t.Fatalf("resumed cursor = %d, want 3 for the next step", got.Step)
+	}
+	if len(got.Steps) != 3 || !got.Steps[1].Done || got.Steps[1].DeliveryHead != artifact {
+		t.Fatalf("the landed step is missing from the live queue: %+v", got.Steps)
+	}
+	if head := headOf(t, repo); head != artifact {
+		t.Fatalf("user repository = %s, want the delivered step HEAD %s", head, artifact)
+	}
+	// The checkpoint on disk must keep the landing: composing the pre-reconcile
+	// state back out is what made the next resume repeat the same landing.
+	stored := persist(t, store, id)
+	if stored.Step != 3 || !stored.Steps[1].Done {
+		t.Fatalf("the resumed session wrote the pre-reconcile queue back: cursor %d, steps %+v", stored.Step, stored.Steps)
+	}
+	if stored.Delivery.FinalHead != artifact || stored.Delivery.AppliedHead != artifact {
+		t.Fatalf("the delivery record does not describe the landed step: %+v", stored.Delivery)
+	}
+}

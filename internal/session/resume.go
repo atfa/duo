@@ -120,6 +120,17 @@ func (s *Service) startResume(ctx context.Context) (Result, error) {
 		}, nil
 	}
 
+	// ReconcileDelivery may have changed the checkpoint even when the session
+	// continues: it lands a step whose landing crashed before the queue moved, and it
+	// can complete a delivery. The live session has to run on the reconciled state,
+	// because the final composeSnapshot writes the state and the delivery record back
+	// out — composing the pre-reconcile ones would undo the landing and leave the
+	// session sitting on a step it already delivered.
+	reconciled = outcome.Snapshot
+	if err := state.Restore(recovery.ProjectSnapshot(reconciled)); err != nil {
+		return Result{}, fmt.Errorf("restore reconciled session %s: %w", snap.SessionID, err)
+	}
+
 	// Each agent's driver state is opaque to Duo Core: whatever the plugin stored
 	// last time is handed back untouched, and the plugin decides what it means. A
 	// session with none starts a fresh conversation, which is the plugin's cue to
@@ -158,7 +169,7 @@ func (s *Service) startResume(ctx context.Context) (Result, error) {
 	_ = workspace.SaveProjectConfig(snap.Repository, s.opts.AgentDriver(protocol.Austin), s.opts.AgentDrivers, s.opts.AgentModels)
 
 	s.ws = ws
-	s.set = set
+	s.set = SetFromSnapshot(reconciled)
 	s.state = state
 	s.mode = mode
 	s.sessionID = reconciled.SessionID

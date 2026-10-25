@@ -404,6 +404,53 @@ func stepAwaitingDelivery(t *testing.T, id string) (sessionstore.Snapshot, strin
 	return snap, stepHead
 }
 
+// TestReconcileLandsAStepAndContinuesTheQueue covers the resume window where the
+// reviewed step had not reached the user's repository yet: reconcile runs the
+// delivery transaction itself and lands the step. A queue with work left must
+// report "continue", the same answer the applied-record window gives, because the
+// live coordinator also continues to the next step after a landing. Reporting a
+// stop ended the resumed process after one step and made the human resume twice.
+func TestReconcileLandsAStepAndContinuesTheQueue(t *testing.T) {
+	store, err := sessionstore.New(t.TempDir(), "repo-continue", "20261018-105749-1122")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, stepHead := stepAwaitingDelivery(t, "20261018-105749-1122")
+	// Three steps, so the one under the cursor is not the final one.
+	snap.Steps = append(snap.Steps, project.Step{Title: "three"})
+	snap.Steps[1].Verification = project.Verification{Status: project.VerificationPassed, Head: stepHead}
+	// The landing never happened: only the target of the transaction is recorded.
+	snap.Delivery = sessionstore.Delivery{
+		FinalBranch:  snap.Delivery.FinalBranch,
+		TargetRepo:   snap.Delivery.TargetRepo,
+		TargetBranch: snap.Delivery.TargetBranch,
+	}
+	if err := store.Save(snap); err != nil {
+		t.Fatal(err)
+	}
+
+	outcome, stop, err := ReconcileDelivery(context.Background(), store, nil, store.OpenEvents(), snap)
+	if err != nil {
+		t.Fatalf("reconcile an undelivered step: %v", err)
+	}
+	if !outcome.Applied {
+		t.Fatalf("the reviewed step was not delivered: %+v", outcome)
+	}
+	if stop {
+		t.Fatal("a queue with another step must continue on resume, not finish")
+	}
+	got := outcome.Snapshot
+	if !got.Steps[1].Done || got.Steps[1].DeliveryHead != stepHead {
+		t.Fatalf("the delivered step was not landed: %+v", got.Steps[1])
+	}
+	if got.Step != 3 || got.Phase != string(project.PhaseExecute) {
+		t.Fatalf("resumed cursor/phase = %d / %s, want 3 / EXECUTE for the next step", got.Step, got.Phase)
+	}
+	if mainHead(t, snap.Repository) != stepHead {
+		t.Fatalf("the user's branch is %s, want the step's HEAD %s", mainHead(t, snap.Repository), stepHead)
+	}
+}
+
 func mainHead(t *testing.T, repo string) string {
 	t.Helper()
 	out, err := exec.Command("git", "-C", repo, "rev-parse", "main").CombinedOutput()
