@@ -35,9 +35,16 @@ func (*resumeSessionRequest) Error() string { return "duo session switch request
 // comes from that session's persisted state, so nothing here overrides it; what a
 // resume needs from the launch configuration is the resume flag, the id and the
 // harness grace period that keeps a reconnecting agent from looking stalled.
+//
+// The launch-time mode override is dropped. `--mode goal` belongs to the session
+// the human started, not to a session picked from the list: keeping it would make
+// resumeMode refuse a target persisted as FAST, and the picker would fail after
+// this session was already closed. Dropping it is what `duo resume <id>` does
+// without a flag.
 func (c config) resumedSession(id string) config {
 	c.resume = true
 	c.resumeSession = id
+	c.mode, c.modeRaw, c.modeSource, c.modeExplicit = "", "", "", false
 	c.harness.RecoveryGrace = resumeRecoveryGrace()
 	return c
 }
