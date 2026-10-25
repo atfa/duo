@@ -89,6 +89,23 @@ func TestSnapshotLiveBlockNamesTheVerificationTarget(t *testing.T) {
 	}
 }
 
+// TestLiveChangeLineNeverCallsAnUnreadableBranchEmpty: a branch git could not
+// describe is left out, and the overlap is only claimed when both sides are known,
+// so a report can never read a failed git read as "this branch changed nothing".
+func TestLiveChangeLineNeverCallsAnUnreadableBranchEmpty(t *testing.T) {
+	austin := observerBranch{ok: true, files: []string{"shared.md"}}
+	if got := changeLine(austin, observerBranch{}); got != "Changed files vs base: Austin [shared.md] (1 file(s))" {
+		t.Fatalf("unknown Tony branch = %q", got)
+	}
+	if got := changeLine(observerBranch{}, observerBranch{}); got != "" {
+		t.Fatalf("two unknown branches = %q, want no line", got)
+	}
+	got := changeLine(austin, observerBranch{ok: true, files: []string{"shared.md"}})
+	if want := "Changed files vs base: Austin [shared.md] (1 file(s)); Tony [shared.md] (1 file(s)); overlap [shared.md] (1 file(s))"; got != want {
+		t.Fatalf("known branches = %q, want %q", got, want)
+	}
+}
+
 // TestLiveFileSetsBoundTheDisplayNotTheComparison: a branch with more files than
 // the display bound still reports the real count, and a collision beyond the cut
 // is still found — a hidden overlap would make the merge risk invisible.

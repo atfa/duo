@@ -482,13 +482,24 @@ func branchLine(austin, tony observerBranch) string {
 
 // changeLine names the files each branch changed and, explicitly, the ones both
 // changed: that overlap is the one integration risk Duo can see before the merge.
+// A branch git could not describe is left out, never rendered as empty, and the
+// overlap is stated only when both branches are actually known.
 func changeLine(austin, tony observerBranch) string {
-	if len(austin.files) == 0 && len(tony.files) == 0 {
+	if (!austin.ok || len(austin.files) == 0) && (!tony.ok || len(tony.files) == 0) {
 		return ""
 	}
-	return "Changed files vs base: Austin " + fileSetText(austin.files) +
-		"; Tony " + fileSetText(tony.files) +
-		"; overlap " + fileSetText(overlappingFiles(austin.files, tony.files))
+	var parts []string
+	if austin.ok {
+		parts = append(parts, "Austin "+fileSetText(austin.files))
+	}
+	if tony.ok {
+		parts = append(parts, "Tony "+fileSetText(tony.files))
+	}
+	line := "Changed files vs base: " + strings.Join(parts, "; ")
+	if austin.ok && tony.ok {
+		line += "; overlap " + fileSetText(overlappingFiles(austin.files, tony.files))
+	}
+	return line
 }
 
 // fileSetText renders one file set compactly, bounding the display only. The
