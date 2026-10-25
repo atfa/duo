@@ -3,7 +3,6 @@ package gotui
 import (
 	"strings"
 
-	"github.com/gdamore/tcell/v3"
 	rw "github.com/mattn/go-runewidth"
 	ui "github.com/metaspartan/gotui/v5"
 )
@@ -16,41 +15,18 @@ const (
 	tableRight
 )
 
-// parseTable recognizes a Markdown table beginning at lines[start]. It returns
-// the rendered runs and the line after the table. The renderer wraps cells to
-// the transcript width before emitting them, so the normal word wrapper cannot
-// break a border or destroy column alignment afterwards.
-func parseTable(lines []string, start, width int, base ui.Style, t theme) ([]textRun, int, bool) {
-	if width < 7 || start+1 >= len(lines) {
-		return nil, start, false
-	}
-	headerLine := strings.TrimSpace(lines[start])
-	if !strings.Contains(headerLine, "|") {
-		return nil, start, false
-	}
-	header := splitTableRow(headerLine)
-	aligns, ok := tableAlignments(lines[start+1])
-	if !ok || len(header) == 0 {
-		return nil, start, false
-	}
-
-	rows := [][]string{}
-	end := start + 2
-	for end < len(lines) {
-		line := strings.TrimSpace(lines[end])
-		if line == "" || !strings.Contains(line, "|") || strings.HasPrefix(line, "```") {
-			break
-		}
-		rows = append(rows, splitTableRow(line))
-		end++
-	}
-
-	columns := max(len(header), len(aligns))
+// tableRuns lays out a GFM table the parser already recognised. Cells arrive as
+// styled runs, so a bold header, inline code and links survive the layout. The
+// columns are sized here because only the renderer knows the transcript width,
+// and each cell is wrapped to its column before the border is drawn, so the
+// ordinary line wrapper can never break a border or destroy the alignment.
+func tableRuns(header [][]textRun, rows [][][]textRun, aligns []tableAlign, width int, base ui.Style, t theme) []textRun {
+	columns := len(header)
 	for _, row := range rows {
 		columns = max(columns, len(row))
 	}
 	if columns == 0 {
-		return nil, start, false
+		return nil
 	}
 	header = padTable(header, columns)
 	for i := range rows {
@@ -61,12 +37,12 @@ func parseTable(lines []string, start, width int, base ui.Style, t theme) ([]tex
 	}
 	aligns = aligns[:columns]
 
-	widths, ok := tableWidths(header, rows, columns, width, base, t)
+	borderStyle := ui.Style{Fg: t.Faint, Bg: base.Bg}
+	widths, ok := tableWidths(header, rows, columns, width)
 	if !ok {
-		return nil, start, false
+		return tablePlain(header, rows, base, borderStyle)
 	}
 
-	borderStyle := ui.Style{Fg: t.Faint, Bg: base.Bg}
 	var out []textRun
 	line := func(runs []textRun) {
 		out = append(out, runs...)
@@ -75,91 +51,58 @@ func parseTable(lines []string, start, width int, base ui.Style, t theme) ([]tex
 		}
 	}
 	line(tableBorder(widths, "+", "+", "+", borderStyle))
-	line(tableRow(header, aligns, widths, base, t, borderStyle, true))
+	line(tableRow(header, aligns, widths, base, borderStyle))
 	line(tableBorder(widths, "+", "+", "+", borderStyle))
 	for _, row := range rows {
-		line(tableRow(row, aligns, widths, base, t, borderStyle, false))
+		line(tableRow(row, aligns, widths, base, borderStyle))
 	}
-	line(tableBorder(widths, "+", "+", "+", borderStyle))
-	return out, end, true
+	// The header separator already closes a table that has no body rows.
+	if len(rows) > 0 {
+		line(tableBorder(widths, "+", "+", "+", borderStyle))
+	}
+	return out
 }
 
-func splitTableRow(line string) []string {
-	line = strings.TrimSpace(line)
-	if strings.HasPrefix(line, "|") {
-		line = line[1:]
-	}
-	if strings.HasSuffix(line, "|") && !strings.HasSuffix(line, `\|`) {
-		line = line[:len(line)-1]
-	}
-	var cells []string
-	var cell strings.Builder
-	for i := 0; i < len(line); i++ {
-		if line[i] == '\\' && i+1 < len(line) && line[i+1] == '|' {
-			cell.WriteByte('|')
-			i++
-			continue
+// tablePlain is the fallback for a table too narrow for borders: the cells keep
+// their separators so no content is lost and the line wrapper can reflow them.
+func tablePlain(header [][]textRun, rows [][][]textRun, base ui.Style, borderStyle ui.Style) []textRun {
+	var out []textRun
+	emit := func(cells [][]textRun) {
+		for i, cell := range cells {
+			if i > 0 {
+				out = append(out, textRun{" | ", borderStyle, linkTarget{}})
+			}
+			out = append(out, cell...)
 		}
-		if line[i] == '|' {
-			cells = append(cells, strings.TrimSpace(cell.String()))
-			cell.Reset()
-			continue
-		}
-		cell.WriteByte(line[i])
+		out = append(out, textRun{"\n", base, linkTarget{}})
 	}
-	cells = append(cells, strings.TrimSpace(cell.String()))
-	return cells
+	emit(header)
+	for _, row := range rows {
+		emit(row)
+	}
+	return out
 }
 
-func tableAlignments(line string) ([]tableAlign, bool) {
-	cells := splitTableRow(line)
-	if len(cells) == 0 {
-		return nil, false
-	}
-	aligns := make([]tableAlign, len(cells))
-	for i, cell := range cells {
-		cell = strings.TrimSpace(cell)
-		left := strings.HasPrefix(cell, ":")
-		right := strings.HasSuffix(cell, ":")
-		core := strings.Trim(cell, ":")
-		if len(core) < 3 || strings.Trim(core, "-") != "" {
-			return nil, false
-		}
-		switch {
-		case left && right:
-			aligns[i] = tableCenter
-		case right:
-			aligns[i] = tableRight
-		default:
-			aligns[i] = tableLeft
-		}
-	}
-	return aligns, true
-}
-
-func padTable(row []string, columns int) []string {
+func padTable(row [][]textRun, columns int) [][]textRun {
 	for len(row) < columns {
-		row = append(row, "")
+		row = append(row, nil)
 	}
 	return row
 }
 
-func tableWidths(header []string, rows [][]string, columns, width int, base ui.Style, t theme) ([]int, bool) {
+func tableWidths(header [][]textRun, rows [][][]textRun, columns, width int) ([]int, bool) {
 	overhead := 3*columns + 1
 	if width < overhead+columns {
 		return nil, false
 	}
 	budget := width - overhead
 	natural := make([]int, columns)
-	measure := func(cell string) int {
-		return runsWidth(inlineRuns(cell, base, t))
-	}
 	for i, cell := range header {
-		natural[i] = max(natural[i], measure(cell))
+		natural[i] = max(natural[i], runsWidth(cell))
 	}
 	for _, row := range rows {
 		for i, cell := range row {
-			natural[i] = max(natural[i], measure(cell))
+			natural[i] = max(natural[i], runsWidth(cell))
 		}
 	}
 	for i := range natural {
@@ -223,15 +166,11 @@ func tableBorder(widths []int, left, middle, right string, style ui.Style) []tex
 	return []textRun{{b.String(), style, linkTarget{}}}
 }
 
-func tableRow(cells []string, aligns []tableAlign, widths []int, base ui.Style, t theme, borderStyle ui.Style, header bool) []textRun {
-	style := base
-	if header {
-		style.Modifier |= tcell.AttrBold
-	}
+func tableRow(cells [][]textRun, aligns []tableAlign, widths []int, base ui.Style, borderStyle ui.Style) []textRun {
 	cellLines := make([][]renderLine, len(widths))
 	height := 1
 	for i, width := range widths {
-		wrapped := wrapRuns(inlineRuns(cells[i], style, t), width)
+		wrapped := wrapRuns(cells[i], width)
 		cellLines[i] = wrapped
 		height = max(height, len(wrapped))
 	}

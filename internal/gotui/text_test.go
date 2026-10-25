@@ -3,6 +3,9 @@ package gotui
 import (
 	"strings"
 	"testing"
+
+	"github.com/gdamore/tcell/v3"
+	ui "github.com/metaspartan/gotui/v5"
 )
 
 func TestWrapRunsPreservesMarkdownHardBreaks(t *testing.T) {
@@ -114,5 +117,133 @@ func TestWrapRunsWrapsWideRunesAtCellBoundaries(t *testing.T) {
 		if line.width() > 4 {
 			t.Fatalf("CJK line width %d exceeds 4: %q", line.width(), line.text())
 		}
+	}
+}
+
+// TestMarkdownInlineStylesComeFromTheParser pins the emphasis the AST parser
+// reports: the renderer must style runs instead of printing the delimiters.
+func TestMarkdownInlineStylesComeFromTheParser(t *testing.T) {
+	tm := newTheme()
+	runs := markdownRuns("**bold** *it* `code` ~~gone~~", tm.Body, tm, 40)
+	styles := map[string]ui.Style{}
+	for _, run := range runs {
+		if strings.TrimSpace(run.text) != "" {
+			styles[run.text] = run.style
+		}
+	}
+	if styles["bold"].Modifier&tcell.AttrBold == 0 {
+		t.Fatalf("bold run lost AttrBold: %#v", styles["bold"])
+	}
+	if styles["it"].Modifier&tcell.AttrItalic == 0 {
+		t.Fatalf("italic run lost AttrItalic: %#v", styles["it"])
+	}
+	if styles["gone"].Modifier&tcell.AttrStrikeThrough == 0 {
+		t.Fatalf("strikethrough run lost AttrStrikeThrough: %#v", styles["gone"])
+	}
+	if styles["code"] != tm.Code {
+		t.Fatalf("code span style = %#v, want the code style %#v", styles["code"], tm.Code)
+	}
+	for text := range styles {
+		if strings.ContainsAny(text, "*`~") {
+			t.Fatalf("markdown delimiters were left in the output: %q", text)
+		}
+	}
+}
+
+// TestMarkdownTableKeepsEscapedPipe checks the parser, not a column splitter, owns
+// cell boundaries: `\|` is one cell with a literal pipe.
+func TestMarkdownTableKeepsEscapedPipe(t *testing.T) {
+	tm := newTheme()
+	runs := markdownRuns("| a \\| b | c |\n|---|---|\n| 1 | 2 |", tm.Body, tm, 40)
+	var joined string
+	for _, line := range wrapRuns(runs, 40) {
+		joined += line.text() + "\n"
+	}
+	if !strings.Contains(joined, "a | b") {
+		t.Fatalf("escaped pipe was not rendered literally:\n%s", joined)
+	}
+	if !strings.Contains(joined, "| a | b | c |") {
+		t.Fatalf("escaped pipe split the cell into three columns:\n%s", joined)
+	}
+}
+
+// TestMarkdownTableAlignsColumns covers GFM alignment markers end to end.
+func TestMarkdownTableAlignsColumns(t *testing.T) {
+	tm := newTheme()
+	runs := markdownRuns("| left | mid | right |\n|:--|:-:|--:|\n| 1 | 2 | 3 |", tm.Body, tm, 40)
+	lines := wrapRuns(runs, 40)
+	if len(lines) < 5 {
+		t.Fatalf("table rendered %d lines, want header, borders and one row", len(lines))
+	}
+	row := lines[3].text()
+	if row != "| 1    |  2  |     3 |" {
+		t.Fatalf("row alignment = %q, want %q", row, "| 1    |  2  |     3 |")
+	}
+}
+
+// TestMarkdownNestedListIndentsDeeper keeps a nested item visually subordinate.
+func TestMarkdownNestedListIndentsDeeper(t *testing.T) {
+	tm := newTheme()
+	runs := markdownRuns("- outer\n  - inner", tm.Body, tm, 40)
+	var texts []string
+	for _, line := range wrapRuns(runs, 40) {
+		texts = append(texts, line.text())
+	}
+	if len(texts) != 2 {
+		t.Fatalf("nested list rendered %d lines: %q", len(texts), texts)
+	}
+	if !strings.HasPrefix(texts[0], "• outer") || !strings.HasPrefix(texts[1], "  • inner") {
+		t.Fatalf("nested item was not indented: %q", texts)
+	}
+}
+
+// TestMarkdownTaskListUsesCheckbox covers the GFM task list extension.
+func TestMarkdownTaskListUsesCheckbox(t *testing.T) {
+	tm := newTheme()
+	runs := markdownRuns("- [x] done\n- [ ] todo", tm.Body, tm, 40)
+	var joined string
+	for _, line := range wrapRuns(runs, 40) {
+		joined += line.text() + "\n"
+	}
+	for _, want := range []string{"☑ done", "☐ todo"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("task list missing %q:\n%s", want, joined)
+		}
+	}
+	if strings.Contains(joined, "[x]") || strings.Contains(joined, "[ ]") {
+		t.Fatalf("task list syntax was left unrendered:\n%s", joined)
+	}
+}
+
+// TestMarkdownBlockquoteKeepsGutterOnEveryLine checks the quote gutter survives
+// blank lines and nested blocks instead of ending at the first paragraph.
+func TestMarkdownBlockquoteKeepsGutterOnEveryLine(t *testing.T) {
+	tm := newTheme()
+	runs := markdownRuns("> first\n>\n> second\n> - item", tm.Body, tm, 40)
+	var texts []string
+	for _, line := range wrapRuns(runs, 40) {
+		texts = append(texts, line.text())
+	}
+	for _, text := range texts {
+		if !strings.HasPrefix(text, "│") {
+			t.Fatalf("quote line without a gutter: %q in %q", text, texts)
+		}
+	}
+	joined := strings.Join(texts, "\n")
+	for _, want := range []string{"first", "second", "• item"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("quote content missing %q:\n%s", want, joined)
+		}
+	}
+}
+
+// TestMarkdownSoftBreakReflowsAsSpace pins CommonMark's soft break: a wrapped
+// source paragraph is one logical line for the transcript wrapper.
+func TestMarkdownSoftBreakReflowsAsSpace(t *testing.T) {
+	tm := newTheme()
+	runs := markdownRuns("one two\nthree four", tm.Body, tm, 40)
+	lines := wrapRuns(runs, 40)
+	if len(lines) != 1 || lines[0].text() != "one two three four" {
+		t.Fatalf("soft break did not reflow: %q", renderLineTexts(lines))
 	}
 }
