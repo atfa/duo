@@ -243,6 +243,21 @@ func TestObserverPanelQuestionInput(t *testing.T) {
 	if got := fake.snapshotAnswerRequests(); len(got) != 1 {
 		t.Fatalf("empty question sent %v", got)
 	}
+
+	// While typing, r and ? are characters, not panel commands: typing them
+	// must neither re-analyze nor reopen the prompt.
+	app.handleKey(tcell.NewEventKey(tcell.KeyRune, "?", tcell.ModNone))
+	app.handleKey(tcell.NewEventKey(tcell.KeyRune, "r", tcell.ModNone))
+	app.handleKey(tcell.NewEventKey(tcell.KeyRune, "?", tcell.ModNone))
+	if !app.observerReports.asking {
+		t.Fatal("typing ? while the input is open closed the input")
+	}
+	if got := app.observerReports.question; got != "r?" {
+		t.Fatalf("typed keys left the question as %q, want %q", got, "r?")
+	}
+	if got := fake.snapshotReportRequests(); got != 1 {
+		t.Fatalf("typing r while the input is open made %d report requests, want 1 (the initial Ctrl+E)", got)
+	}
 }
 
 // An answer is one history entry: the question renders above the text, and an

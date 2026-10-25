@@ -84,7 +84,7 @@ func (o *observerReportOverlay) reflow() {
 		o.lines = append(o.lines, makeLine("", o.theme.BodyMuted, 0))
 	}
 	if o.asking {
-		prompt := o.theme.tr("Your question (? sends as typed · Enter ask · Esc cancel)") + " " + o.question
+		prompt := o.theme.tr("Your question (Enter ask · Esc cancel)") + " " + o.question
 		o.lines = append(o.lines, wrapText(prompt, o.theme.Warning, width)...)
 		o.lines = append(o.lines, makeLine("", o.theme.BodyMuted, 0))
 	}
@@ -195,6 +195,7 @@ func (o *observerReportOverlay) Scroll(delta int) {
 func (o *observerReportOverlay) beginQuestion() {
 	o.asking = true
 	o.question = ""
+	o.offset = 0
 	o.reflow()
 }
 
@@ -214,8 +215,8 @@ func (o *observerReportOverlay) handleQuestionKey(ev *tcell.EventKey) (sent stri
 	case tcell.KeyEnter, tcell.KeyCtrlJ:
 		o.asking = false
 		sent, o.question = o.question, ""
+		o.reflow()
 		if strings.TrimSpace(sent) == "" {
-			o.reflow()
 			return "", true
 		}
 		return sent, true
