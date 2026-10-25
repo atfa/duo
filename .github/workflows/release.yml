@@ -93,4 +93,12 @@ jobs:
         run: |
           gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null || \
             gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --generate-notes --verify-tag
-          gh release upload "$GITHUB_REF_NAME" artifacts/*.tar.gz --repo "$GITHUB_REPOSITORY" --clobber
+          # One checksum file over the exact archives this release ships,
+          # published beside them. `duo upgrade` refuses an archive the release
+          # does not account for, so a missing file is a visible failure and
+          # never a silent unverified install. sha256sum's own
+          # "<hash>  <name>" format is kept: `sha256sum -c` verifies it by hand.
+          (cd artifacts && sha256sum ./*.tar.gz > SHA256SUMS && cat SHA256SUMS)
+          gh release upload "$GITHUB_REF_NAME" \
+            artifacts/*.tar.gz artifacts/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --clobber
