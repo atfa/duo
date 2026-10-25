@@ -127,12 +127,22 @@ type ObserverView struct {
 	Analyzing bool
 	// RequestedAt is when the in-flight request started.
 	RequestedAt time.Time
+	// PendingQuestion is the question the in-flight request is answering, and is
+	// empty when the in-flight request is a status report. A panel uses it to say
+	// what it is waiting for, and to keep a typed question visible while the model
+	// works.
+	PendingQuestion string
 }
 
 // ObserverReport is one status report and when it was produced.
+//
+// Question is empty for a status report, and carries the human's question when
+// the text is the observer's answer to it. The history is one list because the
+// panel shows both the same way, newest first.
 type ObserverReport struct {
-	At   time.Time
-	Text string
+	At       time.Time
+	Question string
+	Text     string
 }
 
 type PauseState string
