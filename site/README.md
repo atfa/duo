@@ -51,6 +51,15 @@ First deploy creates the `xduo-dev` Worker and, with the `routes` entry in
 account: if it is not, Wrangler reports an error while attaching the custom
 domain. Activate the zone, then redeploy. `www` is not configured.
 
+A deploy publishes `public/` as it stands, so a committed change reaches nobody
+until someone runs `wrangler deploy`. After deploying, check that the live page
+carries the current release and section list:
+
+```bash
+curl -fsS https://xduo.dev/ | grep -o 'v0\.[0-9]\+\.[0-9]\+' | sort -u
+curl -fsS https://xduo.dev/ | grep -c 'id="remote"'
+```
+
 Local Wrangler state lives in `site/.wrangler/` and is git-ignored.
 
 ## Conventions
@@ -58,8 +67,8 @@ Local Wrangler state lives in `site/.wrangler/` and is git-ignored.
 - Palette comes from `internal/gotui/theme.go`; keep the site in sync with it.
 - Both pages share section order and IDs: `#why #workflows #how #features #remote #start #faq`.
 - Keep copy factual: v0.14.2, MIT, drivers pi/agy/opencode/codex, eight Duo tools,
-  MCP subset, gotui, remote control (`/qrcode` + ciphertext-only relay). Do not
-  claim the removed desktop GUI.
+  MCP subset, gotui, remote control (`/qrcode`, pause/continue, mode/driver/model,
+  ciphertext-only relay). Do not claim the removed desktop GUI.
 - No inline scripts or styles: `_headers` sets a strict CSP (`script-src 'self'`,
   `style-src 'self'`). Changing that requires updating the policy too.
 - `site.js` is loaded in `<head>` without `defer`: it swaps `html.no-js` for

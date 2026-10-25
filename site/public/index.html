@@ -332,9 +332,9 @@
 
   <section class="container section" id="remote">
     <div class="section-head reveal">
-      <p class="section-eyebrow">New in v0.14.0 · Remote control</p>
+      <p class="section-eyebrow">v0.14.2 · Remote control</p>
       <h2 class="section-title">Steer the session from your phone.</h2>
-      <p class="lede">Type <code>/qrcode</code> and scan it. The phone becomes a console for the running session — both agents live, the next task, a fresh session, the observer's report — while the work keeps running on your machine.</p>
+      <p class="lede">Type <code>/qrcode</code> and scan it. The phone becomes a console for the running session — both agents live, the next task, pause and continue, a mode, driver or model switch, a fresh session, the observer's report — while the work keeps running on your machine.</p>
     </div>
 
     <div class="remote">
@@ -342,12 +342,12 @@
         <article class="principle card reveal">
           <span class="p-num">01 / PAIR</span>
           <h3>One QR code, eight hours.</h3>
-          <p><code>/qrcode</code> mints a room and a secret. The secret rides in the URL fragment, which a browser never sends, so the relay never sees it. A pairing expires after 8 hours, <code>/remote off</code> revokes it immediately, and a new session reconnects by itself.</p>
+          <p><code>/qrcode</code> mints a room and a secret. The secret rides in the URL fragment, which a browser never sends, so the relay never sees it. A pairing expires after 8 hours, <code>/remote off</code> revokes it immediately, <code>/qrcode new</code> rotates it, and a new session reconnects by itself.</p>
         </article>
         <article class="principle card reveal">
           <span class="p-num">02 / CONTROL</span>
           <h3>The same workflow, from a phone.</h3>
-          <p>A task sent from the phone enters through the same <code>SubmitTask</code> a keystroke uses, so phases, gates and delivery behave exactly as they do at the terminal. Start a fresh session or ask for a report without walking back to the desk.</p>
+          <p>A task sent from the phone enters through the same <code>SubmitTask</code> a keystroke uses, so phases, gates and delivery behave exactly as they do at the terminal. Pause or continue the round, switch fast, step or goal, pick a driver or model, start a fresh session or ask for a report — without walking back to the desk.</p>
         </article>
         <article class="principle card reveal">
           <span class="p-num">03 / RELAY</span>
@@ -356,7 +356,7 @@
         </article>
       </div>
 
-      <div class="phone reveal" role="img" aria-label="The Duo phone console: project and phase, Austin's and Tony's live state, a task composer and the report action.">
+      <div class="phone reveal" role="img" aria-label="The Duo phone console: project and phase, Austin's and Tony's live state, a task composer, pause, a new session and the report action.">
         <div class="phone-screen">
           <div class="phone-bar"><span>remote.xduo.dev</span><span class="phone-live"><i></i>paired</span></div>
           <div class="phone-body">
@@ -365,7 +365,7 @@
             <div class="phone-agent austin"><span class="phone-dot"></span>Austin<span class="phone-state">committed 6f2a1c9</span></div>
             <div class="phone-agent tony"><span class="phone-dot"></span>Tony<span class="phone-state">reviewing</span></div>
             <div class="phone-task">Review the relay budget change, then land it.</div>
-            <div class="phone-actions"><span>New task</span><span>New session</span><span>Report</span></div>
+            <div class="phone-actions"><span>New task</span><span>Pause</span><span>New session</span><span>Report</span></div>
           </div>
         </div>
       </div>

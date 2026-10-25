@@ -333,9 +333,9 @@
 
   <section class="container section" id="remote">
     <div class="section-head reveal">
-      <p class="section-eyebrow">v0.14.0 新增 · 远程控制</p>
+      <p class="section-eyebrow">v0.14.2 · 远程控制</p>
       <h2 class="section-title">在手机上掌控会话。</h2>
-      <p class="lede">输入 <code>/qrcode</code> 并扫码，手机就变成运行中会话的控制台——两位 Agent 的实时状态、下达任务、开启新会话、刷新观察者报告——而工作仍然运行在你的机器上。</p>
+      <p class="lede">输入 <code>/qrcode</code> 并扫码，手机就变成运行中会话的控制台——两位 Agent 的实时状态、下达任务、暂停与继续、切换 mode / driver / model、开启新会话、刷新观察者报告——而工作仍然运行在你的机器上。</p>
     </div>
 
     <div class="remote">
@@ -343,12 +343,12 @@
         <article class="principle card reveal">
           <span class="p-num">01 / 配对</span>
           <h3>一个二维码，八小时。</h3>
-          <p><code>/qrcode</code> 会生成房间与密钥。密钥位于 URL 的 fragment 中，浏览器不会把它发送出去，中继永远看不到。配对在 8 小时后过期，<code>/remote off</code> 可立即撤销，新会话会自动重连。</p>
+          <p><code>/qrcode</code> 会生成房间与密钥。密钥位于 URL 的 fragment 中，浏览器不会把它发送出去，中继永远看不到。配对在 8 小时后过期，<code>/remote off</code> 可立即撤销，<code>/qrcode new</code> 可轮换配对，新会话会自动重连。</p>
         </article>
         <article class="principle card reveal">
           <span class="p-num">02 / 控制</span>
           <h3>同样的工作流，换一块屏幕。</h3>
-          <p>手机发出的任务与键盘输入走同一个 <code>SubmitTask</code>，因此阶段、关卡与交付的行为和终端完全一致。无需回到桌前，就能开启新会话或请求状态报告。</p>
+          <p>手机发出的任务与键盘输入走同一个 <code>SubmitTask</code>，因此阶段、关卡与交付的行为和终端完全一致。无需回到桌前，就能暂停或继续本轮、切换 fast / step / goal、选择 driver 或 model、开启新会话或请求状态报告。</p>
         </article>
         <article class="principle card reveal">
           <span class="p-num">03 / 中继</span>
@@ -357,7 +357,7 @@
         </article>
       </div>
 
-      <div class="phone reveal" role="img" aria-label="Duo 手机控制台：项目与阶段、Austin 与 Tony 的实时状态、任务输入框与报告入口。">
+      <div class="phone reveal" role="img" aria-label="Duo 手机控制台：项目与阶段、Austin 与 Tony 的实时状态、任务输入框、暂停、新会话与报告入口。">
         <div class="phone-screen">
           <div class="phone-bar"><span>remote.xduo.dev</span><span class="phone-live"><i></i>已配对</span></div>
           <div class="phone-body">
@@ -366,7 +366,7 @@
             <div class="phone-agent austin"><span class="phone-dot"></span>Austin<span class="phone-state">已提交 6f2a1c9</span></div>
             <div class="phone-agent tony"><span class="phone-dot"></span>Tony<span class="phone-state">审查中</span></div>
             <div class="phone-task">审查中继预算的改动，然后交付。</div>
-            <div class="phone-actions"><span>新任务</span><span>新会话</span><span>报告</span></div>
+            <div class="phone-actions"><span>新任务</span><span>暂停</span><span>新会话</span><span>报告</span></div>
           </div>
         </div>
       </div>
