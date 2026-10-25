@@ -150,7 +150,7 @@ func TestClipPlanNeverExceedsItsBound(t *testing.T) {
 	}
 	// The fallback dropped everything from the cut's line onward, so the kept
 	// body ends at a line boundary — no half item, no partial filler line.
-	body := strings.TrimSuffix(got, "\n…")
+	body := strings.TrimSuffix(got, "…")
 	if !strings.HasSuffix(body, "\n") {
 		t.Fatalf("the newline fallback left a partial line:\n%q", clipRunes(got, 200))
 	}
