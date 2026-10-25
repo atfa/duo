@@ -4,6 +4,14 @@ All notable project milestones are documented here.
 
 ## Unreleased
 
+### Observer progress report
+
+- Observer reports now lead with a Progress section that answers the human's
+  own questions: how the task was decomposed (shared plan text and step queue,
+  newly part of the live block), how many steps are done, which step is current
+  and what remains. The human's original request is remembered separately from
+  the event window and anchors every report as the first prompt block.
+
 ### Finishing report
 
 - The report Duo asks Austin for when a session finishes answers four questions
