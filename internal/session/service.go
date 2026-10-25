@@ -108,6 +108,7 @@ type Service struct {
 	lock    *sessionstore.Lock
 
 	server      *transport.Server
+	serverDone  chan error
 	coord       *coordinator.Coordinator
 	tracker     *harness.Tracker
 	bus         *events.Bus
@@ -343,6 +344,7 @@ func (s *Service) launch(ctx context.Context) (Result, error) {
 	s.startObserver()
 
 	serverErr := make(chan error, 1)
+	s.serverDone = serverErr
 	go func() { serverErr <- server.ListenAndServe(s.ctx) }()
 	select {
 	case <-server.Ready():
@@ -551,6 +553,12 @@ func (s *Service) closeLocked(ctx context.Context) Result {
 	if s.state != nil && s.journal != nil {
 		s.journal.Record("session_stop", map[string]any{"phase": string(res.Phase)})
 	}
+	// After session_stop the journal is final: a bridge disconnect that the
+	// transport still reports while shutdown unwinds below must not append to a
+	// log whose directory is already being removed.
+	if s.journal != nil {
+		s.journal.Close()
+	}
 	if s.logger != nil {
 		s.logger.Printf("session %s stopped (phase %s)", s.sessionID, res.Phase)
 	}
@@ -569,6 +577,14 @@ func (s *Service) closeLocked(ctx context.Context) Result {
 	}
 	if s.cancel != nil {
 		s.cancel()
+	}
+	// The bridge server waits for its connection handlers, and a handler can still
+	// be finishing work the session already started - the verifier sync after a
+	// landed step writes the session log. Waiting here is what makes Close mean
+	// "nothing will touch this session's files again".
+	if s.serverDone != nil {
+		<-s.serverDone
+		s.serverDone = nil
 	}
 	return res
 }

@@ -4,6 +4,15 @@ All notable project milestones are documented here.
 
 ## v0.14.3 — 2026-10-25
 
+### Shutdown
+
+- `Close` waits for the bridge server's connection handlers, and the session
+  journal stops accepting appends once `session_stop` is recorded. The verifier
+  sync that follows a landed step runs after the step is ticked, so it could
+  still be writing to the session directory while the session was closing - the
+  reason a finished session's own directory could not be removed. A closed
+  session now touches none of its files again.
+
 ### Observer progress report
 
 - Observer reports now lead with a Progress section that answers the human's

@@ -20,8 +20,9 @@ type Event struct {
 
 // EventLog appends events to events.jsonl.
 type EventLog struct {
-	mu   sync.Mutex
-	path string
+	mu     sync.Mutex
+	path   string
+	closed bool
 }
 
 // TUIEntry is one persisted pane entry. It is intentionally separate from
@@ -62,6 +63,9 @@ func (l *EventLog) Append(event Event) error {
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.closed {
+		return nil
+	}
 
 	f, err := os.OpenFile(l.path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
 	if err != nil {
@@ -72,6 +76,17 @@ func (l *EventLog) Append(event Event) error {
 		return fmt.Errorf("append event log: %w", err)
 	}
 	return nil
+}
+
+// Close makes the journal final. A writer that outlives the session - a bridge
+// disconnect handled while shutdown is still returning - would otherwise append
+// to a log whose directory is already being removed, recreating the file under
+// the remover. Late appends are dropped, not an error, for the same reason
+// Record ignores them: the journal never breaks the session it describes.
+func (l *EventLog) Close() {
+	l.mu.Lock()
+	l.closed = true
+	l.mu.Unlock()
 }
 
 // Record appends an event, ignoring write errors: the journal must never break
