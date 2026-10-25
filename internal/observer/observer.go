@@ -95,7 +95,7 @@ const DefaultSystemPrompt = "You are Duo's observer. Duo is a coding workflow wh
 	"When a request also carries a 'Question from the human' block, do not write the report: answer that question " +
 	"directly, in the human's language, in at most eight short lines, using the same blocks as your evidence. The " +
 	"question is the human asking you to look at something specific, not a request to repeat the report.\n\n" +
-	"Otherwise write exactly five sections:" +
+	"Otherwise write these sections in this order. The first four are required; the fifth is optional:" +
 	"\n" +
 	"1. Progress - the task in one sentence (from the Task block), then where the work stands in the task's own " +
 	"decomposition: how many steps the work was split into, how many are done, which step is current, and what " +
@@ -122,7 +122,8 @@ const DefaultSystemPrompt = "You are Duo's observer. Duo is a coding workflow wh
 	"section and its heading entirely; never fill it with generic advice, style opinions or speculation.\n\n" +
 	"End with one final line starting with the human's words for 'Needs your decision:' only when a decision " +
 	"genuinely blocks the agents; otherwise omit that line entirely. Do not invent facts, do not advise the " +
-	"agents, do not repeat a bullet twice, and keep the whole report to at most twenty short lines."
+	"agents, do not repeat a bullet twice, and keep the whole report to at most twenty short lines. An answer " +
+	"to a question stays within the eight lines allowed above and never ends with a report section."
 
 // Config is the resolved observer configuration. It is what the session runs
 // with; Settings is the file-facing shape.

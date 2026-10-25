@@ -127,7 +127,7 @@ func TestSettingsDefaults(t *testing.T) {
 
 func TestDefaultReportPromptRequiresBoundedFiveSectionReport(t *testing.T) {
 	for _, want := range []string{
-		"exactly five sections", "Progress", "Just finished", "Doing now", "Watch out",
+		"these sections in this order. The first four are required; the fifth is optional", "Progress", "Just finished", "Doing now", "Watch out",
 		"derived ONLY from the Current state block", "Never describe a finished tool as running",
 		"only what the agents explicitly stated they will do", "Needs your decision:",
 		"at most twenty short lines", "including the section headings",
