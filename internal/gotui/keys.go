@@ -100,12 +100,12 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 	if a.search.nav {
 		switch {
 		case ev.Key() == tcell.KeyEsc:
-			a.closeSearch(false)
+			a.closeSearch(true)
 			return
 		case ev.Key() == tcell.KeyCtrlF:
 			a.openSearch("")
 			return
-		case ev.Key() == tcell.KeyRune && ev.Modifiers() == 0 && (ev.Str() == "n" || ev.Str() == "N"):
+		case ev.Key() == tcell.KeyRune && ev.Modifiers()&(tcell.ModCtrl|tcell.ModAlt) == 0 && (ev.Str() == "n" || ev.Str() == "N"):
 			delta := 1
 			if ev.Str() == "N" {
 				delta = -1

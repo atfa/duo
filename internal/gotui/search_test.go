@@ -1,6 +1,7 @@
 package gotui
 
 import (
+	"fmt"
 	"image"
 	"strings"
 	"testing"
@@ -114,15 +115,26 @@ func TestSearchColumnsUseCells(t *testing.T) {
 
 func TestSearchNextWrapsAround(t *testing.T) {
 	fake := newFakeSession()
-	fake.history = searchEntries(
-		"第一行：世界和平",
-		"no match here",
-		"第二行：你好世界",
-		"第三行：世界依然和平",
-	)
+	// Enough rows that the hits cannot all be visible at once: jumping must move
+	// the viewport, which is what Esc has to put back. The three matched messages
+	// are Chinese, so the wrap and the wide-rune columns are exercised together.
+	texts := make([]string, 40)
+	for i := range texts {
+		texts[i] = fmt.Sprintf("第%d条：普通内容，没有命中", i)
+	}
+	texts[2] = "第一行：世界和平"
+	texts[20] = "第二行：你好世界"
+	texts[38] = "第三行：世界依然和平"
+	fake.history = searchEntries(texts...)
+
 	app := New(fake)
 	app.showTimestamp = false
 	placeApp(t, app, 80, 24)
+
+	opened := viewport{offset: app.timeline.offset, follow: app.timeline.follow}
+	if !opened.follow {
+		t.Fatalf("a fresh transcript should be following the bottom: %+v", opened)
+	}
 
 	app.handleKey(tcell.NewEventKey(tcell.KeyCtrlF, "", tcell.ModNone))
 	if !app.search.active {
@@ -138,47 +150,80 @@ func TestSearchNextWrapsAround(t *testing.T) {
 	if len(app.search.hits) != 3 {
 		t.Fatalf("hits = %d, want 3 (matches on three messages)", len(app.search.hits))
 	}
-	if app.search.current != 0 {
-		t.Fatalf("current hit = %d, want 0", app.search.current)
+	if app.search.current != 0 || app.timeline.searchHit != 0 {
+		t.Fatalf("current hit = %d (highlight %d), want 0", app.search.current, app.timeline.searchHit)
 	}
-	if got := app.timeline.searchHit; got != 0 {
-		t.Fatalf("highlighted hit = %d, want 0", got)
+	if app.timeline.offset >= opened.offset || app.timeline.follow {
+		t.Fatalf("revealing the first hit left offset %d follow %t, want a scrolled viewport below offset %d",
+			app.timeline.offset, app.timeline.follow, opened.offset)
 	}
 
-	n := func(key tcell.Key, str string) {
-		app.handleKey(tcell.NewEventKey(key, str, tcell.ModNone))
+	press := func(key tcell.Key, str string, mod tcell.ModMask) {
+		t.Helper()
+		app.handleKey(tcell.NewEventKey(key, str, mod))
 	}
-	n(tcell.KeyRune, "n")
-	if app.search.current != 1 {
-		t.Fatalf("current hit after n = %d, want 1", app.search.current)
+	press(tcell.KeyRune, "n", tcell.ModNone)
+	if app.search.current != 1 || app.timeline.searchHit != 1 {
+		t.Fatalf("after n current = %d (highlight %d), want 1", app.search.current, app.timeline.searchHit)
 	}
-	n(tcell.KeyRune, "n")
-	n(tcell.KeyRune, "n")
+	press(tcell.KeyRune, "n", tcell.ModNone)
+	press(tcell.KeyRune, "n", tcell.ModNone)
 	if app.search.current != 0 {
-		t.Fatalf("current hit after wrapping = %d, want 0", app.search.current)
+		t.Fatalf("after wrapping forward current = %d, want 0", app.search.current)
 	}
-	n(tcell.KeyRune, "N")
+	// A real terminal reports Shift+N with ModShift, so the nav key must not
+	// require an empty modifier set.
+	press(tcell.KeyRune, "N", tcell.ModShift)
 	if app.search.current != 2 {
-		t.Fatalf("current hit after N wraps backwards = %d, want 2", app.search.current)
+		t.Fatalf("after N (wrapping backwards) current = %d, want 2", app.search.current)
 	}
 
-	// Esc ends the search and returns the transcript to where it was.
-	offset, follow := app.search.saved.offset, app.search.saved.follow
-	n(tcell.KeyEsc, "")
+	press(tcell.KeyEsc, "", tcell.ModNone)
 	if app.search.open() {
 		t.Fatalf("Esc left the search open: %+v", app.search)
 	}
-	if app.timeline.offset != offset || app.timeline.follow != follow {
-		t.Fatalf("viewport = offset %d follow %t, want offset %d follow %t",
-			app.timeline.offset, app.timeline.follow, offset, follow)
+	if app.timeline.offset != opened.offset || app.timeline.follow != opened.follow {
+		t.Fatalf("Esc restored offset %d follow %t, want offset %d follow %t",
+			app.timeline.offset, app.timeline.follow, opened.offset, opened.follow)
 	}
 	if len(app.timeline.searchHits) != 0 {
 		t.Fatalf("Esc left %d highlights behind", len(app.timeline.searchHits))
 	}
 
-	// Typing while the search is not committed any more must reach the composer.
-	n(tcell.KeyRune, "n")
+	// Typing after the search ended must reach the composer, not jump.
+	press(tcell.KeyRune, "n", tcell.ModNone)
 	if !strings.Contains(app.composer.Text(), "n") {
 		t.Fatalf("composer text = %q, want the typed n after the search ended", app.composer.Text())
+	}
+}
+
+// TestSyncSearchRecomputesWhenWindowSlides covers the case the reflow check alone
+// misses: the window evicts an entry and appends another, so the line count stays
+// the same while every hit's line index moves.
+func TestSyncSearchRecomputesWhenWindowSlides(t *testing.T) {
+	v := newTranscript(newTheme())
+	v.SetRect(0, 0, 60, 10)
+	v.SetEntries([]entry{
+		{seq: 1, pane: "Austin", text: "beta"},
+		{seq: 2, pane: "Austin", text: "x"},
+	}, false)
+	app := &App{}
+	app.search = searchState{target: v, query: "beta", nav: true}
+	app.refreshSearch(false)
+	if len(app.search.hits) != 1 || app.search.hits[0].line != 1 {
+		t.Fatalf("hits = %+v, want the body line of the first entry", app.search.hits)
+	}
+
+	// Same rendered line count, different window.
+	v.SetEntries([]entry{
+		{seq: 2, pane: "Austin", text: "y"},
+		{seq: 3, pane: "Austin", text: "beta"},
+	}, false)
+	if len(v.lines) != 5 {
+		t.Fatalf("lines = %d, want the same 5 as before", len(v.lines))
+	}
+	app.syncSearch()
+	if len(app.search.hits) != 1 || app.search.hits[0].line != 4 {
+		t.Fatalf("hits = %+v, want the body line of the second entry (4)", app.search.hits)
 	}
 }

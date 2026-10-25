@@ -42,8 +42,10 @@ type searchState struct {
 	// hitsWidth and hitsLines describe the transcript when hits were computed.
 	// The transcript reflows on a width change and drops window-evicted rows, so
 	// both invalidate the line indexes the hits carry.
-	hitsWidth int
-	hitsLines int
+	hitsWidth   int
+	hitsLines   int
+	hitsFirst   int
+	hitsEntries int
 }
 
 func (s searchState) open() bool { return s.active || s.nav }
@@ -62,7 +64,12 @@ func (t theme) searchStyle(current bool) ui.Style {
 // rendered lines. Hits come out line-major and ordered, which is what Draw's
 // per-line scan relies on.
 func (v *transcript) searchMatches(query string) []searchHit {
-	needle := []rune(strings.ToLower(query))
+	needle := make([]rune, 0, len(query))
+	for _, r := range query {
+		// Per-rune folding keeps needle and haystack aligned; a few characters
+		// change rune count under strings.ToLower ("İ" becomes two runes).
+		needle = append(needle, unicode.ToLower(r))
+	}
 	if len(needle) == 0 {
 		return nil
 	}
@@ -111,6 +118,18 @@ func (v *transcript) searchHitsOnLine(line int) ([]searchHit, int) {
 		end++
 	}
 	return v.searchHits[base:end], base
+}
+
+// entriesStamp identifies the window the hits were computed against. The first
+// entry's seq and the entry count change when the window evicts while appending,
+// even when the reflowed line count happens to land on the same number — a case
+// that would otherwise leave every hit pointing one entry too far back.
+func (v *transcript) entriesStamp() (int, int) {
+	first := 0
+	if len(v.entries) > 0 {
+		first = v.entries[0].seq
+	}
+	return first, len(v.entries)
 }
 
 // SetSearchHits replaces what the transcript highlights. current indexes
@@ -175,6 +194,7 @@ func (a *App) refreshSearch(reveal bool) {
 	}
 	st.hits = st.target.searchMatches(st.query)
 	st.hitsWidth, st.hitsLines = st.target.width, len(st.target.lines)
+	st.hitsFirst, st.hitsEntries = st.target.entriesStamp()
 	st.current = 0
 	if len(st.hits) == 0 {
 		st.target.ClearSearchHits()
@@ -194,7 +214,9 @@ func (a *App) syncSearch() {
 		return
 	}
 	target := a.search.target
-	if target.width == a.search.hitsWidth && len(target.lines) == a.search.hitsLines {
+	first, count := target.entriesStamp()
+	if target.width == a.search.hitsWidth && len(target.lines) == a.search.hitsLines &&
+		first == a.search.hitsFirst && count == a.search.hitsEntries {
 		return
 	}
 	a.refreshSearch(false)

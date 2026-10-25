@@ -20,7 +20,7 @@ var slashCommands = []slashCommand{
 	{name: "/mode", args: "[fast|goal|step]", desc: "Mode picker, or switch directly (Ctrl+S)"},
 	{name: "/model", desc: "Model & thinking picker (Ctrl+M)"},
 	{name: "/plan", desc: "Read the shared plan and step queue (F3)"},
-	{name: "/search", args: "[term]", desc: "Search this pane; n/N next, Esc restore (Ctrl+F)", needsArg: true},
+	{name: "/search", args: "[term]", desc: "Search this pane; n/N next, Esc restore (Ctrl+F)"},
 	{name: "/cost", desc: "Session cost ledger: tokens and dollars per agent and phase"},
 	{name: "/qrcode", args: "[new]", desc: "Pair a phone: show the QR code and link"},
 	{name: "/remote", args: "[on|off|status]", desc: "Remote access: status, start or revoke"},
