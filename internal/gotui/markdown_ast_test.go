@@ -86,7 +86,7 @@ func TestMarkdownASTTableWideCJKCellWraps(t *testing.T) {
 	long := strings.Repeat("宽", 30)
 	runs := markdownRuns("| k | v |\n|---|---|\n| x | "+long+" |", tm.Body, tm, 30)
 	lines := wrapRuns(runs, 30)
-	var cell strings.Builder
+	var cells []string
 	for _, line := range lines {
 		if line.width() > 30 {
 			t.Fatalf("line exceeds width: %q", line.text())
@@ -94,11 +94,10 @@ func TestMarkdownASTTableWideCJKCellWraps(t *testing.T) {
 		// Second column of each table row, across wrapped lines. Border
 		// rows hold no pipe and contribute nothing.
 		if parts := strings.Split(line.text(), "|"); len(parts) >= 3 {
-			cell.WriteString(strings.TrimSpace(parts[2]))
+			cells = append(cells, strings.TrimSpace(parts[2]))
 		}
 	}
 	// cells[0] is the header's second column ("v"); body rows follow it.
-	cells := strings.Fields(cell.String())
 	got := strings.Join(cells[min(1, len(cells)):], "")
 	if got != long {
 		t.Fatalf("wide CJK cell content lost or reordered:\n got %q\nwant %q", got, long)
