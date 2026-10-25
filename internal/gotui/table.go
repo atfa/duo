@@ -96,6 +96,13 @@ func tableWidths(header [][]textRun, rows [][][]textRun, columns, width int) ([]
 		return nil, false
 	}
 	budget := width - overhead
+	// A column narrower than this cannot hold a word or a CJK pair, so the box
+	// stops helping: at that point the fallback rows read better than a grid of
+	// single characters.
+	const minColumnWidth = 3
+	if budget < minColumnWidth*columns {
+		return nil, false
+	}
 	natural := make([]int, columns)
 	for i, cell := range header {
 		natural[i] = max(natural[i], runsWidth(cell))
@@ -110,45 +117,33 @@ func tableWidths(header [][]textRun, rows [][][]textRun, columns, width int) ([]
 	}
 
 	widths := make([]int, columns)
+	copy(widths, natural)
 	total := 0
-	for _, w := range natural {
+	for _, w := range widths {
 		total += w
 	}
 	if total <= budget {
-		copy(widths, natural)
 		return widths, true
 	}
 
-	minWidth := 1
-	for _, candidate := range []int{6, 4, 2} {
-		if candidate*columns <= budget {
-			minWidth = candidate
-			break
-		}
-	}
-	used := 0
-	for i := range widths {
-		widths[i] = min(natural[i], minWidth)
-		if widths[i] < 1 {
-			widths[i] = 1
-		}
-		used += widths[i]
-	}
-	remaining := budget - used
-	for remaining > 0 {
-		best := -1
-		bestDeficit := 0
+	// Water-filling: shrink whichever column is currently widest until the table
+	// fits. The greedy pass this replaces dropped every column to a six-cell floor
+	// and then handed the whole remainder to the widest one, so a three-column
+	// table with one long column came out as two six-cell columns beside one
+	// enormous one — the shape that made a table look assembled rather than laid
+	// out.
+	for total > budget {
+		widest := 0
 		for i := range widths {
-			deficit := natural[i] - widths[i]
-			if deficit > bestDeficit {
-				best, bestDeficit = i, deficit
+			if widths[i] > widths[widest] {
+				widest = i
 			}
 		}
-		if best < 0 {
+		if widths[widest] <= 1 {
 			break
 		}
-		widths[best]++
-		remaining--
+		widths[widest]--
+		total--
 	}
 	return widths, true
 }

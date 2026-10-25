@@ -1,10 +1,12 @@
 package gotui
 
 import (
+	"image"
 	"strings"
 	"testing"
 
 	"github.com/gdamore/tcell/v3"
+	rw "github.com/mattn/go-runewidth"
 	ui "github.com/metaspartan/gotui/v5"
 )
 
@@ -245,5 +247,95 @@ func TestMarkdownSoftBreakReflowsAsSpace(t *testing.T) {
 	lines := wrapRuns(runs, 40)
 	if len(lines) != 1 || lines[0].text() != "one two three four" {
 		t.Fatalf("soft break did not reflow: %q", renderLineTexts(lines))
+	}
+}
+
+// The host locale must not decide how many cells a glyph takes. gotui's buffer
+// and this renderer both read go-runewidth's global, and on a zh_CN host that
+// global made the bullet, the quote gutter, the rule and the ellipsis two cells
+// wide while the terminal paints them in one — every decorated line then carried
+// a blank cell and shifted the text after it.
+func TestWidthTableIgnoresTheHostLocale(t *testing.T) {
+	if rw.EastAsianWidth {
+		t.Fatal("go-runewidth still follows the host locale; bullets and rules will leave a gap")
+	}
+	for _, glyph := range []string{"•", "│", "─", "…", "▸", "▾", "|", "-", "+"} {
+		if got := rw.StringWidth(glyph); got != 1 {
+			t.Fatalf("%q measures %d cells, want the one cell a terminal paints it in", glyph, got)
+		}
+	}
+	for _, glyph := range []string{"中", "文", "宽"} {
+		if got := rw.StringWidth(glyph); got != 2 {
+			t.Fatalf("%q measures %d cells, want the two a terminal paints it in", glyph, got)
+		}
+	}
+}
+
+// Drawing the decorated glyphs must leave no blank cell between them: the old
+// width table advanced two cells for each of them and the terminal painted one,
+// so a bullet or a rule was followed by an empty cell and everything after it
+// shifted right.
+func TestDecoratedGlyphsLeaveNoGapWhenDrawn(t *testing.T) {
+	tm := newTheme()
+	text := "•│─…▸▾"
+	buf := ui.NewBuffer(image.Rect(0, 0, 16, 1))
+	buf.SetString(text, tm.Body, image.Pt(0, 0))
+
+	glyphs := []rune(text)
+	if got := rw.StringWidth(text); got != len(glyphs) {
+		t.Fatalf("%q measures %d cells, want one per glyph (%d)", text, got, len(glyphs))
+	}
+	for x := range glyphs {
+		if got := buf.GetCell(image.Pt(x, 0)).Rune; got != glyphs[x] {
+			t.Fatalf("cell %d holds %q, want %q: the drawing and the measurement disagree on %q", x, string(got), string(glyphs[x]), text)
+		}
+	}
+}
+
+// The table in the report a session produced: one long column must not starve the
+// others. The greedy pass this pins against dropped every column to a six-cell
+// floor and then handed the rest to the widest one.
+func TestTableColumnsShareTheWidthInsteadOfStarving(t *testing.T) {
+	rows := []string{
+		"| 区块 | 标题 | 主要要点 |",
+		"|---|---|---|",
+		"| Hero | Think Twice. Build Better. | 两个平级 agent、一个经过验证的结果；v0.14.2、安装命令 |",
+		"| Why Duo | An agent reviewing itself is still one perspective. | 结构性独立审查：两个 session、两个 worktree、同一个 commit，避免自审自批 |",
+		"| How it lands | Four checkpoints between an idea and your branch. | 四个由 Git 证据支撑的检查点；证据不匹配即关卡关闭 |",
+		"| FAQ | The questions engineers ask first. | 与 subagent 的区别、是否需两套模型、冲突、验证失败、历史/交付、代码是否离开本机、MIT 开源 |",
+	}
+	tm := newTheme()
+	const width = 96
+	lines := wrapRuns(markdownRuns(strings.Join(rows, "\n"), tm.Body, tm, width), width)
+
+	var border string
+	for _, line := range lines {
+		if line.width() > width {
+			t.Fatalf("table line is %d cells wide, want at most %d: %q", line.width(), width, line.text())
+		}
+		if strings.HasPrefix(line.text(), "+") && border == "" {
+			border = line.text()
+		}
+	}
+	if border == "" {
+		t.Fatalf("no table border was rendered:\n%s", renderLineTexts(lines))
+	}
+
+	// Column widths are the runs between the border's '+' joints.
+	parts := strings.Split(strings.Trim(border, "+"), "+")
+	if len(parts) != 3 {
+		t.Fatalf("border %q does not describe three columns", border)
+	}
+	widths := make([]int, len(parts))
+	for i, part := range parts {
+		widths[i] = rw.StringWidth(part) - 2
+	}
+	// The shortest column keeps the width its own content needs; the two long
+	// ones split what is left, so they may differ by at most one cell.
+	if widths[0] != 12 {
+		t.Fatalf("first column width = %d, want its natural 12: %v", widths[0], widths)
+	}
+	if diff := widths[1] - widths[2]; diff > 1 || diff < -1 {
+		t.Fatalf("long columns were not shared evenly: %v", widths)
 	}
 }
