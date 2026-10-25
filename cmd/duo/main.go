@@ -70,6 +70,11 @@ func main() {
 				log.Fatal(err)
 			}
 			return
+		case "export":
+			if err := runExport(ctx, os.Args[2:]); err != nil && ctx.Err() == nil {
+				log.Fatal(err)
+			}
+			return
 		case "clean":
 			if err := runClean(ctx, os.Args[2:]); err != nil && ctx.Err() == nil {
 				log.Fatal(err)

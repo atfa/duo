@@ -74,6 +74,11 @@ var commands = []Command{
 		Summary:   "list the Markdown transcripts written to .duo/logs",
 	},
 	{
+		Name:      "export",
+		Signature: "duo export <session-id> [--repo <path>]",
+		Summary:   "write one session's plan, queue, signatures and delivery record as Markdown",
+	},
+	{
 		Name:      "clean",
 		Signature: "duo clean [session-id] [--all|-a] [--all-repos] [--force|-f] [--dry-run|-n]",
 		Summary:   "clean completed sessions and worktrees (--force for unfinished)",
