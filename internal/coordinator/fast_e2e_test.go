@@ -341,6 +341,74 @@ func TestFastModeAutomatedTestGate(t *testing.T) {
 	waitPhase(t, state, project.PhaseDone)
 }
 
+// TestFastVerificationTestGateFailureRecordsNoVerdict pins the order of the two
+// gates at the end of a Fast round. The verdict is what a resume, a retry and
+// `duo apply` all trust, so the automated test gate has to run before it is
+// recorded: recording first left a passed verdict on an artifact whose tests fail,
+// and delivery never re-runs the gate, so that artifact could reach the user's
+// branch. The request must stay open instead, and the same HEAD must be
+// verifiable again once the gate passes.
+func TestFastVerificationTestGateFailureRecordsNoVerdict(t *testing.T) {
+	ctx := context.Background()
+	runtime := startE2EWithMode(t, ctx, project.ModeFast)
+	set, store, state, server, coord := runtime.set, runtime.store, runtime.state, runtime.server, runtime.coord
+
+	austin := runtime.dialAgent(t, protocol.Austin)
+	tony := runtime.dialAgent(t, protocol.Tony)
+	waitFor(t, func() bool { return server.IsConnected(protocol.Austin) && server.IsConnected(protocol.Tony) }, "both agents to connect")
+
+	// The gate passes while Austin requests verification, and fails only at the
+	// verdict. The marker lives outside the worktree, so the artifact stays clean
+	// and the stale-HEAD rule is not what refuses the verdict.
+	marker := filepath.Join(t.TempDir(), "gate-open")
+	if err := os.WriteFile(marker, []byte("open\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	coord.SetTestCommand("test -f " + marker)
+
+	writeAndCommit(t, set.Austin.Path, "app.txt", "v1\n", "v1")
+	fastRequestVerification(t, austin)
+	waitPhase(t, state, project.PhaseVerify)
+	verified := state.Snapshot().Verification.Head
+
+	if err := os.Remove(marker); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fastVerdict(t, tony, "passed", ""); err == nil {
+		t.Fatal("a passed verdict was accepted while the automated test gate failed")
+	}
+
+	snap := state.Snapshot()
+	if snap.Phase != project.PhaseVerify {
+		t.Fatalf("phase after a failed gate = %s, want VERIFY with the request still open", snap.Phase)
+	}
+	if snap.Verification.Status == project.VerificationPassed {
+		t.Fatal("the failed gate recorded a passed verdict")
+	}
+	if snap.Verification.Head != verified {
+		t.Fatalf("the open request was lost: head = %q, want %q", snap.Verification.Head, verified)
+	}
+	persisted, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.NeedsDelivery() {
+		t.Fatalf("a rejected artifact is deliverable: verification = %+v", persisted.Verification)
+	}
+	if persisted.Delivery.Applied() {
+		t.Fatalf("the rejected artifact was delivered: %+v", persisted.Delivery)
+	}
+
+	// Once the gate passes, the same HEAD is verifiable and the round completes.
+	if err := os.WriteFile(marker, []byte("open\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fastVerdict(t, tony, "passed", ""); err != nil {
+		t.Fatalf("the same HEAD could not be verified after the gate passed: %v", err)
+	}
+	waitPhase(t, state, project.PhaseDone)
+}
+
 // TestFastModeEscalateToGoal verifies that an active Fast mode session can be
 // dynamically escalated to Goal mode. Austin's existing work is preserved,
 // the session enters PLAN phase, both agents co-design and approve the shared

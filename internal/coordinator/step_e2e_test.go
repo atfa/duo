@@ -118,6 +118,79 @@ func TestStepModeLandsEachStepEndToEnd(t *testing.T) {
 	}
 }
 
+// TestStepVerificationTestGateFailureKeepsTheStepInReview is the STEP mirror of
+// the Fast gate-order rule. A passed verdict is what advances a FAST step to
+// INTEGRATE, so recording it before the automated test gate ran left a failed
+// step stuck there: Tony could not report again (a verdict needs REVIEW) and
+// Austin could not withdraw (a non-final INTEGRATE refuses a signature), while
+// `duo apply` would land the artifact the gate had rejected. The verdict must only
+// be recorded once the gate passes, leaving the step verifiable again.
+func TestStepVerificationTestGateFailureKeepsTheStepInReview(t *testing.T) {
+	ctx := context.Background()
+
+	runtime := startE2EWithMode(t, ctx, project.ModeStep)
+	set, store, coord, state, server := runtime.set, runtime.store, runtime.coord, runtime.state, runtime.server
+
+	austin := runtime.dialAgent(t, protocol.Austin)
+	tony := runtime.dialAgent(t, protocol.Tony)
+	waitFor(t, func() bool { return server.IsConnected(protocol.Austin) && server.IsConnected(protocol.Tony) }, "both agents to connect")
+
+	request(t, austin, protocol.Message{Version: protocol.Version, Type: protocol.MsgSetPlan, Plan: "two steps"})
+	request(t, austin, protocol.Message{Version: protocol.Version, Type: protocol.MsgSetSteps, Steps: "- [ ] add first.md\n- [ ] add second.md"})
+	sign(t, austin)
+	sign(t, tony)
+	waitPhase(t, state, project.PhaseExecute)
+
+	// The gate passes while Austin submits, and fails at the verdict.
+	marker := filepath.Join(t.TempDir(), "gate-open")
+	if err := os.WriteFile(marker, []byte("open\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	coord.SetTestCommand("test -f " + marker)
+
+	writeAndCommit(t, set.Austin.Path, "first.md", "first\n", "add first.md")
+	sign(t, austin)
+	waitPhase(t, state, project.PhaseReview)
+
+	if err := os.Remove(marker); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fastVerdict(t, tony, "passed", ""); err == nil {
+		t.Fatal("a passed step verdict was accepted while the automated test gate failed")
+	}
+
+	snap := state.Snapshot()
+	if snap.Phase != project.PhaseReview {
+		t.Fatalf("phase after a failed gate = %s, want REVIEW so the step stays verifiable", snap.Phase)
+	}
+	if got := snap.Steps[0].Verification.Status; got == project.VerificationPassed {
+		t.Fatal("the failed gate recorded a passed step verdict")
+	}
+	if snap.Steps[0].Done {
+		t.Fatal("the rejected step was recorded as landed")
+	}
+	persisted, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.NeedsDelivery() {
+		t.Fatalf("a rejected step is deliverable: %+v", persisted.Steps[0].Verification)
+	}
+
+	// The gate passes again, and the same HEAD is verifiable and lands.
+	if err := os.WriteFile(marker, []byte("open\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fastVerdict(t, tony, "passed", ""); err != nil {
+		t.Fatalf("the same step HEAD could not be verified after the gate passed: %v", err)
+	}
+	waitFor(t, func() bool {
+		snap := state.Snapshot()
+		return len(snap.Steps) > 0 && snap.Steps[0].Done
+	}, "step 1 to be recorded as landed")
+	waitPhase(t, state, project.PhaseExecute)
+}
+
 // TestStepRestartRefusesDirtyWorktrees pins the guard that keeps
 // duo_restart_duo from killing both agents while either worktree still holds
 // uncommitted work. A restart is allowed only when both are clean, and a refusal

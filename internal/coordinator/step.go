@@ -354,6 +354,18 @@ func (c *Coordinator) handleStepVerification(ctx context.Context, client *transp
 		return
 	}
 
+	// The automated test gate runs before the verdict is recorded, exactly as in
+	// Fast mode: a gate failure must leave the step in REVIEW with no verdict, so
+	// Tony can verify the same HEAD again once the artifact is fixed. Recording
+	// first advanced the step to INTEGRATE, which made a retry impossible and left
+	// `duo apply` free to land an artifact the gate had rejected.
+	if result == project.VerificationPassed {
+		if err := c.runTestGateIfSet(ctx); err != nil {
+			_ = c.respond(ctx, client, message.RequestID, false, err.Error(), c.statusText(ctx))
+			return
+		}
+	}
+
 	snap, tr, err := c.project.SetVerification(client.Identity(), result, message.Note, target)
 	if err != nil {
 		_ = c.respond(ctx, client, message.RequestID, false, err.Error(), c.statusText(ctx))
@@ -363,11 +375,6 @@ func (c *Coordinator) handleStepVerification(ctx context.Context, client *transp
 
 	switch result {
 	case project.VerificationPassed:
-		if err := c.runTestGateIfSet(ctx); err != nil {
-			c.recordEvent("test_gate_failed", map[string]any{"command": c.TestCommand(), "error": err.Error()})
-			_ = c.respond(ctx, client, message.RequestID, false, err.Error(), c.statusText(ctx))
-			return
-		}
 		c.recordEvent("verification", map[string]any{"result": "passed", "head": target, "step": snap.Step})
 		c.recordEvent("phase_transition", map[string]any{"from": string(tr.Previous), "to": string(tr.Next)})
 		// The final step is delivered only after both agents sign the finished

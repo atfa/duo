@@ -2043,6 +2043,21 @@ func (c *Coordinator) handleSetVerification(ctx context.Context, client *transpo
 		return
 	}
 
+	// The automated test gate runs before the verdict is recorded. A gate that
+	// rejects the artifact must leave the session exactly as it was — the request
+	// still open in VERIFY — because a recorded pass is what a resume, a retry and
+	// `duo apply` all trust. Recording first and reporting the failure afterwards
+	// left a passed verdict on an artifact whose tests fail, and delivery does not
+	// run the gate itself.
+	if result == project.VerificationPassed {
+		if err := c.runTestGateIfSet(ctx); err != nil {
+			_ = c.respond(ctx, client, message.RequestID, false,
+				fmt.Sprintf("Automated test gate (%s) failed before delivery:\n%s\nFix the issue, then verify this HEAD again.", c.TestCommand(), err.Error()),
+				c.statusText(ctx))
+			return
+		}
+	}
+
 	snap, tr, err := c.project.SetVerification(client.Identity(), result, message.Note, target)
 	if err != nil {
 		_ = c.respond(ctx, client, message.RequestID, false, err.Error(), c.statusText(ctx))
@@ -2052,16 +2067,6 @@ func (c *Coordinator) handleSetVerification(ctx context.Context, client *transpo
 
 	switch result {
 	case project.VerificationPassed:
-		if c.TestCommand() != "" && c.workspace != nil {
-			if testErr := c.runTestGate(ctx); testErr != nil {
-				c.recordEvent("test_gate_failed", map[string]any{"command": c.TestCommand(), "error": testErr.Error()})
-				c.emit(events.KindSystem, protocol.Duo, "", fmt.Sprintf("automated test gate failed before delivery: %v", testErr))
-				_ = c.respond(ctx, client, message.RequestID, false,
-					fmt.Sprintf("Automated test gate (%s) failed before delivery:\n%s\nFix the issue before verifying.", c.TestCommand(), testErr.Error()),
-					c.statusText(ctx))
-				return
-			}
-		}
 		c.recordEvent("verification", map[string]any{"result": "passed", "head": target})
 		c.emit(events.KindSystem, protocol.Duo, "", fmt.Sprintf("Tony independently verified %s → passed", shortSHA(target)))
 		_ = c.respond(ctx, client, message.RequestID, true,
