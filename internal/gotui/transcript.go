@@ -21,6 +21,14 @@ type entry struct {
 	seq     int
 }
 
+// entryLines is one entry's rendered lines: its header and body, without the
+// blank separator that follows it. Caching them by seq is what makes appending a
+// message cost one entry instead of the whole window.
+type entryLines struct {
+	seq   int
+	lines []renderLine
+}
+
 type selection struct {
 	active       bool
 	startLine    int
@@ -48,6 +56,14 @@ type transcript struct {
 	pathRoots      map[string][]string
 	sel            selection
 	entrySeq       int
+
+	// blocks caches each entry's rendered lines, aligned with entries; lines is
+	// their concatenation with one blank separator between entries. A message
+	// arriving renders only its own entry, and an evicted entry takes its lines
+	// with it, so the cache never grows past the window.
+	blocks      []entryLines
+	renderWidth int
+	renderLang  string
 }
 
 func newTranscript(t theme) *transcript {
@@ -57,6 +73,7 @@ func newTranscript(t theme) *transcript {
 		follow:         true,
 		emptyText:      "No messages yet.",
 		showTimestamps: true,
+		renderWidth:    -1,
 	}
 	v.BorderRounded = true
 	v.BorderStyle = ui.Style{Fg: t.Border, Bg: t.Bg}
@@ -67,23 +84,57 @@ func newTranscript(t theme) *transcript {
 	return v
 }
 
+// SetEntries shows entries with or without timestamps. An unchanged list is a
+// no-op; a list that only grew, or lost its oldest entries, renders just the
+// difference, because re-parsing the whole window costs milliseconds per message
+// in a long session.
 func (v *transcript) SetEntries(entries []entry, showTimestamps bool) {
-	if showTimestamps == v.showTimestamps && len(entries) == len(v.entries) {
-		same := true
-		for i := range entries {
-			if entries[i].seq != v.entries[i].seq {
-				same = false
-				break
-			}
-		}
-		if same {
-			return
+	if showTimestamps == v.showTimestamps && v.language() == v.renderLang &&
+		wrapWidth(v.Inner.Dx()) == v.renderWidth && sameEntrySeqs(entries, v.entries) {
+		return
+	}
+	stampsChanged := showTimestamps != v.showTimestamps
+	v.showTimestamps = showTimestamps
+	v.entries = entries
+	// Everything the cached lines depend on beyond the entries themselves: the
+	// wrap width, the timestamp prefix and the interface language (the summary
+	// header is translated). A change to any of them invalidates every block.
+	if stampsChanged || v.renderWidth <= 0 || wrapWidth(v.Inner.Dx()) != v.renderWidth || v.language() != v.renderLang || !cachedSeqs(entries) {
+		v.invalidate()
+		v.width, v.height = -1, -1
+		v.rebuild()
+		return
+	}
+	oldBottom := len(v.lines)
+	v.syncBlocks()
+	v.settle(oldBottom)
+}
+
+// sameEntrySeqs reports whether two windows show the same entries in the same
+// order. Entries are immutable once appended, so equal seqs mean equal content.
+func sameEntrySeqs(a, b []entry) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].seq != b[i].seq {
+			return false
 		}
 	}
-	v.entries = entries
-	v.showTimestamps = showTimestamps
-	v.width, v.height = -1, -1
-	v.rebuild()
+	return true
+}
+
+// cachedSeqs reports whether entries can be cached by seq. A zero or repeated seq
+// cannot identify a block, and a test that builds entries by hand leaves it zero.
+func cachedSeqs(entries []entry) bool {
+	last := 0
+	for _, e := range entries {
+		if e.seq <= last {
+			return false
+		}
+		last = e.seq
+	}
+	return true
 }
 
 func (v *transcript) SetEmptyText(text string) { v.emptyText = text }
@@ -93,8 +144,15 @@ func (v *transcript) SetPathRoots(roots map[string][]string) {
 		return
 	}
 	v.pathRoots = clonePathRoots(roots)
+	// Link targets are baked into the rendered runs, so every block is stale.
+	v.invalidate()
 	v.width = -1
 	v.rebuild()
+}
+
+func (v *transcript) invalidate() {
+	v.blocks = nil
+	v.lines = nil
 }
 
 func samePathRoots(a, b map[string][]string) bool {
@@ -135,87 +193,202 @@ func (v *transcript) rebuild() {
 	oldBottom := len(v.lines)
 	v.width, v.height = width, height
 	v.rebuildLines(width)
+	v.settle(oldBottom)
+}
+
+// settle keeps the viewport where the human expects it after the lines changed.
+func (v *transcript) settle(oldBottom int) {
+	height := v.Inner.Dy()
 	if v.follow {
 		v.offset = max(0, len(v.lines)-height)
 		v.newLines = 0
-	} else {
-		// Keep the same content in view when the width changes; the number of
-		// rows may grow because text reflows.
-		if oldBottom > 0 && len(v.lines) > oldBottom {
-			v.offset += len(v.lines) - oldBottom
-		}
-		v.clampOffset()
+		return
 	}
+	// Keep the same content in view when the width changes; the number of rows
+	// may grow because text reflows.
+	if oldBottom > 0 && len(v.lines) > oldBottom {
+		v.offset += len(v.lines) - oldBottom
+	}
+	v.clampOffset()
 }
 
 func (v *transcript) Rebuild(force bool) {
 	if force {
+		v.invalidate()
 		v.width, v.height = -1, -1
 	}
 	v.rebuild()
 }
 
 func (v *transcript) rebuildLines(width int) {
+	width = wrapWidth(width)
+	v.blocks = nil
 	v.lines = nil
-	if width < 4 {
-		width = 4
+	v.renderWidth = width
+	v.renderLang = v.language()
+	for _, e := range v.entries {
+		v.appendBlock(v.renderEntry(e, width))
+	}
+}
+
+// renderEntry renders one entry. The blank line that separates entries is not
+// part of the block, so the transcript never ends with a blank line.
+func (v *transcript) renderEntry(e entry, width int) entryLines {
+	block := entryLines{seq: e.seq}
+	if strings.TrimSpace(e.text) == "" {
+		return block
 	}
 	bodyWidth := max(1, width-2)
-	for _, e := range v.entries {
-		if strings.TrimSpace(e.text) == "" {
+	label := e.label
+	if label == "" {
+		label = e.pane
+	}
+	if label == "" {
+		label = "Duo"
+	}
+	headerStyle := v.theme.agentStyle(e.pane)
+	if e.err {
+		headerStyle = v.theme.Error
+	} else if e.warn {
+		headerStyle = v.theme.Warning
+	}
+	header := label
+	if e.summary {
+		header += "  · " + v.theme.tr("FINAL REPORT")
+	}
+	var headerRuns []textRun
+	if v.showTimestamps {
+		headerRuns = append(headerRuns, textRun{e.at.Format("15:04"), v.theme.Timestamp, linkTarget{}}, textRun{"  ", v.theme.Timestamp, linkTarget{}})
+	}
+	headerRuns = append(headerRuns, textRun{header, headerStyle, linkTarget{}})
+	if e.summary {
+		headerRuns = append(headerRuns, textRun{"  ✓", v.theme.Success, linkTarget{}})
+	}
+	for _, line := range wrapRuns(headerRuns, width) {
+		line.entry = e.seq
+		line.header = true
+		line.summary = e.summary
+		block.lines = append(block.lines, line)
+	}
+	base := v.theme.Body
+	if e.err {
+		base = v.theme.Error
+	} else if e.warn {
+		base = v.theme.Warning
+	}
+	runs := markdownRuns(e.text, base, v.theme, bodyWidth)
+	runs = linkifyRuns(runs, v.pathRoots[e.pane], v.theme)
+	for _, line := range wrapRuns(runs, bodyWidth) {
+		line.entry = e.seq
+		line.runs = append([]textRun{{"  ", base, linkTarget{}}}, line.runs...)
+		block.lines = append(block.lines, line)
+	}
+	return block
+}
+
+func (v *transcript) appendBlock(block entryLines) {
+	if len(block.lines) > 0 {
+		if len(v.lines) > 0 {
+			v.lines = append(v.lines, renderLine{entry: v.lastRenderedSeq()})
+		}
+		v.lines = append(v.lines, block.lines...)
+	}
+	v.blocks = append(v.blocks, block)
+}
+
+// lastRenderedSeq is the entry the separator before the next block belongs to:
+// the last entry that actually produced lines, because an entry with only
+// whitespace is not shown at all.
+func (v *transcript) lastRenderedSeq() int {
+	for i := len(v.blocks) - 1; i >= 0; i-- {
+		if len(v.blocks[i].lines) > 0 {
+			return v.blocks[i].seq
+		}
+	}
+	return 0
+}
+
+// syncBlocks brings the cached blocks and the flat line list in line with
+// v.entries. The window only drops entries from the front and appends at the
+// back, so the work is proportional to what changed, not to the window.
+func (v *transcript) syncBlocks() {
+	drop := 0
+	if len(v.blocks) > 0 {
+		// Find where the new window starts among the cached blocks: everything
+		// before it left the window.
+		drop = len(v.blocks)
+		for i := range v.blocks {
+			if len(v.entries) > 0 && v.blocks[i].seq == v.entries[0].seq {
+				drop = i
+				break
+			}
+		}
+		if drop == len(v.blocks) {
+			// The window moved somewhere the cache cannot follow: start over.
+			v.blocks = nil
+			v.lines = nil
+			drop = 0
+		}
+	}
+	if drop > 0 {
+		removed := blockLineCount(v.blocks[:drop])
+		if removed > 0 && blockLineCount(v.blocks[drop:]) > 0 {
+			removed++ // the separator that preceded the first surviving block
+		}
+		if removed > 0 {
+			v.lines = v.lines[:copy(v.lines, v.lines[removed:])]
+		}
+		v.blocks = append(v.blocks[:0], v.blocks[drop:]...)
+	}
+	keep := 0
+	for keep < len(v.entries) && keep < len(v.blocks) && v.entries[keep].seq == v.blocks[keep].seq {
+		keep++
+	}
+	if keep < len(v.blocks) {
+		removed := blockLineCount(v.blocks[keep:])
+		if removed > 0 && blockLineCount(v.blocks[:keep]) > 0 {
+			removed++
+		}
+		v.lines = v.lines[:len(v.lines)-removed]
+		v.blocks = v.blocks[:keep]
+	}
+	for _, e := range v.entries[keep:] {
+		v.appendBlock(v.renderEntry(e, v.renderWidth))
+	}
+}
+
+// blockLineCount is how many lines blocks occupy in the flat list, including the
+// separators between them but not one after the last.
+func blockLineCount(blocks []entryLines) int {
+	count := 0
+	previous := false
+	for _, block := range blocks {
+		if len(block.lines) == 0 {
 			continue
 		}
-		label := e.label
-		if label == "" {
-			label = e.pane
+		if previous {
+			count++
 		}
-		if label == "" {
-			label = "Duo"
-		}
-		headerStyle := v.theme.agentStyle(e.pane)
-		if e.err {
-			headerStyle = v.theme.Error
-		} else if e.warn {
-			headerStyle = v.theme.Warning
-		}
-		header := label
-		if e.summary {
-			header += "  · " + v.theme.tr("FINAL REPORT")
-		}
-		var headerRuns []textRun
-		if v.showTimestamps {
-			headerRuns = append(headerRuns, textRun{e.at.Format("15:04"), v.theme.Timestamp, linkTarget{}}, textRun{"  ", v.theme.Timestamp, linkTarget{}})
-		}
-		headerRuns = append(headerRuns, textRun{header, headerStyle, linkTarget{}})
-		if e.summary {
-			headerRuns = append(headerRuns, textRun{"  ✓", v.theme.Success, linkTarget{}})
-		}
-		wrappedHeader := wrapRuns(headerRuns, width)
-		for _, line := range wrappedHeader {
-			line.entry = e.seq
-			line.header = true
-			line.summary = e.summary
-			v.lines = append(v.lines, line)
-		}
-		base := v.theme.Body
-		if e.err {
-			base = v.theme.Error
-		} else if e.warn {
-			base = v.theme.Warning
-		}
-		runs := markdownRuns(e.text, base, v.theme, bodyWidth)
-		runs = linkifyRuns(runs, v.pathRoots[e.pane], v.theme)
-		wrappedBody := wrapRuns(runs, bodyWidth)
-		for _, line := range wrappedBody {
-			line.entry = e.seq
-			line.runs = append([]textRun{{"  ", base, linkTarget{}}}, line.runs...)
-			v.lines = append(v.lines, line)
-		}
-		v.lines = append(v.lines, renderLine{entry: e.seq})
+		count += len(block.lines)
+		previous = true
 	}
-	if len(v.lines) > 0 && v.lines[len(v.lines)-1].text() == "" {
-		v.lines = v.lines[:len(v.lines)-1]
+	return count
+}
+
+func wrapWidth(width int) int {
+	if width < 4 {
+		return 4
 	}
+	return width
+}
+
+// language is the language the cached lines were rendered in: the summary header
+// is translated, so a /language switch must not leave the old wording behind.
+func (v *transcript) language() string {
+	if v.theme.Lang == nil {
+		return "en"
+	}
+	return *v.theme.Lang
 }
 
 func (v *transcript) clampOffset() {
