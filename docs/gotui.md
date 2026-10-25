@@ -106,6 +106,7 @@ variables. The dashboard adds:
 | `Ctrl+P` | Show or hide the workflow sidebar |
 | `F1` / `Ctrl+/` / `Alt+H` | Open help |
 | `F3` / `/plan` | Read the shared plan and Step queue |
+| `Ctrl+E` / `/reports` | Open the observer's status report; `R` asks again, `?` asks the observer your own question |
 | `Ctrl+O` / `Alt+O` | Open session details and the Git diffstat |
 | `Ctrl+M` / `Alt+M` | Open the model and thinking picker |
 | `Ctrl+S` / `Alt+S` | Open the FAST/GOAL/STEP mode picker |
