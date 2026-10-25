@@ -403,17 +403,26 @@ func (m *remoteManager) snapshot() remote.State {
 // uses. It adds no verb the interface does not already have.
 type remoteSink struct{ m *remoteManager }
 
-func (s remoteSink) SubmitTask(text string) error {
+// run performs one human verb with the deadline the phone's command round trip
+// allows, so a verb that blocks cannot hold the command path open.
+func (s remoteSink) run(cmd session.Command) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return s.m.svc.Do(ctx, session.SubmitTask{Text: text})
+	return s.m.svc.Do(ctx, cmd)
 }
 
-func (s remoteSink) NewSession() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	return s.m.svc.Do(ctx, session.NewSession{})
-}
+func (s remoteSink) SubmitTask(text string) error { return s.run(session.SubmitTask{Text: text}) }
+
+func (s remoteSink) NewSession() error { return s.run(session.NewSession{}) }
+
+// Pause, Unpause, Continue and ResumeWork are the resume verbs the interface
+// offers, reached from the phone: they map onto the same session commands, so a
+// paused or restored Duo can be released without a keyboard. None of them signs a
+// gate — a signature stays authorized by an agent's live bridge alone.
+func (s remoteSink) Pause() error      { return s.run(session.Pause{}) }
+func (s remoteSink) Unpause() error    { return s.run(session.Unpause{}) }
+func (s remoteSink) Continue() error   { return s.run(session.Continue{}) }
+func (s remoteSink) ResumeWork() error { return s.run(session.ResumeWork{}) }
 
 func (s remoteSink) RequestObserverReport() { s.m.svc.RequestObserverReport() }
 

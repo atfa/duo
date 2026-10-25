@@ -57,6 +57,15 @@ const (
 	// CmdSetModel carries "<agent> <reference>" in Text, where the reference is one
 	// the host published in a catalog.
 	CmdSetModel = "set_model"
+	// The resume verbs are the human's own: pause holds new work at the next idle
+	// boundary, unpause cancels a pause that has not completed, continue resumes a
+	// fully paused session and resume_work resumes a restored one. None carries a
+	// payload, and none signs a gate: being away from the keyboard is exactly when
+	// a paused Duo has nobody else to release it.
+	CmdPause      = "pause"
+	CmdUnpause    = "unpause"
+	CmdContinue   = "continue"
+	CmdResumeWork = "resume_work"
 )
 
 // Close and error codes. They are stable identifiers: a frontend localises them

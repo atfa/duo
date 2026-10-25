@@ -39,6 +39,15 @@ type Sink interface {
 	// in a catalog, so the host can resolve it exactly instead of guessing where a
 	// provider ends and an id begins.
 	SetModel(agent, reference string) error
+	// The resume verbs carry no payload and no signature: they release work a human
+	// already authorized, which is what a phone is for when nobody is at the
+	// keyboard. Pause holds new work at the next idle boundary, Unpause cancels a
+	// pause that has not completed, Continue resumes a fully paused session and
+	// ResumeWork resumes a restored one.
+	Pause() error
+	Unpause() error
+	Continue() error
+	ResumeWork() error
 }
 
 // Options configures a Client.
@@ -528,6 +537,22 @@ func (c *Client) applyCommand(f frame, plaintext []byte) error {
 			return c.reject(cmd.ID, cmd.Kind, err.Error())
 		}
 		if err := c.opts.Sink.SetModel(agent, reference); err != nil {
+			return c.reject(cmd.ID, cmd.Kind, err.Error())
+		}
+	case CmdPause:
+		if err := c.opts.Sink.Pause(); err != nil {
+			return c.reject(cmd.ID, cmd.Kind, err.Error())
+		}
+	case CmdUnpause:
+		if err := c.opts.Sink.Unpause(); err != nil {
+			return c.reject(cmd.ID, cmd.Kind, err.Error())
+		}
+	case CmdContinue:
+		if err := c.opts.Sink.Continue(); err != nil {
+			return c.reject(cmd.ID, cmd.Kind, err.Error())
+		}
+	case CmdResumeWork:
+		if err := c.opts.Sink.ResumeWork(); err != nil {
 			return c.reject(cmd.ID, cmd.Kind, err.Error())
 		}
 	default:

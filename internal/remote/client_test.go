@@ -23,6 +23,8 @@ type fakeSink struct {
 	catalogErr error
 	models     []string
 	modelErr   error
+	resume     []string
+	resumeErr  error
 }
 
 func (s *fakeSink) SubmitTask(text string) error {
@@ -125,6 +127,33 @@ func (s *fakeSink) catalogSnapshot() ([]string, []string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]string(nil), s.catalogs...), append([]string(nil), s.models...)
+}
+
+func (s *fakeSink) Pause() error      { return s.recordResume("pause") }
+func (s *fakeSink) Unpause() error    { return s.recordResume("unpause") }
+func (s *fakeSink) Continue() error   { return s.recordResume("continue") }
+func (s *fakeSink) ResumeWork() error { return s.recordResume("resume_work") }
+
+func (s *fakeSink) recordResume(verb string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.resumeErr != nil {
+		return s.resumeErr
+	}
+	s.resume = append(s.resume, verb)
+	return nil
+}
+
+func (s *fakeSink) setResumeError(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.resumeErr = err
+}
+
+func (s *fakeSink) resumeSnapshot() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.resume...)
 }
 
 func testPairing(t *testing.T, relay *fakeRelay) Pairing {
@@ -525,6 +554,75 @@ func TestSwitchModeReachesTheSinkAndReportsRefusals(t *testing.T) {
 	}
 	if !strings.Contains(next.Command.Note, "locked") {
 		t.Errorf("note = %q, want the host's own reason", next.Command.Note)
+	}
+}
+
+// The resume verbs are the human's own, so each reaches the sink as the verb the
+// phone sent, and a refusal is reported rather than swallowed: a phone that
+// believes it released a paused Duo is worse than one that shows the reason.
+func TestPauseCommandReachesSink(t *testing.T) {
+	relay := newFakeRelay(t)
+	p := testPairing(t, relay)
+	sink := &fakeSink{}
+	c, err := New(Options{Pairing: p, Sink: sink, Snapshot: staticState("duo"),
+		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	startClient(t, c)
+	waitFor(t, "host connection", func() bool { return c.Status().Connected })
+	guest := relay.guest(t, p)
+	state := guest.nextState(t, p, 5*time.Second)
+
+	for i, kind := range []string{CmdPause, CmdUnpause, CmdContinue, CmdResumeWork} {
+		sendCommand(t, guest, p, fmt.Sprintf("cmd-resume-%d", i), kind, "", state.N)
+		state = guest.nextState(t, p, 5*time.Second)
+		if state.Command == nil || !state.Command.Accepted {
+			t.Fatalf("%s was not accepted: %+v", kind, state.Command)
+		}
+	}
+	if got, want := strings.Join(sink.resumeSnapshot(), ","), "pause,unpause,continue,resume_work"; got != want {
+		t.Fatalf("sink saw resume verbs %q, want %q", got, want)
+	}
+
+	sink.setResumeError(fmt.Errorf("session is running; continue requires both agents paused"))
+	sendCommand(t, guest, p, "cmd-resume-refused", CmdContinue, "", state.N)
+	state = guest.nextState(t, p, 5*time.Second)
+	if state.Command == nil || state.Command.Accepted {
+		t.Fatalf("a refused continue was accepted: %+v", state.Command)
+	}
+	if !strings.Contains(state.Command.Note, "requires both agents paused") {
+		t.Errorf("note = %q, want the host's own reason", state.Command.Note)
+	}
+}
+
+// A kind the host does not know is refused with a reason instead of being
+// ignored, so a page built against a newer protocol cannot believe it paused a
+// session that is still running.
+func TestUnknownCommandRefused(t *testing.T) {
+	relay := newFakeRelay(t)
+	p := testPairing(t, relay)
+	sink := &fakeSink{}
+	c, err := New(Options{Pairing: p, Sink: sink, Snapshot: staticState("duo"),
+		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	startClient(t, c)
+	waitFor(t, "host connection", func() bool { return c.Status().Connected })
+	guest := relay.guest(t, p)
+	state := guest.nextState(t, p, 5*time.Second)
+
+	sendCommand(t, guest, p, "cmd-unknown", "abort", "", state.N)
+	state = guest.nextState(t, p, 5*time.Second)
+	if state.Command == nil || state.Command.Accepted {
+		t.Fatalf("an unknown command kind was accepted: %+v", state.Command)
+	}
+	if !strings.Contains(state.Command.Note, "unsupported command") {
+		t.Errorf("note = %q, want it to name the unsupported command", state.Command.Note)
+	}
+	if got := sink.resumeSnapshot(); len(got) != 0 {
+		t.Errorf("an unknown command reached the sink as %v", got)
 	}
 }
 

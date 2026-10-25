@@ -204,6 +204,29 @@ func TestRemoteSetModeValidatesAndNoOpsTheRunningMode(t *testing.T) {
 	}
 }
 
+// The phone's resume verbs are the interface's own verbs: each one reaches the
+// session through Do, so a paused or restored Duo can be released without a
+// keyboard. A session that is not running says so instead of the phone reporting
+// a pause that never happened.
+func TestRemotePauseMapsToSessionPause(t *testing.T) {
+	manager := &remoteManager{svc: session.New(session.Options{}), now: time.Now}
+	sink := remoteSink{m: manager}
+
+	for _, tc := range []struct {
+		name string
+		call func() error
+	}{
+		{"pause", sink.Pause},
+		{"unpause", sink.Unpause},
+		{"continue", sink.Continue},
+		{"resume_work", sink.ResumeWork},
+	} {
+		if err := tc.call(); err == nil || !strings.Contains(err.Error(), "not running") {
+			t.Errorf("%s on a session that is not running = %v, want the session's not-running error", tc.name, err)
+		}
+	}
+}
+
 // The phone offers the drivers this machine can run, and names the agent it
 // addresses with the same spelling the snapshot uses.
 func TestRemoteSnapshotCarriesTheDriversAndRefusesUnknownAgents(t *testing.T) {
