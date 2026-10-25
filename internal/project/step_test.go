@@ -261,6 +261,17 @@ func TestStepQueueEditRules(t *testing.T) {
 	if _, err := st.SetSteps(protocol.Austin, "- [ ] one\n- [ ] two", false); err != nil {
 		t.Fatal(err)
 	}
+
+	// Duo owns the ticks. An agent that submits a ticked line would be marking work
+	// landed that no delivery recorded, so the queue must be refused as a whole and
+	// left exactly as it was.
+	if _, err := st.SetSteps(protocol.Austin, "- [ ] one\n- [x] two", false); err == nil {
+		t.Fatal("a checked step must be refused: only delivery lands a step")
+	}
+	if got := st.Snapshot().Steps; len(got) != 2 || got[0].Done || got[1].Done {
+		t.Fatalf("a refused queue changed the queue: %+v", got)
+	}
+
 	if _, err := st.SetSteps(protocol.Tony, "- [ ] one\n- [ ] two", false); err != nil {
 		t.Fatalf("either agent may author the queue in PLAN: %v", err)
 	}
@@ -273,6 +284,12 @@ func TestStepQueueEditRules(t *testing.T) {
 	// Outside PLAN the queue may only grow, so a landing can never be invalidated.
 	if _, err := st.SetSteps(protocol.Austin, "- [ ] completely new", false); err == nil {
 		t.Fatal("replacing the queue outside PLAN must be refused")
+	}
+	if _, err := st.SetSteps(protocol.Austin, "- [x] three", true); err == nil {
+		t.Fatal("an appended step must be unchecked too: appending a tick would land work nobody delivered")
+	}
+	if got := st.Snapshot().Steps; len(got) != 2 {
+		t.Fatalf("a refused append changed the queue: %+v", got)
 	}
 	if _, err := st.SetSteps(protocol.Austin, "- [ ] three", true); err != nil {
 		t.Fatalf("appending during EXECUTE must be allowed: %v", err)

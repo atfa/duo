@@ -318,6 +318,15 @@ func (stepWorkflow) setSteps(s *State, steps Steps, appendOnly bool) error {
 	if len(steps) == 0 {
 		return fmt.Errorf("%w: a Step session needs at least one step in its queue", ErrMissingPlan)
 	}
+	// Duo owns the ticks: a step is landed by the delivery transaction, never by
+	// the text an agent submits. Accepting a checked line would let an agent mark
+	// work landed that was never reviewed or delivered, and a fully checked queue
+	// would skip every per-step gate on the way to the final sign-off.
+	for i, st := range steps {
+		if st.Done {
+			return fmt.Errorf("step %d (%q) is already ticked: Duo owns the checkboxes, so every submitted step must be unchecked (landed steps are recorded by delivery)", i+1, st.Title)
+		}
+	}
 	if s.phase == PhasePlan {
 		s.steps = steps
 		s.step = FirstOpenStep(s.steps)
