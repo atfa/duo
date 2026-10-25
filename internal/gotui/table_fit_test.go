@@ -136,7 +136,7 @@ func TestTablePlainFallbackKeepsAllCells(t *testing.T) {
 	tm := newTheme()
 	runs := markdownRuns(tableFitFixture, tm.Body, tm, 12)
 	var joined strings.Builder
-	for _, line := range wrapRuns(runs, 20) {
+	for _, line := range wrapRuns(runs, 12) {
 		joined.WriteString(strings.Map(func(r rune) rune {
 			switch r {
 			case ' ', '|', '+', '-':
