@@ -112,6 +112,11 @@ func TestDoneAsksAustinToSummariseTheSession(t *testing.T) {
 							if event.Peer != "" {
 								t.Fatalf("summary reply targets %q, want the human", event.Peer)
 							}
+							// The report carries no banner, so the mark has to come
+							// from the request Duo made, not from the text.
+							if !event.Summary {
+								t.Fatal("the report Duo asked for was not marked as the final summary")
+							}
 							return true
 						}
 					default:
@@ -192,12 +197,17 @@ func TestFinalSummaryPromptAsksTheSameThreeQuestionsInBothLanguages(t *testing.T
 		"en": "yes or no in the first sentence",
 		"zh": "第一句必须是「是」或「不是」",
 	}
-	// The prompt must name the width, not only show the rule: a model told to
-	// draw "a rule of equals signs" invents its own length, and the interface's
-	// floor then has to decide whether a three-character guess was meant.
-	width := map[string]string{
-		"en": "67 `=`",
-		"zh": "67 个 `=`",
+	// The prompt must forbid decoration rather than ask for it. A model left to
+	// itself dresses a report up in rules and boxes, and the box the prompt used
+	// to demand was ugly and — once a cost line came first — unreadable to the
+	// interface. The mark now comes from Duo's own request.
+	noBanner := map[string]string{
+		"en": "Do not draw a banner, rule or title box",
+		"zh": "不要画横幅、分隔线或标题框",
+	}
+	forbidden := map[string][]string{
+		"en": {"67", "title box: a top rule"},
+		"zh": {"67", "标题框：上下两行"},
 	}
 
 	for _, language := range []string{"en", "zh"} {
@@ -212,14 +222,13 @@ func TestFinalSummaryPromptAsksTheSameThreeQuestionsInBothLanguages(t *testing.T
 		if !strings.Contains(got, verdict[language]) {
 			t.Fatalf("%s prompt does not demand a yes/no verdict:\n%s", language, got)
 		}
-		// The rule the interface recognises has to be the rule the prompt spells
-		// out. If the two ever drift, every report stops being marked and nothing
-		// says why.
-		if !strings.Contains(got, protocol.SummaryRuleLine()) {
-			t.Fatalf("%s prompt does not show the rule the interface looks for:\n%s", language, got)
+		if !strings.Contains(got, noBanner[language]) {
+			t.Fatalf("%s prompt does not forbid decorating the report:\n%s", language, got)
 		}
-		if !strings.Contains(got, width[language]) {
-			t.Fatalf("%s prompt does not state the rule's width:\n%s", language, got)
+		for _, banned := range forbidden[language] {
+			if strings.Contains(got, banned) {
+				t.Fatalf("%s prompt still asks for decoration %q:\n%s", language, banned, got)
+			}
 		}
 	}
 }

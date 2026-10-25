@@ -88,6 +88,12 @@ type Event struct {
 	// Attention is the reason code of a KindAttention event: one of the
 	// Attention* constants, never free text.
 	Attention string
+
+	// Summary marks the one assistant message Duo asked for at DONE: Austin's
+	// final report to the human. It is set from the coordinator's own request
+	// (see requestFinalSummary), not inferred from the text, so the report needs
+	// no banner, rule or other decoration to be recognised.
+	Summary bool
 }
 
 type Bus struct {

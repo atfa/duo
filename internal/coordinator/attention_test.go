@@ -82,15 +82,18 @@ func TestAttentionSummaryReportIsAnnounced(t *testing.T) {
 	ctx := context.Background()
 	runtime := startE2E(t, ctx)
 	seen := attentionRecorder(t, runtime.bus)
-	report := protocol.SummaryRuleLine() + "\n| Duo final report |\n" + protocol.SummaryRuleLine() + "\nresult"
-
+	// Duo asked for the report, so the answer is the report — it needs no banner,
+	// rule or title box to be recognised as one.
+	report := "Delivered the renderer; every gate passes."
+	runtime.coord.oweFinalSummary()
 	runtime.coord.handleAssistant(protocol.Austin, protocol.Message{Text: report})
 
 	if !sawAttention(seen(), events.AttentionSummary) {
 		t.Fatalf("Austin's final report announced nothing; saw %v", seen())
 	}
 
-	// An ordinary message, and Tony's report, are not the promised summary.
+	// An ordinary message, and Tony's report, are not the promised summary: the
+	// request is consumed by the first answer, so nothing else inherits the mark.
 	before := len(seen())
 	runtime.coord.handleAssistant(protocol.Tony, protocol.Message{Text: report})
 	runtime.coord.handleAssistant(protocol.Austin, protocol.Message{Text: "just a normal reply"})

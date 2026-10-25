@@ -38,6 +38,10 @@ type TUIEntry struct {
 	// optional: older logs decode as an empty label and the timeline falls back
 	// to the speaker name.
 	Label string `json:"label,omitempty"`
+	// Summary marks the final report Duo asked Austin for at DONE, so a reopened
+	// session keeps the timeline badge. It is optional: older logs decode as
+	// false and the entry simply loses the badge.
+	Summary bool `json:"summary,omitempty"`
 }
 
 func (s *Store) OpenEvents() *EventLog { return &EventLog{path: s.EventsPath()} }

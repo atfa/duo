@@ -50,7 +50,12 @@ func (a *App) route(event events.Event) {
 	}
 	switch event.Kind {
 	case events.KindAssistant:
-		a.addLabeled(event.Agent, directionLabel(event.Agent, ""), text, false, false)
+		label := directionLabel(event.Agent, "")
+		if event.Summary {
+			a.addSummary(event.Agent, label, text)
+			break
+		}
+		a.addLabeled(event.Agent, label, text, false, false)
 	case events.KindPeer:
 		a.addLabeled(event.Agent, directionLabel(event.Agent, event.Peer), text, false, false)
 	case events.KindUser:
@@ -87,10 +92,20 @@ func (a *App) route(event events.Event) {
 }
 
 func (a *App) addLabeled(agent protocol.AgentID, label, text string, isError, isWarning bool) {
-	item := entry{at: time.Now(), pane: string(agent), text: text, err: isError, warn: isWarning, label: label, summary: protocol.IsSummaryReport(text)}
+	a.addEntryItem(agent, label, text, isError, isWarning, false)
+}
+
+// addSummary adds the report Duo asked Austin for at DONE. Only the coordinator
+// can say which message that is, so the timeline never guesses it from the text.
+func (a *App) addSummary(agent protocol.AgentID, label, text string) {
+	a.addEntryItem(agent, label, text, false, false, true)
+}
+
+func (a *App) addEntryItem(agent protocol.AgentID, label, text string, isError, isWarning, summary bool) {
+	item := entry{at: time.Now(), pane: string(agent), text: text, err: isError, warn: isWarning, label: label, summary: summary}
 	a.appendEntry(item)
 	if a.svc != nil {
-		a.svc.RecordEntry(sessionstore.TUIEntry{Time: item.at, Pane: item.pane, Text: item.text, Error: isError, Warning: isWarning, Label: label})
+		a.svc.RecordEntry(sessionstore.TUIEntry{Time: item.at, Pane: item.pane, Text: item.text, Error: isError, Warning: isWarning, Label: label, Summary: summary})
 	}
 }
 

@@ -1022,7 +1022,7 @@ func (a *App) restoreEntry(item sessionstore.TUIEntry) {
 		err:     item.Error,
 		warn:    item.Warning,
 		label:   label,
-		summary: protocol.IsSummaryReport(item.Text),
+		summary: item.Summary,
 	})
 }
 

@@ -95,9 +95,11 @@ type Coordinator struct {
 	injected   map[protocol.AgentID]string
 
 	// summaryMu guards summaryRequested, the single final-summary request one
-	// finished round may make. See requestFinalSummary.
+	// finished round may make, and summaryOwed, which stays set until Austin
+	// answers it. See requestFinalSummary.
 	summaryMu        sync.Mutex
 	summaryRequested bool
+	summaryOwed      bool
 
 	// thinkingObserver records the level an agent actually reports, after any
 	// live clamping. It is installed once before the event loop starts.
@@ -700,6 +702,10 @@ func (c *Coordinator) runTestGate(ctx context.Context) error {
 	testCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer cancel()
 
+	// The command is the operator's own configured test command (see
+	// SetTestCommand), not data from a message or a remote peer, and it is a
+	// shell line by design: `go test ./... | tail -20` and `make check` are the
+	// shapes operators configure, so a shell is the correct interpreter here.
 	var cmd *exec.Cmd
 	if runtime.GOOS == "windows" {
 		cmd = exec.CommandContext(testCtx, "cmd", "/C", cmdStr)
@@ -783,6 +789,15 @@ func (c *Coordinator) emit(kind events.Kind, agent, peer protocol.AgentID, text 
 		return
 	}
 	c.bus.Emit(events.Event{Kind: kind, Agent: agent, Peer: peer, Text: text})
+}
+
+// emitAssistant publishes an agent's message. summary marks the one message Duo
+// asked Austin to write for the human, which is the report a frontend badges.
+func (c *Coordinator) emitAssistant(agent protocol.AgentID, text string, summary bool) {
+	if c.bus == nil {
+		return
+	}
+	c.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: agent, Text: text, Summary: summary})
 }
 
 // emitConnection publishes the system line a bridge attach or detach produces and
@@ -1376,10 +1391,13 @@ func (c *Coordinator) handleAssistant(agent protocol.AgentID, message protocol.M
 		return
 	}
 	c.tracker.Touch(agent)
-	c.emit(events.KindAssistant, agent, "", message.Text)
 	// The final report is the one message Duo promised the human, and it arrives
-	// after delivery, when nobody is watching the dashboard any more.
-	if agent == protocol.Austin && protocol.IsSummaryReport(message.Text) {
+	// after delivery, when nobody is watching the dashboard any more. Duo knows it
+	// asked for it, so the report is marked from that request rather than from
+	// anything Austin had to draw above it.
+	summary := agent == protocol.Austin && c.takeSummaryOwed()
+	c.emitAssistant(agent, message.Text, summary)
+	if summary {
 		c.attention(events.AttentionSummary)
 	}
 }
