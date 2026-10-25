@@ -91,7 +91,7 @@ var zhUI = map[string]string{
 	"model not reported": "未上报模型", "default": "默认", "not reported": "未上报",
 	"not configured": "未配置", "failed": "失败", "exited": "已退出", "starting": "启动中",
 	"stopping": "停止中", "connecting": "连接中", "working · tool": "工作中 · 工具",
-	"working": "工作中", "step status": "步骤状态", "planning": "规划中", "reviewing": "审查中", "integrating": "集成/落地中", "done": "已完成",
+	"working": "工作中", "step status": "步骤状态", "step gate": "步骤环节", "planning": "规划中", "reviewing": "审查中", "integrating": "集成/落地中", "done": "已完成",
 
 	"No messages yet.": "暂无消息。",
 	"Human commands, notices and system activity appear here.": "人类命令、通知与系统活动会显示在这里。",

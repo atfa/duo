@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/atfa/duo/internal/project"
 )
 
 func humanTokens(n int) string {
@@ -68,5 +70,27 @@ func modeChain(mode string) []string {
 		return []string{"PLAN", "STEPS", "DONE"}
 	default:
 		return []string{"PLAN", "EXECUTE", "REVIEW", "INTEGRATE", "DONE"}
+	}
+}
+
+// stepGateChain is the workflow of the queue step that is currently in flight,
+// which STEP shows underneath its own queue lifecycle. The queue only ever runs
+// one step at a time, so the session phase is that step's gate: a FAST step
+// runs RUNNING → VERIFY → DONE and a GOAL step runs Goal's five phases.
+func stepGateChain(step project.Step, phase project.Phase) (chain []string, stage string) {
+	policy := step.EffectivePolicy()
+	chain = modeChain(policy.String())
+	if policy == project.ModeGoal {
+		return chain, string(phase)
+	}
+	switch {
+	// A landed step is complete even if a later phase is already running, and a
+	// passed verdict has left REVIEW for INTEGRATE, where only delivery remains.
+	case step.DeliveryHead != "" || phase == project.PhaseIntegrate || phase == project.PhaseDone:
+		return chain, "DONE"
+	case phase == project.PhaseReview:
+		return chain, "VERIFY"
+	default:
+		return chain, "RUNNING"
 	}
 }

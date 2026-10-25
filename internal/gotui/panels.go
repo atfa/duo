@@ -194,33 +194,22 @@ func (w *workflowPanel) Draw(buf *ui.Buffer) {
 	if mode == project.ModeStep {
 		phase = stepQueuePhase(w.view.Project)
 	}
-	chain := modeChain(mode.String())
-	chainStyle := ui.Style{Fg: w.theme.Accent, Bg: w.theme.Panel, Modifier: ui.ModifierBold}
-	chainLine := ""
-	for _, p := range chain {
-		mark := "○"
-		switch {
-		case p == phase:
-			mark = "●"
-		case phaseDone(mode, phase, p):
-			mark = "✓"
-		}
-		token := mark + " " + p
-		if chainLine != "" && rw.StringWidth(chainLine)+2+rw.StringWidth(token) > w.Inner.Dx() {
-			if !line(chainLine, chainStyle) {
-				return
+	lineRuns := func(runs []textRun) bool {
+		for _, packed := range packChainRuns(runs, w.Inner.Dx()) {
+			if y >= w.Inner.Max.Y {
+				return false
 			}
-			chainLine = token
-			continue
+			cx := x
+			for _, run := range packed.runs {
+				buf.SetString(run.text, run.style, image.Pt(cx, y))
+				cx += rw.StringWidth(run.text)
+			}
+			y++
 		}
-		if chainLine == "" {
-			chainLine = token
-		} else {
-			chainLine += "  " + token
-		}
+		return true
 	}
-	if chainLine != "" {
-		line(chainLine, chainStyle)
+	if !lineRuns(stageChainRuns(modeChain(mode.String()), phase, mode, w.theme)) {
+		return
 	}
 	if mode == project.ModeFast {
 		line(w.theme.tr("verify")+"  "+w.theme.tr(w.view.Project.Verification.Label()), w.verifyStyle())
@@ -242,8 +231,17 @@ func (w *workflowPanel) Draw(buf *ui.Buffer) {
 			if cur <= len(w.view.Project.Steps) {
 				step := w.view.Project.Steps[cur-1]
 				line(fmt.Sprintf("%s  %d. [%s] %s", w.theme.tr("current"), cur, strings.ToUpper(step.EffectivePolicy().String()), step.Title), w.theme.BodyMuted)
+				if phase == "STEPS" {
+					// The queue lifecycle alone cannot say where the step is: a FAST
+					// step and a GOAL step share the queue but not their gates.
+					gateChain, gateStage := stepGateChain(step, w.view.Phase())
+					prefix := fmt.Sprintf("%s  [%s]  ", w.theme.tr("step gate"), strings.ToUpper(step.EffectivePolicy().String()))
+					runs := append([]textRun{{text: prefix, style: w.theme.Subtle}}, stageChainRuns(gateChain, gateStage, step.EffectivePolicy(), w.theme)...)
+					if !lineRuns(runs) {
+						return
+					}
+				}
 			}
-			line(w.theme.tr("step status")+"  "+w.theme.tr(stepStage(w.view.Project)), w.theme.Subtle)
 		} else {
 			line(fmt.Sprintf("%s  A:%s  T:%s", w.theme.tr("ready"), readyMark(w.view.Project.Ready[protocol.Austin]), readyMark(w.view.Project.Ready[protocol.Tony])), w.theme.Subtle)
 		}
@@ -301,19 +299,64 @@ func stepQueuePhase(s project.Snapshot) string {
 	}
 }
 
-func stepStage(s project.Snapshot) string {
-	switch s.Phase {
-	case project.PhasePlan:
-		return "planning"
-	case project.PhaseReview:
-		return "reviewing"
-	case project.PhaseIntegrate:
-		return "integrating"
-	case project.PhaseDone:
-		return "done"
-	default:
-		return "working"
+// stageChainRuns renders one workflow tier as styled tokens: the stage the
+// session is in now gets a pointer and a solid accent chip, stages behind it are
+// ticked, and stages ahead stay quiet. One uniformly tinted line made every
+// stage look alike, which is what the panel has to answer at a glance.
+func stageChainRuns(chain []string, stage string, policy project.Mode, t theme) []textRun {
+	runs := make([]textRun, 0, len(chain))
+	for i, p := range chain {
+		mark, style := "○", t.Subtle
+		switch {
+		case p == stage:
+			mark, style = "▶", ui.Style{Fg: t.Bg, Bg: t.Accent, Modifier: ui.ModifierBold}
+		case phaseDone(policy, stage, p):
+			// Keep the panel background: theme.Success carries the page colour.
+			mark, style = "✓", ui.Style{Fg: t.OK, Bg: t.Panel}
+		}
+		// The gap travels with the token after the first, so packing can move a
+		// whole stage to the next row without leaving spaces behind.
+		text := mark + " " + p
+		if i > 0 {
+			text = "  " + text
+		}
+		runs = append(runs, textRun{text: text, style: style})
 	}
+	return runs
+}
+
+// packChainRuns lays workflow tokens out as whole words. wrapRuns breaks at any
+// space, which at the sidebar's width could strand a ○ marker at the end of one
+// row and its stage name on the next; a stage token must move as one unit.
+func packChainRuns(runs []textRun, width int) []renderLine {
+	var lines []renderLine
+	lineWidth := 0
+	for _, run := range runs {
+		text := run.text
+		if lineWidth == 0 {
+			text = strings.TrimLeft(text, " ")
+		}
+		if trimmed := strings.TrimRight(text, " "); rw.StringWidth(trimmed) > width {
+			text = fitText(trimmed, width)
+		}
+		w := rw.StringWidth(strings.TrimRight(text, " "))
+		if lineWidth > 0 && lineWidth+w > width {
+			lines = append(lines, renderLine{})
+			lineWidth = 0
+			text = strings.TrimLeft(text, " ")
+			w = rw.StringWidth(text)
+		}
+		if len(lines) == 0 {
+			lines = append(lines, renderLine{})
+		}
+		last := &lines[len(lines)-1]
+		last.runs = append(last.runs, textRun{text: text, style: run.style})
+		lineWidth += w
+	}
+	if len(lines) == 0 {
+		lines = append(lines, renderLine{})
+	}
+	return lines
 }
 
 func phaseDone(mode project.Mode, current, candidate string) bool {
