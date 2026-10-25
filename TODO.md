@@ -120,7 +120,7 @@
 **负责人** Austin
 
 ### T13 转录搜索
-- [ ] 完成：
+- [x] 完成：b84bf50 · 2026-10-25
 
 **位置** `internal/gotui/slash.go:18`（命令表，无 `/search`）、`internal/gotui/commands.go:63`（`runSlash` 分发）、渲染行 `internal/gotui/transcript.go`。
 **用户/缺口** 长会话几百条消息只能肉眼滚动；中文转录同样无法定位。
