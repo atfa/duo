@@ -208,10 +208,12 @@ func (s *Service) observerLogf() func(string, ...any) {
 	}
 }
 
-// observerLiveContext renders the runtime state a report's "Doing now" section
-// is written from: mode, phase, the current step, and per agent what it is doing
-// at this instant. It is the only input that can answer "what are they doing
-// right now", because a running tool never becomes a message.
+// observerLiveContext renders the runtime state a report is written from: mode,
+// phase, the plan and step queue, who has signed and with what evidence, what each
+// branch actually holds, and per agent what it is doing at this instant. It is the
+// only input that can answer "what are they doing right now" — a running tool
+// never becomes a message — and the only place a claim can be checked against the
+// worktree it is claimed for.
 func (s *Service) observerLiveContext() string {
 	// Branch facts come from git, so they are sampled before the session lock is
 	// taken: a report that waited for a worktree would hold the session.
