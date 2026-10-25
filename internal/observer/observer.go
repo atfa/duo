@@ -49,6 +49,9 @@ const (
 	// maxTranscriptRunes bounds the whole recent log so a chatty session cannot
 	// price a human's Ctrl+E out of reach, and maxErrorBody bounds how much of a
 	// failed response is logged.
+	// maxTaskRunes bounds the remembered original task so one long human prompt
+	// cannot dominate every later report.
+	maxTaskRunes       = 2000
 	maxEventRunes      = 1200
 	maxTranscriptRunes = 6000
 	maxErrorBody       = 512
@@ -62,25 +65,32 @@ const (
 // an event-only observer used to get wrong.
 const DefaultSystemPrompt = "You are Duo's observer. Duo is a coding workflow where two agents, Austin and Tony, " +
 	"work on one task in separate Git worktrees. You write a short status report for the human watching them, in " +
-	"the human's language, including the section headings. Each request carries three blocks: 'Current state' " +
-	"(sampled live right now from Duo's runtime: mode, phase, step, and per agent whether it is busy or idle, the " +
-	"tool it is running with its arguments and elapsed time, how long the current turn has lasted, the last few " +
-	"finished tools, the text it is currently writing, and its context usage); 'Recent session log' (the newest " +
-	"messages between the agents, the human and Duo); and 'Previous report' (your last report, for continuity " +
-	"only).\n\n" +
-	"Write exactly three sections:\n" +
-	"1. Just finished - at most three bullets, newest first, each a concrete result. Never repeat a bullet from " +
-	"the previous report, never accumulate history, and drop anything newer events have superseded.\n" +
-	"2. Doing now - one line per agent, derived ONLY from the Current state block, never guessed from the log. " +
+	"the human's language, including the section headings. Each request carries four blocks, in this order: 'Task' " +
+	"(the human's original request for this round, verbatim); 'Current state' (sampled live right now from Duo's " +
+	"runtime: mode, phase, the shared plan text, the step queue with which steps have landed, the current step, " +
+	"and per agent whether it is busy or idle, the tool it is running with its arguments and elapsed time, how " +
+	"long the current turn has lasted, the last few finished tools, the text it is currently writing, and its " +
+	"context usage); 'Recent session log' (the newest messages between the agents, the human and Duo); and " +
+	"'Previous report' (your last report, for continuity only).\n\n" +
+	"Write exactly four sections:\n" +
+	"1. Progress - the task in one sentence (from the Task block), then where the work stands in the task's own " +
+	"decomposition: how many steps the work was split into, how many are done, which step is current, and what " +
+	"remains. Everything here comes ONLY from the Current state block (plan text and step queue); never infer " +
+	"progress from the log. When the work has no explicit decomposition, say what phase the workflow is in " +
+	"instead, in one line.\n" +
+	"2. Just finished - at most three bullets, newest first, each a concrete result, kept relevant to the " +
+	"current step or phase. Never repeat a bullet from the previous report, never accumulate history, and drop " +
+	"anything newer events have superseded.\n" +
+	"3. Doing now - one line per agent, derived ONLY from the Current state block, never guessed from the log. " +
 	"Name the agent, say whether it is busy or idle, and say what it is doing: the running tool with its " +
 	"arguments and how long it has run, the file it is editing, or the first words of the text it is currently " +
 	"writing. An idle agent is reported as idle together with what it finished last. Never describe a finished " +
 	"tool as running.\n" +
-	"3. Next - only what the agents explicitly stated they will do, in their order, at most three bullets. When " +
+	"4. Next - only what the agents explicitly stated they will do, in their order, at most three bullets. When " +
 	"they stated nothing, say so in one short line.\n\n" +
 	"End with one final line starting with the human's words for 'Needs your decision:' only when a decision " +
 	"genuinely blocks the agents; otherwise omit that line entirely. Do not invent facts, do not advise the " +
-	"agents, do not repeat a bullet twice, and keep the whole report to at most twelve short lines."
+	"agents, do not repeat a bullet twice, and keep the whole report to at most eighteen short lines."
 
 // Config is the resolved observer configuration. It is what the session runs
 // with; Settings is the file-facing shape.
@@ -272,13 +282,14 @@ type Observer struct {
 	key    string
 	client *http.Client
 
-	mu          sync.Mutex
-	window      []events.Event
-	previous    string
-	cancel      context.CancelFunc
-	unsubscribe func()
-	closed      bool
-	done        chan struct{}
+	mu           sync.Mutex
+	window       []events.Event
+	previous     string
+	lastUserTask string
+	cancel       context.CancelFunc
+	unsubscribe  func()
+	closed       bool
+	done         chan struct{}
 }
 
 // New validates cfg and prepares an observer. live renders the current runtime
@@ -354,7 +365,9 @@ func (o *Observer) Close() {
 	<-done
 }
 
-// collect keeps the bounded recent log the next report reads.
+// collect keeps the bounded recent log the next report reads, and remembers the
+// most recent human message separately: the original task anchors every report,
+// but it scrolls out of the event window long before the work is done.
 func (o *Observer) collect(ctx context.Context, in <-chan events.Event) {
 	defer close(o.done)
 	for {
@@ -369,6 +382,9 @@ func (o *Observer) collect(ctx context.Context, in <-chan events.Event) {
 				continue
 			}
 			o.mu.Lock()
+			if event.Kind == events.KindUser {
+				o.lastUserTask = clip(strings.TrimSpace(event.Text), maxTaskRunes)
+			}
 			o.window = append(o.window, event)
 			o.window = trimWindow(o.window, o.cfg.MaxEvents)
 			o.mu.Unlock()
@@ -393,13 +409,14 @@ func (o *Observer) Report(ctx context.Context) (string, error) {
 	o.mu.Lock()
 	batch := append([]events.Event(nil), o.window...)
 	previous := o.previous
+	task := o.lastUserTask
 	o.mu.Unlock()
 
 	payload := map[string]any{
 		"model": o.cfg.Model,
 		"messages": []map[string]string{
 			{"role": "system", "content": o.cfg.SystemPrompt},
-			{"role": "user", "content": userPrompt(live, transcript(batch), previous)},
+			{"role": "user", "content": userPrompt(task, live, transcript(batch), previous)},
 		},
 	}
 	if o.cfg.MaxTokens > 0 {
@@ -461,10 +478,19 @@ func (o *Observer) Report(ctx context.Context) (string, error) {
 	return text, nil
 }
 
-// userPrompt assembles the three blocks a report is written from.
-func userPrompt(live, log, previous string) string {
+// userPrompt assembles the four blocks a report is written from. The task
+// comes first because it anchors the Progress section: everything after it is
+// the present, while the task is why the work is being done at all.
+func userPrompt(task, live, log, previous string) string {
 	var b strings.Builder
-	b.WriteString("Current state (sampled live; the only source for what is happening now):\n")
+	b.WriteString("Task (the human's original request for this round):\n")
+	if strings.TrimSpace(task) == "" {
+		b.WriteString("(not seen yet)\n")
+	} else {
+		b.WriteString(task)
+		b.WriteString("\n")
+	}
+	b.WriteString("\nCurrent state (sampled live; the only source for what is happening now and for progress in the task's decomposition):\n")
 	if live == "" {
 		b.WriteString("(unavailable)\n")
 	} else {

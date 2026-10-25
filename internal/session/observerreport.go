@@ -152,10 +152,31 @@ func (s *Service) observerLiveContext() string {
 		}
 	}
 	b.WriteString("\n")
+	// The shared plan text and the step queue are the only source for how the
+	// task was decomposed and how far it has come, so they are rendered here
+	// (bounded), not left for the report model to guess from the log.
+	if plan := strings.TrimSpace(snap.Plan); plan != "" {
+		fmt.Fprintf(&b, "\nShared plan (version %d):\n%s\n", snap.PlanVersion, clipRunes(plan, 1200))
+	}
+	if len(snap.Steps) > 0 {
+		fmt.Fprintf(&b, "\nStep queue (%d steps, %d landed, current step %d of %d):\n%s",
+			len(snap.Steps), landedSteps(snap.Steps), snap.Step, len(snap.Steps), snap.Steps.Render())
+	}
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
 		fmt.Fprintf(&b, "%s: %s\n", id, agentActivity(v.Agents[id], now))
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// landedSteps counts the queue's done steps for the live block's one-line tally.
+func landedSteps(steps project.Steps) int {
+	n := 0
+	for _, st := range steps {
+		if st.Done {
+			n++
+		}
+	}
+	return n
 }
 
 // agentActivity describes one agent from its live runtime state.

@@ -125,12 +125,13 @@ func TestSettingsDefaults(t *testing.T) {
 	}
 }
 
-func TestDefaultReportPromptRequiresBoundedThreeSectionReport(t *testing.T) {
+func TestDefaultReportPromptRequiresBoundedFourSectionReport(t *testing.T) {
 	for _, want := range []string{
-		"exactly three sections", "Just finished", "Doing now",
+		"exactly four sections", "Progress", "Just finished", "Doing now",
 		"derived ONLY from the Current state block", "Never describe a finished tool as running",
 		"only what the agents explicitly stated they will do", "Needs your decision:",
-		"at most twelve short lines", "including the section headings",
+		"at most eighteen short lines", "including the section headings",
+		"Task", "comes ONLY from the Current state block",
 	} {
 		if !strings.Contains(DefaultSystemPrompt, want) {
 			t.Errorf("DefaultSystemPrompt missing %q", want)
@@ -138,6 +139,51 @@ func TestDefaultReportPromptRequiresBoundedThreeSectionReport(t *testing.T) {
 	}
 	if DefaultMaxTokens != 800 {
 		t.Fatalf("DefaultMaxTokens = %d, want 800", DefaultMaxTokens)
+	}
+}
+
+func TestReportAnchorsPromptOnLatestHumanTask(t *testing.T) {
+	t.Setenv("DUO_OBSERVER_API_KEY", "sk-test")
+
+	var prompt string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Messages []struct {
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		prompt = payload.Messages[1].Content
+		_, _ = io.WriteString(w, `{"choices":[{"message":{"content":"report"}}]}`)
+	}))
+	defer srv.Close()
+
+	obs, _ := newTestObserver(t, testConfig(srv.URL+"/v1"), "Austin: idle")
+	obs.Start(context.Background())
+	defer obs.Close()
+	obs.bus.Emit(events.Event{Kind: events.KindUser, Text: "optimise the observer prompt"})
+	waitNewest(t, obs, "optimise the observer prompt")
+
+	if _, err := obs.Report(context.Background()); err != nil {
+		t.Fatalf("Report: %v", err)
+	}
+	if !strings.Contains(prompt, "Task (the human's original request for this round):\noptimise the observer prompt") {
+		t.Fatalf("prompt does not anchor on the human task:\n%s", prompt)
+	}
+
+	// A later human message replaces the anchor, and a task that scrolls out of
+	// the event window is still remembered.
+	for i := 0; i < 50; i++ {
+		obs.bus.Emit(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: fmt.Sprintf("filler %d", i)})
+	}
+	waitNewest(t, obs, "filler 49")
+	obs.bus.Emit(events.Event{Kind: events.KindUser, Text: "follow-up task"})
+	waitNewest(t, obs, "follow-up task")
+	if _, err := obs.Report(context.Background()); err != nil {
+		t.Fatalf("second Report: %v", err)
+	}
+	if !strings.Contains(prompt, "follow-up task") || strings.Contains(prompt, "optimise the observer prompt") {
+		t.Fatalf("stale task anchor:\n%s", prompt)
 	}
 }
 
