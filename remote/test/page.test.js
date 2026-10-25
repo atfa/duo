@@ -259,7 +259,6 @@ test("the work-state button follows the pause state and sends bare commands", as
   const { viewModel } = await import("../public/console.js");
   for (const state of ["running", "pausing", "paused"]) {
     assert.equal(viewModel({ pause: { state } }).pause, state, `viewModel must flatten pause state ${state}`);
-    assert.ok(state in { running: 1, pausing: 1, paused: 1 }, `${state} must have a button action`);
   }
   assert.match(app, /command\(kind, ""\)/);
   // The command must still be signed like any other: buildCommand covers the
