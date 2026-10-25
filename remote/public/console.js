@@ -4,7 +4,7 @@
 // Shapes follow docs/remote-protocol.md. Nothing here trusts a field: a newer
 // host may add them, an older one may omit them.
 
-export const COMMAND_KINDS = new Set(["task", "new_session", "observer_report", "switch_mode", "set_driver", "catalog", "set_model"]);
+export const COMMAND_KINDS = new Set(["task", "new_session", "observer_report", "switch_mode", "set_driver", "catalog", "set_model", "pause", "unpause", "continue", "resume_work"]);
 // COMMAND_TEXT_KINDS are the commands whose text is the instruction itself. A
 // command outside this set sends no text at all, so a future version cannot
 // start acting on a body nobody signs.

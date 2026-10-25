@@ -235,3 +235,44 @@ test("the pending command is settled by the same rule on a state and on the time
   // task is answered at once.
   assert.match(app, /}, pendingTimeout\(kind\)\);/);
 });
+
+// The work-state button follows the host's pause state, so a phone never offers
+// an action the session cannot take: running pauses, pausing cancels, paused
+// resumes. It sends a bare command — the pause verbs carry no text.
+test("the work-state button follows the pause state and sends bare commands", async () => {
+  const { COMMAND_KINDS, COMMAND_TEXT_KINDS, buildCommand } = await import("../public/console.js");
+  const { deriveKeys } = await import("../public/crypto.js");
+  const { parsePairingKey } = await import("../public/crypto.js");
+  const { VECTOR } = await import("./vectors.js");
+  const { encKey, macKey } = await deriveKeys(parsePairingKey(VECTOR.key));
+  for (const kind of ["pause", "unpause", "continue", "resume_work"]) {
+    assert.ok(COMMAND_KINDS.has(kind), `${kind} must be a known command kind`);
+    assert.ok(!COMMAND_TEXT_KINDS.has(kind), `${kind} must carry no text`);
+  }
+  assert.match(app, /running: \["pause", "Pause work"\]/);
+  assert.match(app, /pausing: \["unpause", "Cancel pause"\]/);
+  assert.match(app, /paused: \["continue", "Resume work"\]/);
+  assert.match(app, /PAUSE_ACTIONS\[model\?\.pause\]/);
+  assert.match(app, /els\.pausectl\.dataset\.kind/);
+  // The keys are the values viewModel actually produces: the host's pause
+  // projection is flattened to its state string before the page sees it.
+  const { viewModel } = await import("../public/console.js");
+  for (const state of ["running", "pausing", "paused"]) {
+    assert.equal(viewModel({ pause: { state } }).pause, state, `viewModel must flatten pause state ${state}`);
+  }
+  assert.match(app, /command\(kind, ""\)/);
+  // The command must still be signed like any other: buildCommand covers the
+  // fields the relay could change, so the button goes through the same path.
+  const frame = await buildCommand({
+    room: VECTOR.room,
+    encKey,
+    macKey,
+    kind: "pause",
+    text: "",
+    nonce: 7,
+    id: "test-id",
+    randomBytes: () => new Uint8Array(12).fill(3),
+  });
+  assert.equal(frame.t, "cmd");
+  assert.equal(frame.id, "test-id");
+});

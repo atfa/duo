@@ -34,6 +34,7 @@ const els = {
   activity: document.getElementById("activity"),
   observer: document.getElementById("observer"),
   refresh: document.getElementById("refresh"),
+  pausectl: document.getElementById("pausectl"),
   composer: document.getElementById("composer"),
   task: document.getElementById("task"),
   send: document.getElementById("send"),
@@ -174,8 +175,25 @@ function render() {
   els.newsess.disabled = !ready || Boolean(pending);
   els.refresh.disabled = !ready || Boolean(pending);
   els.modes.disabled = !ready || Boolean(pending);
+  renderPause(ready);
   renderDrivers();
   renderModels();
+}
+
+// One button covers the whole pause lifecycle: the label comes from the host's
+// pause state, so a phone never offers an action the session cannot take. While
+// "pausing" the label offers cancel instead of waiting, because the request may
+// sit until the agents reach an idle boundary.
+const PAUSE_ACTIONS = { running: ["pause", "Pause work"], pausing: ["unpause", "Cancel pause"], paused: ["continue", "Resume work"] };
+
+function renderPause(ready) {
+  // viewModel flattens the host's pause projection to its state string, so the
+  // table is keyed by that value and a pause the page cannot read keeps the
+  // button dark rather than offering an action it does not mean.
+  const [kind, label] = PAUSE_ACTIONS[model?.pause] ?? [null, "—"];
+  els.pausectl.textContent = label;
+  els.pausectl.disabled = !ready || Boolean(pending);
+  els.pausectl.dataset.kind = kind ?? "";
 }
 
 // The driver selects are rebuilt only when the host's list changes: a render
@@ -593,6 +611,10 @@ els.task.addEventListener("keydown", (event) => {
 });
 els.newsess.addEventListener("click", () => void command("new_session", ""));
 els.refresh.addEventListener("click", () => void command("observer_report", ""));
+els.pausectl.addEventListener("click", () => {
+  const kind = els.pausectl.dataset.kind;
+  if (kind) void command(kind, "");
+});
 els.modes.addEventListener("change", () => {
   const target = els.modes.value;
   if (!target) return;
