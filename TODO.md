@@ -120,7 +120,7 @@
 **负责人** Austin
 
 ### T13 转录搜索
-- [x] 完成：b84bf50 · 2026-10-25
+- [x] 完成：b84bf50 + fe394d5 · 2026-10-25
 
 **位置** `internal/gotui/slash.go:18`（命令表，无 `/search`）、`internal/gotui/commands.go:63`（`runSlash` 分发）、渲染行 `internal/gotui/transcript.go`。
 **用户/缺口** 长会话几百条消息只能肉眼滚动；中文转录同样无法定位。
@@ -131,7 +131,7 @@
 **负责人** Tony
 
 ### T14 会话选择器
-- [ ] 完成：
+- [x] 完成：cb17a99 · 2026-10-25
 
 **位置** `internal/sessionstore/store.go:186`（`List`，会话枚举已存在）、`cmd/duo/sessions.go`（CLI 已用）、`internal/gotui/slash.go:18`（无 `/sessions`）。
 **用户/缺口** 换回一个历史会话要退出 duo、跑 `duo sessions`、抄 id、再 `duo resume <id>`。
