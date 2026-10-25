@@ -92,6 +92,7 @@ func (l *EventLog) RecordTUIEntry(entry TUIEntry) {
 		"error":   entry.Error,
 		"warning": entry.Warning,
 		"label":   entry.Label,
+		"summary": entry.Summary,
 	}})
 }
 
@@ -119,12 +120,13 @@ func (l *EventLog) TUIEntries() []TUIEntry {
 				Error   bool   `json:"error"`
 				Warning bool   `json:"warning"`
 				Label   string `json:"label"`
+				Summary bool   `json:"summary"`
 			} `json:"fields"`
 		}
 		if json.Unmarshal(scanner.Bytes(), &raw) != nil || raw.Type != "tui_entry" || !validTUIPane(raw.Fields.Pane) {
 			continue
 		}
-		entry := TUIEntry{Time: raw.Time, Pane: raw.Fields.Pane, Text: raw.Fields.Text, Error: raw.Fields.Error, Warning: raw.Fields.Warning, Label: raw.Fields.Label}
+		entry := TUIEntry{Time: raw.Time, Pane: raw.Fields.Pane, Text: raw.Fields.Text, Error: raw.Fields.Error, Warning: raw.Fields.Warning, Label: raw.Fields.Label, Summary: raw.Fields.Summary}
 		out = append(out, entry)
 		counts[entry.Pane]++
 		if counts[entry.Pane] > 200 {
