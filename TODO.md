@@ -58,7 +58,7 @@
 ## P1（性能，必须有数字）
 
 ### T21 转录增量渲染：追加一条消息不再全量重建
-- [ ] 完成：
+- [x] 完成：dbc8ace · 2026-10-25
 
 **位置** `internal/gotui/transcript.go:70`（`SetEntries` 只按序号短路）、`:158`（`rebuildLines` 全量重跑 markdown + linkify + 换行）、`internal/gotui/text.go:104`/`:108`（超宽词逐 rune `+=` 拼接，O(n²)）；触发链 `internal/gotui/messages.go:89`（`addLabeled`）→ `internal/gotui/app.go:1015`（`appendEntry`，窗口上限 `:1025` 共 400 条）；每帧 `internal/gotui/app.go:672`（`updateWidgets` 写 4 个 transcript：timeline + 三个 pane）。
 **问题** 每来一条消息，timeline 与消息所属 pane 的 transcript 各自从头重解析全部 400 条（4 个 transcript 每帧都会被调用 `SetEntries`，但只有内容真的变了的那两个会重建）。实测（400 条、100 列 × 40 行、无时间戳、直接调 `rebuildLines`）：0.7–1KB 正文 = **8.6–19.5ms / 11.5–26.7MB**（随 markdown/链接密度变化）。一条消息 ≈ 两份重建 = **10–40ms 停顿 + 20–50MB 分配**，不是毫秒级抖动。会话越长越贵，到 400 条上限前随条目数线性增长。这是本轮勘察中**唯一实测成立的运行时性能缺陷**。
