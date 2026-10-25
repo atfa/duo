@@ -2,7 +2,7 @@
 
 All notable project milestones are documented here.
 
-## Unreleased
+## v0.14.3 — 2026-10-25
 
 ### Observer progress report
 
