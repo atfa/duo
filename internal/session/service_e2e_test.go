@@ -125,25 +125,33 @@ func (r *e2eRound) dial(t *testing.T, agent protocol.AgentID) *bridgeAgent {
 	return client
 }
 
-// readAgentEnv waits for the fake agent process to record its environment.
+// readAgentEnv waits for the fake agent process to record the bridge credentials
+// the test dials with. The shell creates the file with its redirect before `env`
+// writes it, so the file existing is not enough: reading it that early yields no
+// host and no port, and the dial that follows targets ":0" and is refused.
 func readAgentEnv(t *testing.T, envDir string, agent protocol.AgentID) map[string]string {
 	t.Helper()
 	path := filepath.Join(envDir, string(agent)+".env")
-	waitUntil(t, func() bool {
-		_, err := os.Stat(path)
-		return err == nil
-	}, "the fake agent to record its environment")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
 	env := map[string]string{}
-	for _, line := range strings.Split(string(data), "\n") {
-		key, value, ok := strings.Cut(line, "=")
-		if ok {
-			env[key] = value
+	waitUntil(t, func() bool {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return false
 		}
-	}
+		env = map[string]string{}
+		for _, line := range strings.Split(string(data), "\n") {
+			key, value, ok := strings.Cut(line, "=")
+			if ok {
+				env[key] = value
+			}
+		}
+		for _, key := range []string{"DUO_HOST", "DUO_PORT", "DUO_TOKEN", "DUO_SESSION"} {
+			if env[key] == "" {
+				return false
+			}
+		}
+		return true
+	}, "the fake agent to record its bridge credentials")
 	return env
 }
 
