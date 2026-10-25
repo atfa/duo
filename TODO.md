@@ -98,7 +98,7 @@
 **负责人** Tony
 
 ### T24 远程解除挂起：pause / unpause / continue / resume
-- [ ] 完成：
+- [x] 完成：c9e4e88 · 2026-10-25
 
 **位置** `internal/remote/protocol.go:44-59`（命令只有 `task`、`new_session`、`observer_report`、`switch_mode`、`set_driver`、`catalog`、`set_model`）、`internal/remote/client.go:23`（`Sink` 接口）、`cmd/duo/remote.go:404-709`（`remoteSink`）、`docs/remote-protocol.md:269`（`cmd` 列表）；已有动词与映射：`internal/session/command.go:45-55`（`Pause`/`Unpause`/`Continue`/`ResumeWork`）、`internal/session/service.go:872-877`（`Do` 里的 switch）；TUI 已用同一批动词 `internal/gotui/slash.go:28-31`、`internal/gotui/commands.go:221-233`。
 **用户/缺口** 人离开键盘后，Duo 的挂起无法从手机解除：`/pause` 之后没人能 `/continue`；恢复的会话没人 `/resume`；而手机只能发新任务、切模式、换驱动、换模型。远程存在的意义正是"人不在键盘前"。
@@ -142,7 +142,7 @@
 **负责人** Tony
 
 ### T11 `duo export <session>`（仅 Markdown）
-- [ ] 完成：
+- [x] 完成：3f507e4 · 2026-10-25
 
 **位置** `cmd/duo/main.go:18-140`（子命令分发，无 export）、`cmd/duo/main.go:292`（`printUsage`）；素材 `internal/sessionstore`（snapshot、事件 journal、转录）、`internal/delivery`。
 **用户/缺口** 一轮协作只能留在 `~/.duo` 的私有格式里，无法归档、分享或离线评审。
@@ -153,7 +153,7 @@
 **负责人** Tony
 
 ### T19 `duo upgrade`
-- [ ] 完成：
+- [x] 完成：3fd2ce9 + 192b97d · 2026-10-25
 
 **位置** `cmd/duo/stepupgrade.go:232`（`performUpgrade`）、`:279`（`installFromRepo`）、`:320`（`checkSchemaCompatible`）、`internal/version`；原子写参考 `internal/sessionstore/store.go:139`（`atomicWrite`：temp + fsync + rename + dir fsync）。
 **用户/缺口** 按 release 安装的用户只能 `curl | bash`：无版本检查、无校验和、无原子替换，装坏二进制会毁掉当前会话的恢复路径。
