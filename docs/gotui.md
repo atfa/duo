@@ -223,6 +223,24 @@ DUO_GOTUI_CAPTURE_DIR="$PWD/docs/gotui/screens" \
   go test ./internal/gotui -run TestCaptureFrames -count=1
 ```
 
+## Screenshots for the site
+
+The same test can export colour SVG screenshots of three frames, which the
+product site embeds. The serializer is `screenSVG` in
+`internal/gotui/screencap_test.go`; it keeps the palette from `theme.go` and
+positions every glyph by cell, so a viewer's font fallback cannot shift the
+frame.
+
+```bash
+DUO_GOTUI_SHOT_DIR="$PWD/site/public/assets/shots" \
+  go test ./internal/gotui -run TestCaptureFrames -count=1
+```
+
+Only `01-dashboard-120x42`, `02-timeline-120x42` and `08-narrow-64x22` are
+exported (`shotFrames` in `capture_test.go`). They are produced from the same
+screen as the text captures, so the two cannot drift. The serializer has its
+own focused test: `go test ./internal/gotui -run TestScreenSVG`.
+
 ## Verification
 
 The frontend has focused tests for layout, wrapping, Markdown, composer/paste
@@ -242,7 +260,8 @@ make check
 
 - The split view and workflow sidebar intentionally disappear on terminals that
   are too small rather than squeezing unreadable panes.
-- Captures are deterministic text frames; they do not preserve colour or style.
+- Captures are deterministic text frames; the SVG exports used by the site keep
+  colour and style, the text files cannot.
 - Markdown is lightweight: no images, embedded HTML or full CommonMark. Tables
   render with box-drawing borders and wrap wide cells to the transcript width;
   malformed tables fall back to plain text.

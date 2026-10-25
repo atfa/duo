@@ -19,21 +19,36 @@ import (
 	ui "github.com/metaspartan/gotui/v5"
 )
 
+// shotFrames are the frames also exported as colour SVG screenshots for the
+// product site. The set is deliberately small: three states tell the story.
+var shotFrames = map[string]bool{
+	"01-dashboard-120x42": true,
+	"02-timeline-120x42":  true,
+	"08-narrow-64x22":     true,
+}
+
 // TestCaptureFrames renders deterministic frames from a real tcell simulation
-// screen. It is skipped unless DUO_GOTUI_CAPTURE_DIR names an output directory;
-// the committed captures under docs/gotui/screens were produced this way.
+// screen. DUO_GOTUI_CAPTURE_DIR writes the plain text captures committed under
+// docs/gotui/screens; DUO_GOTUI_SHOT_DIR writes colour SVG screenshots of
+// shotFrames, which the site embeds. Both come from the same frame.
 func TestCaptureFrames(t *testing.T) {
 	dir := strings.TrimSpace(os.Getenv("DUO_GOTUI_CAPTURE_DIR"))
-	if dir == "" {
-		t.Skip("set DUO_GOTUI_CAPTURE_DIR to write simulation frames")
+	shotDir := strings.TrimSpace(os.Getenv("DUO_GOTUI_SHOT_DIR"))
+	if dir == "" && shotDir == "" {
+		t.Skip("set DUO_GOTUI_CAPTURE_DIR and/or DUO_GOTUI_SHOT_DIR to write simulation frames")
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
+	for _, out := range []string{dir, shotDir} {
+		if out == "" {
+			continue
+		}
+		if err := os.MkdirAll(out, 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	fake := newFakeSession()
 	fake.history = []sessionstore.TUIEntry{
 		{Time: time.Date(2026, 10, 20, 16, 2, 0, 0, time.Local), Pane: "Duo", Label: "Human → Austin", Text: "Add cursor pagination to GET /sessions and document the new parameters."},
-		{Time: time.Date(2026, 10, 20, 16, 2, 12, 0, time.Local), Pane: "Austin", Label: "Austin → Human", Text: "## Result\n\nImplemented cursor pagination.\n\n- `limit` is capped at 200\n- opaque `cursor` values\n- OpenAPI updated\n\n```go\npage, err := store.Sessions(ctx, limit, cursor)\n```\n\nTests: `go test ./internal/sessionstore` — 你好世界"},
+		{Time: time.Date(2026, 10, 20, 16, 2, 12, 0, time.Local), Pane: "Austin", Label: "Austin → Human", Text: "## Result\n\nImplemented cursor pagination.\n\n- `limit` is capped at 200\n- opaque `cursor` values\n- OpenAPI updated\n\n```go\npage, err := store.Sessions(ctx, limit, cursor)\n```\n\nTests: `go test ./internal/sessionstore` — all green"},
 		{Time: time.Date(2026, 10, 20, 16, 3, 1, 0, time.Local), Pane: "Tony", Label: "Tony → Austin", Text: "Verified the boundary cases. One request with an expired cursor returns 400 rather than silently restarting."},
 		{Time: time.Date(2026, 10, 20, 16, 3, 20, 0, time.Local), Pane: "Duo", Label: "Duo → Human", Text: "Verification passed. The change is ready to deliver."},
 	}
@@ -54,6 +69,21 @@ func TestCaptureFrames(t *testing.T) {
 	fake.view.Project.Verification.Status = project.VerificationPassed
 	fake.view.Project.Verification.Head = "abc123456789"
 	fake.view.Delivery = sessionstore.Delivery{Status: sessionstore.DeliveryPending}
+	// These frames double as the product site's screenshots, so show a release
+	// build and a plausible session instead of the fixture's "test" strings.
+	fake.view.Version = "v0.14.3"
+	fake.view.SessionID = "20261022-211328"
+	fake.view.Worktrees.Repository = "/home/ana/Projects/atlas-api"
+	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		av := fake.view.Agents[id]
+		av.Driver = "pi"
+		if av.Manifest != nil {
+			manifest := *av.Manifest
+			manifest.Name = "pi"
+			av.Manifest = &manifest
+		}
+		fake.view.Agents[id] = av
+	}
 
 	app := New(fake)
 	app.viewMode = viewSplit
@@ -77,10 +107,19 @@ func TestCaptureFrames(t *testing.T) {
 			t.Error("app did not stop")
 		}
 	}()
+	th := newTheme()
 	capture := func(name string) {
 		t.Helper()
-		if err := os.WriteFile(filepath.Join(dir, name+".txt"), []byte(trimmedScreen(sim)), 0o644); err != nil {
-			t.Fatal(err)
+		text := trimmedScreen(sim)
+		if dir != "" {
+			if err := os.WriteFile(filepath.Join(dir, name+".txt"), []byte(text), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if shotDir != "" && shotFrames[name] {
+			if err := os.WriteFile(filepath.Join(shotDir, name+".svg"), []byte(screenSVG(sim, th)), 0o644); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 	waitForText(t, sim, "DUO")
@@ -98,11 +137,13 @@ func TestCaptureFrames(t *testing.T) {
 	injectKey(sim, tcell.KeyEsc, 0, tcell.ModNone)
 	injectKey(sim, tcell.KeyCtrlU, 0, tcell.ModNone)
 
+	// The guide scrolls, so only its top is guaranteed to be painted: wait for
+	// the second section title instead of a lower one that may be off-screen.
 	injectKey(sim, tcell.KeyF1, 0, tcell.ModNone)
-	waitForText(t, sim, "PAUSE & DRIVERS")
+	waitForText(t, sim, " KEYS ")
 	capture("04-help-120x42")
 	injectKey(sim, tcell.KeyEsc, 0, tcell.ModNone)
-	waitGone(t, sim, "PAUSE & DRIVERS")
+	waitGone(t, sim, " KEYS ")
 
 	injectKey(sim, tcell.KeyCtrlO, 0, tcell.ModNone)
 	waitForText(t, sim, "STATUS OK")

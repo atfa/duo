@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="569.6" height="428" viewBox="0 0 569.6 428">
+<rect width="569.6" height="428" fill="#0a0e14"/>
+<g font-family="'JetBrains Mono','MesloLGS Nerd Font Mono','Noto Sans Mono','DejaVu Sans Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace" font-size="14">
+<rect x="16" y="16" width="8.4" height="18" fill="#111720"/>
+<text x="16" y="30.04" fill="#dce3ec"> </text>
+<rect x="24.4" y="16" width="8.4" height="18" fill="#111720"/>
+<text x="24.4" y="30.04" fill="#5eead4" font-weight="600">◆</text>
+<rect x="32.8" y="16" width="8.4" height="18" fill="#111720"/>
+<text x="32.8" y="30.04" fill="#dce3ec"> </text>
+<rect x="41.2" y="16" width="25.2" height="18" fill="#111720"/>
+<text x="41.2" y="30.04" fill="#dce3ec" font-weight="600" dx="0 0 0">DUO</text>
+<rect x="66.4" y="16" width="75.6" height="18" fill="#111720"/>
+<text x="66.4" y="30.04" fill="#566374" dx="0 0 0 0 0 0 0 0 0"> v0.14.3 </text>
+<rect x="142" y="16" width="260.4" height="18" fill="#111720"/>
+<text x="142" y="30.04" fill="#8b98a8" dx="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0">/home/ana/Projects/atlas-api  …</text>
+<rect x="402.4" y="16" width="134.4" height="18" fill="#111720"/>
+<text x="402.4" y="30.04" fill="#5eead4" font-weight="600" dx="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0">FAST  ·  RUNNING</text>
+<rect x="536.8" y="16" width="16.8" height="18" fill="#111720"/>
+<text x="536.8" y="30.04" fill="#dce3ec" dx="0 0">  </text>
+<rect x="16" y="34" width="8.4" height="18" fill="#111720"/>
+<text x="16" y="48.04" fill="#dce3ec"> </text>
+<rect x="24.4" y="34" width="369.6" height="18" fill="#111720"/>
+<text x="24.4" y="48.04" fill="#8b98a8" dx="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0">session 20261022-211328   ·   2/2 agents on…</text>
+<rect x="394" y="34" width="8.4" height="18" fill="#111720"/>
+<text x="394" y="48.04" fill="#dce3ec"> </text>
+<rect x="402.4" y="34" width="58.8" height="18" fill="#111720"/>
+<text x="402.4" y="48.04" fill="#8b98a8" dx="0 0 0 0 0 0 0"> Split </text>
+<rect x="461.2" y="34" width="84" height="18" fill="#5eead4"/>
+<text x="461.2" y="48.04" fill="#0a0e14" font-weight="600" dx="0 0 0 0 0 0 0 0 0 0"> Timeline </text>
+<rect x="545.2" y="34" width="8.4" height="18" fill="#111720"/>
+<text x="545.2" y="48.04" fill="#dce3ec"> </text>
+<text x="24.4" y="66.04" fill="#374456" dx="0 0">╭─</text>
+<text x="41.2" y="66.04" fill="#8b98a8" dx="0 0 0 0 0 0 0 0 0 0 0 0 0"> CONVERSATION</text>
+<text x="158.8" y="66.04" fill="#374456" dx="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0">─────────────────────────────────────────────╮</text>
+<text x="24.4" y="84.04" fill="#374456">│</text>
+<text x="520" y="84.04" fill="#566374">│</text>
+<text x="536.8" y="84.04" fill="#374456">│</text>
+<text x="24.4" y="102.04" fill="#374456">│</text>
+<text x="41.2" y="102.04" fill="#566374" dx="0 0 0 0 0">16:03</text>
+<text x="100" y="102.04" fill="#d894ff" font-weight="600" dx="0 0 0 0 0 0 0 0 0 0 0 0 0">Tony → Austin</text>
+<text x="520" y="102.04" fill="#566374">│</text>
+<text x="536.8" y="102.04" fill="#374456">│</text>
+<text x="24.4" y="120.04" fill="#374456">│</text>
+<text x="32.8" y="120.04" fill="#dce3ec" dx="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0">   Verified the boundary cases. One request with an</text>
+<text x="520" y="120.04" fill="#566374">│</text>
+<text x="536.8" y="120.04" fill="#374456">│</text>
+<text x="24.4" y="138.04" fill="#374456">│</text>
+<text x="32.8" y="138.04" fill="#dce3ec" dx="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0">   expired cursor returns 400 rather than silently</text>
+<text x="520" y="138.04" fill="#566374">│</text>
+<text x="536.8" y="138.04" fill="#374456">│</text>
+<text x="24.4" y="156.04" fill="#374456">│</text>
+<text x="32.8" y="156.04" fill="#dce3ec" dx="0 0 0 0 0 0 0 0 0 0 0 0 0 0">   restarting.</text>
+<text x="520" y="156.04" fill="#566374">│</text>
+<text x="536.8" y="156.04" fill="#374456">│</text>
+<text x="24.4" y="174.04" fill="#374456">│</text>
+<text x="520" y="174.04" fill="#566374">│</text>
+<text x="536.8" y="174.04" fill="#374456">│</text>
+<text x="24.4" y="192.04" fill="#374456">│</text>
+<text x="41.2" y="192.04" fill="#566374" dx="0 0 0 0 0">16:03</text>
+<text x="100" y="192.04" fill="#ffc266" font-weight="600" dx="0 0 0 0 0 0 0 0 0 0 0">Duo → Human</text>
+<text x="520" y="192.04" fill="#566374">│</text>
+<text x="536.8" y="192.04" fill="#374456">│</text>
+<text x="24.4" y="210.04" fill="#374456">│</text>
+<text x="32.8" y="210.04" fill="#dce3ec" dx="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0">   Verification passed. The change is ready to deliver.</text>
+<text x="520" y="210.04" fill="#566374">│</text>
+<text x="536.8" y="210.04" fill="#374456">│</text>
+<text x="24.4" y="228.04" fill="#374456">│</text>
+<text x="520" y="228.04" fill="#8b98a8">┃</text>
+<text x="536.8" y="228.04" fill="#374456">│</text>
+<text x="24.4" y="246.04" fill="#374456">│</text>
+<text x="41.2" y="246.04" fill="#566374" dx="0 0 0 0 0">21:42</text>
+<text x="100" y="246.04" fill="#60c8ff" font-weight="600" dx="0 0 0 0 0 0 0 0 0 0 0 0 0 0">Austin → Human</text>
+<text x="520" y="246.04" fill="#8b98a8">┃</text>
+<text x="536.8" y="246.04" fill="#374456">│</text>
+<text x="24.4" y="264.04" fill="#374456">│</text>
+<text x="32.8" y="264.04" fill="#dce3ec" dx="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0">   Austin connected</text>
+<text x="520" y="264.04" fill="#8b98a8">┃</text>
+<text x="536.8" y="264.04" fill="#374456">│</text>
+<text x="24.4" y="282.04" fill="#374456">│</text>
+<text x="520" y="282.04" fill="#8b98a8">┃</text>
+<text x="536.8" y="282.04" fill="#374456">│</text>
+<text x="24.4" y="300.04" fill="#374456">│</text>
+<text x="41.2" y="300.04" fill="#566374" dx="0 0 0 0 0">21:42</text>
+<text x="100" y="300.04" fill="#d894ff" font-weight="600" dx="0 0 0 0 0 0 0 0 0 0 0 0">Tony → Human</text>
+<text x="520" y="300.04" fill="#8b98a8">┃</text>
+<text x="536.8" y="300.04" fill="#374456">│</text>
+<text x="24.4" y="318.04" fill="#374456">│</text>
+<text x="32.8" y="318.04" fill="#dce3ec" dx="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0">   Tony connected</text>
+<text x="520" y="318.04" fill="#8b98a8">┃</text>
+<text x="536.8" y="318.04" fill="#374456">│</text>
+<text x="24.4" y="336.04" fill="#374456" dx="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0">╰────────────────────────────────────────────────────────────╯</text>
+<rect x="24.4" y="340" width="16.8" height="18" fill="#111720"/>
+<text x="24.4" y="354.04" fill="#374456" dx="0 0">╭─</text>
+<rect x="41.2" y="340" width="75.6" height="18" fill="#111720"/>
+<text x="41.2" y="354.04" fill="#5eead4" font-weight="600" dx="0 0 0 0 0 0 0 0 0"> Message </text>
+<rect x="116.8" y="340" width="428.4" height="18" fill="#111720"/>
+<text x="116.8" y="354.04" fill="#374456" dx="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0">──────────────────────────────────────────────────╮</text>
+<rect x="24.4" y="358" width="8.4" height="18" fill="#111720"/>
+<text x="24.4" y="372.04" fill="#374456">│</text>
+<rect x="32.8" y="358" width="8.4" height="18" fill="#111720"/>
+<text x="32.8" y="372.04" fill="#dce3ec"> </text>
+<rect x="41.2" y="358" width="8.4" height="18" fill="#111720"/>
+<text x="41.2" y="372.04" fill="#5eead4">›</text>
+<rect x="49.6" y="358" width="8.4" height="18" fill="#111720"/>
+<text x="49.6" y="372.04" fill="#dce3ec"> </text>
+<rect x="58" y="358" width="386.4" height="18" fill="#111720"/>
+<text x="58" y="372.04" fill="#8b98a8" dx="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0">Message Duo…  Enter sends · Ctrl+Enter newline</text>
+<rect x="444.4" y="358" width="92.4" height="18" fill="#111720"/>
+<text x="444.4" y="372.04" fill="#dce3ec" dx="0 0 0 0 0 0 0 0 0 0 0">           </text>
+<rect x="536.8" y="358" width="8.4" height="18" fill="#111720"/>
+<text x="536.8" y="372.04" fill="#374456">│</text>
+<rect x="24.4" y="376" width="520.8" height="18" fill="#111720"/>
+<text x="24.4" y="390.04" fill="#374456" dx="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0">╰────────────────────────────────────────────────────────────╯</text>
+<rect x="16" y="394" width="537.6" height="18" fill="#111720"/>
+<text x="16" y="408.04" fill="#8b98a8" dx="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0"> Enter send · Ctrl+E reports · F1 help · F2 view · Ctrl+Q quit  </text>
+</g>
+</svg>
