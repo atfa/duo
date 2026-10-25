@@ -6,10 +6,15 @@
 // it runs no timer, and it never writes workflow state, talks to an agent or owns
 // a phase.
 //
-// A report answers three human questions: what just finished, what is happening
-// right now, and what comes next. "Right now" cannot come from the event stream,
-// because a running tool is not a message, so the caller supplies a live context
-// provider: a block sampled from Duo's runtime at request time.
+// A report answers four human questions: what the task is and how far its
+// decomposition has come, what just finished, what is happening right now, and
+// what comes next. The task and the decomposition cannot come from the event
+// stream either — the original request scrolls out of the window and the plan
+// lives in workflow state, not in messages — so the task is remembered
+// separately and the plan and step queue arrive in the live block. "Right now"
+// cannot come from the event stream at all, because a running tool is not a
+// message, so the caller supplies a live context provider: a block sampled from
+// Duo's runtime at request time.
 //
 // An observer that is disabled, misconfigured, slow or broken must be
 // indistinguishable from no observer at all, so every failure here is an error
@@ -56,12 +61,17 @@ const (
 	maxErrorBody       = 512
 )
 
-// DefaultSystemPrompt asks for a status report about the agents, not for advice.
+// DefaultSystemPrompt asks for a status report about the task and the agents,
+// not for advice.
 //
-// The three sections are the human's own questions. The "Doing now" rule is the
-// part that makes the report worth opening: it may only use the live block, so a
-// finished tool can never be presented as work in progress, which is exactly what
-// an event-only observer used to get wrong.
+// The four sections are the human's own questions. Progress comes first because
+// it is the question the timeline answers worst: a report that only lists recent
+// messages cannot say how many steps the work was split into or how many are
+// done, so it is pinned to the Task block and the live plan and step queue —
+// state, not a log. The "Doing now" rule is the part that makes the rest of the
+// report worth opening: it may only use the live block, so a finished tool can
+// never be presented as work in progress, which is exactly what an event-only
+// observer used to get wrong.
 const DefaultSystemPrompt = "You are Duo's observer. Duo is a coding workflow where two agents, Austin and Tony, " +
 	"work on one task in separate Git worktrees. You write a short status report for the human watching them, in " +
 	"the human's language, including the section headings. Each request carries four blocks, in this order: 'Task' " +
