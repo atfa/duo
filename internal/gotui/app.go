@@ -86,6 +86,10 @@ type App struct {
 	status             string
 	statusErr          bool
 	warnedNotices      map[string]bool
+	// search is the transcript search for the active pane: an open prompt or
+	// the committed n/N state. It lives here, not in the transcript, so the
+	// rendering rows stay the only transcript state.
+	search searchState
 
 	subEvents    <-chan events.Event
 	stop         chan struct{}
@@ -727,11 +731,15 @@ func (a *App) updateWidgets() {
 	a.duo.SetPathRoots(roots)
 	a.duo.SetEntries(a.filterEntries(string(protocol.Duo)), a.showTimestamp)
 
+	a.syncSearch()
 	a.composer.SetRect(l.composer.Min.X, l.composer.Min.Y, l.composer.Max.X, l.composer.Max.Y)
 	a.footer.SetRect(l.footer.Min.X, l.footer.Min.Y, l.footer.Max.X, l.footer.Max.Y)
 	a.footer.status, a.footer.isError = a.status, a.statusErr
 	if a.overlay == overlayNone {
 		a.footer.hint = a.footerHint()
+		if hint := a.searchHint(); hint != "" {
+			a.footer.hint = hint
+		}
 		a.footer.right = ""
 	} else {
 		a.footer.hint = ""

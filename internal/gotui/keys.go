@@ -31,6 +31,13 @@ func (a *App) handleEvent(ev tcell.Event) {
 			pasted := a.pasteBuf.String()
 			a.pasteBuf.Reset()
 			if pasted != "" {
+				if a.search.active {
+					// A pasted term is a search query, not composer text: the prompt
+					// owns the keyboard while it is open.
+					a.search.query += strings.ReplaceAll(strings.TrimSpace(pasted), "\n", " ")
+					a.refreshSearch(true)
+					return
+				}
 				a.composer.InsertPaste(pasted)
 			}
 		}
@@ -82,6 +89,31 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 			}
 		}
 		return
+	}
+	if a.search.active {
+		a.handleSearchKey(ev)
+		return
+	}
+	// A committed search owns n/N and Esc. Anything else ends it and is then
+	// handled normally, so the composer stays usable without a mode the human
+	// has to remember to leave.
+	if a.search.nav {
+		switch {
+		case ev.Key() == tcell.KeyEsc:
+			a.closeSearch(false)
+			return
+		case ev.Key() == tcell.KeyCtrlF:
+			a.openSearch("")
+			return
+		case ev.Key() == tcell.KeyRune && ev.Modifiers() == 0 && (ev.Str() == "n" || ev.Str() == "N"):
+			delta := 1
+			if ev.Str() == "N" {
+				delta = -1
+			}
+			a.searchJump(delta)
+			return
+		}
+		a.closeSearch(false)
 	}
 	if a.slashOpen() {
 		switch ev.Key() {
@@ -174,6 +206,9 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 		return
 	case tcell.KeyCtrlX:
 		a.copyLatest()
+		return
+	case tcell.KeyCtrlF:
+		a.openSearch("")
 		return
 	case tcell.KeyCtrlV:
 		a.pasteImageFromClipboard()

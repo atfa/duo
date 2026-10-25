@@ -54,6 +54,12 @@ workflow state or makes project transitions:
   `/driver` is available before the first task, while fully paused, or after
   `DONE`: agent tabs, typing filter, a marker on the current driver, and no
   resume when a choice is applied.
+- **Transcript search.** `Ctrl+F` or `/search [term]` searches the active pane
+  case-insensitively and highlights every hit in place, with the current one in
+  the accent colour. `Enter` keeps the highlight and hands `n` / `N` to the
+  transcript for next/previous (wrapping); `Esc` ends the search and restores the
+  viewport it opened on. The match is a plain substring, and column positions are
+  counted in cells, so wide CJK text highlights exactly.
 - **Overlays.** Help, session details, the plan & steps view, model picker,
   driver picker and destructive confirmations are centered modals with a cleared
   content backdrop. The slash palette occupies the conversation pane so no text
@@ -98,6 +104,7 @@ variables. The dashboard adds:
 | `Ctrl+M` / `Alt+M` | Open the model and thinking picker |
 | `Ctrl+S` / `Alt+S` | Open the FAST/GOAL/STEP mode picker |
 | `Ctrl+G` | Toggle message timestamps |
+| `Ctrl+F` / `/search` | Search the active pane; `n` / `N` next hit, `Esc` restores the viewport |
 | `Ctrl+A` / `Alt+A` | Attach to Austin |
 | `Ctrl+T` / `Alt+T` | Attach to Tony |
 | `Ctrl+]` / `Ctrl+\` / `Ctrl+】` | Detach from an attached agent |

@@ -183,6 +183,7 @@ func helpSections() []helpSection {
 			"Ctrl+A / Alt+A attach Austin  ·  Ctrl+T / Alt+T attach Tony  ·  Ctrl+V image path  ·  Ctrl+] or Ctrl+\\ detach",
 			"Ctrl+R restart Austin  ·  Ctrl+Y restart Tony",
 			"Ctrl+X copy Austin's latest  ·  Ctrl+P sidebar  ·  Ctrl+G timestamps  ·  Ctrl+L redraw",
+			"Ctrl+F or /search searches this pane  ·  n/N next hit  ·  Esc restores the viewport",
 			"Ctrl+K / Ctrl+U / Ctrl+W delete to end / to start / word  ·  ↑/↓ history  ·  PgUp/PgDn scroll  ·  Ctrl+Q / Ctrl+D quit",
 			"←/→ cursor  ·  Alt+←/→ by word  ·  Home/End line start/end  ·  Backspace/Delete remove before/after cursor",
 			"@ completes a tracked file  ·  Tab autocompletes slash commands or files  ·  Esc closes dialogs",
