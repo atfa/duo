@@ -231,4 +231,4 @@
 - **T9** 用量与成本账本 + 上下文压力预警（`/cost`、侧栏、resume 续算） — 完成：5eed06850285 + b4f1f0cbcd · 2026-10-23
 - **T12** headless：`duo run` + `duo status --json` — 完成：b12f0c9 + 9415d16 · 2026-10-24
 - **T16** 端到端会话测试补强 + 崩溃边界（session.Service 全模式、journal 重放、recovery 幂等） — 完成：bfe1836 + 33607ef + f7f5ee1 · 2026-10-24
-- **T17** Windows 全量支持 — 完成（ConPTY 移植：会话锁、cmd.exe 命令层、`.exe` 插件发现、Job Object 结束进程树；Linux 交叉编译 + Windows 11 虚拟机实测）
+- **T17** Windows 全量支持 — 完成：27fd2ff · 2026-10-26（ConPTY 移植：会话锁、cmd.exe 命令层、`.exe` 插件发现、Job Object 结束进程树；Linux 交叉编译 + Windows 11 虚拟机实测）
