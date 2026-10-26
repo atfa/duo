@@ -25,7 +25,7 @@ Duo runs on macOS, Linux and Windows (Windows 10 1809+ or newer, which is where 
 
 ## Install
 
-**Latest published release v0.14.3** (macOS/Linux/Windows, amd64, plus arm64 on macOS/Linux):
+**Latest published release v0.14.4** (macOS/Linux/Windows, amd64, plus arm64 on macOS/Linux):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash

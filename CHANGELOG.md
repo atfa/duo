@@ -2,7 +2,7 @@
 
 All notable project milestones are documented here.
 
-## Unreleased
+## v0.14.4 — 2026-10-26
 
 ### Windows
 
