@@ -9,7 +9,6 @@ import (
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/sessionstore"
-	"golang.org/x/sys/unix"
 )
 
 func TestSessionStatusReportsAStepAwaitingDelivery(t *testing.T) {
@@ -73,17 +72,19 @@ func TestSessionIsActiveOnlyWhenLockIsContended(t *testing.T) {
 	if sessionIsActive(dir) {
 		t.Fatal("missing lock file reported active")
 	}
-	lockPath := filepath.Join(dir, "lock")
-	file, err := os.Create(lockPath)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	store, err := sessionstore.New(filepath.Dir(dir), filepath.Base(dir), "s")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
-	if err := unix.Flock(int(file.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+	lock, err := store.Lock()
+	if err != nil {
 		t.Fatal(err)
 	}
-	defer unix.Flock(int(file.Fd()), unix.LOCK_UN)
-	if !sessionIsActive(dir) {
+	defer lock.Release()
+	if !sessionIsActive(store.Dir()) {
 		t.Fatal("contended lock not reported active")
 	}
 	if sessionIsActive(filepath.Join(dir, "not-a-directory")) {

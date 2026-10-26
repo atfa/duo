@@ -3,7 +3,6 @@ package agent
 import (
 	"context"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -117,8 +116,8 @@ func TestBlockedAgentInputDoesNotPreventStop(t *testing.T) {
 	}
 	defer s.Close()
 	defer func() {
-		if s.cmd != nil && s.cmd.Process != nil {
-			_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
+		if s.proc != nil {
+			s.proc.kill()
 		}
 	}()
 	select {
@@ -145,8 +144,8 @@ func TestBlockedAgentInputDoesNotPreventStop(t *testing.T) {
 	case <-stopped:
 	case <-time.After(3 * time.Second):
 		// Break a regression deadlock so the test process can exit cleanly.
-		if s.cmd != nil && s.cmd.Process != nil {
-			_ = syscall.Kill(-s.cmd.Process.Pid, syscall.SIGKILL)
+		if s.proc != nil {
+			s.proc.kill()
 		}
 		select {
 		case <-stopped:

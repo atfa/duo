@@ -97,3 +97,51 @@ func TestBareModelID(t *testing.T) {
 		}
 	}
 }
+
+// TestQuoteWindowsMatchesCommandLineToArgvW pins the Windows quoting rule: a value
+// reaches the program as one argument with its backslashes and quotes intact. The
+// escaping is not cosmetic — an unescaped quote ends the argument early, which is
+// how a path with a space and a trailing backslash loses its last character.
+func TestQuoteWindowsMatchesCommandLineToArgvW(t *testing.T) {
+	cases := map[string]string{
+		"plain":           `"plain"`,
+		"two words":       `"two words"`,
+		`a"b`:             `"a\"b"`,
+		`C:\work\`:        `"C:\work\\"`,
+		`C:\a b\file.txt`: `"C:\a b\file.txt"`,
+		`x\y`:             `"x\y"`,
+		`model="gpt 5"`:   `"model=\"gpt 5\""`,
+	}
+	for value, want := range cases {
+		if got := quoteWindows(value); got != want {
+			t.Errorf("quoteWindows(%q) = %s, want %s", value, got, want)
+		}
+	}
+}
+
+// TestWindowsShellLineKeepsTheCommandVerbatim pins the one command line cmd.exe
+// receives: /d skips AutoRun, /s makes cmd strip exactly the outer quotes added
+// here, and the driver's own quoting is left alone inside them. A command that
+// starts with a quoted path is the case cmd's own quote heuristic would otherwise
+// collapse.
+func TestWindowsShellLineKeepsTheCommandVerbatim(t *testing.T) {
+	command := `"C:\Program Files\Pi\pi.exe" --session-id "%DUO_PI_SESSION_ID%"`
+	const prefix = `"C:\Windows\system32\cmd.exe" /d /s /c "`
+	got := WindowsShellLine(`C:\Windows\system32\cmd.exe`, command)
+	if got != prefix+command+`"` {
+		t.Fatalf("WindowsShellLine = %s, want %s followed by the command", got, prefix)
+	}
+	// The driver's own quoting has to survive untouched, not be re-quoted here.
+	if len(got) < len(prefix)+len(command)+1 || got[len(prefix):len(got)-1] != command {
+		t.Fatalf("WindowsShellLine rewrote the command: %s", got)
+	}
+}
+
+// TestEnvReferenceSpellsTheRunningShell keeps the reference a plugin hands its agent
+// in the shell that will actually expand it: $NAME for /bin/sh, %NAME% for cmd.exe.
+func TestEnvReferenceSpellsTheRunningShell(t *testing.T) {
+	want := wantEnvReference("DUO_PI_SESSION_ID")
+	if got := EnvReference("DUO_PI_SESSION_ID"); got != want {
+		t.Fatalf("EnvReference = %s, want %s for this shell", got, want)
+	}
+}

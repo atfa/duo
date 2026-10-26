@@ -360,8 +360,8 @@ func installArchive(ctx context.Context, client *http.Client, url, want, target 
 	if err := tmp.Close(); err != nil {
 		return "", fmt.Errorf("close the new binary: %w", err)
 	}
-	if err := os.Rename(tmpName, target); err != nil {
-		return "", fmt.Errorf("replace %s: %w", target, err)
+	if err := replaceBinary(tmpName, target); err != nil {
+		return "", err
 	}
 	syncDir(dir)
 	return got, nil
@@ -369,7 +369,8 @@ func installArchive(ctx context.Context, client *http.Client, url, want, target 
 
 // extractBinary reads the `duo` executable out of the release archive. Everything
 // else in the archive belongs to the script installer, and duplicating that install
-// path here is the second chain this command exists to avoid.
+// path here is the second chain this command exists to avoid. A Windows build names
+// its executable duo.exe, so both spellings are the binary this command wants.
 func extractBinary(r io.Reader) ([]byte, error) {
 	gz, err := gzip.NewReader(r)
 	if err != nil {
@@ -385,7 +386,8 @@ func extractBinary(r io.Reader) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read the release archive: %w", err)
 		}
-		if header.Typeflag != tar.TypeReg || filepath.Clean(header.Name) != "duo" {
+		name := filepath.Clean(header.Name)
+		if header.Typeflag != tar.TypeReg || (name != "duo" && name != "duo.exe") {
 			continue
 		}
 		binary, err := io.ReadAll(tr)

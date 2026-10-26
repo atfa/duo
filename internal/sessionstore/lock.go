@@ -8,9 +8,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"golang.org/x/sys/unix"
 )
+
+// errLockBusy reports that another process owns the lock. It is the one lock
+// failure the caller turns into a message about a running Duo; every other error
+// is a real filesystem or platform problem.
+var errLockBusy = errors.New("session lock is held by another process")
 
 // LockHolder describes the process recorded in a lock file. It is informational
 // only: the kernel advisory lock, not the file contents, decides ownership.
@@ -52,10 +55,10 @@ func (s *Store) Lock() (*Lock, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open session lock: %w", err)
 	}
-	if err := unix.Flock(int(f.Fd()), unix.LOCK_EX|unix.LOCK_NB); err != nil {
+	if err := lockFile(f, true); err != nil {
 		holder := readHolder(path)
 		_ = f.Close()
-		if errors.Is(err, unix.EWOULDBLOCK) {
+		if errors.Is(err, errLockBusy) {
 			return nil, &LockedError{Path: path, Holder: holder}
 		}
 		return nil, fmt.Errorf("lock session: %w", err)
@@ -85,10 +88,10 @@ func SessionActive(dir string) bool {
 		return false
 	}
 	defer file.Close()
-	if err := unix.Flock(int(file.Fd()), unix.LOCK_SH|unix.LOCK_NB); err != nil {
-		return errors.Is(err, unix.EWOULDBLOCK)
+	if err := lockFile(file, false); err != nil {
+		return errors.Is(err, errLockBusy)
 	}
-	_ = unix.Flock(int(file.Fd()), unix.LOCK_UN)
+	_ = unlockFile(file)
 	return false
 }
 
@@ -97,7 +100,7 @@ func (l *Lock) Release() error {
 	if l == nil || l.file == nil {
 		return nil
 	}
-	unlockErr := unix.Flock(int(l.file.Fd()), unix.LOCK_UN)
+	unlockErr := unlockFile(l.file)
 	closeErr := l.file.Close()
 	l.file = nil
 	if unlockErr != nil {

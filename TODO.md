@@ -193,7 +193,6 @@
 
 | 不做的事 | 依据 / 实测 |
 | --- | --- |
-| Windows 运行时支持（原 T17 全量切片） | `GOOS=windows go build ./...` 现在就有 2 个基础包编不过（依赖它们的一切都跟着失败）：`internal/sessionstore/lock.go:54`（`unix.Flock`）、`internal/agent/session.go:58`（`syscall.Dup`）、`:65-72`（`CloseOnExec`/`SetNonblock`）、`:497`/`:664`（`syscall.Kill`）。这是 ConPTY 级移植，不是门禁补丁；只在有真实用户明确需求时再评估，不写"预研切片/结论文档"。 |
 | STEP 交付节奏配置（原 T15 的一半） | 新增一个配置项换一个行为就是过度设计。每步落地即交付是既有不变量（`internal/coordinator/step.go:155`），需要整段交付的人走 `duo apply --branch/--pr`（v0.14.1 已交付）。 |
 | 远程签 plan/ready/verification | 签名是 agent 活连接的授权与证据链（`internal/session/command.go` 顶部注释明确排除 gate 动词）。人不在键盘前时，正确的解除方式是 pause/continue（T24），不是替 agent 签字。 |
 | i18n 豁免白名单机制 | 只遍历用户可见文案来源即可，缺就补；白名单是给未来自己加的债（T18）。 |
@@ -232,4 +231,4 @@
 - **T9** 用量与成本账本 + 上下文压力预警（`/cost`、侧栏、resume 续算） — 完成：5eed06850285 + b4f1f0cbcd · 2026-10-23
 - **T12** headless：`duo run` + `duo status --json` — 完成：b12f0c9 + 9415d16 · 2026-10-24
 - **T16** 端到端会话测试补强 + 崩溃边界（session.Service 全模式、journal 重放、recovery 幂等） — 完成：bfe1836 + 33607ef + f7f5ee1 · 2026-10-24
-- **T17** Windows 全量支持 — 未做，转"非目标·按需求再评估"
+- **T17** Windows 全量支持 — 完成（ConPTY 移植：会话锁、cmd.exe 命令层、`.exe` 插件发现、Job Object 结束进程树；Linux 交叉编译 + Windows 11 虚拟机实测）

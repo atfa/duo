@@ -95,7 +95,7 @@ func RunContract(ctx context.Context, path, workDir string) Report {
 		abs = path
 	}
 	report.Path = abs
-	if info, err := os.Stat(abs); err != nil || info.IsDir() || info.Mode()&0111 == 0 {
+	if !isExecutable(abs) {
 		report.add("executable", false, "%s is not an executable file", abs)
 		return report
 	}
@@ -405,18 +405,14 @@ func checkCrashPolicy(ctx context.Context, workDir string) []Result {
 	var out []Result
 	// A shell that exits immediately is the cheapest faithful stand-in for "the
 	// plugin crashed", and it needs nothing from the plugin under test.
-	crashPath := filepath.Join(workDir, "duo-contract-crash.sh")
-	if err := os.WriteFile(crashPath, []byte("#!/bin/sh\nexit 1\n"), 0o700); err != nil {
-		return []Result{{Name: "crash-policy", OK: true, Optional: true, Detail: "could not stage a crashing plugin: " + err.Error()}}
-	}
-	defer os.Remove(crashPath)
+	crashProgram, crashArgs := crashStandIn()
 
 	var reported []error
 	s := NewSupervised("contract-crash", SupervisedOptions{
-		Path: crashPath,
+		Path: crashProgram,
 		Env:  nil,
 		Open: func(ctx context.Context, path string, env []string) (*Client, error) {
-			return Start(ctx, "contract-crash", path, nil, env)
+			return Start(ctx, "contract-crash", path, crashArgs, env)
 		},
 		Report: func(err error) { reported = append(reported, err) },
 	})
@@ -457,7 +453,7 @@ func checkCrashPolicy(ctx context.Context, workDir string) []Result {
 
 // referencePluginName is the file name the positive control is built as. It is not
 // a shipped binary: the contract builds it into a scratch directory on demand.
-const referencePluginName = "duo-plugin-reference"
+var referencePluginName = executableName("duo-plugin-reference")
 
 // goodPluginPath finds a plugin known to work, so respawn can be checked against
 // something that answers. The reference plugin is built into workDir by the caller;
@@ -465,7 +461,7 @@ const referencePluginName = "duo-plugin-reference"
 // missing positive control is not a broken plugin.
 func goodPluginPath(workDir string) string {
 	candidate := filepath.Join(workDir, referencePluginName)
-	if info, err := os.Stat(candidate); err == nil && info.Mode()&0111 != 0 {
+	if isExecutable(candidate) {
 		return candidate
 	}
 	return ""

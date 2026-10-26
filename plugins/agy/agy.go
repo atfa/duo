@@ -217,7 +217,7 @@ func (p *Plugin) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
 	// misleading warning on every launch, so the Agent Adapter learns the real id
 	// from agy's log and the next launch replays it.
 	if conversation != "" && !driver.HasFlag(command, sessionFlags...) {
-		parts = append(parts, `--conversation "$DUO_AGY_CONVERSATION_ID"`)
+		parts = append(parts, "--conversation "+driver.EnvReference("DUO_AGY_CONVERSATION_ID"))
 	}
 	if !strings.Contains(command, "--dangerously-skip-permissions") {
 		parts = append(parts, "--dangerously-skip-permissions")

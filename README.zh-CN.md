@@ -21,15 +21,17 @@ duo --mode goal         # 协商式协作
 duo --mode step         # 逐步推进的队列
 ```
 
-Duo 运行于 macOS 与 Linux，需要 Git 以及至少一种受支持的 Agent CLI。启动后会打开 gotui 仪表盘；输入任务并按 `Enter`。应用内的命令与快捷键参考请打开 `/help`（或按 `F1`）。
+Duo 运行于 macOS、Linux 与 Windows（需要 Windows 10 1809 或更新版本，Agent 终端依赖 ConPTY），需要 Git 以及至少一种受支持的 Agent CLI。启动后会打开 gotui 仪表盘；输入任务并按 `Enter`。应用内的命令与快捷键参考请打开 `/help`（或按 `F1`）。
 
 ## 安装
 
-**最新发布版 v0.14.3**（macOS/Linux，amd64/arm64）：
+**最新发布版 v0.14.3**（macOS/Linux/Windows，amd64；macOS/Linux 另有 arm64）：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash
 ```
+
+Windows 上请从 release 下载 `duo_windows_amd64.tar.gz`，解压后把 `duo.exe` 与 `duo-plugin-*.exe` 放到 `PATH`（或 `%USERPROFILE%\.duo\plugins`）。安装脚本是 POSIX shell 脚本，不能在 Windows 上运行；`duo upgrade` 可用，它会就地替换正在运行的 `duo.exe`。
 
 `duo upgrade` 用同样的发布归档安装，但不需要脚本：它下载本平台归档，按 release 发布的 `SHA256SUMS` 校验，release 没有校验文件就拒绝安装；替换前还会读取该 tag 的会话 schema，无法继续本机会话的新二进制会被拒绝而不是装上去。`duo upgrade --dry-run` 只报告会装什么；无论哪种情况，当前进程都继续跑旧二进制，新二进制下次启动生效。
 

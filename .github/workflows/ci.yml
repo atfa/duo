@@ -40,3 +40,12 @@ jobs:
         run: go vet ./...
       - name: Build
         run: go build ./cmd/duo
+      # Windows is a supported runtime, not an afterthought: the platform split in
+      # the PTY, session lock and shell layers only stays honest if a Windows build
+      # and vet run on every change.
+      - name: Build for Windows
+        run: |
+          mkdir -p "$RUNNER_TEMP/windows-bin"
+          GOOS=windows CGO_ENABLED=0 go build -o "$RUNNER_TEMP/windows-bin/" ./cmd/...
+      - name: Vet for Windows
+        run: GOOS=windows go vet ./...

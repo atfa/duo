@@ -4,6 +4,21 @@ All notable project milestones are documented here.
 
 ## Unreleased
 
+### Windows
+
+- Duo builds and runs on Windows. `GOOS=windows CGO_ENABLED=0 go build ./cmd/...`
+  produces the same eight executables with their `.exe` suffix, and the release
+  now ships `duo_windows_amd64.tar.gz`. Agents run in a ConPTY pseudo console
+  instead of a Unix PTY, so their output reaches the dashboard and a submitted
+  task reaches them; stopping one ends the job object that holds its process
+  tree. Session locks use `LockFileEx`, driver plugins are discovered as
+  `duo-plugin-<name>.exe`, launch commands run through `cmd.exe` with Windows
+  argument quoting (including `%VAR%` references a plugin passes to its agent),
+  and `duo upgrade` replaces a running `duo.exe` by moving it aside first, since
+  Windows will not overwrite a running image. Verified on Windows 11 against the
+  CLI, `duo doctor`, the driver contract, a headless `duo run` with a driver,
+  session listing and the dashboard.
+
 ### Session titles from the observer
 
 - When an observer model is configured, the first task you submit asks it to

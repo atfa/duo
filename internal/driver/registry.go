@@ -11,9 +11,10 @@ import (
 // executablesFor returns the file names a plugin may be installed under, most
 // specific first. duo-plugin-<name> is canonical; duo-driver-<name> and
 // duo-<name> are accepted so a driver written against Duo 0.9's naming keeps
-// working without a reinstall.
+// working without a reinstall. The platform adds the spelling it actually runs:
+// on Windows a plugin is duo-plugin-<name>.exe.
 func executablesFor(name string) []string {
-	return []string{"duo-plugin-" + name, "duo-driver-" + name, "duo-" + name}
+	return executableSpellings([]string{"duo-plugin-" + name, "duo-driver-" + name, "duo-" + name})
 }
 
 // PluginDir is where user-installed plugins live. It takes precedence over
@@ -208,7 +209,10 @@ var reservedExecutables = map[string]bool{
 // driverNameFromExecutable extracts a driver name from a plugin file name, or
 // "" when the file is not a plugin at all.
 func driverNameFromExecutable(file string) string {
-	base := strings.TrimPrefix(filepath.Base(file), ".exe")
+	base := trimExecutableSuffix(filepath.Base(file))
+	if base == "" || reservedExecutables[strings.ToLower(base)] {
+		return ""
+	}
 	switch {
 	case strings.HasPrefix(base, "duo-plugin-"):
 		base = strings.TrimPrefix(base, "duo-plugin-")
@@ -219,18 +223,10 @@ func driverNameFromExecutable(file string) string {
 	default:
 		return ""
 	}
-	if base == "" || reservedExecutables[file] {
+	if base == "" {
 		return ""
 	}
 	return base
-}
-
-func isExecutable(path string) bool {
-	info, err := os.Stat(path)
-	if err != nil || info.IsDir() {
-		return false
-	}
-	return info.Mode()&0111 != 0
 }
 
 // NotFoundError reports a driver name that no plugin implements. It names the

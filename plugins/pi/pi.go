@@ -128,8 +128,9 @@ func (Plugin) Prepare(req driver.LaunchRequest) (*driver.LaunchPlan, error) {
 	command = driver.AppendFlag(command, "--thinking", strings.TrimSpace(req.Thinking))
 	if id != "" && !driver.HasFlag(command, sessionFlags...) {
 		// Passed through the environment rather than interpolated, so no quoting
-		// mistake can corrupt the id and no shell can expand it.
-		command = driver.AppendLiteral(command, "--session-id", `"$DUO_PI_SESSION_ID"`)
+		// mistake can corrupt the id. EnvReference spells the reference for the
+		// shell the launch command runs in.
+		command = driver.AppendLiteral(command, "--session-id", driver.EnvReference("DUO_PI_SESSION_ID"))
 	}
 
 	raw, err := json.Marshal(state{SessionID: id})

@@ -6,16 +6,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/atfa/duo/internal/driver"
 	"github.com/atfa/duo/internal/protocol"
-	"github.com/creack/pty"
 )
 
 const recentLimit = 1 << 20
@@ -44,39 +41,6 @@ func languageEnv(language string) string {
 		return "zh"
 	}
 	return "en"
-}
-
-// Rewrap a nonblocking duplicate so Go's poller can interrupt blocked PTY I/O on close.
-func makePollablePTY(ptmx *os.File) (*os.File, error) {
-	raw, err := ptmx.SyscallConn()
-	if err != nil {
-		return nil, err
-	}
-	var fd int
-	var dupErr error
-	if err := raw.Control(func(rawFD uintptr) {
-		fd, dupErr = syscall.Dup(int(rawFD))
-	}); err != nil {
-		return nil, err
-	}
-	if dupErr != nil {
-		return nil, dupErr
-	}
-	syscall.CloseOnExec(fd)
-	if err := syscall.SetNonblock(fd, true); err != nil {
-		_ = syscall.Close(fd)
-		return nil, err
-	}
-	file := os.NewFile(uintptr(fd), ptmx.Name())
-	if file == nil {
-		_ = syscall.Close(fd)
-		return nil, fmt.Errorf("wrap duplicated PTY master")
-	}
-	if err := ptmx.Close(); err != nil {
-		_ = file.Close()
-		return nil, err
-	}
-	return file, nil
 }
 
 type ProcessState int
@@ -168,8 +132,8 @@ type Session struct {
 	manifest *driver.Manifest
 
 	mu       sync.RWMutex
-	cmd      *exec.Cmd
-	ptmx     *os.File
+	proc     runningProcess
+	term     terminal
 	recent   []byte
 	attached io.Writer
 	state    ProcessState
@@ -177,7 +141,9 @@ type Session struct {
 	stopping bool
 	stopped  chan struct{}
 	waitErr  error
-	size     pty.Winsize
+	// cols and rows are the terminal size the next launch starts with; the running
+	// terminal is resized through it rather than read back from the platform.
+	cols, rows int
 
 	// model and effort are set by the interface, which the model picker drives
 	// while the process runs, and read when a launch is prepared. The read is
@@ -206,7 +172,8 @@ func NewSession(ctx context.Context, cfg Config) (*Session, error) {
 	return &Session{
 		cfg:      cfg,
 		manifest: man,
-		size:     pty.Winsize{Cols: 80, Rows: 24},
+		cols:     80,
+		rows:     24,
 		model:    strings.TrimSpace(cfg.Model),
 		effort:   strings.TrimSpace(cfg.Thinking),
 	}, nil
@@ -444,7 +411,9 @@ func (s *Session) Start(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return fmt.Errorf("start %s: %w", s.cfg.Agent, ctx.Err())
 	}
-	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
+	switch runtime.GOOS {
+	case "darwin", "linux", "windows":
+	default:
 		return fmt.Errorf("%s: unsupported platform %s", s.cfg.Agent, runtime.GOOS)
 	}
 
@@ -475,35 +444,21 @@ func (s *Session) Start(ctx context.Context) error {
 
 	s.state = ProcessStarting
 
-	// A shell preserves the existing DUO_PI_COMMAND behaviour (including arguments)
-	// and expands any variable the plugin's own environment supplies.
-	command := "exec " + plan.Command
-	cmd := exec.Command("sh", "-lc", command)
-	cmd.Dir = s.cfg.Dir
-	cmd.Env = append(os.Environ(), coreEnv(s)...)
+	env := append(os.Environ(), coreEnv(s)...)
 	for name, value := range plan.Env {
-		cmd.Env = append(cmd.Env, name+"="+value)
+		env = append(env, name+"="+value)
 	}
-	cmd.Env = append(cmd.Env, "TERM=xterm-256color")
+	env = append(env, "TERM=xterm-256color")
 
-	ptmx, err := pty.StartWithSize(cmd, &s.size)
+	proc, err := startProcess(plan.Command, s.cfg.Dir, env, s.cols, s.rows)
 	if err != nil {
 		s.state = ProcessFailed
 		s.waitErr = err
 		return fmt.Errorf("start %s PTY: %w", s.cfg.Agent, err)
 	}
-	pollablePTY, err := makePollablePTY(ptmx)
-	if err != nil {
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		_ = ptmx.Close()
-		s.waitErr = err
-		s.state = ProcessFailed
-		_ = cmd.Wait()
-		return fmt.Errorf("prepare %s PTY for I/O: %w", s.cfg.Agent, err)
-	}
-	ptmx = pollablePTY
-	s.cmd = cmd
-	s.ptmx = ptmx
+	term := proc.term()
+	s.proc = proc
+	s.term = term
 	s.started = true
 	s.cfg.ResumeSession = false
 	s.stopping = false
@@ -513,17 +468,18 @@ func (s *Session) Start(ctx context.Context) error {
 	s.stopped = make(chan struct{})
 	done := s.stopped
 	readerDone := make(chan struct{})
-	go func() { s.readLoop(ptmx, done); close(readerDone) }()
+	go func() { s.readLoop(term, done); close(readerDone) }()
 	go func() {
-		err := cmd.Wait()
+		err := proc.wait()
 		// The reader owns the PTY until EOF; close only after wait to unblock reads.
 		select {
 		case <-readerDone:
 		case <-time.After(100 * time.Millisecond):
-			_ = ptmx.Close()
+			_ = term.Close()
 			<-readerDone
 		}
-		_ = ptmx.Close()
+		_ = term.Close()
+		proc.close()
 		s.mu.Lock()
 		s.waitErr = err
 		requested := s.stopping
@@ -604,13 +560,13 @@ func (s *Session) readLoop(r io.Reader, done <-chan struct{}) {
 
 func (s *Session) Write(data []byte) error {
 	s.mu.RLock()
-	if s.state != ProcessRunning || s.ptmx == nil {
+	if s.state != ProcessRunning || s.term == nil {
 		s.mu.RUnlock()
 		return fmt.Errorf("%s session is not running", s.cfg.Agent)
 	}
-	ptmx := s.ptmx
+	term := s.term
 	s.mu.RUnlock()
-	_, err := ptmx.Write(data)
+	_, err := term.Write(data)
 	return err
 }
 
@@ -638,9 +594,9 @@ func (s *Session) Resize(cols, rows int) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.size = pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)}
+	s.cols, s.rows = cols, rows
 	if s.state == ProcessRunning {
-		if err := pty.Setsize(s.ptmx, &s.size); err != nil {
+		if err := s.term.Resize(cols, rows); err != nil {
 			return fmt.Errorf("resize %s PTY: %w", s.cfg.Agent, err)
 		}
 	}
@@ -648,7 +604,7 @@ func (s *Session) Resize(cols, rows int) error {
 }
 func (s *Session) Stop() {
 	s.mu.Lock()
-	cmd := s.cmd
+	proc := s.proc
 	done := s.stopped
 	running := s.state == ProcessRunning
 	if running {
@@ -656,16 +612,16 @@ func (s *Session) Stop() {
 		s.stopping = true
 	}
 	s.mu.Unlock()
-	if !running || cmd == nil {
+	if !running || proc == nil {
 		return
 	}
-	// The process group includes the shell's descendants; do not rely on
-	// CommandContext, which only kills the immediate child.
-	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+	// The ask is aimed at the whole process tree, not just the shell, because the
+	// agent CLI may have started children of its own.
+	proc.interrupt()
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		proc.kill()
 		<-done
 	}
 }

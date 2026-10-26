@@ -39,7 +39,7 @@ func TestPTYInputResizeAndRestart(t *testing.T) {
 	if err := m.ResizeAll(120, 40); err != nil {
 		t.Fatal(err)
 	}
-	if a.size.Cols != 120 || b.size.Cols != 120 {
+	if a.cols != 120 || b.cols != 120 {
 		t.Fatal("resize not propagated")
 	}
 	if err := a.Write([]byte("hello\r")); err != nil {

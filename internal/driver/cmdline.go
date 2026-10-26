@@ -1,6 +1,10 @@
 package driver
 
-import "strings"
+import (
+	"os"
+	"runtime"
+	"strings"
+)
 
 // The helpers in this file build the shell command line a plugin returns from
 // prepare. They live in the SDK rather than in any one driver because every
@@ -9,11 +13,85 @@ import "strings"
 // quoted the shell's way is a command injection, and a value quoted the wrong way
 // is a flag that silently loses its argument.
 
-// ShellQuote quotes a value for /bin/sh. %q is deliberately not used: it produces
-// Go escaping, not shell escaping, so "a$b" would expand $b and "x`id`y" would run
-// id. Single quotes suppress both.
+// ShellQuote quotes a value for the shell that will run the command line: /bin/sh
+// on Unix and cmd.exe on Windows. %q is deliberately not used: it produces Go
+// escaping, not shell escaping, so "a$b" would expand $b and "x`id`y" would run
+// id. The quoting is per platform because a single quote is not a quote character
+// to cmd.exe, and a Windows command line is parsed by the program it starts, not
+// just by the shell.
 func ShellQuote(value string) string {
+	if runtime.GOOS == "windows" {
+		return quoteWindows(value)
+	}
+	return quotePOSIX(value)
+}
+
+// quotePOSIX quotes a value for /bin/sh. Single quotes suppress expansion and
+// command substitution; an embedded single quote is closed, escaped and reopened.
+func quotePOSIX(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", `'\''`) + "'"
+}
+
+// quoteWindows quotes a value so cmd.exe passes it through and the program it
+// starts reads it back as one argument. The escaping is the CommandLineToArgvW
+// rule every Windows program and C runtime uses: backslashes are literal except
+// immediately before a quote, where they are doubled and the quote is escaped.
+// Always quoting is safe: cmd.exe strips a quote pair it finds around a token.
+func quoteWindows(value string) string {
+	var out strings.Builder
+	out.Grow(len(value) + 2)
+	out.WriteByte('"')
+	backslashes := 0
+	for _, r := range value {
+		switch r {
+		case '\\':
+			backslashes++
+		case '"':
+			out.WriteString(strings.Repeat(`\`, backslashes*2+1))
+			out.WriteByte('"')
+			backslashes = 0
+		default:
+			out.WriteString(strings.Repeat(`\`, backslashes))
+			backslashes = 0
+			out.WriteRune(r)
+		}
+	}
+	// Backslashes before the closing quote are literal, so they are doubled.
+	out.WriteString(strings.Repeat(`\`, backslashes*2))
+	out.WriteByte('"')
+	return out.String()
+}
+
+// ComSpec is the command interpreter WindowsShellLine starts: %COMSPEC% when the
+// environment supplies it, cmd.exe otherwise.
+func ComSpec() string {
+	if comspec := strings.TrimSpace(os.Getenv("COMSPEC")); comspec != "" {
+		return comspec
+	}
+	return "cmd.exe"
+}
+
+// WindowsShellLine renders command as the one command line cmd.exe receives.
+//
+// The command a driver composes is a shell line, and cmd.exe is not reached
+// through an argument vector: it parses the rest of its own command line. /d skips
+// AutoRun registry commands and /s makes cmd strip exactly the outer quote pair
+// added here, which is what keeps a command that starts with a quoted path — the
+// shape every custom binary under "C:\Program Files" takes — intact instead of
+// collapsing it into cmd's first-quote/last-quote heuristic.
+func WindowsShellLine(program, command string) string {
+	return quoteWindows(program) + ` /d /s /c "` + command + `"`
+}
+
+// EnvReference returns a quoted shell token that expands to the value of the named
+// environment variable when the launch command runs: $NAME on Unix, %NAME% on
+// Windows. It is how a driver passes a generated identity to its agent without
+// interpolating it, so no quoting mistake in the value can change the command.
+func EnvReference(name string) string {
+	if runtime.GOOS == "windows" {
+		return `"%` + name + `%"`
+	}
+	return `"$` + name + `"`
 }
 
 // HasFlag reports whether a command line already carries one of the named flags.
