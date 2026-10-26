@@ -67,6 +67,17 @@ func TestSessionsOverlayResumesSelected(t *testing.T) {
 		}
 	}
 
+	// A session the observer has named is shown by its title alone; a session
+	// without a title keeps its id.
+	titled := fake.sessions[0]
+	titled.Snapshot.Title = "Fix scheduler race"
+	if row := app.sessions.row(titled); !strings.Contains(row, "Fix scheduler race") || strings.Contains(row, "old-step") {
+		t.Fatalf("titled row %q should show the title and not the id", row)
+	}
+	if row := app.sessions.row(fake.sessions[1]); !strings.Contains(row, "old-goal") {
+		t.Fatalf("untitled row %q should fall back to the id", row)
+	}
+
 	app.handleKey(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
 	if item, ok := app.sessions.selected(); !ok || item.SessionID != "old-goal" {
 		t.Fatalf("selected = %q, want the second session", item.SessionID)

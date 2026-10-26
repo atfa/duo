@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	rw "github.com/mattn/go-runewidth"
+
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/sessionstore"
 	"github.com/atfa/duo/internal/workspace"
@@ -93,6 +95,16 @@ func runSessions(ctx context.Context, args []string) error {
 	return listRepoSessions(baseDir, repoID, root)
 }
 
+// padLabel pads a session label to width terminal cells. A title can carry CJK
+// text, whose runes occupy two cells, so padding counts cells with runewidth
+// rather than runes or bytes.
+func padLabel(label string, width int) string {
+	if n := rw.StringWidth(label); n < width {
+		return label + strings.Repeat(" ", width-n)
+	}
+	return label
+}
+
 func writeUnfinishedSessionIDs(list []sessionstore.Summary) {
 	for _, item := range list {
 		if item.Unfinished() && safeSessionIDLine(item.SessionID) && !sessionIsActive(item.Dir) {
@@ -142,14 +154,20 @@ func listRepoSessions(baseDir, repoID, root string) error {
 		return nil
 	}
 
-	fmt.Printf("  %-28s  %-5s  %-9s  %-10s  %-19s  %-9s  %-14s  %-6s  %s\n",
-		"SESSION ID", "MODE", "PHASE", "BRANCH", "UPDATED", "WORKTREES", "COST", "SCHEMA", "STATUS")
+	labelWidth := 28
+	for _, item := range list {
+		if n := rw.StringWidth(item.Label()); n > labelWidth {
+			labelWidth = n
+		}
+	}
+	fmt.Printf("  %s  %-5s  %-9s  %-10s  %-19s  %-9s  %-14s  %-6s  %s\n",
+		padLabel("SESSION", labelWidth), "MODE", "PHASE", "BRANCH", "UPDATED", "WORKTREES", "COST", "SCHEMA", "STATUS")
 
 	var unfinished, completed int
 	for _, item := range list {
 		if item.Err != nil {
-			fmt.Printf("  %-28s  %-5s  %-9s  %-10s  %-19s  %-9s  %-14s  %-6s  %s\n",
-				item.SessionID, "-", "ERR", "-", "-", "-", "-", "-", fmt.Sprintf("corrupt (%v)", item.Err))
+			fmt.Printf("  %s  %-5s  %-9s  %-10s  %-19s  %-9s  %-14s  %-6s  %s\n",
+				padLabel(item.Label(), labelWidth), "-", "ERR", "-", "-", "-", "-", "-", fmt.Sprintf("corrupt (%v)", item.Err))
 			continue
 		}
 		snap := item.Snapshot
@@ -169,8 +187,8 @@ func listRepoSessions(baseDir, repoID, root string) error {
 		wtStatus := worktreePresence(snap)
 		status := sessionStatus(item)
 
-		fmt.Printf("  %-28s  %-5s  %-9s  %-10s  %-19s  %-9s  %-14s  %-6s  %s\n",
-			item.SessionID, mode, phase, branch, updated, wtStatus, sessionCost(item), schemaLabel(snap), status)
+		fmt.Printf("  %s  %-5s  %-9s  %-10s  %-19s  %-9s  %-14s  %-6s  %s\n",
+			padLabel(item.Label(), labelWidth), mode, phase, branch, updated, wtStatus, sessionCost(item), schemaLabel(snap), status)
 	}
 
 	fmt.Printf("\nTotal: %d session(s) (%d unfinished, %d completed)\n", len(list), unfinished, completed)
@@ -192,8 +210,20 @@ func listAllSessions(baseDir string) error {
 		return nil
 	}
 
-	fmt.Printf("  %-20s  %-28s  %-5s  %-9s  %-19s  %-9s  %-14s  %-6s  %s\n",
-		"REPO ID", "SESSION ID", "MODE", "PHASE", "UPDATED", "WORKTREES", "COST", "SCHEMA", "STATUS")
+	labelWidth := 28
+	for _, repoID := range repos {
+		list, err := sessionstore.List(baseDir, repoID)
+		if err != nil {
+			continue
+		}
+		for _, item := range list {
+			if n := rw.StringWidth(item.Label()); n > labelWidth {
+				labelWidth = n
+			}
+		}
+	}
+	fmt.Printf("  %-20s  %s  %-5s  %-9s  %-19s  %-9s  %-14s  %-6s  %s\n",
+		"REPO ID", padLabel("SESSION", labelWidth), "MODE", "PHASE", "UPDATED", "WORKTREES", "COST", "SCHEMA", "STATUS")
 
 	var totalSessions, totalCompleted int
 	for _, repoID := range repos {
@@ -204,8 +234,8 @@ func listAllSessions(baseDir string) error {
 		for _, item := range list {
 			totalSessions++
 			if item.Err != nil {
-				fmt.Printf("  %-20s  %-28s  %-5s  %-9s  %-19s  %-9s  %-14s  %-6s  %s\n",
-					repoID, item.SessionID, "-", "ERR", "-", "-", "-", "-", fmt.Sprintf("corrupt (%v)", item.Err))
+				fmt.Printf("  %-20s  %s  %-5s  %-9s  %-19s  %-9s  %-14s  %-6s  %s\n",
+					repoID, padLabel(item.Label(), labelWidth), "-", "ERR", "-", "-", "-", "-", fmt.Sprintf("corrupt (%v)", item.Err))
 				continue
 			}
 			snap := item.Snapshot
@@ -219,8 +249,8 @@ func listAllSessions(baseDir string) error {
 			wtStatus := worktreePresence(snap)
 			status := sessionStatus(item)
 
-			fmt.Printf("  %-20s  %-28s  %-5s  %-9s  %-19s  %-9s  %-14s  %-6s  %s\n",
-				repoID, item.SessionID, mode, phase, updated, wtStatus, sessionCost(item), schemaLabel(snap), status)
+			fmt.Printf("  %-20s  %s  %-5s  %-9s  %-19s  %-9s  %-14s  %-6s  %s\n",
+				repoID, padLabel(item.Label(), labelWidth), mode, phase, updated, wtStatus, sessionCost(item), schemaLabel(snap), status)
 		}
 	}
 

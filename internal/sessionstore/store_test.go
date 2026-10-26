@@ -509,3 +509,14 @@ func TestListRepos(t *testing.T) {
 		t.Fatalf("unexpected repos list: %v", repos)
 	}
 }
+
+func TestSummaryLabelPrefersTitle(t *testing.T) {
+	plain := Summary{SessionID: "20261026-193338", Snapshot: Snapshot{SessionID: "20261026-193338"}}
+	if got := plain.Label(); got != "20261026-193338" {
+		t.Fatalf("Label() = %q, want the session id", got)
+	}
+	titled := Summary{SessionID: "20261026-193338", Snapshot: Snapshot{SessionID: "20261026-193338", Title: "Fix scheduler race"}}
+	if got := titled.Label(); got != "Fix scheduler race" {
+		t.Fatalf("Label() = %q, want the title", got)
+	}
+}

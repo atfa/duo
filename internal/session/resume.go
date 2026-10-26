@@ -377,8 +377,15 @@ func FormatCandidates(items []sessionstore.Summary) string {
 		if item.Snapshot.Phase == string(project.PhaseDone) {
 			status = "completed"
 		}
+		// The error that follows tells the human to run `duo resume <session-id>`,
+		// so a named session still has to show its id here: a title alone would
+		// make the advice impossible to follow.
+		label := item.SessionID
+		if item.Snapshot.Title != "" {
+			label = fmt.Sprintf("%s (id=%s)", item.Snapshot.Title, item.SessionID)
+		}
 		fmt.Fprintf(&b, "  %s  status=%s  phase=%s  scope=%s  updated=%s\n",
-			item.SessionID, status, item.Snapshot.Phase, EffectiveScope(item.Snapshot.ScopePath), item.Snapshot.UpdatedAt.Local().Format(time.RFC3339))
+			label, status, item.Snapshot.Phase, EffectiveScope(item.Snapshot.ScopePath), item.Snapshot.UpdatedAt.Local().Format(time.RFC3339))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

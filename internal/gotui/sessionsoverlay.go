@@ -85,7 +85,7 @@ func (s *sessionsOverlay) row(item sessionstore.Summary) string {
 		updated = item.Snapshot.UpdatedAt.Local().Format("01-02 15:04")
 	}
 	return fmt.Sprintf("%-6s %-10s %-10s %-8s %-12s %s",
-		item.Snapshot.EffectiveMode().Display(), item.Snapshot.Phase, sessionRan(item), sessionCost(item), updated, item.SessionID)
+		item.Snapshot.EffectiveMode().Display(), item.Snapshot.Phase, sessionRan(item), sessionCost(item), updated, item.Label())
 }
 
 func (s *sessionsOverlay) rows() int { return max(1, s.Inner.Dy()-2) }

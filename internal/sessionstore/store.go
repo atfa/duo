@@ -177,6 +177,15 @@ type Summary struct {
 	Err       error
 }
 
+// Label returns the name a session list should display: the observer's title
+// when the session has one, the session id otherwise.
+func (s Summary) Label() string {
+	if s.Snapshot.Title != "" {
+		return s.Snapshot.Title
+	}
+	return s.SessionID
+}
+
 // Unfinished reports whether the session's phase is valid and not DONE.
 func (s Summary) Unfinished() bool {
 	return s.Err == nil && s.Snapshot.Phase != "" && s.Snapshot.Phase != "DONE"

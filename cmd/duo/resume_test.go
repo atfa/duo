@@ -112,3 +112,24 @@ func TestResumedSessionTakesTheResumePath(t *testing.T) {
 		t.Fatalf("resuming a FAST session from a GOAL launch failed: %v", err)
 	}
 }
+
+func TestResumeListingPrefersTitle(t *testing.T) {
+	items := []sessionstore.Summary{
+		{SessionID: "abc123", Snapshot: sessionstore.Snapshot{SessionID: "abc123", Title: "Fix scheduler race", Phase: "EXECUTE"}},
+		{SessionID: "def456", Snapshot: sessionstore.Snapshot{SessionID: "def456", Phase: "EXECUTE"}},
+	}
+	var listing strings.Builder
+	if _, err := chooseResumeSession(items, strings.NewReader("1\n"), &listing); err != nil {
+		t.Fatal(err)
+	}
+	out := listing.String()
+	if !strings.Contains(out, "Fix scheduler race") {
+		t.Errorf("listing %q does not show the titled session's title", out)
+	}
+	if strings.Contains(out, "abc123") {
+		t.Errorf("listing %q shows the id of a titled session; it should show only the title", out)
+	}
+	if !strings.Contains(out, "def456") {
+		t.Errorf("listing %q does not fall back to the id of an untitled session", out)
+	}
+}

@@ -75,6 +75,8 @@ In the gotui dashboard, use `/observer` to open observer settings. Press `Ctrl+E
 
 In the settings panel, use `Tab`/`Shift+Tab` to move between fields, `Space` (or `y`/`n`) to toggle Enabled, and `Enter` to save; `Esc` closes without saving. In the first-run prompt, `Esc` saves **Later** instead. `Ctrl+U` clears the current field. Leaving the API key blank keeps the saved key. In the reports panel, `R` asks for a fresh report, `?` asks the observer your own question, `↑`/`↓` scroll and `Esc` closes it.
 
+When an observer model is configured, the first task you submit to a session asks it to give that session a short title (in the task's language, a few words). Session lists — the gotui `/sessions` picker, `duo sessions`, and `duo resume`'s candidate list — show the title when one exists and the session id otherwise. `duo resume <id>` still selects by id; a session is named once, and if the observer cannot produce a title the session keeps its id.
+
 The non-secret settings can be stored in the `observer` section of `~/.duo/config.json` or the repository's `.duo/config.json`. A project `observer` section replaces the global observer section as a whole; its fields are not merged with the global section. For example:
 
 ```json

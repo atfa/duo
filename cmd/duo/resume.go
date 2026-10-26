@@ -78,7 +78,7 @@ func chooseResumeSession(items []sessionstore.Summary, in io.Reader, out io.Writ
 			status = "completed"
 		}
 		fmt.Fprintf(out, "  %d) %s  status=%s  phase=%s  scope=%s  updated=%s\n",
-			i+1, item.SessionID, status, item.Snapshot.Phase, session.EffectiveScope(item.Snapshot.ScopePath), item.Snapshot.UpdatedAt.Local().Format(time.RFC3339))
+			i+1, item.Label(), status, item.Snapshot.Phase, session.EffectiveScope(item.Snapshot.ScopePath), item.Snapshot.UpdatedAt.Local().Format(time.RFC3339))
 	}
 	fmt.Fprint(out, "Choose a session number (or session ID): ")
 	line, err := bufio.NewReader(in).ReadString('\n')
