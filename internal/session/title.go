@@ -36,18 +36,18 @@ func (s *Service) nameSessionInBackground(obs *observer.Observer, task string) {
 		ctx = context.Background()
 	}
 	title, err := obs.Title(ctx, task)
-	if err != nil {
-		// Silent by design: a session without a title is a normal session. The
-		// failure is worth a log line, never a timeline entry or a notice.
-		s.logf()("observer: session title: %v", err)
-		return
-	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// Nothing to name once the session is closed, and the first title wins: a
 	// slower answer that arrives after one is already recorded is stale.
 	if s.closed || s.store == nil || s.state == nil || strings.TrimSpace(s.title) != "" {
+		return
+	}
+	if err != nil {
+		// Silent by design: a session without a title is a normal session. The
+		// failure is worth a log line, never a timeline entry or a notice.
+		s.logf()("observer: session title: %v", err)
 		return
 	}
 	s.title = title
