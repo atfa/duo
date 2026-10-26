@@ -374,7 +374,7 @@ func FormatCandidates(items []sessionstore.Summary) string {
 			status = "completed"
 		}
 		fmt.Fprintf(&b, "  %s  status=%s  phase=%s  scope=%s  updated=%s\n",
-			item.SessionID, status, item.Snapshot.Phase, EffectiveScope(item.Snapshot.ScopePath), item.Snapshot.UpdatedAt.Local().Format(time.RFC3339))
+			item.Label(), status, item.Snapshot.Phase, EffectiveScope(item.Snapshot.ScopePath), item.Snapshot.UpdatedAt.Local().Format(time.RFC3339))
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

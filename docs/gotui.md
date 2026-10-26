@@ -61,7 +61,9 @@ workflow state or makes project transitions:
   viewport it opened on. The match is a plain substring, and column positions are
   counted in cells, so wide CJK text highlights exactly.
 - **Session picker.** `/sessions` lists this repository's unfinished sessions
-  with their mode, phase, time on the session and measured cost. `Enter` resumes
+  with their mode, phase, time on the session and measured cost. A session the
+  observer has named is listed by its title; a session without a title falls
+  back to its id. `Enter` resumes
   the highlighted one: this session is closed and preserved exactly as `/quit`
   would leave it, and the outer process re-opens the chosen session, so a switch
   is the same path `duo resume <id>` takes. A session another live Duo owns is

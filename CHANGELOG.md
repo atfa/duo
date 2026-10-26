@@ -4,6 +4,15 @@ All notable project milestones are documented here.
 
 ## Unreleased
 
+### Session titles from the observer
+
+- When an observer model is configured, the first task you submit asks it to
+  give the session a short title. Session lists — the gotui `/sessions`
+  picker, `duo sessions`, and `duo resume`'s candidate list — show the title
+  when one exists and the session id otherwise. `duo resume <id>` still picks
+  by id; a session is named once, and a failed naming attempt falls back to
+  the id silently.
+
 ### Observer: ask questions and a god-view report
 
 - The `Ctrl+E` report panel accepts your own questions: press `?`, type one
