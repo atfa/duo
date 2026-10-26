@@ -46,6 +46,9 @@ func (s *Service) startResume(ctx context.Context) (Result, error) {
 	}
 	s.journal = store.OpenEvents()
 	s.sessionID = snap.SessionID
+	// The title is carried across a resume like any other part of the record, and
+	// it is what keeps a resumed session from being named a second time.
+	s.title = snap.Title
 	s.history = s.journal.TUIEntries()
 	s.logger.Printf("resuming Duo session %s from %s (persisted mode %s phase %s repository=%s scope=%s)", snap.SessionID, store.StatePath(), snap.EffectiveMode(), snap.Phase, snap.Repository, EffectiveScope(snap.ScopePath))
 
@@ -76,6 +79,7 @@ func (s *Service) startResume(ctx context.Context) (Result, error) {
 	// Persist the reconciled checkpoint before starting anything, so a crash
 	// during startup cannot resurrect revoked signatures or a duplicate merge.
 	reconciled := result.Snapshot
+	reconciled.Title = snap.Title
 	reconciled.PauseState = snap.PauseState
 	// The cost ledger is carried over verbatim: a resumed session must keep the cost
 	// of the work it already did, and reconciliation has no opinion about it.

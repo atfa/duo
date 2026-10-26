@@ -94,6 +94,10 @@ func (s *Service) composeSnapshot(coord *coordinator.Coordinator) sessionstore.S
 		Delivery:     deliveryState,
 		Usage:        usage,
 	})
+	// The title is session metadata, not workflow state: the observer suggests it
+	// and the session records it, so a human recognises the session in a list
+	// instead of reading a generated id.
+	snapshot.Title = s.title
 	if coord != nil {
 		pause := coord.PauseSnapshot()
 		snapshot.PauseState = pause.State

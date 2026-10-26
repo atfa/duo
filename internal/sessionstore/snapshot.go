@@ -134,7 +134,10 @@ type Snapshot struct {
 	PersistedSchemaVersion int    `json:"-"`
 	DuoVersion             string `json:"duoVersion"`
 
-	SessionID  string `json:"sessionId"`
+	SessionID string `json:"sessionId"`
+	// Title is the human-facing name the observer gives this session. It is
+	// optional: a session without one is displayed by its id.
+	Title      string `json:"title,omitempty"`
 	RepoID     string `json:"repoId"`
 	Repository string `json:"repository"`
 	ScopePath  string `json:"scopePath,omitempty"`

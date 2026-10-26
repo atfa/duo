@@ -65,7 +65,23 @@ const (
 	// maxQuestionRunes bounds the question a human types into the report panel,
 	// so one long pasted question cannot dominate the prompt.
 	maxQuestionRunes = 500
+
+	// titleMaxTokens is deliberately small: a session name is a few words, and a
+	// title that runs into the cap is rejected rather than trimmed.
+	titleMaxTokens = 64
+	// maxTitleRunes bounds the session name a frontend has to lay out, so one
+	// verbose model answer cannot overflow a picker row.
+	maxTitleRunes = 60
 )
+
+// titleSystemPrompt asks for one short session name. It is separate from the
+// report prompt because naming a session is a different question: the report
+// prompt is about the work's state, and asking it for a title would spend a
+// report's worth of tokens on a name.
+const titleSystemPrompt = "You name Duo sessions. Duo is a coding workflow where two agents work on one task. " +
+	"Given the human's task, reply with one short title for the session that names what it is about: three to eight " +
+	"words, in the same language as the task, on a single line, without quotes, without markdown, and without a " +
+	"trailing full stop. Output the title only and nothing else."
 
 // DefaultSystemPrompt asks for a status report about the task and the agents,
 // and for a direct answer when the human asks the observer a question.
@@ -464,9 +480,6 @@ func (o *Observer) ask(ctx context.Context, question string) (string, error) {
 	if o == nil {
 		return "", errors.New("observer: not running")
 	}
-	if o.key == "" {
-		return "", fmt.Errorf("observer: no API key in DUO_OBSERVER_API_KEY or %s", o.cfg.APIKeyEnv)
-	}
 	live := strings.TrimSpace(o.live())
 	o.mu.Lock()
 	batch := append([]events.Event(nil), o.window...)
@@ -474,41 +487,120 @@ func (o *Observer) ask(ctx context.Context, question string) (string, error) {
 	task := o.lastUserTask
 	o.mu.Unlock()
 
+	text, finishReason, err := o.complete(ctx, o.cfg.SystemPrompt, userPrompt(task, live, transcript(batch), previous, question), o.cfg.MaxTokens)
+	if err != nil {
+		return "", err
+	}
+	if text == "" {
+		return "", errors.New("model returned an empty report")
+	}
+	if finishReason == "length" {
+		return text, errors.New("report truncated at maxTokens; raise observer.maxTokens")
+	}
+	// A truncated report is not the complete previous report, so it is not fed
+	// back as one; only a clean answer becomes continuity for the next request.
+	o.mu.Lock()
+	o.previous = text
+	o.mu.Unlock()
+	return text, nil
+}
+
+// Title asks the model for a short human-facing name for this session, derived
+// from the task the human just submitted.
+//
+// The task is passed in rather than read from the collected log: a title is
+// requested as soon as the human submits, and the user event may not have reached
+// the collector yet. The title is only a suggestion — it is returned as a value
+// and never touches workflow state — so a failure here is silent: the session is
+// simply displayed by its id, exactly as a session with no observer is.
+func (o *Observer) Title(ctx context.Context, task string) (string, error) {
+	if o == nil {
+		return "", errors.New("observer: not running")
+	}
+	task = clip(strings.TrimSpace(task), maxTaskRunes)
+	if task == "" {
+		return "", errors.New("observer: empty task")
+	}
+	text, finishReason, err := o.complete(ctx, titleSystemPrompt, "Task:\n"+task+"\n", titleMaxTokens)
+	if err != nil {
+		return "", err
+	}
+	if finishReason == "length" {
+		return "", errors.New("title truncated at maxTokens")
+	}
+	title := NormalizeTitle(text)
+	if title == "" {
+		return "", errors.New("model returned an empty title")
+	}
+	return title, nil
+}
+
+// NormalizeTitle makes a model answer safe to show as a session name: it keeps
+// the first non-empty line, drops the decoration models like to add (quotes,
+// backticks, markdown heading or bullet marks, a trailing full stop) and bounds
+// the result. One rule for every frontend, so the same title cannot render one
+// way in /sessions and another in `duo sessions`.
+func NormalizeTitle(raw string) string {
+	line := ""
+	for _, candidate := range strings.Split(raw, "\n") {
+		if line = strings.TrimSpace(candidate); line != "" {
+			break
+		}
+	}
+	line = strings.TrimSpace(strings.TrimLeft(line, "#*-–—• "))
+	line = strings.Trim(strings.TrimSpace(line), "\"'`“”‘’「」")
+	line = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(line), "."))
+	return clip(strings.Join(strings.Fields(line), " "), maxTitleRunes)
+}
+
+// complete performs one chat-completions call and returns the answer text with
+// the model's finish reason. It is the single place a request is built and sent,
+// so reports, questions and titles share one transport, one key and one failure
+// mode. Empty text is not an error here: the caller knows what it asked for and
+// can name the missing answer itself.
+func (o *Observer) complete(ctx context.Context, system, user string, maxTokens int) (string, string, error) {
+	if o == nil {
+		return "", "", errors.New("observer: not running")
+	}
+	if o.key == "" {
+		return "", "", fmt.Errorf("observer: no API key in DUO_OBSERVER_API_KEY or %s", o.cfg.APIKeyEnv)
+	}
+
 	payload := map[string]any{
 		"model": o.cfg.Model,
 		"messages": []map[string]string{
-			{"role": "system", "content": o.cfg.SystemPrompt},
-			{"role": "user", "content": userPrompt(task, live, transcript(batch), previous, question)},
+			{"role": "system", "content": system},
+			{"role": "user", "content": user},
 		},
 	}
-	if o.cfg.MaxTokens > 0 {
-		payload["max_tokens"] = o.cfg.MaxTokens
+	if maxTokens > 0 {
+		payload["max_tokens"] = maxTokens
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return "", fmt.Errorf("encode request: %w", err)
+		return "", "", fmt.Errorf("encode request: %w", err)
 	}
 
 	endpoint := strings.TrimRight(o.cfg.Endpoint, "/") + "/chat/completions"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return "", fmt.Errorf("build request: %w", err)
+		return "", "", fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+o.key)
 
 	resp, err := o.client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("request %s: %w", endpoint, err)
+		return "", "", fmt.Errorf("request %s: %w", endpoint, err)
 	}
 	defer resp.Body.Close()
 
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("read response: %w", err)
+		return "", "", fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return "", fmt.Errorf("model returned %s: %s", resp.Status, clip(string(data), maxErrorBody))
+		return "", "", fmt.Errorf("model returned %s: %s", resp.Status, clip(string(data), maxErrorBody))
 	}
 
 	var answer struct {
@@ -520,24 +612,12 @@ func (o *Observer) ask(ctx context.Context, question string) (string, error) {
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(data, &answer); err != nil {
-		return "", fmt.Errorf("decode response: %w", err)
+		return "", "", fmt.Errorf("decode response: %w", err)
 	}
 	if len(answer.Choices) == 0 {
-		return "", errors.New("model returned no choices")
+		return "", "", errors.New("model returned no choices")
 	}
-	text := strings.TrimSpace(answer.Choices[0].Message.Content)
-	if text == "" {
-		return "", errors.New("model returned an empty report")
-	}
-	if answer.Choices[0].FinishReason == "length" {
-		return text, errors.New("report truncated at maxTokens; raise observer.maxTokens")
-	}
-	// A truncated report is not the complete previous report, so it is not fed
-	// back as one; only a clean answer becomes continuity for the next request.
-	o.mu.Lock()
-	o.previous = text
-	o.mu.Unlock()
-	return text, nil
+	return strings.TrimSpace(answer.Choices[0].Message.Content), answer.Choices[0].FinishReason, nil
 }
 
 // userPrompt assembles the four blocks a report is written from, plus the

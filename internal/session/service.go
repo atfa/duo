@@ -98,6 +98,11 @@ type Service struct {
 	bridgeHost, bridgePort, token string
 	createdAt                     time.Time
 
+	// title is the observer's human-facing name for this session, empty until one
+	// has been generated. It is part of the durable record, so /sessions and
+	// `duo resume` can show it instead of the generated id.
+	title string
+
 	state *project.State
 	ws    *workspace.GitManager
 	set   workspace.Set
@@ -877,6 +882,11 @@ func (s *Service) Do(ctx context.Context, cmd Command) error {
 	case SubmitTask:
 		err := s.coord.SubmitUserTask(ctx, c.Text)
 		s.syncMode()
+		if err == nil {
+			// Naming happens after the task is accepted: a rejected submission (a
+			// paused session, say) is not the task this session is about.
+			s.nameSession(c.Text)
+		}
 		return err
 	case SwitchMode:
 		target, err := project.ParseMode(c.Mode)
