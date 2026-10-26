@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/workspace"
 )
 
@@ -46,6 +47,17 @@ func onboardRepo(t *testing.T) string {
 	git("add", "-A")
 	git("commit", "-m", "base")
 	return dir
+}
+
+// configureGitIdentity gives the temporary home a committer, which the wizard
+// needs to create a first commit and must never invent on its own.
+func configureGitIdentity(t *testing.T, home string) {
+	t.Helper()
+	for _, pair := range [][2]string{{"user.name", "Duo Test"}, {"user.email", "duo-test@example.invalid"}} {
+		if _, err := gitText(context.Background(), home, "config", "--global", pair[0], pair[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 func onboardGit(t *testing.T, dir string, args ...string) string {
@@ -295,5 +307,113 @@ func TestOnboardingInitialCommitLeavesTheTreeClean(t *testing.T) {
 	}
 	if root, err := workspace.FindRoot(context.Background(), dir); err != nil || !workspace.SamePath(root, dir) {
 		t.Fatalf("FindRoot after init = %q, %v", root, err)
+	}
+}
+
+// overrideGuideDrivers describes the machine the launch path sees.
+func overrideGuideDrivers(t *testing.T, statuses []driverStatus) {
+	t.Helper()
+	previous := guideDrivers
+	guideDrivers = func(context.Context) ([]driverStatus, error) { return statuses, nil }
+	t.Cleanup(func() { guideDrivers = previous })
+}
+
+// overrideGuideTTY replaces the terminal the guide asks on. failIfCalled proves
+// the guide did not try to ask at all.
+func overrideGuideTTY(t *testing.T, open func() (*os.File, error)) {
+	t.Helper()
+	previous := openGuideTTY
+	openGuideTTY = open
+	t.Cleanup(func() { openGuideTTY = previous })
+}
+
+// TestFirstRunGuideAsksNothingWithoutATerminal is the contract scripts rely on:
+// with no terminal to ask on, the guide leaves the launch exactly as it was, so
+// a pipeline keeps the errors it always saw.
+func TestFirstRunGuideAsksNothingWithoutATerminal(t *testing.T) {
+	overrideGuideDrivers(t, []driverStatus{{Name: "pi", CLIPath: "/usr/bin/pi"}})
+	overrideGuideTTY(t, func() (*os.File, error) { return nil, errors.New("no terminal") })
+
+	dir := t.TempDir()
+	if err := maybeGuideFirstRun(context.Background(), []string{dir}, false); err != nil {
+		t.Fatalf("guide without a terminal: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".git")); !os.IsNotExist(err) {
+		t.Fatalf(".git exists after a guide that could not ask: %v", err)
+	}
+}
+
+// A machine with no agent CLI is refused before anything is asked or touched, so
+// the refusal is the same one a headless launch gets.
+func TestFirstRunGuideRefusesWithoutADriverCLI(t *testing.T) {
+	overrideGuideDrivers(t, []driverStatus{
+		{Name: "agy", Reason: "the agy CLI is not on PATH"},
+		{Name: "codex", Reason: "the codex CLI is not on PATH"},
+		{Name: "opencode", Reason: "the opencode CLI is not on PATH"},
+		{Name: "pi", Reason: "the pi CLI is not on PATH"},
+	})
+	overrideGuideTTY(t, func() (*os.File, error) {
+		t.Fatal("the guide opened a terminal on a machine with no driver")
+		return nil, nil
+	})
+
+	dir := t.TempDir()
+	err := maybeGuideFirstRun(context.Background(), []string{dir}, false)
+	if err == nil || !strings.Contains(err.Error(), "Install the latest version") {
+		t.Fatalf("guide error = %v, want the install refusal", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, ".git")); !os.IsNotExist(statErr) {
+		t.Fatalf(".git exists after a driver refusal: %v", statErr)
+	}
+}
+
+// A resume already has its repository and its configuration, so it is never
+// asked anything - but it is still refused without a driver.
+func TestFirstRunGuideDoesNotAskOnResume(t *testing.T) {
+	overrideGuideDrivers(t, []driverStatus{{Name: "pi", CLIPath: "/usr/bin/pi"}})
+	overrideGuideTTY(t, func() (*os.File, error) {
+		t.Fatal("a resume opened the first-run guide")
+		return nil, nil
+	})
+	if err := maybeGuideFirstRun(context.Background(), []string{"some-session"}, true); err != nil {
+		t.Fatalf("resume guide: %v", err)
+	}
+}
+
+// TestTheGlobalConfigTheGuideWritesIsTheOneTheLaunchReads pins the ordering
+// between the guide and loadConfig: a global configuration created at the prompt
+// must be what the very next loadConfig resolves, or the human has to start Duo
+// twice to get the settings they just agreed to.
+func TestTheGlobalConfigTheGuideWritesIsTheOneTheLaunchReads(t *testing.T) {
+	home := t.TempDir()
+	repo := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("DUO_REPO", repo)
+	t.Setenv("DUO_MODE", "")
+	configureGitIdentity(t, home)
+
+	// The global config must land in the real home loadConfig reads, so this test
+	// builds the guide without the test home newTestOnboarding injects.
+	var out strings.Builder
+	o := newOnboarding(repo, strings.NewReader("1\n1\n1\n1\n"), &out)
+	o.drivers = func(context.Context) ([]driverStatus, error) {
+		return []driverStatus{{Name: "pi", CLIPath: "/usr/bin/pi"}}, nil
+	}
+	if err := o.onboard(context.Background()); err != nil {
+		t.Fatalf("onboard: %v\n%s", err, out.String())
+	}
+
+	cfg, err := loadConfig(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.language != "en" {
+		t.Errorf("language = %q, want en", cfg.language)
+	}
+	if cfg.mode != project.ModeGoal {
+		t.Errorf("mode = %q, want goal", cfg.mode)
+	}
+	if cfg.tuiMode != "timeline" {
+		t.Errorf("tuiMode = %q, want timeline", cfg.tuiMode)
 	}
 }

@@ -59,6 +59,9 @@ type config struct {
 	modeRaw      string
 	modeExplicit bool
 	language     string
+	// tuiMode is the view the interface opens on: "timeline" (the default),
+	// "split", or empty for the interface's own default.
+	tuiMode string
 
 	// help is set by -h/--help/help, which prints the usage and exits without
 	// starting or touching a session.
@@ -555,6 +558,10 @@ func loadConfigCommand(args []string, resume bool) (config, error) {
 	if err != nil {
 		return config{}, err
 	}
+	tuiMode, err := resolveTUIMode(fileCfg.TUIMode)
+	if err != nil {
+		return config{}, err
+	}
 
 	testCommand := parsed.testCommand
 	if testCommand == "" {
@@ -621,6 +628,7 @@ func loadConfigCommand(args []string, resume bool) (config, error) {
 		resumeSession:       parsed.sessionID,
 		mode:                mode,
 		language:            language,
+		tuiMode:             tuiMode,
 		modeSource:          modeSource,
 		modeRaw:             parsed.mode,
 		modeExplicit:        parsed.modeExplicit,
@@ -641,6 +649,19 @@ func resolveLanguage(cli, file string) (string, error) {
 		return "", fmt.Errorf("invalid language %q: must be zh or en", language)
 	}
 	return language, nil
+}
+
+// resolveTUIMode validates the configured interface view. An empty value keeps
+// the interface's own default; a value it cannot draw is an error rather than a
+// silent fallback, because a typo would otherwise look exactly like "no
+// preference" and the human would never learn why their view did not change.
+func resolveTUIMode(file string) (string, error) {
+	mode := strings.ToLower(strings.TrimSpace(file))
+	switch mode {
+	case "", "timeline", "split":
+		return mode, nil
+	}
+	return "", fmt.Errorf("invalid tuiMode %q: must be timeline or split", file)
 }
 
 func resolveObserverConfig(settings *observer.Settings) observer.Config {
@@ -692,7 +713,7 @@ func loadMergedConfigFile(launchDir string) (configFile, error) {
 	}
 	for _, p := range candidates {
 		projectCfg, err := loadConfigFile(p)
-		if err == nil && (projectCfg.Mode != "" || projectCfg.Language != "" || projectCfg.PiCommand != "" || projectCfg.Driver != "" || projectCfg.TestCommand != "" || len(projectCfg.Agents) > 0 || projectCfg.Harness != (harnessFile{}) || projectCfg.Observer != nil || projectCfg.Notify != nil || projectCfg.ContextWarnPercent != nil || projectCfg.Remote != nil) {
+		if err == nil && (projectCfg.Mode != "" || projectCfg.Language != "" || projectCfg.TUIMode != "" || projectCfg.PiCommand != "" || projectCfg.Driver != "" || projectCfg.TestCommand != "" || len(projectCfg.Agents) > 0 || projectCfg.Harness != (harnessFile{}) || projectCfg.Observer != nil || projectCfg.Notify != nil || projectCfg.ContextWarnPercent != nil || projectCfg.Remote != nil) {
 			mergeConfig(&merged, projectCfg)
 			break
 		} else if err != nil && !os.IsNotExist(err) {
@@ -706,6 +727,9 @@ func loadMergedConfigFile(launchDir string) (configFile, error) {
 func mergeConfig(dst *configFile, src configFile) {
 	if src.Language != "" {
 		dst.Language = src.Language
+	}
+	if src.TUIMode != "" {
+		dst.TUIMode = src.TUIMode
 	}
 	if src.Mode != "" {
 		dst.Mode = src.Mode

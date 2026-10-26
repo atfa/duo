@@ -79,13 +79,19 @@ func newOnboarding(launchDir string, in io.Reader, out io.Writer) *onboarding {
 	}
 }
 
-// onboard runs the checks in the order a session needs them: an agent to run,
-// a repository to work in, a commit to branch from, a clean tree to deliver
-// into, and configuration for the round.
+// onboard runs the whole first-run guide: the driver refusal and, when a terminal
+// is available, the questions about this machine.
 func (o *onboarding) onboard(ctx context.Context) error {
 	if err := o.ensureDrivers(ctx); err != nil {
 		return err
 	}
+	return o.onboardLocalState(ctx)
+}
+
+// onboardLocalState answers the questions about the repository and the settings,
+// in the order a session needs them: a repository to work in, a commit to branch
+// from, a clean tree to deliver into, and configuration for the round.
+func (o *onboarding) onboardLocalState(ctx context.Context) error {
 	root, err := o.ensureRepository(ctx)
 	if err != nil {
 		return err
@@ -99,6 +105,69 @@ func (o *onboarding) onboard(ctx context.Context) error {
 	return o.ensureConfig(o.launchDir, root)
 }
 
+// maybeGuideFirstRun is the launch path's entry point. It refuses a machine with
+// no agent CLI at all, then, only when a terminal can answer, asks about the
+// repository and the configuration of a fresh session.
+//
+// It runs before loadConfig so a global configuration created here is the one
+// this launch reads: asking and then starting on the old settings would make the
+// human answer twice. A resume is not asked anything - its repository and
+// configuration already exist - but it is still refused when no driver can run.
+func maybeGuideFirstRun(ctx context.Context, args []string, resume bool) error {
+	for _, arg := range args {
+		if helpRequested(arg) {
+			return nil // Usage, not a launch: nothing to check yet.
+		}
+	}
+	if err := checkDrivers(ctx); err != nil {
+		return err
+	}
+	if resume {
+		return nil
+	}
+	parsed, err := parseArgs(args)
+	if err != nil {
+		// loadConfig reports the argument error in its own words, with the usage.
+		return nil
+	}
+	dir := strings.TrimSpace(parsed.repository)
+	if dir == "" {
+		dir = "."
+	}
+	o := newOnboarding(dir, nil, nil)
+	tty, err := openGuideTTY()
+	if err != nil {
+		// No terminal to ask on. A script or a CI run must keep the errors it has
+		// always seen rather than stop at a prompt nobody can answer.
+		return nil
+	}
+	defer tty.Close()
+	o.in, o.out = tty, tty
+	return o.onboardLocalState(ctx)
+}
+
+// openGuideTTY is a variable so a test can prove the guide asks nothing when no
+// terminal can be opened.
+var openGuideTTY = func() (*os.File, error) {
+	return os.OpenFile("/dev/tty", os.O_RDWR, 0)
+}
+
+// guideDrivers is the probe the launch path asks about installed driver CLIs. It
+// is a variable so a test can describe a machine with no agent CLI at all, which
+// is exactly the machine that must be refused.
+var guideDrivers = probeShippedDrivers
+
+// checkDrivers refuses a launch when none of the driver CLIs Duo ships is on
+// PATH. It is the driver half of the guide, without any questions, so a headless
+// launch refuses in exactly the same words as an interactive one.
+func checkDrivers(ctx context.Context) error {
+	statuses, err := guideDrivers(ctx)
+	if err != nil {
+		return err
+	}
+	return requireDriver(statuses)
+}
+
 // ensureDrivers is the one check with no fix: Duo is two coding agents, so with
 // no agent CLI installed there is nothing for it to collaborate with. It refuses
 // here, before Git is touched, rather than starting a session that reports a
@@ -108,6 +177,10 @@ func (o *onboarding) ensureDrivers(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	return requireDriver(statuses)
+}
+
+func requireDriver(statuses []driverStatus) error {
 	names := make([]string, 0, len(statuses))
 	for _, status := range statuses {
 		if strings.TrimSpace(status.CLIPath) != "" {

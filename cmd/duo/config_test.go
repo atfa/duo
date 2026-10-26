@@ -1191,3 +1191,62 @@ func TestNotifyConfiguration(t *testing.T) {
 		t.Fatalf("the switch did not reach session options: %+v", options.Notify)
 	}
 }
+
+// TestTUIModeConfiguration pins the interface view default: ~/.duo/config.json
+// may set it for every repository, a project file overrides it, and a value the
+// interface cannot draw is an error rather than a silent fall back to timeline.
+func TestTUIModeConfiguration(t *testing.T) {
+	repo := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("DUO_REPO", repo)
+	t.Setenv("HOME", home)
+
+	cfg, err := loadConfig(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.tuiMode != "" {
+		t.Fatalf("with no configuration the interface view is %q, want the interface's own default", cfg.tuiMode)
+	}
+
+	writeHome := func(body string) {
+		t.Helper()
+		if err := os.MkdirAll(filepath.Join(home, ".duo"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(home, ".duo", "config.json"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeProject := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(repo, ".duo.json"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	writeHome(`{"tuiMode": "split"}`)
+	cfg, err = loadConfig(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.tuiMode != "split" {
+		t.Fatalf("the global view default was ignored: %q", cfg.tuiMode)
+	}
+
+	// A project file carrying only this key must count as configured: the
+	// predicate that decides that lists every field by hand.
+	writeProject(`{"tuiMode": "timeline"}`)
+	cfg, err = loadConfig(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.tuiMode != "timeline" {
+		t.Fatalf("the project view %q did not override the global one", cfg.tuiMode)
+	}
+
+	writeProject(`{"tuiMode": "mosaic"}`)
+	if _, err := loadConfig(nil); err == nil {
+		t.Fatal("a view the interface cannot draw must be a config error")
+	}
+}

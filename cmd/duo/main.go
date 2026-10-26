@@ -120,6 +120,13 @@ func main() {
 	if resume {
 		args = args[1:]
 	}
+	// The first-run guide runs before the configuration is loaded, so a global
+	// configuration it creates is the one this launch reads. It refuses a machine
+	// with no agent CLI at all, and asks its questions only where a terminal can
+	// answer them: a headless or scripted launch keeps the errors it always had.
+	if err := maybeGuideFirstRun(ctx, args, resume); err != nil {
+		log.Fatal(err)
+	}
 	var cfg config
 	var err error
 	if resume {
@@ -184,6 +191,10 @@ func run(ctx context.Context, cfg config) error {
 			restoreLog := redirectLog(view.Worktrees.Repository, view.SessionID)
 			defer restoreLog()
 			app := gotui.New(svc)
+			// The view the human configured in ~/.duo/config.json applies unless this
+			// repository already has a saved choice of its own, which the interface
+			// read while it was built.
+			app.SetDefaultView(cfg.tuiMode)
 			// Remote access belongs to this session, not to the process: a pairing
 			// that is still live resumes here, and cancelling the context when the
 			// interface closes stops the relay connection without revoking the
