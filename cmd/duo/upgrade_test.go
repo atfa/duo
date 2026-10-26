@@ -84,13 +84,18 @@ func (f *fakeRelease) archiveDownloads() int {
 
 func releaseArchive(t *testing.T, binary string) []byte {
 	t.Helper()
+	return releaseArchiveNamed(t, "./duo", binary)
+}
+
+func releaseArchiveNamed(t *testing.T, name, binary string) []byte {
+	t.Helper()
 	var buf bytes.Buffer
 	gz := gzip.NewWriter(&buf)
 	tw := tar.NewWriter(gz)
 	// The real workflow packs with `tar -C dist/package -czf … .`, so every entry
 	// carries a "./" prefix. The extractor must not depend on the bare name.
 	body := []byte(binary)
-	if err := tw.WriteHeader(&tar.Header{Name: "./duo", Mode: 0o755, Size: int64(len(body)), Typeflag: tar.TypeReg}); err != nil {
+	if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o755, Size: int64(len(body)), Typeflag: tar.TypeReg}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tw.Write(body); err != nil {
@@ -103,6 +108,20 @@ func releaseArchive(t *testing.T, binary string) []byte {
 		t.Fatal(err)
 	}
 	return buf.Bytes()
+}
+
+// TestExtractBinaryFindsTheWindowsSpelling keeps `duo upgrade` usable on Windows,
+// where the release archive carries duo.exe: the extractor reads the binary under
+// the name the build gives it, not only the name Unix uses.
+func TestExtractBinaryFindsTheWindowsSpelling(t *testing.T) {
+	archive := releaseArchiveNamed(t, "./duo.exe", "windows binary")
+	got, err := extractBinary(bytes.NewReader(archive))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "windows binary" {
+		t.Fatalf("extracted %q, want the archive's duo.exe", got)
+	}
 }
 
 func archiveHash(archive []byte) string {
