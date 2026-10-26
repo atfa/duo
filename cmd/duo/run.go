@@ -150,6 +150,11 @@ func runHeadless(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
+	// A headless round has no interface to report a missing agent through, and
+	// no human to answer a wizard prompt, so only the refusal applies here.
+	if err := checkDrivers(ctx); err != nil {
+		return err
+	}
 	if parsed.modeSet {
 		cfg.mode = parsed.mode
 		cfg.modeRaw = parsed.mode.String()
