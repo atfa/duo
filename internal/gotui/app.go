@@ -147,11 +147,14 @@ type App struct {
 	focusPane   *transcript
 	pendingLink *linkTarget
 
-	clipboard     func(string) error
-	pasteImage    func() (string, error)
-	openURL       func(string) error
-	openFile      func(string) error
-	saveViewPref  func(string, string) error
+	clipboard    func(string) error
+	pasteImage   func() (string, error)
+	openURL      func(string) error
+	openFile     func(string) error
+	saveViewPref func(string, string) error
+	// viewSaved reports that this repository already recorded a view. A saved
+	// choice is the human's own, so it outranks a configured default.
+	viewSaved     bool
 	toast         *toastPanel
 	toastDuration time.Duration
 }
@@ -224,6 +227,9 @@ func New(svc Session) *App {
 		// Language first: the statuses set below are translated through theme.tr.
 		a.applyLanguage()
 		if saved, err := workspace.ProjectTUIView(a.live.Worktrees.Repository); err == nil {
+			if saved != "" {
+				a.viewSaved = true
+			}
 			if saved == "split" {
 				a.viewMode = viewSplit
 			}
@@ -237,6 +243,23 @@ func New(svc Session) *App {
 		a.hadHistory = len(a.entries) > before
 	}
 	return a
+}
+
+// SetDefaultView applies the view configured for this human when this
+// repository has no saved preference of its own. A saved preference always wins:
+// it is the choice the human made in this very interface, while the configured
+// value is only the default for repositories nobody has toggled yet. The default
+// is not written back, so no repository is given a preference it never had.
+func (a *App) SetDefaultView(view string) {
+	if a.viewSaved {
+		return
+	}
+	switch strings.ToLower(strings.TrimSpace(view)) {
+	case "split":
+		a.viewMode = viewSplit
+	case "timeline":
+		a.viewMode = viewTimeline
+	}
 }
 
 func (a *App) setViewMode(mode viewMode) {
