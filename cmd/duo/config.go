@@ -171,8 +171,12 @@ func (c config) sessionOptions() session.Options {
 
 // configFile describes ~/.duo/config.json or .duo/config.json.
 type configFile struct {
-	Mode        string               `json:"mode,omitempty"`
-	Language    string               `json:"language,omitempty"`
+	Mode     string `json:"mode,omitempty"`
+	Language string `json:"language,omitempty"`
+	// TUIMode is the TUI view a session opens on: "timeline" or "split". The
+	// interface records the human's choice under the same key in
+	// .duo/config.json, so a global file can carry the default view here.
+	TUIMode     string               `json:"tuiMode,omitempty"`
 	PiCommand   string               `json:"piCommand,omitempty"`
 	Driver      string               `json:"driver,omitempty"`
 	TestCommand string               `json:"testCommand,omitempty"`
