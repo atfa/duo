@@ -6,6 +6,10 @@
 // it runs no timer, and it never writes workflow state, talks to an agent or owns
 // a phase.
 //
+// One narrower request exists because a human has to be able to find a session
+// again: Title names a session after the first task it was given. It returns a
+// value and nothing else — the session, not the observer, decides to record it.
+//
 // A report answers four human questions: what the task is and how far its
 // decomposition has come, what just finished, what is happening right now, and
 // what comes next. The task and the decomposition cannot come from the event
