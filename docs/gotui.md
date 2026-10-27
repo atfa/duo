@@ -54,6 +54,12 @@ workflow state or makes project transitions:
   `/driver` is available before the first task, while fully paused, or after
   `DONE`: agent tabs, typing filter, a marker on the current driver, and no
   resume when a choice is applied.
+- **Recall.** `/recall` is the destructive twin of `/new`: where `/new` closes
+  and preserves this session, `/recall` stops both agents at once and removes
+  everything the session owned — worktrees, branches, record and transcripts —
+  before a fresh session starts. A confirmation names what would be discarded,
+  and a session that already delivered to the repository is refused; delivered
+  work is undone with `git revert`, not with a recall.
 - **Transcript search.** `Ctrl+F` or `/search [term]` searches the active pane
   case-insensitively and highlights every hit in place, with the current one in
   the accent colour. `Enter` keeps the highlight and hands `n` / `N` to the

@@ -43,6 +43,7 @@ func TestRecallConfirmDefaultsToCancelAndSendsOneRecall(t *testing.T) {
 	for _, want := range []string{
 		"abc1234",
 		"duo/x/austin",
+		"3 commits",
 		"duo/x/tony",
 		"cannot be undone",
 	} {

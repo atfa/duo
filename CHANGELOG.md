@@ -4,6 +4,18 @@ All notable project milestones are documented here.
 
 ## Unreleased
 
+### Recall a session
+
+- `/recall` undoes a session whose instruction itself was wrong: both agents stop
+  immediately, the worktrees, branches, session record and transcripts are
+  removed, and a fresh session starts in the same process. The user's repository
+  was never written to while the session ran, so nothing of theirs needs undoing.
+  A session whose artifact already reached the repository — or whose Step queue
+  landed a step — is refused and named as such; `git revert` is the way back for
+  delivered work. Before anything is deleted, the discarded branch heads are
+  written to `.duo/logs/<session-id>-recall.txt`, so a removed commit can come
+  back with `git branch recovered <sha>`.
+
 ### Remote activity
 
 - The phone's **Activity** tab now shows the same recent lines as the terminal's
