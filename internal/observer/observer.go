@@ -678,7 +678,10 @@ func userPrompt(task, live, log, previous, question string) string {
 // quote: what an agent is doing at this instant comes from the live block, not
 // from an empty line in the log.
 func observable(event events.Event) bool {
-	return strings.TrimSpace(event.Text) != ""
+	// A timeline entry is a projection of an event this window already holds (the
+	// raw event, or the pair it was drawn as), so reading it too would duplicate
+	// every line the observer sees.
+	return event.Kind != events.KindTimeline && strings.TrimSpace(event.Text) != ""
 }
 
 // trimWindow keeps the newest events within both the count and rune budgets.

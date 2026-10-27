@@ -1371,13 +1371,27 @@ func (s *Service) Notices() []string {
 // produce the same durable history as the first.
 func (s *Service) RecordEntry(entry sessionstore.TUIEntry) {
 	s.mu.RLock()
-	defer s.mu.RUnlock()
 	if s.journal != nil {
 		s.journal.RecordTUIEntry(entry)
 	}
 	if s.transcripts != nil {
 		s.transcripts.Append(entry)
 	}
+	s.mu.RUnlock()
+
+	// The line is published after the lock is released, because a subscriber reads
+	// the session back. It carries the text the first frontend just drew, so a
+	// second frontend shows that same line instead of rendering the event behind it
+	// a second way.
+	if entry.Time.IsZero() {
+		entry.Time = time.Now()
+	}
+	s.bus.Emit(events.Event{
+		Time:  entry.Time,
+		Kind:  events.KindTimeline,
+		Agent: protocol.CanonicalAgent(entry.Pane),
+		Text:  entry.Text,
+	})
 }
 
 // Attach hands an agent's process output to w and marks the agent as

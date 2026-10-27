@@ -207,7 +207,7 @@ while the session is live.
   },
   "pause": {"state": "running"},
   "activity": [
-    {"at": 1761000000000, "kind": "assistant", "agent": "austin", "text": "..."}
+    {"at": 1761000000000, "kind": "activity", "agent": "tony", "text": "tests now pass"}
   ],
   "observer": {"analyzing": false, "reports": [{"at": 1761000000000, "text": "..."}]},
   "catalog": {"agent": "austin", "loading": false, "models": ["openai/gpt-5", "google/gemini-3.8-flash-high"], "total": 2},
@@ -226,6 +226,15 @@ the interface's driver panel shows. `state` is the driver process state —
 session runs no driver for that agent. The page draws its indicator from these
 fields: green for attached and idle, blue for working, grey for not attached
 yet (a normal moment during startup), and red only for `failed`.
+
+`activity` is the newest recorded interface timeline entries, oldest first, at
+most 12: the same lines the terminal's Conversation view draws, one entry per
+line, with the speaker in `agent` (`austin`, `tony` or `duo`) and `kind` one of
+`activity`, `error` or `verdict`. The host reads them from the session's own
+timeline instead of rebuilding them from events, so the phone and the terminal
+cannot disagree and a phone that joins late reads the same list. `at` is the
+entry's time in milliseconds. `text` fields are truncated by the host before
+encryption, and the page renders them as text, never as HTML.
 
 `command` is the host's answer to the last command it received, addressed by
 its `id`. A refusal is reported, not swallowed: `accepted: false` with a `note`
@@ -250,21 +259,24 @@ an answer, not a failure. A page that receives no `catalog` at all keeps the lis
 it already has: the host drops it before it drops the rest of a snapshot that
 would not fit one frame.
 
-`text` fields are truncated by the host before encryption. The page renders
-them as text, never as HTML.
-
 ### `event`
 
 An incremental update, so a live session does not republish a whole snapshot per
 keystroke:
 
 ```json
-{"v":1,"n":8,"at":1761000000000,"kind":"activity","agent":"tony","text":"..."}
+{"v":1,"n":8,"at":1761000000000,"kind":"activity","agent":"tony","text":"tests now pass"}
 ```
 
-`kind` is one of `activity`, `phase`, `agent`, `observer`, `delivery`. A guest
-that cannot apply an event (unknown kind, missing context) may simply wait for
-the next `state`; the host republishes one after a reconnect.
+`kind` is one of `activity`, `phase`, `agent`, `observer`, `delivery`. The host
+sends `activity` once for each timeline entry the interface records, with the
+same `agent` and `text` the state's `activity` list carries: the rendered line,
+not the raw event behind it, because a verdict is drawn as two lines and some
+kinds are prefixed. The raw conversation events are not relayed separately, so
+the phone never shows a line twice. `phase`, `agent`, `observer` and `delivery`
+are reserved for a host that publishes one change as an event instead of a whole
+snapshot. A guest that cannot apply an event (unknown kind, missing context) may
+simply wait for the next `state`; the host republishes one after a reconnect.
 
 ### `cmd`
 

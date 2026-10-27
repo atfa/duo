@@ -2,6 +2,19 @@
 
 All notable project milestones are documented here.
 
+## Unreleased
+
+### Remote activity
+
+- The phone's **Activity** tab now shows the same recent lines as the terminal's
+  Conversation view. The host published only the entries a resume had restored,
+  so a live session sent an empty list — and every republished snapshot wiped the
+  lines the page had accumulated. The session now keeps the tail of the timeline
+  entries it records, publishes them in the snapshot, and emits one event per
+  recorded line, so a second frontend shows the line the terminal drew instead of
+  rendering the event behind it again. Snapshot lines from the Duo pane also keep
+  their speaker instead of an empty agent.
+
 ## v0.14.5 — 2026-10-27
 
 ### First-run guide

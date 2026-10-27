@@ -290,18 +290,19 @@ func (m *remoteManager) watch(ctx context.Context, client *remote.Client) {
 			if !ok {
 				return
 			}
-			// A conversation line is cheap and frequent, so it goes out as an
-			// event; anything that changes the workflow goes out as a whole
-			// snapshot, which is the one thing a phone can always render.
-			if kind := eventKind(ev.Kind); kind != "" {
+			switch publishFor(ev.Kind) {
+			case publishLine:
 				client.PublishEvent(remote.Event{
-					Kind:  kind,
+					Kind:  remote.EventActivity,
 					Agent: agentKey(ev.Agent),
 					Text:  clip(ev.Text, 240),
 				})
-				continue
+			case publishNothing:
+			default:
+				// Anything that changes the workflow goes out as a whole snapshot,
+				// which is the one thing a phone can always render.
+				client.PublishState()
 			}
-			client.PublishState()
 		}
 	}
 }
@@ -311,14 +312,33 @@ func (m *remoteManager) watch(ctx context.Context, client *remote.Client) {
 // on-demand, and a report is worth waiting a few seconds for, not streaming.
 const observerReportPoll = 5 * time.Second
 
-// eventKind maps a session event to the incremental update a phone applies, or
-// returns "" when the change needs a full snapshot.
-func eventKind(kind events.Kind) string {
+// eventPublish is what one session event means to a phone.
+type eventPublish int
+
+const (
+	// publishSnapshot republishes the whole state.
+	publishSnapshot eventPublish = iota
+	// publishLine appends one conversation line to the phone's activity feed.
+	publishLine
+	// publishNothing drops the event: the phone already has what it says.
+	publishNothing
+)
+
+// publishFor maps a session event onto the update the phone needs.
+//
+// The interface draws a conversation line as a timeline entry and records it, so
+// KindTimeline is what carries that line to a second frontend: relaying the raw
+// event as well would show the same line twice, and the entry is also the more
+// faithful copy — the interface adds a prefix to some kinds and draws a verdict
+// as two lines.
+func publishFor(kind events.Kind) eventPublish {
 	switch kind {
+	case events.KindTimeline:
+		return publishLine
 	case events.KindAssistant, events.KindPeer, events.KindUser, events.KindSystem, events.KindError, events.KindVerdict:
-		return remote.EventActivity
+		return publishNothing
 	}
-	return ""
+	return publishSnapshot
 }
 
 // agentKey is the wire spelling of an agent: the phone addresses its agents as

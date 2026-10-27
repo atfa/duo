@@ -452,25 +452,30 @@ func TestRemoteCatalogReadsEachAgentIndependently(t *testing.T) {
 
 // A conversation line is cheap and frequent, so it goes out as an event; a
 // workflow change must go out as a whole snapshot, which is the one thing a
-// phone can always render.
-func TestEventKindSplitsEventsFromSnapshots(t *testing.T) {
+// phone can always render. The line itself is the one the interface recorded:
+// the raw event behind it is dropped, because the entry is what a second
+// frontend must show.
+func TestPublishForSplitsLinesFromSnapshots(t *testing.T) {
 	cases := []struct {
 		kind events.Kind
-		want string
+		want eventPublish
 	}{
-		{events.KindAssistant, remote.EventActivity},
-		{events.KindPeer, remote.EventActivity},
-		{events.KindUser, remote.EventActivity},
-		{events.KindVerdict, remote.EventActivity},
-		{events.KindError, remote.EventActivity},
-		{events.KindAttention, ""},
-		{events.KindHarness, ""},
-		{events.KindModel, ""},
-		{events.KindThinking, ""},
+		{events.KindTimeline, publishLine},
+		{events.KindAssistant, publishNothing},
+		{events.KindPeer, publishNothing},
+		{events.KindUser, publishNothing},
+		{events.KindSystem, publishNothing},
+		{events.KindError, publishNothing},
+		{events.KindVerdict, publishNothing},
+		{events.KindActivity, publishSnapshot},
+		{events.KindHarness, publishSnapshot},
+		{events.KindAttention, publishSnapshot},
+		{events.KindModel, publishSnapshot},
+		{events.KindThinking, publishSnapshot},
 	}
 	for _, tc := range cases {
-		if got := eventKind(tc.kind); got != tc.want {
-			t.Errorf("eventKind(%s) = %q, want %q", tc.kind, got, tc.want)
+		if got := publishFor(tc.kind); got != tc.want {
+			t.Errorf("publishFor(%s) = %v, want %v", tc.kind, got, tc.want)
 		}
 	}
 }

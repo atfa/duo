@@ -91,6 +91,12 @@ test("the session tab shows the step, the agents, the observer and the plan", ()
   assert.match(panel("activity"), /id="activity"/);
 });
 
+// The phone's feed is the terminal's conversation, not a second log: saying so is
+// what makes the tab readable when it is empty and trustworthy when it is not.
+test("the activity tab says it mirrors the terminal conversation", () => {
+  assert.match(panel("activity"), /Conversation/);
+});
+
 // The header keeps a short counter and a progress bar, because the long step
 // string wraps a four-up vitals strip and pushes the tabs down the screen.
 test("the sticky header carries the short vitals and the step progress", () => {

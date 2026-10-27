@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atfa/duo/internal/agent"
 	"github.com/atfa/duo/internal/events"
@@ -468,6 +469,45 @@ func testSessionStore(t *testing.T) *sessionstore.Store {
 
 // errorsIn drains the events of one kind a session published, so a test can ask
 // what the human would have been shown.
+// The terminal draws a conversation line and records it, and that recorded line
+// is what a second frontend must show: the event carries the rendered text and
+// the pane it belongs to, so the phone cannot re-render the raw event its own way.
+func TestRecordedEntryIsPublishedAsATimelineEvent(t *testing.T) {
+	cases := []struct {
+		pane string
+		want protocol.AgentID
+	}{
+		{"Tony", protocol.Tony},
+		{"Duo", protocol.Duo},
+	}
+	for _, tc := range cases {
+		svc := &Service{bus: events.NewBus()}
+		ch, cancel := svc.bus.Subscribe(4)
+
+		at := time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
+		svc.RecordEntry(sessionstore.TUIEntry{Time: at, Pane: tc.pane, Text: "VERIFY — issue found:\nmissing test"})
+
+		select {
+		case ev := <-ch:
+			if ev.Kind != events.KindTimeline {
+				t.Errorf("%s: event kind = %q, want %q", tc.pane, ev.Kind, events.KindTimeline)
+			}
+			if ev.Agent != tc.want {
+				t.Errorf("%s: event agent = %q, want %q", tc.pane, ev.Agent, tc.want)
+			}
+			if ev.Text != "VERIFY — issue found:\nmissing test" {
+				t.Errorf("%s: event text = %q, want the recorded line", tc.pane, ev.Text)
+			}
+			if !ev.Time.Equal(at) {
+				t.Errorf("%s: event time = %v, want the entry time %v", tc.pane, ev.Time, at)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("%s: recording an entry published no timeline event", tc.pane)
+		}
+		cancel()
+	}
+}
+
 func errorsIn(ch <-chan events.Event) []string {
 	var found []string
 	for len(ch) > 0 {

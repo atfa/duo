@@ -34,6 +34,23 @@ func TestAssistantEventSummaryFlagMarksTheReport(t *testing.T) {
 	}
 }
 
+// A second frontend records the very line the terminal drew. The terminal must
+// not draw that entry event again, or every conversation line appears twice.
+func TestTimelineEntryEventIsNotDrawnASecondTime(t *testing.T) {
+	fake := newFakeSession()
+	app := New(fake)
+	before := len(app.entries)
+
+	app.route(events.Event{Time: time.Now(), Kind: events.KindTimeline, Agent: protocol.Tony, Text: "tests now pass"})
+
+	if got := len(app.entries) - before; got != 0 {
+		t.Fatalf("timeline gained %d entries from a timeline entry event, want 0", got)
+	}
+	if len(fake.recorded) != 0 {
+		t.Fatalf("the interface recorded %d entries it did not draw, want 0", len(fake.recorded))
+	}
+}
+
 // A reopened session reads the mark back from the log, so the badge survives the
 // interface being restarted.
 func TestRestoredEntryKeepsTheSummaryMark(t *testing.T) {

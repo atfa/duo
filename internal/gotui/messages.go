@@ -11,6 +11,12 @@ import (
 )
 
 func (a *App) route(event events.Event) {
+	// A timeline entry event names a line this interface has already drawn: it
+	// records an entry when it draws one. Drawing the event again would duplicate
+	// that entry. The event exists so a second frontend shows the same line.
+	if event.Kind == events.KindTimeline {
+		return
+	}
 	// An attention event carries a reason code and no prose: it exists to reach the
 	// human over the terminal, not to join the conversation.
 	if event.Kind == events.KindAttention {

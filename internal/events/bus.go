@@ -27,6 +27,13 @@ const (
 	KindModel Kind = "model"
 	// KindThinking reports an agent's active Pi thinking level.
 	KindThinking Kind = "thinking"
+	// KindTimeline reports that a frontend recorded one interface timeline entry.
+	// It carries the rendered line (Agent is the pane, Text the line) rather than
+	// the raw event it was drawn from, because a second frontend — the phone — has
+	// to show exactly what the terminal shows instead of rebuilding it from events
+	// with its own formatting. The entry itself is read back from the session view;
+	// this event only carries the newest line.
+	KindTimeline Kind = "timeline"
 	// KindAttention is the one event that says a human must act now: a merge
 	// conflict, a result that could not be delivered, a Fast verification nobody
 	// answers, Austin's finished report. It carries a reason code rather than prose

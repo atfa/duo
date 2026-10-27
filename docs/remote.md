@@ -54,7 +54,10 @@ second scan.
 The page itself is one screen with three tabs under a header that always shows
 mode, phase, step and expiry: **Session** holds the current step, the agents,
 the observer's report and the shared plan (folded away until asked for),
-**Activity** holds recent activity newest-first, and **Settings** holds the
+**Activity** holds the newest lines of the terminal's Conversation view, newest
+first — the same speaker, time and text the dashboard shows, because the host
+publishes the entries the interface recorded rather than a second rendering of
+the events behind them — and **Settings** holds the
 controls that are touched rarely — mode, new session, drivers, the model picker
 and the pairing details. The composer is pinned to the bottom edge above the
 home indicator, so a task can be typed at any moment without scrolling, and the

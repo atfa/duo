@@ -701,3 +701,14 @@ func TestFileSettingsKeepsCustomValuesAndDropsDefaults(t *testing.T) {
 		t.Fatalf("round trip changed the configuration: %+v", roundTrip)
 	}
 }
+
+// The timeline entry event is a projection of a line this window already holds,
+// so keeping it would send every conversation line to the model twice.
+func TestObservableSkipsTimelineEntries(t *testing.T) {
+	if observable(events.Event{Kind: events.KindTimeline, Agent: protocol.Austin, Text: "tests now pass"}) {
+		t.Error("a timeline entry event was kept in the observer window")
+	}
+	if !observable(events.Event{Kind: events.KindAssistant, Agent: protocol.Austin, Text: "tests now pass"}) {
+		t.Error("the raw event the entry was drawn from was dropped")
+	}
+}
