@@ -94,6 +94,25 @@ func TestPluginBinarySpeaksTheProtocol(t *testing.T) {
 		}
 		return
 	}
+	// Being installed is not the same as being usable: opencode activates plugins
+	// per location, and a location whose activation has not finished answers
+	// `models` with ServiceUnavailableError. That is the state of the machine
+	// rather than a property of the plugin, so the CLI is asked first — gating on
+	// the plugin's own call would let a broken models method excuse itself.
+	out, cliErr := exec.CommandContext(ctx, probe.AgentPath, "models").CombinedOutput()
+	if cliErr != nil {
+		t.Logf("opencode cannot list models on this machine, so the catalog is unverified: %v: %s",
+			cliErr, strings.TrimSpace(string(out)))
+		return
+	}
+	// An exit code alone does not tell you the CLI can enumerate, so what it printed
+	// is parsed with the plugin's own parser. The parse itself is pinned by fixture
+	// tests that never involve this subprocess.
+	if parsed, perr := opencode.ParseModels(string(out)); perr != nil || len(parsed) == 0 {
+		t.Logf("opencode printed no usable catalog on this machine, so the catalog is unverified: %s",
+			strings.TrimSpace(string(out)))
+		return
+	}
 	if _, err := c.Models(ctx); err != nil {
 		t.Fatalf("models: %v", err)
 	}
