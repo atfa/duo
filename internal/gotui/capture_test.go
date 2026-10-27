@@ -13,9 +13,9 @@ import (
 	"github.com/atfa/duo/internal/harness"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
-	"github.com/atfa/duo/internal/version"
 	"github.com/atfa/duo/internal/session"
 	"github.com/atfa/duo/internal/sessionstore"
+	"github.com/atfa/duo/internal/version"
 	"github.com/gdamore/tcell/v3"
 	ui "github.com/metaspartan/gotui/v5"
 )
