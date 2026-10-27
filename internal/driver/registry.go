@@ -204,6 +204,10 @@ var reservedExecutables = map[string]bool{
 	"duo":             true,
 	"duo-mcp-server":  true,
 	"duo-plugin-test": true,
+	// A formerly shipped example driver may remain in an older installation.
+	"duo-plugin-example": true,
+	"duo-driver-example": true,
+	"duo-example":        true,
 }
 
 // driverNameFromExecutable extracts a driver name from a plugin file name, or

@@ -29,7 +29,7 @@ func TestDriverNameFromExecutable(t *testing.T) {
 }
 
 func TestReservedExecutablesAreNotPlugins(t *testing.T) {
-	for _, file := range []string{"duo", "duo-mcp-server"} {
+	for _, file := range []string{"duo", "duo-mcp-server", "duo-plugin-example", "duo-driver-example", "duo-example"} {
 		if got := driverNameFromExecutable(file); got != "" {
 			t.Errorf("%q was read as driver %q; Duo's own commands must never be plugins", file, got)
 		}
@@ -213,14 +213,14 @@ func TestResolvePrefersTheExecutableOverTheBuiltin(t *testing.T) {
 // path it prints is the one that will be executed, not a leftover from another
 // install.
 func TestDiscoverReportsWhicheverImplementationRuns(t *testing.T) {
-	t.Cleanup(func() { unregisterForTest("example") })
+	t.Cleanup(func() { unregisterForTest("sample") })
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("PATH", t.TempDir())
-	Register("example", func() Handler { return noopDriver{} })
+	Register("sample", func() Handler { return noopDriver{} })
 
 	entries := Discover()
-	if len(entries) != 1 || entries[0].Name != "example" || entries[0].Path != BuiltInSource {
+	if len(entries) != 1 || entries[0].Name != "sample" || entries[0].Path != BuiltInSource {
 		t.Fatalf("Discover() = %+v, want the in-process driver", entries)
 	}
 
@@ -228,7 +228,7 @@ func TestDiscoverReportsWhicheverImplementationRuns(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	plugin := filepath.Join(dir, "duo-plugin-example")
+	plugin := filepath.Join(dir, "duo-plugin-sample")
 	if err := os.WriteFile(plugin, nil, 0o755); err != nil {
 		t.Fatal(err)
 	}
