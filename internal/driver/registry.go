@@ -193,6 +193,11 @@ func nameRank(driver, file string) int {
 // would refuse to run a real plugin.
 func IsLegacyShim(path string) bool {
 	name := filepath.Base(path)
+	// The obsolete example shim is hidden from discovery but still needs the
+	// same fallback behavior if explicitly selected.
+	if trimExecutableSuffix(name) == "duo-example" {
+		return true
+	}
 	return driverNameFromExecutable(name) != "" &&
 		!strings.HasPrefix(name, "duo-plugin-") &&
 		!strings.HasPrefix(name, "duo-driver-")

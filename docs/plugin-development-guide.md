@@ -70,6 +70,9 @@ first link at the top.
 Your driver name is `<name>`, and your executable must be `duo-plugin-<name>`.
 `codex`, `claude`, `qoder` are all fine. `duo`, `duo-mcp-server` and `duo-plugin-test`
 are reserved.
+Do not use `example`: `duo-plugin-example`, `duo-driver-example` and `duo-example`
+are reserved for obsolete example executables left by older installations and are
+not listed by discovery.
 
 ### Pick a language
 
@@ -513,7 +516,7 @@ distribution story.
 
 ## Checklist
 
-- [ ] Executable is named `duo-plugin-<name>`; not `duo`, `duo-mcp-server` or `duo-plugin-test`
+- [ ] Executable is named `duo-plugin-<name>`; not `duo`, `duo-mcp-server`, `duo-plugin-test`, `duo-plugin-example`, `duo-driver-example` or `duo-example` (the example names are reserved for obsolete installations)
 - [ ] `describe` returns `protocol: 1`, a name, and a `resume` mode
 - [ ] Every declared capability has working code behind it
 - [ ] `capabilities.tools` declares exactly the tool names the launch command exposes (empty when `mcp` is false)

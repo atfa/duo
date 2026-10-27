@@ -79,6 +79,9 @@ Two rules about names:
 
 - `duo`, `duo-mcp-server` and `duo-plugin-test` are reserved. Core will never read
   them as plugins.
+- `duo-plugin-example`, `duo-driver-example` and `duo-example` are reserved for
+  obsolete example executables that may remain from older installations; discovery
+  does not list them. Do not name a driver `example`.
 - A non-executable file is not a plugin, however well it is named.
 
 `duo plugins` lists everything Core can see, and prints the executable that will

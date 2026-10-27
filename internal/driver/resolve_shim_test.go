@@ -43,6 +43,17 @@ func TestResolveIgnoresALegacyShim(t *testing.T) {
 	}
 }
 
+func TestResolveIgnoresObsoleteExampleShim(t *testing.T) {
+	bin := t.TempDir()
+	legacyShim(t, bin, "duo-example")
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("PATH", bin)
+	_, err := Resolve(context.Background(), "example", nil, nil)
+	if _, ok := err.(*NotFoundError); !ok {
+		t.Fatalf("Resolve(example) error = %v, want NotFoundError", err)
+	}
+}
+
 // TestResolvePrefersTheCanonicalPluginOverAShim covers the ordinary upgrade: both
 // present, and the real plugin must win.
 func TestResolvePrefersTheCanonicalPluginOverAShim(t *testing.T) {
