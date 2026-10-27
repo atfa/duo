@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLaunchRequestSeparatesRestoringSessionFromWake(t *testing.T) {
@@ -128,12 +129,21 @@ func TestContractRejectsSomethingThatIsNotAPlugin(t *testing.T) {
 	}
 	dir := t.TempDir()
 
-	// A program that ignores stdin and prints nothing.
+	// A program that answers nothing. It drains its stdin so the test measures the
+	// call deadline rather than Close's grace period for a process that ignores
+	// EOF, which is a production path of its own. The deadline is the test's, well
+	// under StartTimeout: waiting that out per call to learn a silent binary is
+	// silent is what made this package take a minute.
 	silent := filepath.Join(dir, "duo-plugin-silent")
-	if err := os.WriteFile(silent, []byte("#!/bin/sh\nsleep 30\n"), 0o700); err != nil {
+	if err := os.WriteFile(silent, []byte("#!/bin/sh\ncat >/dev/null\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	report := RunContract(context.Background(), silent, dir)
+	const timeout = 200 * time.Millisecond
+	started := time.Now()
+	report := RunContractWithTimeout(context.Background(), silent, dir, timeout)
+	if elapsed := time.Since(started); elapsed > 3*time.Second {
+		t.Errorf("the contract waited %v for a plugin that never answers, so it did not use the %v deadline", elapsed, timeout)
+	}
 	if !report.Failed {
 		t.Errorf("a plugin that never answers passed the contract:\n%s", report.Format())
 	}
@@ -291,6 +301,11 @@ func TestLegacyShimIsDistinguishedFromABrokenPlugin(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// Discovery also sweeps PATH. Narrow it to this test's own directory: a
+	// checkout that has the shipped plugins installed must not turn this test into
+	// a contract run against every one of them, which is what it used to do (and
+	// what made it take 26s on a developer machine while CI took under a second).
+	t.Setenv("PATH", home)
 	// Two driver names: discovery keeps one implementation per name, so a shim and
 	// a real plugin cannot share one.
 	shim := filepath.Join(dir, "duo-oldstyle")

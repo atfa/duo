@@ -87,6 +87,15 @@ func (r *Report) skip(name, format string, args ...any) {
 //
 // workDir is a scratch directory for anything the checks need on disk.
 func RunContract(ctx context.Context, path, workDir string) Report {
+	return RunContractWithTimeout(ctx, path, workDir, StartTimeout)
+}
+
+// RunContractWithTimeout is RunContract with the per-call deadline of the caller's
+// choosing. The shipped deadline is sized for a plugin whose methods shell out to a
+// real agent CLI; a caller that checks a plugin which answers nothing at all must not
+// inherit that patience, or it waits out the whole deadline to learn what one call
+// said.
+func RunContractWithTimeout(ctx context.Context, path, workDir string, timeout time.Duration) Report {
 	started := time.Now()
 	report := Report{Path: path}
 
@@ -101,7 +110,7 @@ func RunContract(ctx context.Context, path, workDir string) Report {
 	}
 	report.add("executable", true, "%s", abs)
 
-	client, err := StartWithTimeout(ctx, filepath.Base(abs), abs, nil, nil, StartTimeout)
+	client, err := StartWithTimeout(ctx, filepath.Base(abs), abs, nil, nil, timeout)
 	if err != nil {
 		report.add("start", false, "%v", err)
 		return report
