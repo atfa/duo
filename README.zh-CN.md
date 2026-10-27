@@ -25,7 +25,7 @@ Duo 运行于 macOS、Linux 与 Windows（需要 Windows 10 1809 或更新版本
 
 ## 安装
 
-**最新发布版 v0.14.4**（macOS/Linux/Windows，amd64；macOS/Linux 另有 arm64）：
+**最新发布版 v0.14.5**（macOS/Linux/Windows，amd64；macOS/Linux 另有 arm64）：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash

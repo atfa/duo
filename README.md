@@ -27,7 +27,7 @@ On a first run `duo` checks that it can start before it opens the dashboard, and
 
 ## Install
 
-**Latest published release v0.14.4** (macOS/Linux/Windows, amd64, plus arm64 on macOS/Linux):
+**Latest published release v0.14.5** (macOS/Linux/Windows, amd64, plus arm64 on macOS/Linux):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash
