@@ -31,6 +31,7 @@ type fakeRoom struct {
 	guests    map[*fakePeer]bool
 	msgs      []frame
 	cmds      map[string]bool
+	pings     int
 }
 
 type fakePeer struct {
@@ -296,6 +297,11 @@ func (r *fakeRelay) servePeer(peer *fakePeer) {
 			}
 		case frameAck, framePing:
 			if f.T == framePing {
+				r.mu.Lock()
+				if room := r.rooms[peer.room]; room != nil {
+					room.pings++
+				}
+				r.mu.Unlock()
 				peer.send(frame{T: framePong})
 			}
 		default:
@@ -403,6 +409,18 @@ func (r *fakeRelay) published(roomID string) int {
 		return 0
 	}
 	return len(stored.msgs)
+}
+
+// pings counts the keepalives a room's host has sent, which is the only
+// observable evidence that the interval reached the ticker.
+func (r *fakeRelay) pings(roomID string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	stored, ok := r.rooms[roomID]
+	if !ok {
+		return 0
+	}
+	return stored.pings
 }
 
 // sendPresence mirrors the relay's own frame. The page reads it to know whether

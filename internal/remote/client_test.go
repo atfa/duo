@@ -165,6 +165,22 @@ func testPairing(t *testing.T, relay *fakeRelay) Pairing {
 	return p
 }
 
+// testOptions is what every client test builds from. The shipped intervals are
+// sized for a phone network; a suite that waits a full second per published
+// state is why this package used to take 23s, so tests inject short ones.
+//
+// The push window stays a tenth of a second rather than a millisecond on
+// purpose: publishing coalesces, so a test that reads "the next state" expects
+// the changes it just made to arrive in one frame. With a millisecond window the
+// ticker fires between a test's own steps and the phone reads the previous
+// state. Production makes the same assumption with a second.
+func testOptions(opts Options) Options {
+	opts.PushInterval = 100 * time.Millisecond
+	opts.KeepalivePeriod = 20 * time.Millisecond
+	opts.ReadIdleTimeout = 5 * time.Second
+	return opts
+}
+
 func staticState(project string) func() State {
 	return func() State {
 		return State{
@@ -231,7 +247,7 @@ func sendCommand(t *testing.T, guest *fakePeer, p Pairing, id, kind, text string
 func TestRegisterCompletesBeforePairingCanBeShown(t *testing.T) {
 	relay := newFakeRelay(t)
 	pairing := testPairing(t, relay)
-	client, err := New(Options{Pairing: pairing, Sink: &fakeSink{}, Snapshot: staticState("register")})
+	client, err := New(testOptions(Options{Pairing: pairing, Sink: &fakeSink{}, Snapshot: staticState("register")}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,14 +267,14 @@ func TestClientPublishesStateAndRunsAnAuthenticatedCommand(t *testing.T) {
 	relay := newFakeRelay(t)
 	p := testPairing(t, relay)
 	sink := &fakeSink{}
-	c, err := New(Options{
+	c, err := New(testOptions(Options{
 		Pairing:   p,
 		Sink:      sink,
 		Snapshot:  staticState("duo"),
 		RetryBase: 20 * time.Millisecond,
 		RetryMax:  100 * time.Millisecond,
 		Logf:      t.Logf,
-	})
+	}))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -291,14 +307,14 @@ func TestClientDropsForgedStaleAndRepeatedCommands(t *testing.T) {
 	relay := newFakeRelay(t)
 	p := testPairing(t, relay)
 	sink := &fakeSink{}
-	c, err := New(Options{
+	c, err := New(testOptions(Options{
 		Pairing:   p,
 		Sink:      sink,
 		Snapshot:  staticState("duo"),
 		RetryBase: 20 * time.Millisecond,
 		RetryMax:  100 * time.Millisecond,
 		Logf:      t.Logf,
-	})
+	}))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -343,14 +359,14 @@ func TestClientReconnectsAndRepublishes(t *testing.T) {
 	relay := newFakeRelay(t)
 	p := testPairing(t, relay)
 	sink := &fakeSink{}
-	c, err := New(Options{
+	c, err := New(testOptions(Options{
 		Pairing:   p,
 		Sink:      sink,
 		Snapshot:  staticState("duo"),
 		RetryBase: 20 * time.Millisecond,
 		RetryMax:  100 * time.Millisecond,
 		Logf:      t.Logf,
-	})
+	}))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -375,14 +391,14 @@ func TestClientStopsWhenTheRoomIsRevoked(t *testing.T) {
 	relay := newFakeRelay(t)
 	p := testPairing(t, relay)
 	sink := &fakeSink{}
-	c, err := New(Options{
+	c, err := New(testOptions(Options{
 		Pairing:   p,
 		Sink:      sink,
 		Snapshot:  staticState("duo"),
 		RetryBase: 20 * time.Millisecond,
 		RetryMax:  100 * time.Millisecond,
 		Logf:      t.Logf,
-	})
+	}))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -399,13 +415,13 @@ func TestRoomsAreIsolated(t *testing.T) {
 	relay := newFakeRelay(t)
 	pAlpha := testPairing(t, relay)
 	pBeta := testPairing(t, relay)
-	alpha, err := New(Options{Pairing: pAlpha, Sink: &fakeSink{}, Snapshot: staticState("alpha"),
-		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf})
+	alpha, err := New(testOptions(Options{Pairing: pAlpha, Sink: &fakeSink{}, Snapshot: staticState("alpha"),
+		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf}))
 	if err != nil {
 		t.Fatalf("New alpha: %v", err)
 	}
-	beta, err := New(Options{Pairing: pBeta, Sink: &fakeSink{}, Snapshot: staticState("beta"),
-		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf})
+	beta, err := New(testOptions(Options{Pairing: pBeta, Sink: &fakeSink{}, Snapshot: staticState("beta"),
+		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf}))
 	if err != nil {
 		t.Fatalf("New beta: %v", err)
 	}
@@ -479,8 +495,8 @@ func TestPublishedStateCarriesTheCommandResult(t *testing.T) {
 			relay := newFakeRelay(t)
 			p := testPairing(t, relay)
 			sink := &fakeSink{}
-			c, err := New(Options{Pairing: p, Sink: sink, Snapshot: staticState("duo"),
-				RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf})
+			c, err := New(testOptions(Options{Pairing: p, Sink: sink, Snapshot: staticState("duo"),
+				RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf}))
 			if err != nil {
 				t.Fatalf("New: %v", err)
 			}
@@ -518,8 +534,8 @@ func TestSwitchModeReachesTheSinkAndReportsRefusals(t *testing.T) {
 	relay := newFakeRelay(t)
 	p := testPairing(t, relay)
 	sink := &fakeSink{}
-	c, err := New(Options{Pairing: p, Sink: sink, Snapshot: staticState("duo"),
-		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf})
+	c, err := New(testOptions(Options{Pairing: p, Sink: sink, Snapshot: staticState("duo"),
+		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf}))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -564,8 +580,8 @@ func TestPauseCommandReachesSink(t *testing.T) {
 	relay := newFakeRelay(t)
 	p := testPairing(t, relay)
 	sink := &fakeSink{}
-	c, err := New(Options{Pairing: p, Sink: sink, Snapshot: staticState("duo"),
-		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf})
+	c, err := New(testOptions(Options{Pairing: p, Sink: sink, Snapshot: staticState("duo"),
+		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf}))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -603,8 +619,8 @@ func TestUnknownCommandRefused(t *testing.T) {
 	relay := newFakeRelay(t)
 	p := testPairing(t, relay)
 	sink := &fakeSink{}
-	c, err := New(Options{Pairing: p, Sink: sink, Snapshot: staticState("duo"),
-		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf})
+	c, err := New(testOptions(Options{Pairing: p, Sink: sink, Snapshot: staticState("duo"),
+		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf}))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -659,8 +675,8 @@ func TestSetDriverReachesTheSinkAndRefusesBadText(t *testing.T) {
 	relay := newFakeRelay(t)
 	p := testPairing(t, relay)
 	sink := &fakeSink{}
-	c, err := New(Options{Pairing: p, Sink: sink, Snapshot: staticState("duo"),
-		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf})
+	c, err := New(testOptions(Options{Pairing: p, Sink: sink, Snapshot: staticState("duo"),
+		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf}))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -738,8 +754,8 @@ func TestCatalogAndSetModelReachTheSink(t *testing.T) {
 	relay := newFakeRelay(t)
 	p := testPairing(t, relay)
 	sink := &fakeSink{}
-	c, err := New(Options{Pairing: p, Sink: sink, Snapshot: staticState("duo"),
-		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf})
+	c, err := New(testOptions(Options{Pairing: p, Sink: sink, Snapshot: staticState("duo"),
+		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf}))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -794,8 +810,8 @@ func TestRepeatedCommandIsReportedAsAlreadyExecuted(t *testing.T) {
 	relay := newFakeRelay(t)
 	p := testPairing(t, relay)
 	sink := &fakeSink{}
-	c, err := New(Options{Pairing: p, Sink: sink, Snapshot: staticState("duo"),
-		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf})
+	c, err := New(testOptions(Options{Pairing: p, Sink: sink, Snapshot: staticState("duo"),
+		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf}))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -827,7 +843,13 @@ func TestRepeatedCommandIsReportedAsAlreadyExecuted(t *testing.T) {
 		t.Errorf("the repeated command ran %d times, want 1", len(tasks))
 	}
 	c.PublishState()
-	next := guest.nextState(t, p, 5*time.Second)
+	// States published before the refusal may still be in flight: the pacing is
+	// injected short here, so the phone reads a stream. The refusal is what must
+	// arrive, not the very next frame.
+	var next State
+	for i := 0; i < 5 && (next.Command == nil || next.Command.Accepted); i++ {
+		next = guest.nextState(t, p, 5*time.Second)
+	}
 	if next.Command == nil || next.Command.Accepted {
 		t.Fatalf("the repeated command was not reported as refused: %+v", next.Command)
 	}
@@ -840,8 +862,8 @@ func TestEventPushReachesTheGuest(t *testing.T) {
 	relay := newFakeRelay(t)
 	p := testPairing(t, relay)
 	sink := &fakeSink{}
-	c, err := New(Options{Pairing: p, Sink: sink, Snapshot: staticState("duo"),
-		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf})
+	c, err := New(testOptions(Options{Pairing: p, Sink: sink, Snapshot: staticState("duo"),
+		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf}))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -882,8 +904,8 @@ func TestHostTakeoverKeepsTheGuestConnected(t *testing.T) {
 	relay := newFakeRelay(t)
 	p := testPairing(t, relay)
 	firstSink := &fakeSink{}
-	first, err := New(Options{Pairing: p, Sink: firstSink, Snapshot: staticState("session-one"),
-		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf})
+	first, err := New(testOptions(Options{Pairing: p, Sink: firstSink, Snapshot: staticState("session-one"),
+		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf}))
 	if err != nil {
 		t.Fatalf("New first: %v", err)
 	}
@@ -897,8 +919,8 @@ func TestHostTakeoverKeepsTheGuestConnected(t *testing.T) {
 
 	// The relaunched process: same pairing, new session id, new socket.
 	secondSink := &fakeSink{}
-	second, err := New(Options{Pairing: p, Sink: secondSink, Snapshot: staticState("session-two"),
-		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf})
+	second, err := New(testOptions(Options{Pairing: p, Sink: secondSink, Snapshot: staticState("session-two"),
+		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf}))
 	if err != nil {
 		t.Fatalf("New second: %v", err)
 	}
@@ -948,14 +970,50 @@ func (l *logRecorder) contains(substr string) bool {
 	return false
 }
 
+// The intervals the phone sees are production's. The short ones above are a test
+// fixture, so the shipped values are stated once here: a change to them is a
+// change to the relay's daily frame budget and to how fast a dead socket is
+// noticed, not a test detail.
+func TestShippedIntervalsAreThePhoneFacingOnes(t *testing.T) {
+	relay := newFakeRelay(t)
+	c, err := New(Options{Pairing: testPairing(t, relay), Sink: &fakeSink{}, Snapshot: staticState("duo")})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer c.Close()
+
+	if got := c.opts.PushInterval; got != time.Second {
+		t.Errorf("push interval = %v, want 1s", got)
+	}
+	if got := c.opts.KeepalivePeriod; got != 30*time.Second {
+		t.Errorf("keepalive period = %v, want 30s", got)
+	}
+	if got := c.opts.ReadIdleTimeout; got != 90*time.Second {
+		t.Errorf("read idle timeout = %v, want 90s", got)
+	}
+}
+
+// The keepalive is injected like the rest of the pacing, which is the only way a
+// test can see it at all: waiting out the shipped 30s per ping is not a test.
+func TestKeepalivePingsAtTheInjectedPeriod(t *testing.T) {
+	relay := newFakeRelay(t)
+	p := testPairing(t, relay)
+	c, err := New(testOptions(Options{Pairing: p, Sink: &fakeSink{}, Snapshot: staticState("duo")}))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	startClient(t, c)
+	waitFor(t, "two keepalives", func() bool { return relay.pings(p.Room) >= 2 })
+}
+
 // Every host frame costs the room's daily relay budget, so a session nobody is
 // watching must not publish at all: the state a phone needs is sent when it
 // joins, not while it is away.
 func TestNoStateIsPublishedWithoutAGuest(t *testing.T) {
 	relay := newFakeRelay(t)
 	p := testPairing(t, relay)
-	c, err := New(Options{Pairing: p, Sink: &fakeSink{}, Snapshot: staticState("duo"),
-		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf})
+	c, err := New(testOptions(Options{Pairing: p, Sink: &fakeSink{}, Snapshot: staticState("duo"),
+		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: t.Logf}))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -970,7 +1028,7 @@ func TestNoStateIsPublishedWithoutAGuest(t *testing.T) {
 			t.Fatalf("PublishEvent: %v", err)
 		}
 	}
-	time.Sleep(pushInterval + 300*time.Millisecond)
+	time.Sleep(3 * c.opts.PushInterval)
 	if got := relay.published(p.Room); got != initial {
 		t.Fatalf("published %d frame(s) with no phone attached, want %d", got, initial)
 	}
@@ -995,8 +1053,8 @@ func TestTerminalStopIsLogged(t *testing.T) {
 	relay := newFakeRelay(t)
 	p := testPairing(t, relay)
 	logs := &logRecorder{}
-	c, err := New(Options{Pairing: p, Sink: &fakeSink{}, Snapshot: staticState("duo"),
-		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: logs.logf})
+	c, err := New(testOptions(Options{Pairing: p, Sink: &fakeSink{}, Snapshot: staticState("duo"),
+		RetryBase: 20 * time.Millisecond, RetryMax: 100 * time.Millisecond, Logf: logs.logf}))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

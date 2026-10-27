@@ -70,6 +70,14 @@ type Options struct {
 	// RetryBase and RetryMax bound the reconnect backoff.
 	RetryBase time.Duration
 	RetryMax  time.Duration
+	// PushInterval coalesces state writes to the phone, KeepalivePeriod paces the
+	// ping and ReadIdleTimeout drops a socket that stopped answering. Zero means
+	// the production values below; tests inject short ones because a test that
+	// waits a phone network's worth of time per state is the reason this package
+	// used to take 23s.
+	PushInterval    time.Duration
+	KeepalivePeriod time.Duration
+	ReadIdleTimeout time.Duration
 }
 
 // Status is the connection as a frontend may render it.
@@ -142,6 +150,15 @@ func New(opts Options) (*Client, error) {
 	}
 	if opts.RetryMax <= 0 {
 		opts.RetryMax = 30 * time.Second
+	}
+	if opts.PushInterval <= 0 {
+		opts.PushInterval = pushInterval
+	}
+	if opts.KeepalivePeriod <= 0 {
+		opts.KeepalivePeriod = keepalivePeriod
+	}
+	if opts.ReadIdleTimeout <= 0 {
+		opts.ReadIdleTimeout = readIdleTimeout
 	}
 	c := &Client{
 		opts:  opts,
@@ -334,7 +351,7 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 	if err := c.sendState(ctx); err != nil {
 		return err
 	}
-	_ = conn.SetReadDeadline(c.opts.Now().Add(readIdleTimeout))
+	_ = conn.SetReadDeadline(c.opts.Now().Add(c.opts.ReadIdleTimeout))
 
 	done := make(chan error, 3)
 	go c.keepalive(ctx, conn, done)
@@ -361,7 +378,7 @@ const (
 )
 
 func (c *Client) keepalive(ctx context.Context, conn *websocket.Conn, done chan<- error) {
-	ticker := time.NewTicker(keepalivePeriod)
+	ticker := time.NewTicker(c.opts.KeepalivePeriod)
 	defer ticker.Stop()
 	for {
 		select {
@@ -374,13 +391,13 @@ func (c *Client) keepalive(ctx context.Context, conn *websocket.Conn, done chan<
 			}
 			// The read deadline is the real liveness check: a relay that stops
 			// answering pings fails the next read and the client reconnects.
-			_ = conn.SetReadDeadline(c.opts.Now().Add(readIdleTimeout))
+			_ = conn.SetReadDeadline(c.opts.Now().Add(c.opts.ReadIdleTimeout))
 		}
 	}
 }
 
 func (c *Client) pushStates(ctx context.Context, conn *websocket.Conn, done chan<- error) {
-	ticker := time.NewTicker(pushInterval)
+	ticker := time.NewTicker(c.opts.PushInterval)
 	defer ticker.Stop()
 	pending := false
 	for {
@@ -444,7 +461,7 @@ func (c *Client) readLoop(ctx context.Context, conn *websocket.Conn, done chan<-
 				return
 			}
 		case framePong:
-			_ = conn.SetReadDeadline(c.opts.Now().Add(readIdleTimeout))
+			_ = conn.SetReadDeadline(c.opts.Now().Add(c.opts.ReadIdleTimeout))
 		case frameBye:
 			done <- &ErrTerminal{Code: f.Code}
 			return
