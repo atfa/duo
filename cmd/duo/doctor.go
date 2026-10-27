@@ -241,7 +241,7 @@ func (e *doctorEnv) checkRepository(ctx context.Context) (string, doctorCheck) {
 			Code:   "repo.git",
 			Status: doctorFail,
 			Detail: "no git repository at " + displayPath(e.repository) + ": " + err.Error(),
-			Fix:    "run duo from inside a git repository, or name one: duo doctor <path>",
+			Fix:    "run duo from inside a git repository (its first-run guide offers `git init`), or name one: duo doctor <path>",
 		}
 	}
 	return root, doctorCheck{Code: "repo.git", Status: doctorOK, Detail: root}
@@ -342,6 +342,17 @@ func (e *doctorEnv) checkConfig() (configFile, doctorCheck) {
 			Status: doctorFail,
 			Detail: err.Error(),
 			Fix:    "fix ~/.duo/config.json or .duo/config.json: a session cannot start with a file Duo cannot read",
+		}
+	}
+	// The interface view is validated where a launch resolves it, so a value it
+	// cannot draw has to fail here too: a report that says the file parses is not
+	// the answer to "why will not it start".
+	if _, err := resolveTUIMode(cfg.TUIMode); err != nil {
+		return configFile{}, doctorCheck{
+			Code:   "config.file",
+			Status: doctorFail,
+			Detail: err.Error(),
+			Fix:    "fix tuiMode in ~/.duo/config.json or .duo/config.json: it must be timeline or split",
 		}
 	}
 	return cfg, doctorCheck{Code: "config.file", Status: doctorOK, Detail: "the user and project configuration files parse"}

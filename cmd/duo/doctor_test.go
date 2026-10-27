@@ -163,6 +163,27 @@ func TestDoctorReportsBadConfig(t *testing.T) {
 	}
 }
 
+// A view the interface cannot draw is a launch failure, so the report has to
+// name it instead of saying the configuration parses.
+func TestDoctorReportsBadTUIMode(t *testing.T) {
+	env := doctorEnvForTest(t)
+	env.loadConfig = func(string) (configFile, error) {
+		return configFile{TUIMode: "mosaic"}, nil
+	}
+
+	check := findCheck(t, env.run(context.Background()), "config.file")
+
+	if check.Status != doctorFail {
+		t.Fatalf("status = %s, want fail (%s)", check.Status, check.Detail)
+	}
+	if !strings.Contains(check.Detail, "mosaic") {
+		t.Errorf("detail %q does not name the rejected value", check.Detail)
+	}
+	if !strings.Contains(check.Fix, "tuiMode") {
+		t.Errorf("fix %q does not name the key to edit", check.Fix)
+	}
+}
+
 func TestDoctorReportsOldGit(t *testing.T) {
 	env := doctorEnvForTest(t)
 	env.git = func(_ context.Context, _ string, args ...string) (string, error) {
