@@ -119,6 +119,37 @@ type RestartDuo struct {
 // instruction to the process that is about to exit, not durable state.
 type NewSession struct{}
 
+// Recall asks Duo to undo this session. It exists for the mistake a correction
+// cannot fix: the human submitted the wrong instruction and everything that
+// instruction started has to go, so the session stops the agents and removes its
+// own worktrees, branches, record and transcripts before a fresh session starts
+// in the same process. The repository Duo was launched from was never written to
+// while the session ran, so nothing of the human's own has to be undone.
+//
+// It is refused once anything reached the human's repository, because undoing
+// that is a rewrite of their history and `git revert` is the tool for it. Like
+// NewSession the request is in-memory: the session it names is about to stop
+// existing, so there is nothing durable to point at.
+type Recall struct{}
+
+// RecallWork is one agent's worktree as a recall would discard it.
+type RecallWork struct {
+	Branch  string
+	Commits int
+	Dirty   bool
+}
+
+// RecallPreview is what /recall would undo, for the confirmation a frontend asks
+// before anything is deleted. A refused recall still reports its Reason, so the
+// human learns why instead of confirming an action that will fail.
+type RecallPreview struct {
+	Allowed    bool
+	Reason     string
+	BaseCommit string
+	Austin     RecallWork
+	Tony       RecallWork
+}
+
 // ResumeSession asks Duo to stop this session and resume another one in its
 // place. It is what the /sessions picker sends: this session is preserved exactly
 // as /quit would leave it, and the outer CLI re-runs Duo on the chosen id, so the
@@ -129,6 +160,7 @@ type ResumeSession struct {
 	SessionID string `json:"sessionId"`
 }
 
+func (Recall) Kind() string         { return "recall" }
 func (SubmitTask) Kind() string     { return "submit_task" }
 func (SwitchMode) Kind() string     { return "switch_mode" }
 func (ResumeModeWork) Kind() string { return "resume_mode_work" }
@@ -147,6 +179,7 @@ func (RestartDuo) Kind() string     { return "restart_duo" }
 func (NewSession) Kind() string     { return "new_session" }
 func (ResumeSession) Kind() string  { return "resume_session" }
 
+func (Recall) command()         {}
 func (SubmitTask) command()     {}
 func (SwitchMode) command()     {}
 func (ResumeModeWork) command() {}

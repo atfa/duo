@@ -48,9 +48,9 @@ type Result struct {
 	// must not start a loop when this is set.
 	Finished bool
 	// Discarded reports that the session owned nothing and left nothing: it was
-	// ended before a task was ever submitted, so its worktrees, record and
-	// transcripts are gone and there is nothing to resume. A frontend must not
-	// tell the human to resume a session that no longer exists.
+	// ended before a task was ever submitted, or the human recalled it, so its
+	// worktrees, record and transcripts are gone and there is nothing to resume. A
+	// frontend must not tell the human to resume a session that no longer exists.
 	Discarded bool
 
 	// Outcome describes a finished delivery for the frontend to report. Its
@@ -88,6 +88,12 @@ type Service struct {
 	// newSession is the pending /new request: quit preserving the session, then
 	// re-run duo as a fresh session.
 	newSession bool
+
+	// recall is the pending /recall request: quit after removing this session's own
+	// worktrees, branches, record and transcripts, then re-run duo as a fresh
+	// session. It is in-memory for the same reason as newSession: the session it
+	// names stops existing, so there is nothing durable to point at.
+	recall bool
 
 	// resumeSession is the id the /sessions picker chose: quit preserving this
 	// session, then resume that one in its place.
@@ -562,7 +568,9 @@ func (s *Service) closeLocked(ctx context.Context) Result {
 
 	if s.agents != nil {
 		s.agents.StopAll()
-		if s.store != nil && s.state != nil {
+		// A recalled session's checkpoint is about to be deleted with the rest of
+		// its record, so writing a final one would only race that removal.
+		if !s.recall && s.store != nil && s.state != nil {
 			if err := s.store.Save(s.composeSnapshot(s.coord)); err != nil && s.logger != nil {
 				s.logger.Printf("final checkpoint: %v", err)
 			}
@@ -592,7 +600,11 @@ func (s *Service) closeLocked(ctx context.Context) Result {
 	// Last, because it undoes everything the lines above acquired: the lock has
 	// to be released before its directory can be removed, and the agents have to
 	// be stopped before the worktrees they are sitting in can go.
-	if s.discardUnstarted(ctx) {
+	if s.recall {
+		if s.discardRecalled(ctx) {
+			res.Discarded = true
+		}
+	} else if s.discardUnstarted(ctx) {
 		res.Discarded = true
 	}
 	if s.cancel != nil {
@@ -949,6 +961,12 @@ func (s *Service) Do(ctx context.Context, cmd Command) error {
 		return s.requestRestart(c)
 	case NewSession:
 		if err := s.requestNewSession(); err != nil {
+			return err
+		}
+		s.pulse()
+		return nil
+	case Recall:
+		if err := s.requestRecall(); err != nil {
 			return err
 		}
 		s.pulse()
@@ -1535,6 +1553,155 @@ func effectiveLanguage(language string) string {
 		return "zh"
 	}
 	return "en"
+}
+
+// RecallPreview reports what /recall would undo, so a frontend can put the
+// numbers in front of the human before anything destructive happens. It is a
+// read: the only work it does is ask Git, and a failed Git read is returned
+// rather than reported as "nothing to lose".
+func (s *Service) RecallPreview(ctx context.Context) (RecallPreview, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	preview := RecallPreview{Allowed: true, BaseCommit: s.set.BaseCommit}
+	if reason := s.recallBlocked(); reason != "" {
+		preview.Allowed = false
+		preview.Reason = reason
+		return preview, nil
+	}
+	if s.ws == nil {
+		return preview, nil
+	}
+	for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		wt, ok := s.set.For(agent)
+		if !ok || strings.TrimSpace(wt.Path) == "" {
+			continue
+		}
+		status, err := s.ws.Status(ctx, agent)
+		if err != nil {
+			return RecallPreview{}, err
+		}
+		work := RecallWork{Branch: status.Branch, Commits: status.Ahead, Dirty: status.Dirty}
+		if agent == protocol.Austin {
+			preview.Austin = work
+		} else {
+			preview.Tony = work
+		}
+	}
+	return preview, nil
+}
+
+// requestRecall records the /recall request and stops the agents now.
+//
+// Stopping here rather than at the next idle boundary is the point of it: /pause
+// holds new work until the agents reach an idle moment, while a recalled
+// instruction must not finish the tool call it already started. Close stops them
+// again on its way out, where the drivers are closed before the worktrees they
+// sit in are removed - the order Windows needs.
+func (s *Service) requestRecall() error {
+	if reason := s.recallBlocked(); reason != "" {
+		return errors.New(reason)
+	}
+	if s.agents != nil {
+		s.agents.StopAll()
+	}
+	s.recall = true
+	s.newSession = true
+	return nil
+}
+
+// recallBlocked explains why this session cannot be recalled, or returns the
+// empty string when it can. A recall only ever undoes work that never reached the
+// human's repository, so the refused states are exactly the ones where something
+// did: moving the base branch back would rewrite the human's own history, and
+// `git revert` is the tool they own for that.
+func (s *Service) recallBlocked() string {
+	var snap project.Snapshot
+	if s.state != nil {
+		snap = s.state.Snapshot()
+	}
+	delivery := s.delivery
+	if s.coord != nil {
+		delivery = s.coord.CurrentDelivery()
+	}
+	switch {
+	case delivery.Applied():
+		return "this session's artifact is already in your repository, so it cannot be recalled; use git revert instead"
+	case snap.Phase == project.PhaseDone:
+		return "this session is already finished and its artifact is in your repository, so it cannot be recalled"
+	}
+	for i, step := range snap.Steps {
+		if strings.TrimSpace(step.DeliveryHead) != "" {
+			return fmt.Sprintf("step %d already landed in your repository, so this session cannot be recalled; use git revert instead", i+1)
+		}
+	}
+	return ""
+}
+
+// discardRecalled removes everything a recalled session owned.
+//
+// The order is what makes a half-finished recall safe to reason about: the note
+// naming the branch heads is written first, because the branches go next and the
+// reflog is then the only other pointer to their commits; then the worktrees,
+// branches and transcripts; and only then the session record. A failure before
+// that last step leaves a session that can still be resumed, which is the honest
+// state - nothing was reported as erased while something was left behind.
+func (s *Service) discardRecalled(ctx context.Context) bool {
+	if err := sessionstore.WriteRecallNote(s.set.Repository, s.sessionID, s.recallNote(ctx)); err != nil {
+		s.note("keeping session %s: writing the recall note: %v", s.sessionID, err)
+		s.newSession = false
+		return false
+	}
+	if err := s.set.Discard(ctx); err != nil {
+		s.note("keeping session %s: removing the worktrees: %v", s.sessionID, err)
+		s.newSession = false
+		return false
+	}
+	_ = s.transcripts.Remove()
+	if s.store != nil {
+		if err := s.store.Remove(); err != nil {
+			s.note("removing the record of session %s: %v", s.sessionID, err)
+			s.newSession = false
+			return false
+		}
+	}
+	return true
+}
+
+// recallNote is the record a recalled session leaves behind. It is the surviving
+// pointer to the commits it discarded: their branches are deleted, so the way back
+// is `git branch recovered <sha>`.
+func (s *Service) recallNote(ctx context.Context) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "recalled: %s\n", s.sessionID)
+	fmt.Fprintf(&b, "at: %s\n", time.Now().Format(time.RFC3339))
+	fmt.Fprintf(&b, "repository: %s\n", s.set.Repository)
+	fmt.Fprintf(&b, "base: %s %s\n", s.set.BaseBranch, s.set.BaseCommit)
+	for _, agent := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		wt, ok := s.set.For(agent)
+		if !ok || strings.TrimSpace(wt.Path) == "" {
+			continue
+		}
+		head, ahead := wt.Head, 0
+		if s.ws != nil {
+			if status, err := s.ws.Status(ctx, agent); err == nil {
+				head, ahead = status.Head, status.Ahead
+			}
+		}
+		fmt.Fprintf(&b, "%s: branch %s at %s (%d commits on top of the base)\n", agent, wt.Branch, head, ahead)
+	}
+	if s.state != nil {
+		snap := s.state.Snapshot()
+		fmt.Fprintf(&b, "phase: %s\nplan version: %d\n", snap.Phase, snap.PlanVersion)
+	}
+	if s.coord != nil {
+		if ledger := s.coord.UsageLedger(); ledger != nil {
+			total := ledger.Total()
+			fmt.Fprintf(&b, "spent: %d turns, %d tokens, $%.4f\n", total.Turns, total.TotalTokens, total.CostUSD)
+		}
+	}
+	b.WriteString("recover a discarded commit with: git branch recovered <sha>\n")
+	return b.String()
 }
 
 // discardUnstarted removes everything a session that never started left behind:
