@@ -43,7 +43,7 @@
 ## P0
 
 ### T22 CI 补齐前端测试与 gofmt 门禁
-- [ ] 完成：
+- [x] 完成：fae2015 · 2026-10-27
 
 **位置** `.github/workflows/ci.yml`（矩阵 ubuntu×2 + macos，步骤只有 `go test ./...`、`go vet ./...`、`go build ./cmd/duo`）；`Makefile` 的 `check` 目标已含 `fmt: gofmt -l .`；三套前端测试 `pi-extension/*.test.ts`（21 用例）、`opencode-extension/lifecycle.test.ts`（14 用例）、`remote/test/*.test.js`（87 用例，`npm run check` = `node --test` + `node --check`）。
 **问题** **122** 个前端用例从未进门禁（21 + 14 + 87）：本地 `bun test` / `node --test` 全绿，但 CI 只跑 Go，改坏 `pi-extension/lifecycle.ts` 或远程页面协议不会被任何门禁拦住。`gofmt` 同理，只在本地 `make check` 生效，CI 能合入未格式化代码。`opencode-extension/package.json` 甚至没有 `test` 脚本，跑法靠人记。
@@ -70,7 +70,7 @@
 **负责人** Tony
 
 ### T23 测试墙钟：把固定超时从测试路径里拿掉
-- [ ] 完成：
+- [x] 完成：f6070c0 + 5185f30 · 2026-10-27
 
 **位置** `internal/driver/client.go:20`（`defaultTimeout = 20s`）、`:26`（`StartTimeout = 90s`）；`internal/driver/contract_test.go:133`（用 `sleep 30` 脚本撞默认超时）、`:287`（`TestLegacyShimIsDistinguishedFromABrokenPlugin`）；`internal/remote/client.go:345`（`keepalivePeriod = 30s`）、`:347`（`readIdleTimeout = 90s`）、`:351`（`pushInterval = 1s`）。
 **问题** `time go test -count=1 ./...` 墙钟实测 **60.1s**；关键路径是 internal/driver **59.6s**（`internal/driver/contract_test.go:133` 的 `sleep 30` 脚本撞 20s 默认超时，`:287` 的 `TestLegacyShimIsDistinguishedFromABrokenPlugin` 再等 27.3s），internal/remote 17.1s 与 plugins/agy 14.1s 与之并行（因此不能相加当墙钟）；driver 修好后这两个成为新关键路径。改一行代码要等一分钟，CI 每个任务再等一遍。

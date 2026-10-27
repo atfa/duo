@@ -15,6 +15,32 @@ All notable project milestones are documented here.
   rendering the event behind it again. Snapshot lines from the Duo pane also keep
   their speaker instead of an empty agent.
 
+### Frontend tests in CI
+
+- The 124 frontend cases only ever ran on the machine that wrote them: CI ran
+  `go test`, `go vet` and `go build`, and nothing under `pi-extension/`,
+  `opencode-extension/` or `remote/`. A change that broke the agent bridge or
+  the phone protocol merged green. CI now runs `bun test` for both extensions
+  (`opencode-extension` gained the `test` script it was missing) and
+  `npm run check` for the relay on a pinned Node 22, whose harness needs
+  `node:sqlite`; the runner's own `node` is not assumed. `gofmt -l .` is a step
+  in the Go job too, with the same judgement as `make check`, so unformatted
+  code can no longer merge either. The frontend job runs once, on ubuntu.
+
+### A test run that is minutes shorter
+
+- `go test ./...` takes about 13 seconds instead of a minute, and no production
+  timing changed. The driver contract used one deadline sized for plugins whose
+  methods shell out to a real agent CLI; a test that checks a binary answering
+  nothing inherited that patience and spent 30 seconds in the script's own
+  sleep. The contract now takes the caller's deadline. The discovery test also
+  stopped auditing whatever plugins the machine had installed — it ran the full
+  contract against each of them from `PATH` — and checks only the shim and the
+  broken plugin it wrote. In the remote client the push, keepalive and read-idle
+  intervals became options whose zero value is the shipped value, so its tests
+  no longer wait a full second per published state; two assertions state the
+  shipped numbers and watch an injected ping reach the relay.
+
 ## v0.14.5 — 2026-10-27
 
 ### First-run guide
