@@ -50,6 +50,14 @@ func (s *Service) startResume(ctx context.Context) (Result, error) {
 	// it is what keeps a resumed session from being named a second time.
 	s.title = snap.Title
 	s.history = s.journal.TUIEntries()
+	// The recent-activity ring starts from the same restored entries, so the
+	// first snapshot a frontend asks for after a resume is not empty.
+	s.recentMu.Lock()
+	s.recent = append([]sessionstore.TUIEntry(nil), s.history...)
+	if len(s.recent) > maxRecentActivity {
+		s.recent = s.recent[len(s.recent)-maxRecentActivity:]
+	}
+	s.recentMu.Unlock()
 	s.logger.Printf("resuming Duo session %s from %s (persisted mode %s phase %s repository=%s scope=%s)", snap.SessionID, store.StatePath(), snap.EffectiveMode(), snap.Phase, snap.Repository, EffectiveScope(snap.ScopePath))
 
 	// Resume restores the persisted current mode. An explicit --mode that

@@ -19,6 +19,7 @@ import (
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/remote"
 	"github.com/atfa/duo/internal/session"
+	"github.com/atfa/duo/internal/sessionstore"
 )
 
 func writeRemoteConfig(t *testing.T, repo, body string) {
@@ -741,4 +742,41 @@ func TestResumeDoesNotWaitForRegistration(t *testing.T) {
 	}
 	close(release)
 	manager.stopClient()
+}
+
+// TestRemoteSnapshotShowsRecentActivityForAFreshSession proves the Activity tab
+// is fed by the session's live recorded timeline, not only by the entries a
+// resume restores: a fresh session that has recorded lines publishes them, in
+// order, with the Duo pane addressed as "duo" like a live event would be.
+func TestRemoteSnapshotShowsRecentActivityForAFreshSession(t *testing.T) {
+	manager := &remoteManager{svc: session.New(session.Options{}), now: time.Now}
+	manager.svc.RecordEntry(sessionstore.TUIEntry{Time: time.Now(), Pane: "Austin", Text: "reading the tracker"})
+	manager.svc.RecordEntry(sessionstore.TUIEntry{Time: time.Now(), Pane: "Duo", Text: "Harness: step landed"})
+	state := manager.snapshot()
+	if len(state.Activity) != 2 {
+		t.Fatalf("snapshot carries %d activity entries, want 2", len(state.Activity))
+	}
+	if state.Activity[0].Agent != "austin" || state.Activity[0].Text != "reading the tracker" {
+		t.Errorf("first entry = %+v, want austin's line", state.Activity[0])
+	}
+	if state.Activity[1].Agent != "duo" {
+		t.Errorf("Duo pane line carries agent %q, want \"duo\"", state.Activity[1].Agent)
+	}
+}
+
+// TestRemoteSnapshotActivityMatchesThePageBound keeps the snapshot's activity
+// aligned with the page's own MAX_ACTIVITY so the two never disagree on how
+// much history is kept.
+func TestRemoteSnapshotActivityMatchesThePageBound(t *testing.T) {
+	manager := &remoteManager{svc: session.New(session.Options{}), now: time.Now}
+	for i := 0; i < remoteActivityLimit+8; i++ {
+		manager.svc.RecordEntry(sessionstore.TUIEntry{Time: time.Now(), Pane: "Tony", Text: strings.Repeat("x", i+1)})
+	}
+	state := manager.snapshot()
+	if len(state.Activity) != remoteActivityLimit {
+		t.Fatalf("snapshot carries %d activity entries, want %d", len(state.Activity), remoteActivityLimit)
+	}
+	if n := len(state.Activity[len(state.Activity)-1].Text); n != remoteActivityLimit+8 {
+		t.Errorf("snapshot kept the wrong end: newest text length %d", n)
+	}
 }

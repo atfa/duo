@@ -29,6 +29,9 @@ var (
 	ErrClosed = errors.New("duo session is closed")
 	// ErrStarted is returned when Start is called on a session that already ran.
 	ErrStarted = errors.New("duo session is already started")
+
+	// maxRecentActivity bounds the recent-activity ring RecentActivity exposes.
+	maxRecentActivity = 50
 )
 
 // errNotRunning is returned by operations that need a live session.
@@ -156,6 +159,12 @@ type Service struct {
 	history []sessionstore.TUIEntry
 	resume  bool
 	mode    project.Mode
+
+	// recent is the bounded ring of timeline entries a frontend shows as recent
+	// activity. It is seeded from the journal on resume and appended by
+	// RecordEntry, so it is the same lines the interface drew, live or restored.
+	recentMu sync.Mutex
+	recent   []sessionstore.TUIEntry
 
 	noticeMu sync.Mutex
 	notices  []string
@@ -1355,6 +1364,20 @@ func (s *Service) History() []sessionstore.TUIEntry {
 	return append([]sessionstore.TUIEntry(nil), s.history...)
 }
 
+// RecentActivity returns the newest recorded interface timeline entries, oldest
+// first, up to limit. It is the same lines the interface drew, whether they were
+// drawn live or restored from the journal on resume, so a frontend joining late
+// shows the same recent history as one that was there all along. A non-positive
+// limit means no limit beyond the ring's own bound.
+func (s *Service) RecentActivity(limit int) []sessionstore.TUIEntry {
+	s.recentMu.Lock()
+	defer s.recentMu.Unlock()
+	if limit <= 0 || limit >= len(s.recent) {
+		return append([]sessionstore.TUIEntry(nil), s.recent...)
+	}
+	return append([]sessionstore.TUIEntry(nil), s.recent[len(s.recent)-limit:]...)
+}
+
 // Notices returns the diagnostics a driver reported while preparing a launch.
 // Drivers are built before a frontend exists, so they are buffered and handed over
 // here.
@@ -1379,10 +1402,20 @@ func (s *Service) RecordEntry(entry sessionstore.TUIEntry) {
 	}
 	s.mu.RUnlock()
 
-	// The line is published after the lock is released, because a subscriber reads
-	// the session back. It carries the text the first frontend just drew, so a
-	// second frontend shows that same line instead of rendering the event behind it
-	// a second way.
+	// The recent-activity ring is view state shared with frontends, guarded by
+	// its own mutex so a slow reader never blocks a workflow transition.
+	s.recentMu.Lock()
+	s.recent = append(s.recent, entry)
+	if len(s.recent) > maxRecentActivity {
+		s.recent = s.recent[len(s.recent)-maxRecentActivity:]
+	}
+	s.recentMu.Unlock()
+
+	// The line is published last, after both locks are released: a subscriber
+	// reads the session back, so the entry has to be in the ring already and the
+	// session must not be holding a lock while it does. The event carries the text
+	// the first frontend just drew, so a second frontend shows that same line
+	// instead of rendering the event behind it a second way.
 	if entry.Time.IsZero() {
 		entry.Time = time.Now()
 	}

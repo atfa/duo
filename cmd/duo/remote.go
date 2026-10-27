@@ -389,18 +389,16 @@ func (m *remoteManager) snapshot() remote.State {
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
 		state.Agents[agentKey(id)] = remoteAgent(view.Agent(id))
 	}
-	history := m.svc.History()
-	for i := len(history) - 1; i >= 0 && len(state.Activity) < 8; i-- {
-		entry := history[i]
+	for _, entry := range m.svc.RecentActivity(remoteActivityLimit) {
 		if strings.TrimSpace(entry.Text) == "" {
 			continue
 		}
-		state.Activity = append([]remote.Activity{{
+		state.Activity = append(state.Activity, remote.Activity{
 			At:    entry.Time.UnixMilli(),
 			Kind:  activityKind(entry),
 			Agent: activityAgent(entry),
 			Text:  clip(entry.Text, 240),
-		}}, state.Activity...)
+		})
 	}
 	state.Observer = remote.ObserverState{Analyzing: view.Observer.Analyzing}
 	for _, report := range view.Observer.Reports {
@@ -796,12 +794,17 @@ func activityKind(entry sessionstore.TUIEntry) string {
 }
 
 func activityAgent(entry sessionstore.TUIEntry) string {
-	switch id := protocol.CanonicalAgent(entry.Pane); id {
-	case protocol.Austin, protocol.Tony:
+	id := protocol.CanonicalAgent(entry.Pane)
+	if id == protocol.Austin || id == protocol.Tony || id == protocol.Duo {
 		return agentKey(id)
 	}
 	return ""
 }
+
+// remoteActivityLimit is how many recent timeline entries one snapshot carries.
+// It matches the page's own MAX_ACTIVITY, so a full snapshot and the page's
+// accumulated live events agree on how much history is kept.
+const remoteActivityLimit = 12
 
 // clip shortens a text field to a phone-sized excerpt, counting runes so a
 // multi-byte character is never cut in half.

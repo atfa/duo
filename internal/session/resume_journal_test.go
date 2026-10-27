@@ -213,3 +213,82 @@ func journalEventCounts(t *testing.T, store *sessionstore.Store) map[string]int 
 	}
 	return counts
 }
+
+// TestRecentActivitySeededFromTheResumeJournal proves a resumed session's first
+// RecentActivity already holds the recorded lines, without waiting for new
+// activity: the ring starts from the journal the resume restored. The session
+// must actually start its workflow, because Close discards the record of a run
+// that never began.
+func TestRecentActivitySeededFromTheResumeJournal(t *testing.T) {
+	ctx := context.Background()
+	repo := gitRepo(t)
+	baseDir := t.TempDir()
+	envDir := t.TempDir()
+	script := writeFakeBridgeAgent(t, envDir)
+	const id = "e2e-recent-activity"
+
+	opts := Options{
+		LaunchDir:          repo,
+		BaseDir:            baseDir,
+		Session:            id,
+		Listen:             "127.0.0.1:0",
+		Mode:               project.ModeFast,
+		DefaultAgentDriver: "stub",
+		HarnessEnabled:     false,
+		RegisterDrivers:    registerJournalStub(script),
+	}
+	svc := New(opts)
+	if _, err := svc.Start(ctx); err != nil {
+		t.Fatalf("start session: %v", err)
+	}
+	round := &e2eRound{svc: svc, repo: repo, baseDir: baseDir, envDir: envDir, session: id}
+	t.Cleanup(func() {
+		for _, agent := range round.agents {
+			_ = agent.Close()
+		}
+		svc.Close()
+	})
+
+	austin := round.dial(t, protocol.Austin)
+	tony := round.dial(t, protocol.Tony)
+	round.waitConnected(t)
+
+	delivered := commitInWorktree(t, svc.View().Worktrees.Austin.Path, "result.md", "hello Duo\n", "add result.md")
+	if delivered == "" {
+		t.Fatal("the worktree commit produced no head")
+	}
+	austin.sign(t)
+	round.waitPhase(t, project.PhaseVerify)
+	tony.mustRequest(t, protocol.Message{Version: protocol.Version, Type: protocol.MsgSetVerification, Verification: "passed", Note: "looks right"})
+	round.waitPhase(t, project.PhaseDone)
+	svc.RecordEntry(sessionstore.TUIEntry{Pane: "Duo", Text: "seeded: before close"})
+	svc.Close()
+
+	resumed := New(Options{
+		LaunchDir:          repo,
+		BaseDir:            baseDir,
+		Session:            id,
+		Listen:             "127.0.0.1:0",
+		Mode:               project.ModeFast,
+		DefaultAgentDriver: "stub",
+		HarnessEnabled:     false,
+		Resume:             true,
+		ResumeSession:      id,
+		RegisterDrivers:    registerJournalStub(script),
+	})
+	if _, err := resumed.Start(ctx); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	defer resumed.Close()
+
+	got := resumed.RecentActivity(50)
+	found := false
+	for _, entry := range got {
+		if entry.Text == "seeded: before close" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("resumed RecentActivity is missing the recorded entry; got %d entries", len(got))
+	}
+}
