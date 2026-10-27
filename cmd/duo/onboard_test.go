@@ -56,14 +56,17 @@ func onboardRepo(t *testing.T) string {
 	return dir
 }
 
-// configureGitIdentity gives the temporary home a committer, which the wizard
-// needs to create a first commit and must never invent on its own.
-func configureGitIdentity(t *testing.T, home string) {
+// allowGitCommitsInTests gives the tests a committer through the environment
+// rather than a git config file: CI has no global identity, and the wizard must
+// never invent one, so a test that lets it commit has to supply the identity the
+// way a real operator's git already does.
+func allowGitCommitsInTests(t *testing.T) {
 	t.Helper()
-	for _, pair := range [][2]string{{"user.name", "Duo Test"}, {"user.email", "duo-test@example.invalid"}} {
-		if _, err := gitText(context.Background(), home, "config", "--global", pair[0], pair[1]); err != nil {
-			t.Fatal(err)
-		}
+	for _, name := range []string{"GIT_AUTHOR_NAME", "GIT_COMMITTER_NAME"} {
+		t.Setenv(name, "Duo Test")
+	}
+	for _, name := range []string{"GIT_AUTHOR_EMAIL", "GIT_COMMITTER_EMAIL"} {
+		t.Setenv(name, "duo-test@example.invalid")
 	}
 }
 
@@ -100,6 +103,7 @@ func committedProjectConfig(t *testing.T, dir, body string) {
 // commit are offered, and the global config the human accepted is written with
 // the defaults the plan documented.
 func TestOnboardingPreparesAnUninitializedDirectory(t *testing.T) {
+	allowGitCommitsInTests(t)
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -303,6 +307,7 @@ func TestOnboardingConfirmsDefaultsForAProjectWithoutConfig(t *testing.T) {
 // initialised repository with files needs one prompt for init and one for the
 // initial commit, not a third for the same files.
 func TestOnboardingInitialCommitLeavesTheTreeClean(t *testing.T) {
+	allowGitCommitsInTests(t)
 	dir := t.TempDir()
 	o, home, out := newTestOnboarding(t, dir, "1\n1\n1\n")
 	writeFileAt(t, filepath.Join(home, ".duo", "config.json"), `{"language":"en","mode":"step"}`)
@@ -400,7 +405,7 @@ func TestTheGlobalConfigTheGuideWritesIsTheOneTheLaunchReads(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("DUO_REPO", repo)
 	t.Setenv("DUO_MODE", "")
-	configureGitIdentity(t, home)
+	allowGitCommitsInTests(t)
 
 	// The global config must land in the real home loadConfig reads, so this test
 	// builds the guide without the test home newTestOnboarding injects.
