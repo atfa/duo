@@ -41,6 +41,7 @@ var slashCommands = []slashCommand{
 	{name: "/status", desc: "Show session status"},
 	{name: "/clear", desc: "Redraw the screen"},
 	{name: "/new", desc: "Start a fresh session; this one is preserved"},
+	{name: "/recall", desc: "Stop everything and undo this session entirely"},
 	{name: "/quit", desc: "Quit and preserve this session (Ctrl+Q)"},
 	{name: "/exit", desc: "Alias for /quit"},
 }

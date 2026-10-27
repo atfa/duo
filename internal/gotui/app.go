@@ -971,6 +971,68 @@ func (a *App) requestQuit() {
 	})
 }
 
+// requestRecall is /recall: undo this session. The preview names what would be
+// discarded; the panel keeps Cancel as the default because the action cannot be
+// undone by Duo once the worktrees are gone.
+func (a *App) requestRecall() {
+	if a.svc == nil {
+		return
+	}
+	preview, err := a.svc.RecallPreview(context.Background())
+	if err != nil {
+		a.setStatus(fmt.Sprintf(a.theme.tr("recall is unavailable: %v"), err), true)
+		return
+	}
+	if !preview.Allowed {
+		a.setStatus(fmt.Sprintf(a.theme.tr("recall refused: %s"), preview.Reason), true)
+		return
+	}
+	a.openConfirmChoices(
+		a.theme.tr("Recall this session?"),
+		a.recallPreviewText(preview),
+		a.theme.tr("Cancel"),
+		a.theme.tr("Recall"),
+		func() {
+			if err := a.svc.Do(context.Background(), session.Recall{}); err != nil {
+				a.setStatus(err.Error(), true)
+				return
+			}
+			a.setStatus(a.theme.tr("recalling: stopping agents and removing this session…"), false)
+			a.draw()
+			a.stopApp()
+		})
+}
+
+// recallPreviewText lines up what the human is about to lose: each agent's
+// branch and commit count, whether uncommitted edits go with it, and the base
+// the session started from. The last line is the only warning that matters.
+func (a *App) recallPreviewText(preview session.RecallPreview) string {
+	short := func(sha string) string {
+		if len(sha) > 7 {
+			return sha[:7]
+		}
+		return sha
+	}
+	line := func(name string, w session.RecallWork) string {
+		dirty := ""
+		if w.Dirty {
+			dirty = ", " + a.theme.tr("uncommitted changes")
+		}
+		return fmt.Sprintf("• %s: %s (%d %s%s)", name, w.Branch, w.Commits, a.theme.tr("commits"), dirty)
+	}
+	text := fmt.Sprintf(a.theme.tr("This stops both agents and removes this session entirely:\n\n%s\n%s\n\n%s %s"),
+		line("Austin", preview.Austin),
+		line("Tony", preview.Tony),
+		a.theme.tr("Session base:"), short(preview.BaseCommit))
+	if a.live.Language == "zh" {
+		text = fmt.Sprintf("此操作会停止两个 agent，并彻底删除本会话：\n\n%s\n%s\n\n会话基点：%s",
+			line("Austin", preview.Austin),
+			line("Tony", preview.Tony),
+			short(preview.BaseCommit))
+	}
+	return text + "\n\n" + a.theme.tr("This cannot be undone.")
+}
+
 // requestNewSession is /new: close this session and start a fresh one in the
 // same process. Nothing is lost — the session is preserved exactly as Ctrl+Q
 // preserves it and can be resumed with `duo resume` — so there is no dialog.
