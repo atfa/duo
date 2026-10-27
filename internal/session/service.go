@@ -1647,6 +1647,15 @@ func (s *Service) recallBlocked() string {
 // that last step leaves a session that can still be resumed, which is the honest
 // state - nothing was reported as erased while something was left behind.
 func (s *Service) discardRecalled(ctx context.Context) bool {
+	// The human answered a confirmation, and a delivery can land while they were
+	// reading it. A delivered artifact wins: removing the record of work that is
+	// already in their repository would leave them nothing to reason about, so the
+	// recall is dropped and the session stays as resumable as it was.
+	if reason := s.recallBlocked(); reason != "" {
+		s.note("keeping session %s: %s", s.sessionID, reason)
+		s.newSession = false
+		return false
+	}
 	if err := sessionstore.WriteRecallNote(s.set.Repository, s.sessionID, s.recallNote(ctx)); err != nil {
 		s.note("keeping session %s: writing the recall note: %v", s.sessionID, err)
 		s.newSession = false

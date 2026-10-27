@@ -249,6 +249,37 @@ func TestRecallKeepsSessionWhenTheNoteCannotBeWritten(t *testing.T) {
 	}
 }
 
+// TestRecallKeepsSessionWhenDeliveryLandsFirst covers the race the second check
+// exists for: the human confirms a recall, and the artifact reaches their
+// repository before the tear-down runs. The delivered work wins.
+func TestRecallKeepsSessionWhenDeliveryLandsFirst(t *testing.T) {
+	round := startSessionRound(t, t.Context(), project.ModeGoal)
+	round.svc.state.MarkStarted()
+	austin, _ := round.svc.View().Worktrees.For(protocol.Austin)
+	commitIn(t, austin.Path, "austin.txt")
+
+	if err := round.svc.Do(t.Context(), Recall{}); err != nil {
+		t.Fatalf("recall: %v", err)
+	}
+	// The delivery transaction lands while the human is answering the panel.
+	round.svc.coord.SetDelivery(sessionstore.Delivery{Status: sessionstore.DeliveryApplied, FinalHead: "abc"})
+
+	closed := round.svc.Close()
+	if closed.Discarded {
+		t.Fatal("a session whose artifact was delivered during the confirmation was discarded")
+	}
+	if round.svc.View().NewSession {
+		t.Error("a drop-due-to-delivery recall still asked for a fresh session")
+	}
+	if _, err := os.Stat(austin.Path); err != nil {
+		t.Errorf("the worktree of a delivered session was removed: %v", err)
+	}
+	record := filepath.Join(round.baseDir, sessionstore.RepoID(round.repo), round.session)
+	if _, err := os.Stat(record); err != nil {
+		t.Errorf("the record of a delivered session was removed: %v", err)
+	}
+}
+
 // TestCloseWithoutRecallStillPreservesSession pins the behaviour recall must not
 // change: an ordinary close keeps the worktrees and the record.
 func TestCloseWithoutRecallStillPreservesSession(t *testing.T) {
