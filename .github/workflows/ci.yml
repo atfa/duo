@@ -36,6 +36,14 @@ jobs:
           echo "$RUNNER_TEMP/duo-bin" >> "$GITHUB_PATH"
       - name: Test
         run: go test ./...
+      - name: Gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "gofmt -l reported:"
+            echo "$unformatted"
+            exit 1
+          fi
       - name: Vet
         run: go vet ./...
       - name: Build
@@ -49,3 +57,22 @@ jobs:
           GOOS=windows CGO_ENABLED=0 go build -o "$RUNNER_TEMP/windows-bin/" ./cmd/...
       - name: Vet for Windows
         run: GOOS=windows go vet ./...
+
+  frontend:
+    name: Frontend tests / ubuntu
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - name: pi-extension tests
+        run: bun test
+        working-directory: pi-extension
+      - name: opencode-extension tests
+        run: bun run test
+        working-directory: opencode-extension
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: remote tests
+        run: npm run check
+        working-directory: remote

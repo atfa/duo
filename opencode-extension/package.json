@@ -2,6 +2,9 @@
   "name": "duo-opencode-extension",
   "private": true,
   "type": "module",
+  "scripts": {
+    "test": "bun test"
+  },
   "devDependencies": {
     "@opencode-ai/plugin": "1.18.34",
     "@types/node": "^26.6.3",
