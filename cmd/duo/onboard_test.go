@@ -8,13 +8,16 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/atfa/duo/internal/observer"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/workspace"
 )
 
 // newTestOnboarding builds a wizard whose home directory is its own temporary
 // directory and whose drivers all pass, so a test only has to describe the one
-// situation it is about.
+// situation it is about. The observer looks unconfigured and nothing it saves
+// touches the real home directory: whether this machine happens to have an
+// observer key must not decide what a test sees.
 func newTestOnboarding(t *testing.T, dir, answers string) (*onboarding, string, *strings.Builder) {
 	t.Helper()
 	home := t.TempDir()
@@ -24,6 +27,10 @@ func newTestOnboarding(t *testing.T, dir, answers string) (*onboarding, string, 
 	o.drivers = func(context.Context) ([]driverStatus, error) {
 		return []driverStatus{{Name: "pi", CLIPath: "/usr/bin/pi"}}, nil
 	}
+	o.loadMergedConfig = func(string) (configFile, error) { return configFile{}, nil }
+	o.keyFileExists = func() bool { return false }
+	o.envOverrides = func() (bool, bool, bool) { return false, false, false }
+	o.saveAPIKey = func(string) (string, error) { return "", nil }
 	return o, home, &out
 }
 
@@ -225,6 +232,9 @@ func TestOnboardingAsksNothingWhenEverythingIsReady(t *testing.T) {
 
 	o, home, out := newTestOnboarding(t, dir, "")
 	writeFileAt(t, filepath.Join(home, ".duo", "config.json"), `{"mode":"fast"}`)
+	o.loadMergedConfig = func(string) (configFile, error) {
+		return configFile{Observer: &observer.Settings{Enabled: false}}, nil
+	}
 	if err := o.onboard(context.Background()); err != nil {
 		t.Fatalf("onboard: %v\n%s", err, out.String())
 	}
@@ -415,5 +425,135 @@ func TestTheGlobalConfigTheGuideWritesIsTheOneTheLaunchReads(t *testing.T) {
 	}
 	if cfg.tuiMode != "timeline" {
 		t.Errorf("tuiMode = %q, want timeline", cfg.tuiMode)
+	}
+}
+
+// projectObserver reads the observer section the guide wrote, if any.
+func projectObserver(t *testing.T, repo string) *observer.Settings {
+	t.Helper()
+	cfg, err := loadConfigFile(filepath.Join(repo, ".duo", "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg.Observer
+}
+
+// The guide stays quiet when this human already configured the observer
+// somewhere: an observer section in either config file, a saved key, or a
+// DUO_OBSERVER* variable each mean "asked and answered".
+func TestObserverGuideAsksOnlyWhenNeverConfigured(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(*testing.T, *onboarding)
+	}{
+		{name: "config section", setup: func(_ *testing.T, o *onboarding) {
+			o.loadMergedConfig = func(string) (configFile, error) {
+				return configFile{Observer: &observer.Settings{Enabled: false}}, nil
+			}
+		}},
+		{name: "saved key", setup: func(_ *testing.T, o *onboarding) {
+			o.keyFileExists = func() bool { return true }
+		}},
+		{name: "environment", setup: func(_ *testing.T, o *onboarding) {
+			o.envOverrides = func() (bool, bool, bool) { return false, true, false }
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := onboardRepo(t)
+			o, _, out := newTestOnboarding(t, repo, "1\n")
+			tc.setup(t, o)
+			if err := o.ensureObserver(repo); err != nil {
+				t.Fatalf("ensureObserver: %v", err)
+			}
+			if out.String() != "" {
+				t.Fatalf("an already configured observer was asked about:\n%s", out.String())
+			}
+			if settings := projectObserver(t, repo); settings != nil {
+				t.Fatalf("an already configured observer was rewritten: %+v", settings)
+			}
+		})
+	}
+}
+
+// "Later" must leave the state the dashboard's own Later button leaves, or the
+// setup panel would ask again the moment the session opens.
+func TestObserverGuideLaterRecordsTheDismissal(t *testing.T) {
+	repo := onboardRepo(t)
+	o, _, out := newTestOnboarding(t, repo, "2\n")
+	if err := o.ensureObserver(repo); err != nil {
+		t.Fatalf("ensureObserver: %v\n%s", err, out.String())
+	}
+	settings := projectObserver(t, repo)
+	if settings == nil {
+		t.Fatal("skipping the observer wrote nothing, so the dashboard will ask again")
+	}
+	if settings.Enabled {
+		t.Fatalf("skipping the observer enabled it: %+v", settings)
+	}
+	if !strings.Contains(out.String(), "/observer") {
+		t.Errorf("the skip did not say how to configure it later:\n%s", out.String())
+	}
+}
+
+// Configuring it stores exactly the three answers, with Duo's documented
+// defaults kept for the two fields a blank line accepted.
+func TestObserverGuideSavesWhatTheHumanEntered(t *testing.T) {
+	repo := onboardRepo(t)
+	o, _, out := newTestOnboarding(t, repo, "1\n\n\nsk-test-key\n")
+	var savedKeys []string
+	o.saveAPIKey = func(key string) (string, error) {
+		savedKeys = append(savedKeys, key)
+		return "/tmp/observer.key", nil
+	}
+	if err := o.ensureObserver(repo); err != nil {
+		t.Fatalf("ensureObserver: %v\n%s", err, out.String())
+	}
+	settings := projectObserver(t, repo)
+	if settings == nil {
+		t.Fatal("configuring the observer wrote no config")
+	}
+	if !settings.Enabled {
+		t.Fatalf("a configured observer stayed disabled: %+v", settings)
+	}
+	if settings.Endpoint != observer.DefaultEndpoint {
+		t.Errorf("endpoint = %q, want the offered default %q", settings.Endpoint, observer.DefaultEndpoint)
+	}
+	if settings.Model != observer.DefaultModel {
+		t.Errorf("model = %q, want the offered default %q", settings.Model, observer.DefaultModel)
+	}
+	if len(savedKeys) != 1 || savedKeys[0] != "sk-test-key" {
+		t.Fatalf("API key saves = %v, want exactly the typed key", savedKeys)
+	}
+}
+
+// The observer is optional, so a typo must not stop the session: the reason is
+// printed, nothing is saved, and the guide returns without an error.
+func TestObserverGuideInvalidEndpointDoesNotBlockTheSession(t *testing.T) {
+	repo := onboardRepo(t)
+	o, _, out := newTestOnboarding(t, repo, "1\nftp://not-a-gateway\n\n\n")
+	if err := o.ensureObserver(repo); err != nil {
+		t.Fatalf("a bad endpoint blocked the session: %v", err)
+	}
+	if settings := projectObserver(t, repo); settings != nil {
+		t.Fatalf("an invalid observer was saved anyway: %+v", settings)
+	}
+	if !strings.Contains(out.String(), "Observer not saved") {
+		t.Errorf("the refusal was not explained:\n%s", out.String())
+	}
+}
+
+// An unreadable answer changes nothing at all: the dashboard panel is still
+// there to ask properly once the session is up.
+func TestObserverGuideBlankAnswerChangesNothing(t *testing.T) {
+	repo := onboardRepo(t)
+	o, _, out := newTestOnboarding(t, repo, "")
+	if err := o.ensureObserver(repo); err != nil {
+		t.Fatalf("ensureObserver: %v", err)
+	}
+	if settings := projectObserver(t, repo); settings != nil {
+		t.Fatalf("a blank answer saved an observer choice: %+v", settings)
+	}
+	if !strings.Contains(out.String(), "observer") {
+		t.Errorf("the question was not asked:\n%s", out.String())
 	}
 }

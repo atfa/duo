@@ -53,6 +53,14 @@ const (
 	// than a few unused tokens.
 	DefaultMaxTokens = 1000
 
+	// DefaultEndpoint and DefaultModel are what Duo offers a human who has never
+	// configured the observer: a local OpenAI-compatible gateway and the model
+	// name such a gateway commonly serves. Both the dashboard's setup panel and
+	// the first-run guide offer them, so they live here rather than in either
+	// frontend.
+	DefaultEndpoint = "http://127.0.0.1:4000/v1"
+	DefaultModel    = "exec"
+
 	// busBuffer is large enough for a burst of tool activity. The bus drops when
 	// a subscriber falls behind, which is the behaviour this package relies on.
 	busBuffer = 256

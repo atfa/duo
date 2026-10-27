@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/atfa/duo/internal/driver"
+	"github.com/atfa/duo/internal/observer"
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/workspace"
 )
@@ -53,6 +54,15 @@ type onboarding struct {
 	mkdirAll  func(string, os.FileMode) error
 	writeFile func(string, []byte, os.FileMode) error
 	home      func() string
+
+	// The observer is the one optional part of the guide: whether it was ever
+	// configured, and where a choice is stored, are separate probes because the
+	// answer comes from files and the environment a session would read too.
+	loadMergedConfig func(launchDir string) (configFile, error)
+	keyFileExists    func() bool
+	envOverrides     func() (enabled, endpoint, model bool)
+	saveObserver     func(root string, settings observer.Settings) error
+	saveAPIKey       func(key string) (string, error)
 }
 
 // driverStatus is one shipped driver's answer to "can this machine run me?".
@@ -66,16 +76,21 @@ type driverStatus struct {
 
 func newOnboarding(launchDir string, in io.Reader, out io.Writer) *onboarding {
 	return &onboarding{
-		launchDir: launchDir,
-		in:        in,
-		out:       out,
-		findRoot:  workspace.FindRoot,
-		git:       gitText,
-		drivers:   probeShippedDrivers,
-		stat:      os.Stat,
-		mkdirAll:  os.MkdirAll,
-		writeFile: os.WriteFile,
-		home:      func() string { home, _ := os.UserHomeDir(); return home },
+		launchDir:        launchDir,
+		in:               in,
+		out:              out,
+		findRoot:         workspace.FindRoot,
+		git:              gitText,
+		drivers:          probeShippedDrivers,
+		stat:             os.Stat,
+		mkdirAll:         os.MkdirAll,
+		writeFile:        os.WriteFile,
+		home:             func() string { home, _ := os.UserHomeDir(); return home },
+		loadMergedConfig: loadMergedConfigFile,
+		keyFileExists:    observer.KeyFileExists,
+		envOverrides:     observer.EnvOverrides,
+		saveObserver:     workspace.SaveProjectObserver,
+		saveAPIKey:       observer.SaveAPIKey,
 	}
 }
 
@@ -90,7 +105,8 @@ func (o *onboarding) onboard(ctx context.Context) error {
 
 // onboardLocalState answers the questions about the repository and the settings,
 // in the order a session needs them: a repository to work in, a commit to branch
-// from, a clean tree to deliver into, and configuration for the round.
+// from, a clean tree to deliver into, configuration for the round, and the
+// optional observer.
 func (o *onboarding) onboardLocalState(ctx context.Context) error {
 	root, err := o.ensureRepository(ctx)
 	if err != nil {
@@ -102,7 +118,10 @@ func (o *onboarding) onboardLocalState(ctx context.Context) error {
 	if err := o.ensureClean(ctx, root); err != nil {
 		return err
 	}
-	return o.ensureConfig(o.launchDir, root)
+	if err := o.ensureConfig(o.launchDir, root); err != nil {
+		return err
+	}
+	return o.ensureObserver(root)
 }
 
 // maybeGuideFirstRun is the launch path's entry point. It refuses a machine with
@@ -336,6 +355,75 @@ func (o *onboarding) ensureConfig(launchDir, root string) error {
 	return nil
 }
 
+// ensureObserver offers the optional observer once, here, rather than only in the
+// dashboard a moment later. The dashboard's own setup panel appears just when the
+// observer was never configured, so a human who answers here is not asked twice;
+// skipping leaves the same state the panel's "Later" button leaves behind.
+func (o *onboarding) ensureObserver(root string) error {
+	if o.observerConfigured() {
+		return nil
+	}
+	choice := o.askChoice(
+		"Duo's optional observer writes status reports on request (Ctrl+E) and names sessions.\n"+
+			"It is not configured yet, and nothing it does changes the workflow.",
+		[]string{"set it up now", "later (stays off; /observer opens the settings at any time)"})
+	switch choice {
+	case 1:
+		return o.setUpObserver(root)
+	case 2:
+		// Record the dismissal where the dashboard records its own, so the setup
+		// panel does not ask again on the next start.
+		if err := o.saveObserver(root, observer.Settings{Enabled: false}); err != nil {
+			return err
+		}
+		fmt.Fprintln(o.out, "The observer stays off. /observer opens the settings at any time.")
+	}
+	// A blank or unreadable answer changes nothing: the dashboard panel will offer
+	// the same choice once the session is up.
+	return nil
+}
+
+// setUpObserver collects the three settings a working observer needs, keeping the
+// documented defaults when the human just presses Enter.
+func (o *onboarding) setUpObserver(root string) error {
+	endpoint := o.askText("Observer base URL", observer.DefaultEndpoint)
+	model := o.askText("Observer model", observer.DefaultModel)
+	key := o.askText("Observer API key (blank keeps DUO_OBSERVER_API_KEY or the saved key)", "")
+
+	chosen := observer.Config{Enabled: true, Endpoint: endpoint, Model: model}.Normalized()
+	if err := chosen.Validate(); err != nil {
+		// The observer is optional, so a typo must not stop the session: say why it
+		// was not saved and leave the choice to the settings panel.
+		fmt.Fprintf(o.out, "Observer not saved: %v. The session starts without it; /observer opens the settings.\n", err)
+		return nil
+	}
+	if strings.TrimSpace(key) != "" {
+		if _, err := o.saveAPIKey(key); err != nil {
+			return err
+		}
+	}
+	if err := o.saveObserver(root, chosen.FileSettings()); err != nil {
+		return err
+	}
+	fmt.Fprintln(o.out, "Observer saved. Press Ctrl+E in the dashboard to ask for a report.")
+	return nil
+}
+
+// observerConfigured answers the question the dashboard's setup panel answers
+// from its view: has this human ever configured the observer? It reads the same
+// files and the same environment, so the two fronts cannot disagree about
+// whether to ask.
+func (o *onboarding) observerConfigured() bool {
+	if o.keyFileExists() {
+		return true
+	}
+	if enabled, endpoint, model := o.envOverrides(); enabled || endpoint || model {
+		return true
+	}
+	cfg, err := o.loadMergedConfig(o.launchDir)
+	return err == nil && cfg.Observer != nil
+}
+
 // writeDefaultConfig writes the file the wizard offered. configFile is marshalled
 // rather than a literal so the key names cannot drift from what loadConfigFile
 // reads. The TUI view is spelled out because the human asked for it by name:
@@ -386,6 +474,23 @@ func countPaths(porcelain string) int {
 		return 0
 	}
 	return len(strings.Split(trimmed, "\n"))
+}
+
+// askText reads one free-form answer. A blank answer keeps the offered default,
+// which is how the endpoint and model keep the values Duo documents; a question
+// without a default (the API key) treats a blank answer as "nothing".
+func (o *onboarding) askText(question, fallback string) string {
+	if fallback != "" {
+		fmt.Fprintf(o.out, "%s [%s]: ", question, fallback)
+	} else {
+		fmt.Fprintf(o.out, "%s: ", question)
+	}
+	answer, err := o.readAnswer()
+	if err != nil || answer == "" {
+		return fallback
+	}
+	fmt.Fprintln(o.out)
+	return answer
 }
 
 // askChoice prints a numbered question and returns the 1-based option the human

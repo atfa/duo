@@ -54,10 +54,10 @@ func (o *observerConfigOverlay) beginOnboarding(view session.ObserverView) {
 	o.begin(view)
 	o.onboarding = true
 	if strings.TrimSpace(view.Endpoint) == "" {
-		o.endpoint = []rune("http://127.0.0.1:4000/v1")
+		o.endpoint = []rune(observer.DefaultEndpoint)
 	}
 	if strings.TrimSpace(view.Model) == "" {
-		o.model = []rune("exec")
+		o.model = []rune(observer.DefaultModel)
 	}
 	o.enabled = false
 }
