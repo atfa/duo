@@ -18,8 +18,8 @@ import (
 	"github.com/atfa/duo/internal/models"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/remote"
-	"github.com/atfa/duo/internal/sessionstore"
 	"github.com/atfa/duo/internal/session"
+	"github.com/atfa/duo/internal/sessionstore"
 )
 
 func writeRemoteConfig(t *testing.T, repo, body string) {
