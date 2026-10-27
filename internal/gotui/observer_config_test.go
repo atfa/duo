@@ -131,17 +131,24 @@ func TestObserverConfigLeftArrowRendersAdjacentValue(t *testing.T) {
 	}
 	for range len("://127.0.0.1:4000/v1") {
 		injectKey(sim, tcell.KeyLeft, 0, tcell.ModNone)
-		time.Sleep(time.Millisecond)
 	}
 	waitForText(t, sim, "Base URL: http://")
 	text := screenText(sim)
 	if !strings.Contains(text, "Base URL: http://127.0.0.1:4000/v1") {
 		t.Fatalf("left-arrow field rendering changed the value:\n%s", text)
 	}
-	x, y, visible := sim.GetCursor()
+	// The keys are queued for the interface's own goroutine, so the cursor is what
+	// says it caught up: a fixed sleep per key loses the last one on a loaded
+	// machine, and the assertion then blames the rendering.
 	wantX := startX - len("://127.0.0.1:4000/v1")
-	if !visible || x != wantX || y != startY {
-		t.Fatalf("screen cursor = (%d,%d, visible=%t), want (%d,%d)", x, y, visible, wantX, startY)
+	x, y, visible := sim.GetCursor()
+	deadline := time.Now().Add(4 * time.Second)
+	for !(visible && x == wantX && y == startY) {
+		if time.Now().After(deadline) {
+			t.Fatalf("screen cursor = (%d,%d, visible=%t), want (%d,%d)", x, y, visible, wantX, startY)
+		}
+		time.Sleep(10 * time.Millisecond)
+		x, y, visible = sim.GetCursor()
 	}
 }
 
