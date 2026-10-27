@@ -15,6 +15,7 @@ import (
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/session"
 	"github.com/atfa/duo/internal/sessionstore"
+	"github.com/atfa/duo/internal/version"
 	"github.com/gdamore/tcell/v3"
 	ui "github.com/metaspartan/gotui/v5"
 )
@@ -70,8 +71,10 @@ func TestCaptureFrames(t *testing.T) {
 	fake.view.Project.Verification.Head = "abc123456789"
 	fake.view.Delivery = sessionstore.Delivery{Status: sessionstore.DeliveryPending}
 	// These frames double as the product site's screenshots, so show a release
-	// build and a plausible session instead of the fixture's "test" strings.
-	fake.view.Version = "v0.14.3"
+	// build and a plausible session instead of the fixture's "test" strings. The
+	// version follows the release constant: regenerating screenshots for a new
+	// release must not label them with an older one.
+	fake.view.Version = version.Version
 	fake.view.SessionID = "20261022-211328"
 	fake.view.Worktrees.Repository = "/home/ana/Projects/atlas-api"
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {

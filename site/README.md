@@ -71,7 +71,7 @@ Local Wrangler state lives in `site/.wrangler/` and is git-ignored.
   renders the real TUI and exports them with `DUO_GOTUI_SHOT_DIR` (see
   [docs/gotui.md](../docs/gotui.md#screenshots-for-the-site)); the same test
   produces the text frames in `docs/gotui/screens/`.
-- Keep copy factual: v0.14.4, MIT, drivers pi/agy/opencode/codex, eight Duo tools,
+- Keep copy factual: v0.14.5, MIT, drivers pi/agy/opencode/codex, eight Duo tools,
   MCP subset, gotui, remote control (`/qrcode`, pause/continue, mode/driver/model,
   ciphertext-only relay). Do not claim the removed desktop GUI.
 - No inline scripts or styles: `_headers` sets a strict CSP (`script-src 'self'`,

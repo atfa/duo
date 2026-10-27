@@ -2,6 +2,40 @@
 
 All notable project milestones are documented here.
 
+## v0.14.5 — 2026-10-27
+
+### First-run guide
+
+- The first `duo` launch no longer fails with only a printed hint. A plain
+  terminal guide runs before the configuration loads and asks before it
+  changes anything: in a directory that is not a Git repository it offers
+  `git init`; in a repository with no commit it offers an initial commit
+  (honouring `.gitignore`, `--allow-empty` when there is nothing to stage);
+  with uncommitted work it offers to commit it or stash it, then re-reads Git
+  to prove the fix landed. All fixes are explicit choices; quitting keeps the
+  errors Duo always reported.
+- If `~/.duo/config.json` does not exist the guide offers to create one with
+  English, GOAL mode and the TIMELINE view; if the repository has no project
+  configuration it confirms starting on those defaults. A configuration the
+  guide just wrote is the one this launch reads — no restart needed.
+- The guide also sets up the optional advisory observer: it offers to store
+  endpoint, model and API key now (the key goes to the owner-only
+  `~/.duo/observer.key`), or to skip the same way the dashboard's Later does
+  (`observer: {"enabled": false}`), so the interface does not ask twice. An
+  observer that fails validation never blocks the start.
+- With no terminal — a script, CI, `duo run` — the guide asks nothing and the
+  errors are unchanged. `duo resume` is never asked anything. When none of the
+  four driver CLIs (pi, codex, opencode, agy) is on `PATH`, Duo refuses to
+  start and names what to install, in a headless round as well.
+
+### Dashboard view default
+
+- `tuiMode` in `~/.duo/config.json` selects the view a session opens on
+  (`timeline`, the default, or `split`); a repository whose view was saved
+  with F2 keeps its own choice. A value the interface cannot draw is a
+  configuration error rather than a silent fallback, and `duo doctor` reports
+  it. The first-run guide's default file states `tuiMode: "timeline"`.
+
 ## v0.14.4 — 2026-10-26
 
 ### Windows
