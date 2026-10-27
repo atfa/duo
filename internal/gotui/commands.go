@@ -156,6 +156,9 @@ func (a *App) runSlash(text string) bool {
 	case "/new":
 		a.requestNewSession()
 		return true
+	case "/recall":
+		a.requestRecall()
+		return true
 	case "/quit", "/exit":
 		a.requestQuit()
 		return true

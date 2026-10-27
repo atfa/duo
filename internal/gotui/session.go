@@ -23,6 +23,10 @@ type Session interface {
 	Models(ctx context.Context, agent protocol.AgentID) ([]models.Model, error)
 	Drivers(ctx context.Context) ([]session.DriverChoice, error)
 	StatusText(ctx context.Context) string
+	// RecallPreview reports what /recall would discard, and whether the session
+	// may be recalled at all. A git read failure returns an error: the frontend
+	// must not open the panel on an answer it cannot trust.
+	RecallPreview(ctx context.Context) (session.RecallPreview, error)
 	Changes(ctx context.Context) []string
 	Notices() []string
 	// Sessions lists the sessions this repository can resume right now. It is

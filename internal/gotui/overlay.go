@@ -207,6 +207,9 @@ func helpSections() []helpSection {
 		{"SESSION", []string{
 			"Every visible message is recorded through the session journal, so resume",
 			"restores the same conversation when the session resumes.",
+			"/recall undoes a session that never delivered: both agents stop, the",
+			"worktrees, branches, record and transcripts are removed, and a fresh",
+			"session starts. Delivered work is refused; use git revert for that.",
 		}},
 	}
 }

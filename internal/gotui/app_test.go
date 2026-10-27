@@ -37,10 +37,12 @@ type fakeSession struct {
 	rows     int
 	doErr    error
 
-	reportRequests int
-	answerRequests []string
-	statusText     string
-	sessions       []sessionstore.Summary
+	reportRequests   int
+	answerRequests   []string
+	statusText       string
+	sessions         []sessionstore.Summary
+	recallPreview    session.RecallPreview
+	recallPreviewErr error
 }
 
 func newFakeSession() *fakeSession {
@@ -169,6 +171,10 @@ func (f *fakeSession) StatusText(ctx context.Context) string {
 		return f.statusText
 	}
 	return "STATUS OK"
+}
+
+func (f *fakeSession) RecallPreview(ctx context.Context) (session.RecallPreview, error) {
+	return f.recallPreview, f.recallPreviewErr
 }
 
 func (f *fakeSession) Changes(ctx context.Context) []string {
