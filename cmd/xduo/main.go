@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/atfa/duo/internal/remote"
@@ -24,6 +27,9 @@ type panel struct {
 	selected int
 	offset   int
 	message  string
+	duo      string
+	mode     string
+	input    string
 }
 
 func (p *panel) refresh() {
@@ -32,7 +38,6 @@ func (p *panel) refresh() {
 		p.message = err.Error()
 		return
 	}
-	p.message = ""
 	p.rows = nil
 	now := time.Now()
 	for _, i := range records {
@@ -111,7 +116,7 @@ func (p *panel) draw(s tcell.Screen) {
 	}
 	s.PutStrStyled(1, 0, "XDUO  /  Duo workspaces", accent)
 	if h > 1 {
-		s.PutStrStyled(1, 1, "↑↓ select   r refresh   q quit", muted)
+		s.PutStrStyled(1, 1, "↑↓ select   enter open   n new   x close   r refresh   q quit", muted)
 	}
 	// Three lines per instance keep paths and model IDs legible.
 	visible := (h - 4) / 3
@@ -151,13 +156,76 @@ func (p *panel) draw(s tcell.Screen) {
 			s.PutStrStyled(3, y+2, lines[2], style)
 		}
 	}
-	if h > 1 && p.message != "" {
-		s.PutStrStyled(1, h-1, p.message, base.Foreground(tcell.ColorRed))
+	if h > 1 {
+		line := p.message
+		if p.mode == "input" {
+			line = "Project path: " + p.input + "  (Enter: create, Esc: cancel)"
+		}
+		if p.mode == "confirm" {
+			line = "Close running instance? y/N"
+		}
+		if line != "" {
+			s.PutStrStyled(1, h-1, line, accent)
+		}
 	}
 	s.Show()
 }
 
+func (p *panel) closeSelected(confirmed bool) {
+	if len(p.rows) == 0 {
+		return
+	}
+	r := p.rows[p.selected]
+	err := xduo.Remove(context.Background(), p.tmux, p.dir, r.instance, r.status, confirmed, 5*time.Second)
+	if errors.Is(err, xduo.ErrConfirmationRequired) {
+		p.mode = "confirm"
+		return
+	}
+	p.refresh()
+	if err != nil {
+		p.message = err.Error()
+	} else {
+		p.message = "Instance closed."
+	}
+}
+
 func (p *panel) key(e *tcell.EventKey) bool {
+	if p.mode == "input" {
+		switch e.Key() {
+		case tcell.KeyEsc:
+			p.mode = ""
+			p.message = "Cancelled."
+		case tcell.KeyEnter:
+			path := p.input
+			p.mode = ""
+			_, err := xduo.Create(context.Background(), p.tmux, p.dir, path, p.duo)
+			p.refresh()
+			if err != nil {
+				p.message = err.Error()
+			} else {
+				p.message = "Instance started."
+				p.selected = len(p.rows) - 1
+			}
+		case tcell.KeyBackspace, tcell.KeyBackspace2:
+			r := []rune(p.input)
+			if len(r) > 0 {
+				p.input = string(r[:len(r)-1])
+			}
+		case tcell.KeyRune:
+			p.input += e.Str()
+		}
+		return true
+	}
+	if p.mode == "confirm" {
+		if e.Key() == tcell.KeyRune && strings.EqualFold(e.Str(), "y") {
+			p.mode = ""
+			p.closeSelected(true)
+		} else if e.Key() == tcell.KeyEsc || e.Key() == tcell.KeyEnter || e.Key() == tcell.KeyRune {
+			p.mode = ""
+			p.message = "Cancelled."
+		}
+		return true
+	}
 	switch e.Key() {
 	case tcell.KeyUp:
 		if p.selected > 0 {
@@ -167,12 +235,46 @@ func (p *panel) key(e *tcell.EventKey) bool {
 		if p.selected+1 < len(p.rows) {
 			p.selected++
 		}
+	case tcell.KeyEnter:
+		if len(p.rows) > 0 {
+			r := p.rows[p.selected]
+			alive, err := p.tmux.Alive(r.instance.Session)
+			if err != nil {
+				p.message = err.Error()
+			} else if !alive {
+				p.message = "Instance is not running."
+			} else if err = p.tmux.Switch(context.Background(), r.instance.Session); err != nil {
+				p.message = err.Error()
+			} else {
+				records, saveErr := xduo.LoadRegistry(filepath.Join(p.dir, "instances.json"))
+				if saveErr == nil {
+					for j := range records {
+						if records[j].ID == r.instance.ID {
+							records[j].LastActivatedAt = time.Now().UTC()
+						}
+					}
+					saveErr = xduo.SaveRegistry(filepath.Join(p.dir, "instances.json"), records)
+				}
+				p.refresh()
+				if saveErr != nil {
+					p.message = saveErr.Error()
+				} else {
+					p.message = "Switched. Return with tmux prefix + L."
+				}
+			}
+		}
 	case tcell.KeyRune:
 		switch e.Str() {
 		case "q":
 			return false
 		case "r":
+			p.message = ""
 			p.refresh()
+		case "n":
+			p.mode = "input"
+			p.input, _ = os.Getwd()
+		case "x":
+			p.closeSelected(false)
 		}
 	}
 	return true
@@ -187,6 +289,7 @@ func runPanel(p *panel) error {
 		return err
 	}
 	defer screen.Fini()
+	screen.EnableFocus()
 	p.refresh()
 	p.draw(screen)
 	ticker := time.NewTicker(time.Second)
@@ -194,8 +297,10 @@ func runPanel(p *panel) error {
 	for {
 		select {
 		case <-ticker.C:
-			p.refresh()
-			p.draw(screen)
+			if p.mode == "" {
+				p.refresh()
+				p.draw(screen)
+			}
 		case event, ok := <-screen.EventQ():
 			if !ok {
 				return nil
@@ -204,6 +309,14 @@ func runPanel(p *panel) error {
 			case *tcell.EventKey:
 				if !p.key(e) {
 					return nil
+				}
+				if e.Key() == tcell.KeyEnter {
+					screen.Sync()
+				}
+			case *tcell.EventFocus:
+				if e.Focused {
+					p.refresh()
+					screen.Sync()
 				}
 			case *tcell.EventResize:
 				screen.Sync()
@@ -216,7 +329,7 @@ func runPanel(p *panel) error {
 func main() {
 	duo := flag.String("duo", "", "path to Duo executable")
 	flag.Parse()
-	_ = duo // Used by instance creation in the next step.
+
 	tm, err := xduo.FindTmux()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -235,7 +348,7 @@ func main() {
 	if handled {
 		return
 	}
-	if err = runPanel(&panel{dir: dir, tmux: tm}); err != nil {
+	if err = runPanel(&panel{dir: dir, tmux: tm, duo: *duo}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

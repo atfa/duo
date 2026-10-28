@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
 	"errors"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -71,5 +74,58 @@ func TestBootstrap(t *testing.T) {
 	_, err = bootstrap("", "", "", false, runner)
 	if err == nil {
 		t.Fatal("non-TTY accepted")
+	}
+}
+
+func TestPanelOperations(t *testing.T) {
+	dir := t.TempDir()
+	var calls []string
+	alive := true
+	tm := xduo.Tmux{Path: "tmux", Runner: func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		calls = append(calls, args[0])
+		if args[0] == "has-session" && !alive {
+			return []byte("can't find session"), errors.New("exit 1")
+		}
+		return nil, nil
+	}}
+	i, err := xduo.NewInstance(dir, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = xduo.SaveRegistry(filepath.Join(dir, "instances.json"), []xduo.Instance{i}); err != nil {
+		t.Fatal(err)
+	}
+	p := panel{dir: dir, tmux: tm}
+	p.refresh()
+	key := func(k tcell.Key, s string) { p.key(tcell.NewEventKey(k, s, tcell.ModNone)) }
+	key(tcell.KeyRune, "n")
+	p.input = "/does/not/exist"
+	key(tcell.KeyRune, "z")
+	if !strings.HasSuffix(p.input, "z") {
+		t.Fatal(p.input)
+	}
+	key(tcell.KeyEnter, "")
+	if !strings.Contains(p.message, "project path") {
+		t.Fatal(p.message)
+	}
+	key(tcell.KeyRune, "x")
+	if p.mode != "confirm" {
+		t.Fatalf("confirmation mode: %q", p.mode)
+	}
+	key(tcell.KeyEsc, "")
+	calls = nil
+	key(tcell.KeyEnter, "")
+	if !slices.Contains(calls, "switch-client") {
+		t.Fatal(calls)
+	}
+	alive = false
+	calls = nil
+	key(tcell.KeyEnter, "")
+	if slices.Contains(calls, "switch-client") || !strings.Contains(p.message, "not running") {
+		t.Fatal(calls, p.message)
+	}
+	key(tcell.KeyRune, "x")
+	if p.mode != "" || len(p.rows) != 0 {
+		t.Fatal(p.mode, p.rows)
 	}
 }

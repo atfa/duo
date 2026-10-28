@@ -141,3 +141,8 @@ func (t Tmux) Close(ctx context.Context, i Instance, state DisplayStatus, confir
 		}
 	}
 }
+
+// Switch activates an existing instance for the current tmux client.
+func (t Tmux) Switch(ctx context.Context, session string) error {
+	return t.run(ctx, "switch-client", "-t", "="+session)
+}
