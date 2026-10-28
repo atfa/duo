@@ -27,13 +27,13 @@ On a first run `duo` checks that it can start before it opens the dashboard, and
 
 ## Install
 
-**Latest published release v0.14.5** (macOS/Linux/Windows, amd64, plus arm64 on macOS/Linux):
+**Latest published release v0.15.0** (macOS/Linux/Windows, amd64, plus arm64 on macOS/Linux):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash
 ```
 
-The release installer installs both `duo` and `xduo` when the archive includes xduo. Older releases such as v0.14.5 do not include it; use a newer release or install from source for xduo.
+The release installer installs both `duo` and `xduo`. Releases through v0.14.5 do not include xduo.
 
 On Windows, download `duo_windows_amd64.tar.gz` from the release with `tar -xzf` or any archive tool and put `duo.exe` and `duo-plugin-*.exe` on `PATH` (or in `%USERPROFILE%\.duo\plugins`). The shell installer is a POSIX script and does not run there; `duo upgrade` does, and it replaces the running `duo.exe` in place.
 

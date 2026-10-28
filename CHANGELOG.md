@@ -2,7 +2,14 @@
 
 All notable project milestones are documented here.
 
-## Unreleased
+## v0.15.0
+
+### Xduo workspace manager
+
+- Manage multiple independent Duo instances with a keyboard- and mouse-driven workspace dashboard, directory picker, recent projects, and per-instance Remote pairing.
+- Access xduo in a local or remote browser using the built-in terminal server, room code authentication, and optional named Cloudflare Tunnel. Browser control locks local clients until Server is stopped.
+- Resume exited instances, use browser controls for native terminals, and access common Duo shortcuts through slash commands.
+
 
 ### Recall a session
 
