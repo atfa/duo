@@ -74,6 +74,8 @@ The `-duo` option is optional; without it xduo looks for `duo` on PATH. Launch `
 
 The toolbar's **Server** button (or `S`) toggles a local browser terminal at `127.0.0.1:8787`. It starts off; gray means off, green means running, and red means startup failed. When enabled, open the full access link shown below the toolbar. The page includes xterm.js, connection status, Reconnect and Fullscreen; all assets are bundled in xduo, with no CDN or frontend build needed. One browser can connect at a time. Closing or refreshing the tab disconnects only its tmux client; the manager and Duo instances keep running. Turning Server off closes the listener and browser connection. Browser access is local-only in this version.
 
+The browser's single top toolbar contains **Models (Alt+M)**, **Austin (Ctrl+A)**, **Tony (Ctrl+T)**, **Back to Duo (Ctrl+])** and **Quit Duo (Ctrl+Q)**. These controls appear only while that browser is inside a Duo instance, including its native agent terminals, and hide when returning to the xduo manager. They send the same keys to the current terminal. The xduo TUI shows only workspace-management controls.
+
 Selecting `[+]` opens a directory picker at the manager's launch directory. Use `Tab` / `Shift+Tab` to move between the path input, directories, recent projects, Confirm and Cancel; use arrow keys and `Enter` within a list. Clicking a directory opens it, clicking a recent project selects it, and Confirm starts Duo in the chosen directory. `Esc` cancels. The latest ten successfully created or opened projects are stored separately in `~/.duo/xduo/recent-projects.json`.
 
 Duo instances launched by xduo show a **Back to xduo** button at the top right. Clicking it returns to the manager while keeping Duo and its agents running.
@@ -85,6 +87,28 @@ Finished and exited instances can be closed without confirmation. Closing first 
 Duo publishes status approximately once per second through `XDUO_STATUS_FILE`. The panel shows `idle` before a task starts, or `playing`, `pause`, or `stop`, along with the separate workflow phase and tmux liveness: DONE does not imply the process has exited. A live instance without a snapshot is `Starting`; a snapshot older than five seconds is `Unknown`. The panel refreshes automatically and on return.
 
 Only the Linux tmux backend is supported. Multiple xduo panels must not write the same registry concurrently. The manager inherits the tmux server environment, which may differ from the shell that attached to it. Without the two environment variables, standalone Duo retains its normal status and Remote behavior.
+
+Duo's dashboard actions also have slash commands, so browser-reserved shortcuts are optional:
+
+| Shortcut | Slash command |
+| --- | --- |
+| Ctrl+M / Alt+M | `/model` |
+| Ctrl+S / Alt+S | `/mode` |
+| Ctrl+A / Alt+A | `/austin` |
+| Ctrl+T / Alt+T | `/tony` |
+| Ctrl+R / Ctrl+Y | `/restart austin` / `/restart tony` |
+| Ctrl+O / Alt+O | `/overview` |
+| Ctrl+E | `/reports` |
+| Ctrl+P | `/preview` |
+| Ctrl+G | `/timestamps` |
+| Ctrl+X | `/copy` |
+| Ctrl+F | `/search` |
+| Ctrl+V | `/paste` (image from the host clipboard) |
+| Ctrl+L | `/clear` |
+| Ctrl+/ / Alt+H | `/help` |
+| Ctrl+Q / Ctrl+D | `/quit` or `/exit` |
+
+These commands are entered in Duo's composer; native agent terminals keep their own input handling. Use **Back to Duo (Ctrl+])** in the browser toolbar to leave a native terminal without stopping the agent. Slash commands typed inside a native terminal go to the agent, not Duo.
 
 ## Agent drivers
 

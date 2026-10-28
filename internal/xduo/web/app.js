@@ -7,7 +7,8 @@ const status = document.getElementById('status');
 const encoder = new TextEncoder();
 const token = location.hash.slice(1);
 let socket;
-function state(name,text){status.dataset.state=name;status.textContent=text;}
+const controls=document.querySelector('.shortcuts');
+function state(name,text){if(name!=='connected')controls.hidden=true;status.dataset.state=name;status.textContent=text;document.querySelectorAll('[data-shortcut]').forEach(button=>button.disabled=name!=='connected');}
 function resize(){fit.fit();if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({cols:term.cols,rows:term.rows}));}
 function connect(){
  if(!token){state('disconnected','Open the access link shown in xduo');return;}
@@ -19,7 +20,13 @@ function connect(){
  socket=current;current.binaryType='arraybuffer';
  state('connecting','Connecting…');
  current.onopen=()=>{if(socket!==current)return;term.reset();resize();state('connected','● Connected');term.focus();};
- current.onmessage=event=>{if(socket===current)term.write(new Uint8Array(event.data));};
+ current.onmessage=event=>{
+  if(socket!==current)return;
+  if(typeof event.data==='string'){
+   const message=JSON.parse(event.data);
+   if(message.type==='session')controls.hidden=!message.duo;
+  }else term.write(new Uint8Array(event.data));
+ };
  current.onclose=()=>{if(socket===current)state('disconnected','Disconnected · reconnect to continue');};
  current.onerror=()=>{if(socket===current)state('disconnected','Connection failed · check Server in xduo');};
 }
@@ -29,4 +36,10 @@ new ResizeObserver(resize).observe(document.getElementById('terminal'));
 document.getElementById('reconnect').onclick=connect;
 document.getElementById('fullscreen').onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen();resize();term.focus();}catch{state('disconnected','Fullscreen is unavailable');}};
 window.addEventListener('beforeunload',()=>socket?.close());
+const shortcuts={models:'\x1bm',austin:'\x01',tony:'\x14',detach:'\x1d',quit:'\x11'};
+document.querySelectorAll('[data-shortcut]').forEach(button=>button.onclick=()=>{
+ if(socket?.readyState!==WebSocket.OPEN)return;
+ socket.send(encoder.encode(shortcuts[button.dataset.shortcut]));
+ term.focus();
+});
 connect();

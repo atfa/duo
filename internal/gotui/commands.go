@@ -90,6 +90,29 @@ func (a *App) runSlash(text string) bool {
 		a.cost.begin(a.live)
 		a.overlay = overlayCost
 		return true
+	case "/austin":
+		a.enterNative(protocol.Austin)
+		return true
+	case "/tony":
+		a.enterNative(protocol.Tony)
+		return true
+	case "/restart":
+		if len(fields) != 2 {
+			a.setStatus(a.theme.tr("usage: /restart austin|tony"), true)
+			return true
+		}
+		switch strings.ToLower(fields[1]) {
+		case "austin":
+			a.restartAgent(protocol.Austin)
+		case "tony":
+			a.restartAgent(protocol.Tony)
+		default:
+			a.setStatus(a.theme.tr("usage: /restart austin|tony"), true)
+		}
+		return true
+	case "/paste":
+		a.pasteImageFromClipboard()
+		return true
 	case "/model":
 		a.openPicker()
 		return true

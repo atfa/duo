@@ -135,22 +135,27 @@ func (p *panel) draw(s tcell.Screen) {
 		return
 	}
 	s.PutStrStyled(1, 0, "◆ XDUO   /   Workspaces", accent)
-	s.PutStrStyled(1, 1, "[ N New ]   [ R Refresh ]   [ X Close ]   [ Q Quit ]", muted)
+	s.PutStrStyled(1, 1, "[ R Refresh ]   [ X Close ]   [ Q Quit ]", muted)
 	label, style := "[ S Server: Off ]", muted
 	if p.server != nil {
 		label, style = "[ S Server: On ]", primaryButton
-		s.PutStrStyled(1, 2, p.server.URL, accent)
+
 	} else if p.serverError {
 		label, style = "[ S Server: Error ]", errorStyle
 	}
-	s.PutStrStyled(55, 1, label, style)
-	s.PutStrStyled(1, 1, "[ N New ]", primaryButton)
+	s.PutStrStyled(43, 1, label, style)
 	if w > 80 {
 		s.PutStrStyled(w-27, 0, fmt.Sprintf("%d workspaces  ·  local", len(p.rows)), muted)
 	}
+	toolbarBottom := 1
+	if p.server != nil {
+		toolbarBottom++
+		s.PutStrStyled(1, toolbarBottom, p.server.URL, accent)
+	}
+	gridTop := toolbarBottom + 2
 	p.columns = max(1, w/36)
 	width := max(1, w/p.columns)
-	visible := max(1, (h-5)/9)
+	visible := max(1, (h-gridTop-2)/9)
 	focusRow := (p.selected + 1) / p.columns
 	if focusRow < p.offset {
 		p.offset = focusRow
@@ -165,7 +170,7 @@ func (p *panel) draw(s tcell.Screen) {
 		if row < 0 || row >= visible {
 			continue
 		}
-		rect := image.Rect(index%p.columns*width+1, 3+row*9, min(w, (index%p.columns+1)*width), min(h-2, 3+row*9+8))
+		rect := image.Rect(index%p.columns*width+1, gridTop+row*9, min(w, (index%p.columns+1)*width), min(h-2, gridTop+row*9+8))
 		p.cardRects[index] = rect
 		card := widgets.NewParagraph()
 		card.SetRect(rect.Min.X, rect.Min.Y, rect.Max.X, rect.Max.Y)
@@ -192,7 +197,7 @@ func (p *panel) draw(s tcell.Screen) {
 		}
 		card.Draw(buf)
 	}
-	for y := 3; y < h-2; y++ {
+	for y := gridTop; y < h-2; y++ {
 		for x := 0; x < w; x++ {
 			c := buf.GetCell(image.Pt(x, y))
 			if c.Rune != 0 {
@@ -404,9 +409,9 @@ func runPanel(p *panel) error {
 				if down && !p.mouseDown && !wasPicker && p.mode == "" {
 					x, y := e.Position()
 					if y == 1 {
-						for i, key := range []string{"n", "r", "x", "q", "s"} {
-							starts := []int{1, 13, 29, 43, 55}
-							ends := []int{10, 26, 40, 53, 75}
+						for i, key := range []string{"r", "x", "q", "s"} {
+							starts := []int{1, 17, 31, 43}
+							ends := []int{14, 28, 41, 63}
 							if x >= starts[i] && x < ends[i] {
 								if !p.key(tcell.NewEventKey(tcell.KeyRune, key, tcell.ModNone)) {
 									return nil

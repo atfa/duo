@@ -11,7 +11,10 @@
 <script defer src="/app.js"></script>
 </head>
 <body>
-<header><div class="brand"><span class="mark">◆</span> XDUO <span class="subtitle">LOCAL TERMINAL</span></div><nav><span id="status" role="status">Connecting…</span><button id="reconnect">Reconnect</button><button id="fullscreen">Fullscreen</button></nav></header>
+<header>
+<nav><span id="status" role="status">Connecting…</span><button id="reconnect">Reconnect</button><button id="fullscreen">Fullscreen</button></nav>
+<div class="shortcuts" aria-label="Duo shortcuts" hidden><button data-shortcut="models">Models <kbd>Alt+M</kbd></button><button data-shortcut="austin">Austin <kbd>Ctrl+A</kbd></button><button data-shortcut="tony">Tony <kbd>Ctrl+T</kbd></button><button data-shortcut="detach">Back to Duo <kbd>Ctrl+]</kbd></button><button class="quit" data-shortcut="quit">Quit Duo <kbd>Ctrl+Q</kbd></button></div>
+</header>
 <main id="terminal" aria-label="Xduo terminal"></main>
 <footer>Workspaces stay running when this tab closes.<span>Click the terminal to type · Shift + drag to select text</span></footer>
 </body>

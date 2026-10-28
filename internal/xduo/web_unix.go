@@ -3,19 +3,23 @@
 package xduo
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
 )
 
-// Text messages carry resize controls; binary messages are literal terminal
-// input/output bytes. Each browser owns one disposable tmux attach process.
+// Client text messages carry resize controls; server text messages report the
+// active session. Binary messages carry literal terminal input/output bytes.
+// Each browser owns one disposable tmux attach process.
 func bridgeWebTerminal(tm Tmux, ws *websocket.Conn) {
 	ws.SetReadLimit(1 << 20)
 	_ = ws.SetReadDeadline(time.Now().Add(10 * time.Second))
@@ -50,6 +54,52 @@ func bridgeWebTerminal(tm Tmux, ws *websocket.Conn) {
 		return
 	}
 
+	// PTY output and session metadata share one serialized WebSocket writer.
+	var writer sync.Mutex
+	send := func(kind int, data []byte) error {
+		writer.Lock()
+		defer writer.Unlock()
+		_ = ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		return ws.WriteMessage(kind, data)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	sessionDone := make(chan struct{})
+	go func() {
+		defer close(sessionDone)
+		ticker := time.NewTicker(250 * time.Millisecond)
+		defer ticker.Stop()
+		last := ""
+		for {
+			// Identify this browser's client, not another local tmux client.
+			out, err := tm.execute(ctx, "list-clients", "-F", "#{client_pid}\t#{session_name}")
+			current := ""
+			if err == nil {
+				for _, line := range strings.Split(string(out), "\n") {
+					pid, name, ok := strings.Cut(line, "\t")
+					if ok && pid == strconv.Itoa(cmd.Process.Pid) {
+						current = name
+						break
+					}
+				}
+			}
+			if current != last || last == "" {
+				duo := current != "xduo-manager" && strings.HasPrefix(current, "xduo-")
+				data, _ := json.Marshal(struct {
+					Type string `json:"type"`
+					Duo  bool   `json:"duo"`
+				}{"session", duo})
+				if send(websocket.TextMessage, data) != nil {
+					return
+				}
+				last = current
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+			}
+		}
+	}()
 	// One WebSocket reader and one writer, as required by gorilla/websocket.
 	outputDone := make(chan struct{})
 	go func() {
@@ -59,8 +109,7 @@ func bridgeWebTerminal(tm Tmux, ws *websocket.Conn) {
 		for {
 			n, err := terminal.Read(buf)
 			if n > 0 {
-				_ = ws.SetWriteDeadline(time.Now().Add(10 * time.Second))
-				if ws.WriteMessage(websocket.BinaryMessage, buf[:n]) != nil {
+				if send(websocket.BinaryMessage, buf[:n]) != nil {
 					return
 				}
 			}
@@ -69,7 +118,14 @@ func bridgeWebTerminal(tm Tmux, ws *websocket.Conn) {
 			}
 		}
 	}()
-	defer func() { cmd.Process.Kill(); terminal.Close(); <-outputDone; cmd.Wait() }()
+	defer func() {
+		cancel()
+		cmd.Process.Kill()
+		terminal.Close()
+		<-outputDone
+		<-sessionDone
+		cmd.Wait()
+	}()
 	for {
 		kind, data, err := ws.ReadMessage()
 		if err != nil {

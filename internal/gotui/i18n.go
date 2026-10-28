@@ -4,12 +4,17 @@ package gotui
 // session's /language setting; protocol words such as FAST/GOAL/STEP, agent
 // names, phases, paths and model ids stay in their canonical spelling.
 var zhUI = map[string]string{
-	"WORKFLOW":          "工作流",
-	"COMMANDS":          "命令",
-	"FILES":             "文件",
-	"CONVERSATION":      "会话",
-	"MODELS & THINKING": "模型与思考",
-	"Message":           "消息",
+	"Attach Austin's native terminal (Ctrl+A / Alt+A)": "进入 Austin 原生终端（Ctrl+A / Alt+A）",
+	"Attach Tony's native terminal (Ctrl+T / Alt+T)":   "进入 Tony 原生终端（Ctrl+T / Alt+T）",
+	"Restart an agent (Ctrl+R / Ctrl+Y)":               "重启 agent（Ctrl+R / Ctrl+Y）",
+	"Paste an image from the clipboard (Ctrl+V)":       "从剪贴板粘贴图片（Ctrl+V）",
+	"usage: /restart austin|tony":                      "用法：/restart austin|tony",
+	"WORKFLOW":                                         "工作流",
+	"COMMANDS":                                         "命令",
+	"FILES":                                            "文件",
+	"CONVERSATION":                                     "会话",
+	"MODELS & THINKING":                                "模型与思考",
+	"Message":                                          "消息",
 	"Message Duo…  Enter sends · Ctrl+Enter newline": "输入给 Duo 的消息…  Enter 发送 · Ctrl+Enter 换行",
 	"HELP":             "帮助",
 	"SESSION DETAILS":  "会话详情",

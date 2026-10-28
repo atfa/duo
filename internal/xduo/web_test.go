@@ -4,6 +4,7 @@ package xduo
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
@@ -150,4 +151,66 @@ func TestBrowserTerminalLifecycle(t *testing.T) {
 	if _, err = http.Get(base); err == nil {
 		t.Fatal("server still listening")
 	}
+}
+
+func TestBrowserControlsFollowItsTmuxSession(t *testing.T) {
+	tm, err := FindTmux()
+	if err != nil {
+		t.Skip(err)
+	}
+	tm.Socket = "xduo-context-" + filepath.Base(t.TempDir())
+	ctx := context.Background()
+	defer tm.run(ctx, "kill-server")
+	for _, session := range []string{"xduo-manager", "xduo-example"} {
+		if err := tm.run(ctx, "new-session", "-d", "-s", session, "sleep", "30"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	server, err := listenWeb(tm, "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	access, _ := url.Parse(server.URL)
+	conn, _, err := websocket.DefaultDialer.Dial("ws://"+access.Host+"/ws?token="+access.Fragment, http.Header{"Origin": {"http://" + access.Host}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := conn.WriteJSON(map[string]int{"cols": 100, "rows": 30}); err != nil {
+		t.Fatal(err)
+	}
+	expect := func(want bool) {
+		t.Helper()
+		conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+		for {
+			kind, data, err := conn.ReadMessage()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if kind != websocket.TextMessage {
+				continue
+			}
+			var state struct {
+				Type string `json:"type"`
+				Duo  bool   `json:"duo"`
+			}
+			if err := json.Unmarshal(data, &state); err != nil {
+				t.Fatal(err)
+			}
+			if state.Type == "session" && state.Duo == want {
+				return
+			}
+		}
+	}
+	expect(false)
+	// Follow the attached browser into Duo and back to the manager.
+	if err := tm.run(ctx, "switch-client", "-t", "=xduo-example"); err != nil {
+		t.Fatal(err)
+	}
+	expect(true)
+	if err := tm.run(ctx, "switch-client", "-t", "=xduo-manager"); err != nil {
+		t.Fatal(err)
+	}
+	expect(false)
 }
