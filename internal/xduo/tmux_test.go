@@ -98,7 +98,61 @@ func TestTmuxArgumentsAndGracefulTimeout(t *testing.T) {
 	if err := tm.Close(context.Background(), i, DisplayStatus{}, true, time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(calls[1], []string{"has-session", "-t", "=xduo-abc"}) || !reflect.DeepEqual(calls[2], []string{"send-keys", "-t", "=xduo-abc", "C-q"}) || !reflect.DeepEqual(calls[3], []string{"kill-session", "-t", "=xduo-abc"}) {
+	if !reflect.DeepEqual(calls[1], []string{"has-session", "-t", "=xduo-abc"}) || !reflect.DeepEqual(calls[2], []string{"send-keys", "-t", "=xduo-abc:", "C-q"}) || !reflect.DeepEqual(calls[3], []string{"kill-session", "-t", "=xduo-abc"}) {
 		t.Fatalf("close argv: %#v", calls)
+	}
+}
+
+// Exercise the real target-pane syntax and verify normal exit before timeout.
+func TestRemoveSendsQuitToRealTmuxPane(t *testing.T) {
+	tm, err := FindTmux()
+	if err != nil {
+		t.Skip(err)
+	}
+	tm.Socket = "xduo-quit-" + filepath.Base(t.TempDir())
+	ctx := context.Background()
+	defer tm.run(ctx, "kill-server")
+	dir := t.TempDir()
+	i, err := NewInstance(dir, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := filepath.Join(dir, "instances.json")
+	if err = SaveRegistry(registry, []Instance{i}); err != nil {
+		t.Fatal(err)
+	}
+	// A raw terminal reader exits upon receiving Ctrl+Q, emulating Duo's quit key.
+	script := filepath.Join(dir, "reader")
+	if err = os.WriteFile(script, []byte("#!/bin/sh\nstty raw -echo\ntouch \"$1/reader-ready\"\ndd bs=1 count=1 of=/dev/null 2>/dev/null\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err = tm.Start(ctx, i, script); err != nil {
+		t.Fatal(err)
+	}
+	// Wait until the reader has configured its terminal before sending the key.
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "reader-ready")); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("reader did not start")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	start := time.Now()
+	if err = Remove(ctx, tm, dir, i, DisplayStatus{}, true, 3*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if time.Since(start) >= 2*time.Second {
+		t.Fatal("quit required timeout fallback")
+	}
+	alive, err := tm.Alive(i.Session)
+	if err != nil || alive {
+		t.Fatalf("alive=%v err=%v", alive, err)
+	}
+	records, err := LoadRegistry(registry)
+	if err != nil || len(records) != 0 {
+		t.Fatalf("records=%v err=%v", records, err)
 	}
 }

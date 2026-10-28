@@ -159,7 +159,8 @@ func (p *panel) draw(s tcell.Screen) {
 	if h > 1 {
 		line := p.message
 		if p.mode == "input" {
-			line = "Project path: " + p.input + "  (Enter: create, Esc: cancel)"
+			cwd, _ := os.Getwd()
+			line = "Project path: " + p.input + "  (cwd: " + cwd + "; Enter: create, Esc: cancel)"
 		}
 		if p.mode == "confirm" {
 			line = "Close running instance? y/N"
@@ -272,7 +273,7 @@ func (p *panel) key(e *tcell.EventKey) bool {
 			p.refresh()
 		case "n":
 			p.mode = "input"
-			p.input, _ = os.Getwd()
+			p.input = ""
 		case "x":
 			p.closeSelected(false)
 		}
