@@ -31,7 +31,11 @@ extension_dir="${HOME}/.pi/agent/extensions/duo"
 opencode_plugin_dir="${HOME}/.config/opencode/plugin"
 mkdir -p "$bin_dir" "$(dirname "$extension_dir")" "$opencode_plugin_dir"
 install -m 0755 "$tmp/duo" "$bin_dir/duo"
-# Everything else in the archive is a per-driver launch shim or plugin executable.
+if [ -f "$tmp/xduo" ]; then
+  install -m 0755 "$tmp/xduo" "$bin_dir/xduo"
+  echo "Installed xduo to $bin_dir/xduo"
+fi
+# The duo-* binaries are per-driver launch shims or plugin executables.
 # Installing whatever the release actually contains is what keeps this script from
 # becoming another list of drivers to remember. `duo.tar.gz` sits alongside these
 # but does not match the `duo-*` prefix, and directories are skipped.

@@ -20,8 +20,10 @@ done
 echo
 echo "Installed Duo binaries to $BIN_DIR:"
 echo "  duo        the coordinator, TUI and bridge"
+echo "  xduo       the multi-instance manager"
 echo "  duo-*      one launch shim and plugin executable per driver"
 echo "Run 'duo plugins' to list the drivers that are installed, and"
 echo "'duo plugins test --all' to check each one against the protocol."
 echo "Ensure $BIN_DIR is in PATH, then run:"
 echo "  cd /path/to/git/repo && duo"
+echo "  xduo"
