@@ -61,13 +61,14 @@ func bootstrap(duo, tmuxEnv, manager string, tty bool, run tmuxRunner) (bool, er
 			return false, fmt.Errorf("xduo: create manager: %w: %s", e, strings.TrimSpace(string(out)))
 		}
 	}
+	var out []byte
 	if tmuxEnv != "" {
-		_, err = run(false, "switch-client", "-t", "=xduo-manager")
+		out, err = run(false, "switch-client", "-t", "=xduo-manager")
 	} else {
-		_, err = run(true, "attach-session", "-t", "=xduo-manager")
+		out, err = run(true, "attach-session", "-t", "=xduo-manager")
 	}
 	if err != nil {
-		return false, fmt.Errorf("xduo: open manager: %w", err)
+		return false, fmt.Errorf("xduo: open manager: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return true, nil
 }

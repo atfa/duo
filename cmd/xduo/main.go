@@ -251,7 +251,8 @@ func (p *panel) key(e *tcell.EventKey) bool {
 				if saveErr == nil {
 					for j := range records {
 						if records[j].ID == r.instance.ID {
-							records[j].LastActivatedAt = time.Now().UTC()
+							now := time.Now().UTC()
+							records[j].LastActivatedAt = &now
 						}
 					}
 					saveErr = xduo.SaveRegistry(filepath.Join(p.dir, "instances.json"), records)

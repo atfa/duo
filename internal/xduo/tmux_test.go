@@ -151,6 +151,9 @@ func TestRemoveSendsQuitToRealTmuxPane(t *testing.T) {
 	if err != nil || alive {
 		t.Fatalf("alive=%v err=%v", alive, err)
 	}
+	if _, err := os.Stat(filepath.Join(dir, "instances", i.ID)); !os.IsNotExist(err) {
+		t.Fatalf("instance directory remains: %v", err)
+	}
 	records, err := LoadRegistry(registry)
 	if err != nil || len(records) != 0 {
 		t.Fatalf("records=%v err=%v", records, err)

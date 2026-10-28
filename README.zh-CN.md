@@ -23,6 +23,33 @@ duo --mode step         # 逐步推进的队列
 
 Duo 运行于 macOS、Linux 与 Windows（需要 Windows 10 1809 或更新版本，Agent 终端依赖 ConPTY），需要 Git 以及至少一种受支持的 Agent CLI。启动后会打开 gotui 仪表盘；输入任务并按 `Enter`。应用内的命令与快捷键参考请打开 `/help`（或按 `F1`）。
 
+## xduo：管理多个 Duo 实例
+
+xduo 在 Linux 上使用 Git 和 tmux 3.2 或更新版本管理独立 Duo 终端。在此仓库构建：
+
+```bash
+go build -o duo ./cmd/duo
+go build -o xduo ./cmd/xduo
+./xduo -duo /absolute/path/to/duo
+```
+
+`-duo` 可指定 Duo 可执行文件，省略时从 PATH 查找。通过交互终端运行 `xduo`，它会创建或连接专用的 `xduo-manager` tmux session；已在 tmux 内时切换当前客户端，不嵌套 tmux。从 Duo 返回时使用默认 tmux 前缀后按 `L`（或前缀后按 `s` 选择 session）。xduo 不安装自定义快捷键。
+
+| 按键 | 操作 |
+|---|---|
+| ↑ / ↓ | 选择实例 |
+| Enter | 切换到原有 Duo 终端 |
+| n | 输入 Git 项目路径并启动实例 |
+| x | 关闭实例；运行中须按 y 确认 |
+| r | 刷新 |
+| q | 退出面板，其他 Duo 继续运行 |
+
+已完成或退出的实例可直接关闭。关闭时先发送 Ctrl+Q，等待最多五秒，超时后终止 tmux session。注册表位于 `~/.duo/xduo/instances.json`，每个实例独立使用 `~/.duo/xduo/instances/<id>/status.json` 和 `pairing.json`；移除实例时删除目录。每个 Duo 独立管理 Remote 配对及连接，xduo 通过 `DUO_REMOTE_PAIRING_FILE` 指定配对文件，不接管远程消息。
+
+Duo 通过 `XDUO_STATUS_FILE` 约每秒发布状态。面板显示 `playing`、`pause`、`stop`，同时独立显示工作流阶段和 tmux 存活状态：DONE 不代表进程已退出。存活但尚无状态文件时为 `Starting`，状态超过五秒未更新时为 `Unknown`。面板会自动刷新，返回时也会刷新。
+
+目前仅支持 Linux tmux 后端；多个 xduo 面板不能并发写同一注册表。管理 session 继承 tmux server 的环境，可能不同于连接它的 shell。未设置这两个环境变量时，独立运行 Duo 的状态和 Remote 行为不变。
+
 ## 安装
 
 **最新发布版 v0.14.5**（macOS/Linux/Windows，amd64；macOS/Linux 另有 arm64）：

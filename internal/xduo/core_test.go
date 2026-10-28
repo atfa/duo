@@ -1,6 +1,7 @@
 package xduo
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -27,6 +28,10 @@ func TestRegistryRestoreAndIdentity(t *testing.T) {
 	}
 	if err := SaveRegistry(path, []Instance{a, b}); err != nil {
 		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || bytes.Contains(data, []byte("last_activated_at")) {
+		t.Fatalf("unexpected activation timestamp: %s, %v", data, err)
 	}
 	info, err := os.Stat(path)
 	if err != nil || info.Mode().Perm() != 0600 {

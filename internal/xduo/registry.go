@@ -13,13 +13,13 @@ import (
 )
 
 type Instance struct {
-	ID              string    `json:"id"`
-	Project         string    `json:"project_path"`
-	Session         string    `json:"tmux_session"`
-	StatusFile      string    `json:"status_file"`
-	PairingFile     string    `json:"pairing_file"`
-	CreatedAt       time.Time `json:"created_at"`
-	LastActivatedAt time.Time `json:"last_activated_at,omitempty"`
+	ID              string     `json:"id"`
+	Project         string     `json:"project_path"`
+	Session         string     `json:"tmux_session"`
+	StatusFile      string     `json:"status_file"`
+	PairingFile     string     `json:"pairing_file"`
+	CreatedAt       time.Time  `json:"created_at"`
+	LastActivatedAt *time.Time `json:"last_activated_at,omitempty"`
 }
 
 func DefaultDir() (string, error) {

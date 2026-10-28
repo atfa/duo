@@ -114,9 +114,6 @@ func (t Tmux) Close(ctx context.Context, i Instance, state DisplayStatus, confir
 	if !(state.Fresh && state.Snapshot.Phase == "DONE") && !confirmed {
 		return ErrConfirmationRequired
 	}
-	if state.Fresh && state.Snapshot.Phase == "DONE" {
-		return t.run(ctx, "kill-session", "-t", "="+i.Session)
-	}
 	if err := t.run(ctx, "send-keys", "-t", "="+i.Session+":", "C-q"); err != nil {
 		return err
 	}

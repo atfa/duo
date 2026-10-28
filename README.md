@@ -45,6 +45,33 @@ Or install from source (Go 1.24+; the script runs the Go test suite):
 
 Restart running Pi or OpenCode processes after installing their bridges.
 
+## xduo: multiple Duo instances
+
+On Linux, xduo manages independent Duo terminals with Git and tmux 3.2 or newer. Build both programs from this repository:
+
+```bash
+go build -o duo ./cmd/duo
+go build -o xduo ./cmd/xduo
+./xduo -duo /absolute/path/to/duo
+```
+
+The `-duo` option is optional; without it xduo looks for `duo` on PATH. Launch `xduo` from an interactive terminal. It creates or connects to the dedicated `xduo-manager` tmux session; inside tmux it switches the current client without nesting. From a Duo session, use the default tmux prefix followed by `L` to return (or prefix then `s` to choose a session). xduo installs no custom key bindings.
+
+| Key | Action |
+|---|---|
+| ↑ / ↓ | Select an instance |
+| Enter | Switch to its original Duo terminal |
+| n | Enter a Git project path and start an instance |
+| x | Close the selected instance; confirm with y if running |
+| r | Refresh |
+| q | Quit the panel without stopping Duo instances |
+
+Finished and exited instances can be closed without confirmation. Closing first sends Duo Ctrl+Q and waits up to five seconds, then terminates the tmux session if needed. The registry is `~/.duo/xduo/instances.json`; each instance has `~/.duo/xduo/instances/<id>/status.json` and `pairing.json`. Removing an instance removes its directory. Each Duo owns its Remote connection and pairing; xduo supplies `DUO_REMOTE_PAIRING_FILE` and does not handle remote messages.
+
+Duo publishes status approximately once per second through `XDUO_STATUS_FILE`. The panel shows `playing`, `pause`, or `stop` along with the separate workflow phase and tmux liveness: DONE does not imply the process has exited. A live instance without a snapshot is `Starting`; a snapshot older than five seconds is `Unknown`. The panel refreshes automatically and on return.
+
+Only the Linux tmux backend is supported. Multiple xduo panels must not write the same registry concurrently. The manager inherits the tmux server environment, which may differ from the shell that attached to it. Without the two environment variables, standalone Duo retains its normal status and Remote behavior.
+
 ## Agent drivers
 
 Built-in drivers are `pi`, `agy`, `opencode`, and `codex`. Choose one for both agents with `--agent`, or choose each separately with `--austin-driver` and `--tony-driver`. `duo plugins` lists available drivers, including plugins discovered in `~/.duo/plugins/` or on `PATH`; the legacy plugin executable names `duo-driver-<name>` and `duo-<name>` are also accepted. `agy` token metrics in the work preview require `sqlite3` on `PATH`.
