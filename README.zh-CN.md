@@ -58,15 +58,21 @@ Duo 通过 `XDUO_STATUS_FILE` 约每秒发布状态。面板显示 `playing`、`
 curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash
 ```
 
+发布版安装脚本会安装 `duo`，并在归档包含 `xduo` 时一并安装。v0.14.5 等旧归档不包含 xduo；需要 xduo 时请使用较新的发布版或从源码安装。
+
 Windows 上请从 release 下载 `duo_windows_amd64.tar.gz`，解压后把 `duo.exe` 与 `duo-plugin-*.exe` 放到 `PATH`（或 `%USERPROFILE%\.duo\plugins`）。安装脚本是 POSIX shell 脚本，不能在 Windows 上运行；`duo upgrade` 可用，它会就地替换正在运行的 `duo.exe`。
 
 `duo upgrade` 用同样的发布归档安装，但不需要脚本：它下载本平台归档，按 release 发布的 `SHA256SUMS` 校验，release 没有校验文件就拒绝安装；替换前还会读取该 tag 的会话 schema，无法继续本机会话的新二进制会被拒绝而不是装上去。`duo upgrade --dry-run` 只报告会装什么；无论哪种情况，当前进程都继续跑旧二进制，新二进制下次启动生效。
+
+`duo upgrade` 仅替换 `duo`，不会更新 `xduo` 或 driver 可执行文件；请通过安装脚本单独更新它们。
 
 或从源码安装（需要 Go 1.24+；脚本会先运行 Go 测试）：
 
 ```bash
 ./scripts/install.sh
 ```
+
+该脚本一次构建并安装 `duo`、`xduo` 和 driver 可执行文件到 `~/.local/bin`，同时安装 bridge。请将该目录加入 PATH。
 
 安装 bridge 后请重启正在运行的 Pi 或 OpenCode 进程。
 

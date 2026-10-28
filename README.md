@@ -33,15 +33,21 @@ On a first run `duo` checks that it can start before it opens the dashboard, and
 curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash
 ```
 
+The release installer installs both `duo` and `xduo` when the archive includes xduo. Older releases such as v0.14.5 do not include it; use a newer release or install from source for xduo.
+
 On Windows, download `duo_windows_amd64.tar.gz` from the release with `tar -xzf` or any archive tool and put `duo.exe` and `duo-plugin-*.exe` on `PATH` (or in `%USERPROFILE%\.duo\plugins`). The shell installer is a POSIX script and does not run there; `duo upgrade` does, and it replaces the running `duo.exe` in place.
 
 `duo upgrade` installs the same release without the script: it downloads this platform's archive, verifies it against the release's published `SHA256SUMS`, and refuses an archive the release does not account for. It also reads the release tag's session schema before replacing anything, so a new binary that could not read your sessions is refused instead of installed. `duo upgrade --dry-run` reports what it would install; the running process keeps the old binary either way, and the new one takes effect on the next start.
+
+`duo upgrade` replaces only `duo`; it does not update `xduo` or the driver binaries. Use the installer to update those separately.
 
 Or install from source (Go 1.24+; the script runs the Go test suite):
 
 ```bash
 ./scripts/install.sh
 ```
+
+This builds and installs both `duo` and `xduo` to `~/.local/bin`, along with the driver binaries and bridges. Add that directory to PATH.
 
 Restart running Pi or OpenCode processes after installing their bridges.
 
