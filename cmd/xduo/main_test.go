@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -12,6 +13,30 @@ import (
 	"github.com/atfa/duo/internal/xduo"
 	"github.com/gdamore/tcell/v3"
 )
+
+func TestPanelCreateWithDefaultProject(t *testing.T) {
+	dir := t.TempDir()
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var started bool
+	p := panel{dir: dir, duo: executable, tmux: xduo.Tmux{Runner: func(_ context.Context, _ string, args ...string) ([]byte, error) {
+		if args[0] == "new-session" {
+			started = true
+		}
+		return nil, nil
+	}}}
+	p.key(tcell.NewEventKey(tcell.KeyRune, "n", tcell.ModNone))
+	p.key(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))
+	if !started || len(p.rows) != 1 || p.message != "Instance started." {
+		t.Fatalf("started=%v rows=%d message=%q", started, len(p.rows), p.message)
+	}
+	root, err := xduo.ValidateProject(".")
+	if err != nil || p.rows[0].instance.Project != root {
+		t.Fatalf("project=%q root=%q err=%v", p.rows[0].instance.Project, root, err)
+	}
+}
 
 func TestPanelRenderAndNavigation(t *testing.T) {
 	now := time.Now()
@@ -45,7 +70,7 @@ func TestPanelRenderAndNavigation(t *testing.T) {
 		t.Fatal(p.selected)
 	}
 	p.key(tcell.NewEventKey(tcell.KeyUp, "", tcell.ModNone))
-	if p.selected != 0 {
+	if p.selected != -1 {
 		t.Fatal(p.selected)
 	}
 	if p.key(tcell.NewEventKey(tcell.KeyRune, "q", tcell.ModNone)) {
@@ -63,7 +88,7 @@ func TestBootstrap(t *testing.T) {
 		return nil, nil
 	}
 	handled, err := bootstrap("/path/duo", "", "", true, runner)
-	if err != nil || !handled || len(calls) != 3 || calls[1][0] != "new-session" || calls[2][0] != "attach-session" {
+	if err != nil || !handled || len(calls) != 4 || calls[1][0] != "new-session" || !slices.Equal(calls[2], []string{"set-option", "-t", "xduo-manager", "status-left-length", "32"}) || calls[3][0] != "attach-session" {
 		t.Fatalf("%v %v %v", handled, err, calls)
 	}
 	calls = nil
@@ -108,6 +133,7 @@ func TestPanelOperations(t *testing.T) {
 	if !strings.Contains(p.message, "project path") {
 		t.Fatal(p.message)
 	}
+	key(tcell.KeyEsc, "")
 	key(tcell.KeyRune, "x")
 	if p.mode != "confirm" {
 		t.Fatalf("confirmation mode: %q", p.mode)
@@ -121,11 +147,47 @@ func TestPanelOperations(t *testing.T) {
 	alive = false
 	calls = nil
 	key(tcell.KeyEnter, "")
-	if slices.Contains(calls, "switch-client") || !strings.Contains(p.message, "not running") {
+	if slices.Contains(calls, "switch-client") || !strings.Contains(p.message, "no recorded Duo session") {
 		t.Fatal(calls, p.message)
 	}
 	key(tcell.KeyRune, "x")
 	if p.mode != "" || len(p.rows) != 0 {
 		t.Fatal(p.mode, p.rows)
+	}
+}
+
+func TestPanelGridLayoutAndNewCard(t *testing.T) {
+	p := panel{selected: -1, rows: make([]row, 8)}
+	s := tcell.NewSimulationScreen("")
+	if err := s.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Fini()
+	s.SetSize(120, 36)
+	p.draw(s)
+	if p.columns != 3 || len(p.cardRects) != 9 {
+		t.Fatalf("columns=%d cards=%d", p.columns, len(p.cardRects))
+	}
+	if p.cardRects[0].Empty() || p.cardRects[8].Empty() {
+		t.Fatal("nine cards should be visible")
+	}
+	p.key(tcell.NewEventKey(tcell.KeyRight, "", tcell.ModNone))
+	if p.selected != 0 {
+		t.Fatal(p.selected)
+	}
+	p.key(tcell.NewEventKey(tcell.KeyDown, "", tcell.ModNone))
+	if p.selected != 3 {
+		t.Fatal(p.selected)
+	}
+	p.key(tcell.NewEventKey(tcell.KeyUp, "", tcell.ModNone))
+	p.key(tcell.NewEventKey(tcell.KeyLeft, "", tcell.ModNone))
+	p.key(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))
+	if p.mode != "input" {
+		t.Fatal("new card did not open input")
+	}
+	s.SetSize(32, 16)
+	p.draw(s)
+	if p.columns != 1 {
+		t.Fatal(p.columns)
 	}
 }

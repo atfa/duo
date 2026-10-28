@@ -673,6 +673,12 @@ func (a *App) handleMouse(ev *tcell.EventMouse) {
 		}
 		a.pendingLink = nil
 		point := image.Pt(x, y)
+		if point.In(a.header.returnButton) && a.returnToManager != nil {
+			if err := a.returnToManager(); err != nil {
+				a.setStatus(err.Error(), true)
+			}
+			return
+		}
 		if point.In(a.layout.tabSplit) || point.In(a.layout.tabTimeline) {
 			if point.In(a.layout.tabSplit) {
 				a.setViewMode(viewSplit)

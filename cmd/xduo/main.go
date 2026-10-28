@@ -5,6 +5,9 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	ui "github.com/metaspartan/gotui/v5"
+	"github.com/metaspartan/gotui/v5/widgets"
+	"image"
 	"os"
 	"path/filepath"
 	"strings"
@@ -21,15 +24,19 @@ type row struct {
 	remote   string
 }
 type panel struct {
-	dir      string
-	tmux     xduo.Tmux
-	rows     []row
-	selected int
-	offset   int
-	message  string
-	duo      string
-	mode     string
-	input    string
+	dir       string
+	tmux      xduo.Tmux
+	rows      []row
+	selected  int
+	offset    int
+	message   string
+	duo       string
+	mode      string
+	input     string
+	columns   int
+	cardRects []image.Rectangle
+	mouseDown bool
+	picker    directoryPicker
 }
 
 func (p *panel) refresh() {
@@ -57,8 +64,8 @@ func (p *panel) refresh() {
 	if p.selected >= len(p.rows) {
 		p.selected = len(p.rows) - 1
 	}
-	if p.selected < 0 {
-		p.selected = 0
+	if p.selected < -1 {
+		p.selected = -1
 	}
 }
 
@@ -66,6 +73,16 @@ var base = tcell.StyleDefault.Background(tcell.NewRGBColor(10, 14, 20)).Foregrou
 var accent = base.Foreground(tcell.NewRGBColor(94, 234, 212)).Bold(true)
 var muted = base.Foreground(tcell.NewRGBColor(139, 152, 168))
 var selected = base.Background(tcell.NewRGBColor(35, 52, 66))
+
+var surface = base.Background(tcell.NewRGBColor(19, 27, 38))
+var surfaceMuted = surface.Foreground(tcell.NewRGBColor(139, 158, 180))
+var surfaceAccent = surface.Foreground(tcell.NewRGBColor(94, 234, 212)).Bold(true)
+var borderStyle = surface.Foreground(tcell.NewRGBColor(54, 75, 96))
+var fieldBase = surface.Background(tcell.NewRGBColor(28, 40, 55))
+var primaryButton = base.Background(tcell.NewRGBColor(94, 234, 212)).Foreground(tcell.NewRGBColor(10, 25, 30))
+var dim = base.Foreground(tcell.NewRGBColor(53, 68, 83))
+var shadow = base.Background(tcell.NewRGBColor(5, 8, 12))
+var errorStyle = surface.Foreground(tcell.NewRGBColor(251, 146, 137))
 
 func value(s string) string {
 	if s == "" {
@@ -97,7 +114,7 @@ func rowLines(r row, now time.Time) [3]string {
 		if r.status.Alive {
 			live = "alive"
 		} else {
-			live = "exited"
+			live = "exited · Enter to resume"
 		}
 	}
 	return [3]string{
@@ -110,70 +127,100 @@ func rowLines(r row, now time.Time) [3]string {
 func (p *panel) draw(s tcell.Screen) {
 	s.SetStyle(base)
 	s.Clear()
+	s.HideCursor()
 	w, h := s.Size()
 	if w < 1 || h < 1 {
 		return
 	}
-	s.PutStrStyled(1, 0, "XDUO  /  Duo workspaces", accent)
-	if h > 1 {
-		s.PutStrStyled(1, 1, "↑↓ select   enter open   n new   x close   r refresh   q quit", muted)
+	s.PutStrStyled(1, 0, "◆ XDUO   /   Workspaces", accent)
+	s.PutStrStyled(1, 1, "[ N New ]   [ R Refresh ]   [ X Close ]   [ Q Quit ]", muted)
+	s.PutStrStyled(1, 1, "[ N New ]", primaryButton)
+	if w > 80 {
+		s.PutStrStyled(w-27, 0, fmt.Sprintf("%d workspaces  ·  local", len(p.rows)), muted)
 	}
-	// Three lines per instance keep paths and model IDs legible.
-	visible := (h - 4) / 3
-	if visible < 1 {
-		visible = 1
+	p.columns = max(1, w/36)
+	width := max(1, w/p.columns)
+	visible := max(1, (h-5)/9)
+	focusRow := (p.selected + 1) / p.columns
+	if focusRow < p.offset {
+		p.offset = focusRow
 	}
-	if p.selected < p.offset {
-		p.offset = p.selected
+	if focusRow >= p.offset+visible {
+		p.offset = focusRow - visible + 1
 	}
-	if p.selected >= p.offset+visible {
-		p.offset = p.selected - visible + 1
-	}
-	if p.offset > len(p.rows) {
-		p.offset = len(p.rows)
-	}
-	if len(p.rows) == 0 && h > 3 {
-		s.PutStrStyled(1, 3, "No instances yet.", muted)
-	}
-	for n := p.offset; n < len(p.rows) && n < p.offset+visible; n++ {
-		r := p.rows[n]
-		y := 3 + (n-p.offset)*3
-		if y >= h-1 {
-			break
+	p.cardRects = make([]image.Rectangle, len(p.rows)+1)
+	buf := ui.NewBuffer(image.Rect(0, 0, w, h))
+	for index := 0; index <= len(p.rows); index++ {
+		row := index/p.columns - p.offset
+		if row < 0 || row >= visible {
+			continue
 		}
-		style := base
-		mark := "  "
-		if n == p.selected {
-			style = selected
-			mark = "› "
+		rect := image.Rect(index%p.columns*width+1, 3+row*9, min(w, (index%p.columns+1)*width), min(h-2, 3+row*9+8))
+		p.cardRects[index] = rect
+		card := widgets.NewParagraph()
+		card.SetRect(rect.Min.X, rect.Min.Y, rect.Max.X, rect.Max.Y)
+		card.BorderStyle.Fg = ui.ColorBlue
+		card.TextStyle.Fg = ui.ColorWhite
+		card.WrapText = false
+		if index == 0 {
+			card.Title = " New workspace "
+			card.Text = "\n  ＋  Create a workspace\n\n  Choose a project directory\n  Enter or click to begin"
+		} else {
+			r := p.rows[index-1]
+			card.Title = " " + filepath.Base(r.instance.Project) + " "
+			live := "unknown"
+			if r.status.AliveKnown {
+				live = "exited · Enter to resume"
+				if r.status.Alive {
+					live = "alive"
+				}
+			}
+			card.Text = fmt.Sprintf("%s · %s · %s\n%s\nAustin %s / %s\nTony %s / %s\nRemote %s · updated %s", r.status.State, value(r.status.Snapshot.Phase), live, r.instance.Project, value(r.status.Snapshot.Austin.Driver), value(r.status.Snapshot.Austin.Model), value(r.status.Snapshot.Tony.Driver), value(r.status.Snapshot.Tony.Model), r.remote, age(r.status.Snapshot.UpdatedAt, time.Now()))
 		}
-		lines := rowLines(r, time.Now())
-		s.PutStrStyled(1, y, mark+lines[0], style)
-		if y+1 < h-1 {
-			s.PutStrStyled(3, y+1, lines[1], style)
+		if index == p.selected+1 {
+			card.BorderStyle.Fg = ui.ColorCyan
 		}
-		if y+2 < h-1 {
-			s.PutStrStyled(3, y+2, lines[2], style)
+		card.Draw(buf)
+	}
+	for y := 3; y < h-2; y++ {
+		for x := 0; x < w; x++ {
+			c := buf.GetCell(image.Pt(x, y))
+			if c.Rune != 0 {
+				style := surface
+				if c.Style.Fg == ui.ColorBlue {
+					style = borderStyle
+				}
+				if c.Style.Fg == ui.ColorCyan {
+					style = surfaceAccent
+				}
+				s.PutStrStyled(x, y, string(c.Rune), style)
+			}
 		}
 	}
+	s.PutStrStyled(1, h-2, "Arrow keys select · Enter open · click card to open · N new", muted)
 	if h > 1 {
 		line := p.message
 		if p.mode == "input" {
-			cwd, _ := os.Getwd()
-			line = "Project path: " + p.input + "  (cwd: " + cwd + "; Enter: create, Esc: cancel)"
+			line = ""
 		}
 		if p.mode == "confirm" {
 			line = "Close running instance? y/N"
+		}
+		if line == "" {
+			line = "Select [+] to create a workspace. Duo keeps running when you return here."
 		}
 		if line != "" {
 			s.PutStrStyled(1, h-1, line, accent)
 		}
 	}
+	if p.mode == "input" {
+		p.drawPicker(s)
+	}
 	s.Show()
 }
 
 func (p *panel) closeSelected(confirmed bool) {
-	if len(p.rows) == 0 {
+	if len(p.rows) == 0 || p.selected < 0 {
 		return
 	}
 	r := p.rows[p.selected]
@@ -192,29 +239,7 @@ func (p *panel) closeSelected(confirmed bool) {
 
 func (p *panel) key(e *tcell.EventKey) bool {
 	if p.mode == "input" {
-		switch e.Key() {
-		case tcell.KeyEsc:
-			p.mode = ""
-			p.message = "Cancelled."
-		case tcell.KeyEnter:
-			path := p.input
-			p.mode = ""
-			_, err := xduo.Create(context.Background(), p.tmux, p.dir, path, p.duo)
-			p.refresh()
-			if err != nil {
-				p.message = err.Error()
-			} else {
-				p.message = "Instance started."
-				p.selected = len(p.rows) - 1
-			}
-		case tcell.KeyBackspace, tcell.KeyBackspace2:
-			r := []rune(p.input)
-			if len(r) > 0 {
-				p.input = string(r[:len(r)-1])
-			}
-		case tcell.KeyRune:
-			p.input += e.Str()
-		}
+		p.pickerKey(e)
 		return true
 	}
 	if p.mode == "confirm" {
@@ -229,39 +254,55 @@ func (p *panel) key(e *tcell.EventKey) bool {
 	}
 	switch e.Key() {
 	case tcell.KeyUp:
-		if p.selected > 0 {
-			p.selected--
-		}
+		p.selected = max(-1, p.selected-max(1, p.columns))
+	case tcell.KeyLeft:
+		p.selected = max(-1, p.selected-1)
+	case tcell.KeyRight:
+		p.selected = min(len(p.rows)-1, p.selected+1)
 	case tcell.KeyDown:
 		if p.selected+1 < len(p.rows) {
-			p.selected++
+			p.selected = min(len(p.rows)-1, p.selected+max(1, p.columns))
 		}
 	case tcell.KeyEnter:
+		if p.selected == -1 {
+			p.openPicker()
+			return true
+		}
 		if len(p.rows) > 0 {
 			r := p.rows[p.selected]
 			alive, err := p.tmux.Alive(r.instance.Session)
 			if err != nil {
 				p.message = err.Error()
-			} else if !alive {
-				p.message = "Instance is not running."
-			} else if err = p.tmux.Switch(context.Background(), r.instance.Session); err != nil {
-				p.message = err.Error()
 			} else {
-				records, saveErr := xduo.LoadRegistry(filepath.Join(p.dir, "instances.json"))
-				if saveErr == nil {
-					for j := range records {
-						if records[j].ID == r.instance.ID {
-							now := time.Now().UTC()
-							records[j].LastActivatedAt = &now
+				if !alive {
+					err = xduo.Resume(context.Background(), p.tmux, r.instance, p.duo)
+				}
+				if err != nil {
+					p.message = err.Error()
+					return true
+				}
+				if err = p.tmux.Switch(context.Background(), r.instance.Session); err != nil {
+					p.message = err.Error()
+				} else {
+					records, saveErr := xduo.LoadRegistry(filepath.Join(p.dir, "instances.json"))
+					if saveErr == nil {
+						for j := range records {
+							if records[j].ID == r.instance.ID {
+								now := time.Now().UTC()
+								records[j].LastActivatedAt = &now
+							}
+						}
+						saveErr = xduo.SaveRegistry(filepath.Join(p.dir, "instances.json"), records)
+					}
+					p.refresh()
+					if saveErr != nil {
+						p.message = saveErr.Error()
+					} else {
+						p.message = "Switched. Use Back to xduo to return."
+						if err := p.remember(r.instance.Project); err != nil {
+							p.message = "Switched; history: " + err.Error()
 						}
 					}
-					saveErr = xduo.SaveRegistry(filepath.Join(p.dir, "instances.json"), records)
-				}
-				p.refresh()
-				if saveErr != nil {
-					p.message = saveErr.Error()
-				} else {
-					p.message = "Switched. Return with tmux prefix + L."
 				}
 			}
 		}
@@ -273,8 +314,7 @@ func (p *panel) key(e *tcell.EventKey) bool {
 			p.message = ""
 			p.refresh()
 		case "n":
-			p.mode = "input"
-			p.input = ""
+			p.openPicker()
 		case "x":
 			p.closeSelected(false)
 		}
@@ -292,6 +332,7 @@ func runPanel(p *panel) error {
 	}
 	defer screen.Fini()
 	screen.EnableFocus()
+	screen.EnableMouse(tcell.MouseButtonEvents)
 	p.refresh()
 	p.draw(screen)
 	ticker := time.NewTicker(time.Second)
@@ -315,6 +356,36 @@ func runPanel(p *panel) error {
 				if e.Key() == tcell.KeyEnter {
 					screen.Sync()
 				}
+			case *tcell.EventMouse:
+				down := e.Buttons()&tcell.Button1 != 0
+				wasPicker := p.mode == "input"
+				if down && !p.mouseDown && wasPicker {
+					x, y := e.Position()
+					p.pickerClick(x, y)
+				}
+				if down && !p.mouseDown && !wasPicker && p.mode == "" {
+					x, y := e.Position()
+					if y == 1 {
+						for i, key := range []string{"n", "r", "x", "q"} {
+							starts := []int{1, 13, 29, 43}
+							ends := []int{10, 26, 40, 53}
+							if x >= starts[i] && x < ends[i] {
+								if !p.key(tcell.NewEventKey(tcell.KeyRune, key, tcell.ModNone)) {
+									return nil
+								}
+							}
+						}
+					} else {
+						for i, rect := range p.cardRects {
+							if image.Pt(x, y).In(rect) {
+								p.selected = i - 1
+								p.key(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))
+								break
+							}
+						}
+					}
+				}
+				p.mouseDown = down
 			case *tcell.EventFocus:
 				if e.Focused {
 					p.refresh()
@@ -350,7 +421,7 @@ func main() {
 	if handled {
 		return
 	}
-	if err = runPanel(&panel{dir: dir, tmux: tm, duo: *duo}); err != nil {
+	if err = runPanel(&panel{dir: dir, tmux: tm, duo: *duo, selected: -1}); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

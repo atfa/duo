@@ -1,6 +1,7 @@
 package gotui
 
 import (
+	"github.com/gdamore/tcell/v3"
 	"image"
 	"strings"
 	"testing"
@@ -40,5 +41,31 @@ func TestHeaderReservesThePausedBadgeWidth(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("path was not truncated before the paused badge")
+	}
+}
+
+func TestManagerReturnButtonDoesNotQuit(t *testing.T) {
+	a := New(&fakeSession{})
+	called := 0
+	a.SetReturnToManager(func() error { called++; return nil })
+	a.header.SetRect(0, 0, 120, 2)
+	a.header.Draw(ui.NewBuffer(a.header.GetRect()))
+	r := a.header.returnButton
+	if r.Empty() || r.Overlaps(a.header.modeBadge) {
+		t.Fatal("return button missing or overlaps mode badge")
+	}
+	a.handleMouse(tcell.NewEventMouse(r.Min.X, r.Min.Y, tcell.Button1, tcell.ModNone))
+	if called != 1 {
+		t.Fatal(called)
+	}
+	select {
+	case <-a.stop:
+		t.Fatal("return stopped Duo")
+	default:
+	}
+	a.SetReturnToManager(nil)
+	a.header.Draw(ui.NewBuffer(a.header.GetRect()))
+	if !a.header.returnButton.Empty() {
+		t.Fatal("standalone Duo shows return button")
 	}
 }

@@ -53,13 +53,20 @@ func bootstrap(duo, tmuxEnv, manager string, tty bool, run tmuxRunner) (bool, er
 	}
 	_, err = run(false, "has-session", "-t", "=xduo-manager")
 	if err != nil {
-		args := []string{"new-session", "-d", "-s", "xduo-manager", "-e", "XDUO_MANAGER=1", executable}
+		cwd, err := os.Getwd()
+		if err != nil {
+			return false, err
+		}
+		args := []string{"new-session", "-c", cwd, "-d", "-s", "xduo-manager", "-e", "XDUO_MANAGER=1", executable}
 		if duo != "" {
 			args = append(args, "-duo", duo)
 		}
 		if out, e := run(false, args...); e != nil {
 			return false, fmt.Errorf("xduo: create manager: %w: %s", e, strings.TrimSpace(string(out)))
 		}
+	}
+	if out, err := run(false, "set-option", "-t", "xduo-manager", "status-left-length", "32"); err != nil {
+		return false, fmt.Errorf("xduo: configure manager status: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	var out []byte
 	if tmuxEnv != "" {

@@ -84,9 +84,27 @@ func ValidateProject(path string) (string, error) {
 // Start uses tmux's multiple-command-argument form, which executes directly
 // without interpreting the project path or executable as shell syntax.
 func (t Tmux) Start(ctx context.Context, i Instance, duo string) error {
-	return t.run(ctx, "new-session", "-d", "-s", i.Session, "-c", i.Project,
-		"-e", "XDUO_STATUS_FILE="+i.StatusFile, "-e", "DUO_REMOTE_PAIRING_FILE="+i.PairingFile,
-		duo, i.Project)
+	return t.start(ctx, i, duo, i.Project)
+}
+
+func (t Tmux) start(ctx context.Context, i Instance, duo string, commandArgs ...string) error {
+	args := []string{"new-session", "-d", "-s", i.Session, "-c", i.Project,
+		"-e", "XDUO_STATUS_FILE=" + i.StatusFile, "-e", "DUO_REMOTE_PAIRING_FILE=" + i.PairingFile, duo}
+	args = append(args, commandArgs...)
+	if err := t.run(ctx, args...); err != nil {
+		return err
+	}
+	for _, option := range [][2]string{
+		{"detach-on-destroy", "off"},
+		{"status-right-length", "60"},
+		{"status-right", "#{prefix} then Shift+L: return to xduo"},
+	} {
+		if err := t.run(ctx, "set-option", "-t", i.Session, option[0], option[1]); err != nil {
+			_ = t.run(context.Background(), "kill-session", "-t", "="+i.Session)
+			return err
+		}
+	}
+	return nil
 }
 
 // Alive distinguishes an absent session from a tmux server failure where possible.

@@ -13,6 +13,7 @@ import (
 	gotui "github.com/atfa/duo/internal/gotui"
 	"github.com/atfa/duo/internal/session"
 	"github.com/atfa/duo/internal/version"
+	"github.com/atfa/duo/internal/xduo"
 )
 
 func main() {
@@ -191,6 +192,15 @@ func run(ctx context.Context, cfg config) error {
 			restoreLog := redirectLog(view.Worktrees.Repository, view.SessionID)
 			defer restoreLog()
 			app := gotui.New(svc)
+			if os.Getenv("XDUO_STATUS_FILE") != "" && os.Getenv("TMUX") != "" {
+				app.SetReturnToManager(func() error {
+					tm, err := xduo.FindTmux()
+					if err != nil {
+						return err
+					}
+					return tm.Switch(context.Background(), "xduo-manager")
+				})
+			}
 			// The view the human configured in ~/.duo/config.json applies unless this
 			// repository already has a saved choice of its own, which the interface
 			// read while it was built.

@@ -61,7 +61,7 @@ go build -o xduo ./cmd/xduo
 ./xduo -duo /absolute/path/to/duo
 ```
 
-The `-duo` option is optional; without it xduo looks for `duo` on PATH. Launch `xduo` from an interactive terminal. It creates or connects to the dedicated `xduo-manager` tmux session; inside tmux it switches the current client without nesting. From a Duo session, use the default tmux prefix followed by `L` to return (or prefix then `s` to choose a session). xduo installs no custom key bindings.
+The `-duo` option is optional; without it xduo looks for `duo` on PATH. Launch `xduo` from an interactive terminal. It creates or connects to the dedicated `xduo-manager` tmux session; inside tmux it switches the current client without nesting. The status bar in each Duo session shows the tmux prefix followed by `Shift+L` to return to the previous session while keeping Duo running (or use the prefix then `s` to choose a session). When Duo exits, tmux switches to the most recently active remaining session, normally the xduo manager. xduo installs no custom key bindings.
 
 | Key | Action |
 |---|---|
@@ -72,9 +72,15 @@ The `-duo` option is optional; without it xduo looks for `duo` on PATH. Launch `
 | r | Refresh |
 | q | Quit the panel without stopping Duo instances |
 
+Selecting `[+]` opens a directory picker at the manager's launch directory. Use `Tab` / `Shift+Tab` to move between the path input, directories, recent projects, Confirm and Cancel; use arrow keys and `Enter` within a list. Clicking a directory opens it, clicking a recent project selects it, and Confirm starts Duo in the chosen directory. `Esc` cancels. The latest ten successfully created or opened projects are stored separately in `~/.duo/xduo/recent-projects.json`.
+
+Duo instances launched by xduo show a **Back to xduo** button at the top right. Clicking it returns to the manager while keeping Duo and its agents running.
+
+Select an exited instance and press `Enter` (or click its card) to resume its recorded Duo session. This reuses the same card; it does not create a fresh Duo session. If no session was recorded, create a new instance instead. If resume fails, the terminal keeps the error and exit code visible until you press Enter to return to xduo. Sessions closed before any task was submitted may have been cleaned up by Duo and cannot be resumed.
+
 Finished and exited instances can be closed without confirmation. Closing first sends Duo Ctrl+Q and waits up to five seconds, then terminates the tmux session if needed. The registry is `~/.duo/xduo/instances.json`; each instance has `~/.duo/xduo/instances/<id>/status.json` and `pairing.json`. Removing an instance removes its directory. Each Duo owns its Remote connection and pairing; xduo supplies `DUO_REMOTE_PAIRING_FILE` and does not handle remote messages.
 
-Duo publishes status approximately once per second through `XDUO_STATUS_FILE`. The panel shows `playing`, `pause`, or `stop` along with the separate workflow phase and tmux liveness: DONE does not imply the process has exited. A live instance without a snapshot is `Starting`; a snapshot older than five seconds is `Unknown`. The panel refreshes automatically and on return.
+Duo publishes status approximately once per second through `XDUO_STATUS_FILE`. The panel shows `idle` before a task starts, or `playing`, `pause`, or `stop`, along with the separate workflow phase and tmux liveness: DONE does not imply the process has exited. A live instance without a snapshot is `Starting`; a snapshot older than five seconds is `Unknown`. The panel refreshes automatically and on return.
 
 Only the Linux tmux backend is supported. Multiple xduo panels must not write the same registry concurrently. The manager inherits the tmux server environment, which may differ from the shell that attached to it. Without the two environment variables, standalone Duo retains its normal status and Remote behavior.
 

@@ -84,6 +84,10 @@ func TestInspectSeparatesWorkflowLivenessAndFreshness(t *testing.T) {
 	}
 	write()
 	check("playing", true)
+	s.Started = false
+	write()
+	check("idle", true)
+	s.Started = true
 	s.Pause = "paused"
 	write()
 	check("pause", true)

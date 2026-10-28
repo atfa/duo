@@ -68,7 +68,9 @@ type headerBar struct {
 	// modeBadge is the rectangle drawn for the mode/phase badge this frame. The
 	// mouse handler reads it, so a click always matches what the human sees even
 	// after the badge grows (PAUSED) or the terminal resizes.
-	modeBadge image.Rectangle
+	modeBadge    image.Rectangle
+	showReturn   bool
+	returnButton image.Rectangle
 }
 
 func newHeader(t theme) *headerBar {
@@ -83,7 +85,13 @@ func (h *headerBar) Draw(buf *ui.Buffer) {
 	h.modeBadge = image.Rectangle{}
 	y := h.Min.Y
 	x := h.Min.X + 1
-	width := h.Dx()
+	right := h.Max.X
+	h.returnButton = image.Rectangle{}
+	if h.showReturn && h.Dx() >= 32 {
+		right -= 19
+		h.returnButton = image.Rect(right, h.Min.Y, h.Max.X-1, h.Min.Y+1)
+	}
+	width := right - h.Min.X
 	buf.SetString("◆", ui.Style{Fg: h.theme.Accent, Bg: h.theme.Panel, Modifier: ui.ModifierBold}, image.Pt(x, y))
 	x += 2
 	buf.SetString("DUO", ui.Style{Fg: h.theme.Fg, Bg: h.theme.Panel, Modifier: ui.ModifierBold}, image.Pt(x, y))
@@ -119,13 +127,16 @@ func (h *headerBar) Draw(buf *ui.Buffer) {
 	if h.branch != "" {
 		where += "  ·  " + h.branch
 	}
-	if x < h.Max.X-10 {
-		buf.SetString(fitText(where, max(1, h.Max.X-x-reserve)), h.theme.Subtle, image.Pt(x, y))
+	if x < right-10 {
+		buf.SetString(fitText(where, max(1, right-x-reserve)), h.theme.Subtle, image.Pt(x, y))
 	}
 	if width >= 40 {
-		badgeX := max(h.Min.X+1, h.Max.X-badgeWidth-2)
+		badgeX := max(h.Min.X+1, right-badgeWidth-2)
 		buf.SetString(badge, badgeStyle, image.Pt(badgeX, y))
 		h.modeBadge = image.Rect(badgeX, y, badgeX+badgeWidth, y+1)
+	}
+	if !h.returnButton.Empty() {
+		buf.SetString("[ Back to xduo ]", ui.Style{Fg: h.theme.Bg, Bg: h.theme.Accent}, h.returnButton.Min)
 	}
 	y++
 	if y < h.Max.Y {

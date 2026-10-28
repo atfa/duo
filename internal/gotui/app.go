@@ -41,8 +41,9 @@ const (
 // App is one live projection of a Duo session. It owns UI state only; every
 // workflow fact is read from session.View.
 type App struct {
-	svc  Session
-	live session.View
+	returnToManager func() error
+	svc             Session
+	live            session.View
 
 	theme    theme
 	backend  *ui.Backend
@@ -164,6 +165,12 @@ type asyncResult struct {
 	agent   protocol.AgentID
 	payload any
 	err     error
+}
+
+// SetReturnToManager adds a host navigation button without changing session state.
+func (a *App) SetReturnToManager(back func() error) {
+	a.returnToManager = back
+	a.header.showReturn = back != nil
 }
 
 func New(svc Session) *App {

@@ -9,6 +9,7 @@ import (
 
 const (
 	StatePlaying  = "playing"
+	StateIdle     = "idle"
 	StatePause    = "pause"
 	StateStop     = "stop"
 	StateUnknown  = "Unknown"
@@ -86,8 +87,12 @@ func Classify(s Status, present, alive, aliveKnown bool, now time.Time) DisplayS
 		d.State = StatePause
 		return d
 	}
-	if s.Pause == "running" && s.Started {
-		d.State = StatePlaying
+	if s.Pause == "running" {
+		if s.Started {
+			d.State = StatePlaying
+		} else {
+			d.State = StateIdle
+		}
 	}
 	return d
 }

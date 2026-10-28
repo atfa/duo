@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"time"
 )
@@ -69,4 +70,38 @@ func Remove(ctx context.Context, t Tmux, dir string, i Instance, state DisplaySt
 		return fmt.Errorf("xduo: remove instance directory: %w", err)
 	}
 	return nil
+}
+
+// Resume reuses the instance's tmux identity and resumes only its recorded Duo session.
+// Duo owns persisted-state validation, locking, and recovery.
+func Resume(ctx context.Context, t Tmux, i Instance, duo string) error {
+	status, present, err := ReadStatus(i.StatusFile)
+	if err != nil {
+		return fmt.Errorf("xduo: read session to resume: %w", err)
+	}
+	if !present || status.SessionID == "" {
+		return fmt.Errorf("xduo: no recorded Duo session to resume; create a new instance")
+	}
+	if _, err = ValidateProject(i.Project); err != nil {
+		return err
+	}
+	duo, err = ResolveDuo(duo)
+	if err != nil {
+		return err
+	}
+	shell, err := exec.LookPath("sh")
+	if err != nil {
+		return fmt.Errorf("xduo: resume error display: %w", err)
+	}
+	// The script is fixed; executable and session ID are separate positional
+	// arguments, never interpolated as shell syntax. Keep failed startup output
+	// visible until acknowledged; successful runs exit normally.
+	const resumeCommand = `"$@"
+result=$?
+if [ "$result" -ne 0 ]; then
+ printf '\nDuo resume failed (exit %s).\nThe error above is preserved. Press Enter to return to xduo.\n' "$result"
+ IFS= read -r reply
+fi
+exit "$result"`
+	return t.start(ctx, i, shell, "-c", resumeCommand, "xduo-resume", duo, "resume", status.SessionID)
 }
