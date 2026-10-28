@@ -17,6 +17,9 @@ const PairingFileName = "remote.json"
 
 // PairingPath is ~/.duo/remote.json.
 func PairingPath() (string, error) {
+	if path := os.Getenv("DUO_REMOTE_PAIRING_FILE"); path != "" {
+		return path, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
