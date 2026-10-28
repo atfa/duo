@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Duo — two peer agents, one verified result</title>
-<meta name="description" content="Duo coordinates two peer coding agents in isolated Git worktrees. Austin builds, Tony verifies the exact commit, and only then does the result reach your branch. Pair a phone to steer the session from anywhere; the relay only carries ciphertext.">
+<title>Duo — Two agents working on one task</title>
+<meta name="description" content="Spend more time and tokens for a better result. Duo brings two agents together; xduo manages multiple sessions and lets you access them in a browser.">
 <link rel="canonical" href="https://xduo.dev/">
 <link rel="alternate" hreflang="en" href="https://xduo.dev/">
 <link rel="alternate" hreflang="zh-Hans" href="https://xduo.dev/zh/">
@@ -14,15 +14,15 @@
 <meta property="og:locale" content="en_US">
 <meta property="og:locale:alternate" content="zh_CN">
 <meta property="og:site_name" content="Duo">
-<meta property="og:title" content="Duo — two peer agents, one verified result">
-<meta property="og:description" content="Two peer coding agents, coordinated in isolated Git worktrees and delivered back to your repository. Steer the session from a phone over a ciphertext-only relay.">
+<meta property="og:title" content="Duo — Two agents working on one task">
+<meta property="og:description" content="Spend more time and tokens for a better result. Duo brings two agents together; xduo manages multiple sessions and lets you access them in a browser.">
 <meta property="og:url" content="https://xduo.dev/">
 <meta property="og:image" content="https://xduo.dev/assets/og.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Duo — two peer agents, one verified result">
-<meta name="twitter:description" content="Two peer coding agents, coordinated in isolated Git worktrees and delivered back to your repository. Steer the session from a phone over a ciphertext-only relay.">
+<meta name="twitter:title" content="Duo — Two agents working on one task">
+<meta name="twitter:description" content="Spend more time and tokens for a better result. Duo brings two agents together; xduo manages multiple sessions and lets you access them in a browser.">
 <meta name="twitter:image" content="https://xduo.dev/assets/og.png">
 <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
@@ -47,8 +47,6 @@
     <nav class="nav-links" id="nav-menu" aria-label="Main">
       <a href="#why">Why Duo</a>
       <a href="#workflows">Workflows</a>
-      <a href="#how">How it lands</a>
-      <a href="#features">Features</a>
       <a href="#remote">Remote</a>
       <a href="#start">Install</a>
     </nav>
@@ -67,451 +65,21 @@
 
 <main id="main">
 
-  <section class="container hero" id="top">
-    <div class="hero-copy">
-      <span class="eyebrow"><span class="pulse"></span><span class="eyebrow-version">v0.14.5 · </span>two peer agents, one verified result</span>
-      <h1>Think Twice. <span class="line-2">Build Better.</span></h1>
-      <p class="hero-sub">Duo coordinates <strong>two peer coding agents</strong> in isolated Git worktrees. Austin builds, Tony verifies the exact commit, and only then does the result reach your branch.</p>
+  <section class="container hero" id="top"><div class="hero-copy"><span class="eyebrow"><span class="pulse"></span>v0.15.0 · Two agents, one task</span><h1>Spend a little more time.<span class="line-2">Get a better result.</span></h1><p class="hero-sub">If you are willing to spend more time and tokens for a higher-quality result, Duo is for you.</p><p class="lede">Austin and Tony are two peers who discuss and complete the same task together in FAST, GOAL or STEP mode. They are not a boss and an employee, or permanently assigned to planning, implementation or review.</p><div class="install"><code id="install-cmd"><span class="prompt">$</span> curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash</code><button class="copy" type="button" data-copy="#install-cmd" aria-label="Copy install command"><span class="copy-label">Copy</span></button><span class="copy-status sr-only" role="status" aria-live="polite"></span></div><div class="hero-actions"><a class="btn btn-primary" href="#start">Get started</a><a class="btn btn-ghost" href="https://github.com/atfa/duo#readme">Read the docs</a></div><div class="hero-meta"><span>v0.15.0</span><span>MIT open source</span><span>Bring your own agent CLI</span></div></div><div class="terminal reveal"><div class="terminal-bar"><span>your project — duo</span></div><pre><span class="c">$</span> cd ~/projects/your-repo
+<span class="c">$</span> duo
 
-      <div class="install">
-        <code id="install-cmd" title="curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash"><span class="prompt">$</span> curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash</code>
-        <button class="copy" type="button" data-copy="#install-cmd" aria-label="Copy install command">
-          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.6" stroke="currentColor" stroke-width="1.3"/><path d="M10.5 3.5H3.6A1.6 1.6 0 0 0 2 5.1v6.9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>
-          <span class="copy-label">Copy</span>
-        </button>
-        <span class="copy-status sr-only" role="status" aria-live="polite"></span>
-      </div>
-      <p class="install-note">The release archive carries v0.14.5, first-run guide included.</p>
+<span class="c">Austin</span>  discuss · work · review
+<span class="t">Tony</span>    discuss · work · review
 
-      <div class="hero-actions">
-        <a class="btn btn-primary" href="#start">Get started</a>
-        <a class="btn btn-ghost" href="https://github.com/atfa/duo#readme" rel="noopener">Read the docs</a>
-      </div>
+<span class="muted">FAST  /  GOAL  /  STEP</span></pre></div></section>
+  <section class="container section" id="why"><div class="section-head reveal"><p class="section-eyebrow">What is Duo?</p><h2 class="section-title">You bring the agents. Duo helps them work together.</h2><p class="lede">Duo is not an agent and does not provide a model. Install and configure at least one of pi, opencode, codex or agy first. The two agents can use the same or different tools and models.</p></div><p class="agent-note reveal">Duo spends more time and tokens in pursuit of a better result through discussion and mutual review. You still decide whether the result is good enough.</p></section>
+  <section class="container section" id="workflows"><div class="section-head reveal"><p class="section-eyebrow">Three modes</p><h2 class="section-title">Choose how to work together.</h2></div><div class="workflows grid"><article class="workflow-card card is-fast reveal"><span class="mode">FAST</span><h3>Get started directly</h3><p>One agent implements and the other verifies, for well-defined tasks.</p></article><article class="workflow-card card is-goal reveal"><span class="mode">GOAL</span><h3>Agree on a plan</h3><p>Both agents agree on a plan, work independently and review each other, for complex tasks.</p></article><article class="workflow-card card is-step reveal"><span class="mode">STEP</span><h3>Work step by step</h3><p>Both agents agree on an ordered list and implement and verify each step, for longer tasks.</p></article></div></section>
+  <section class="container section" id="remote"><div class="section-head reveal"><p class="section-eyebrow">Phone and browser</p><h2 class="section-title">Duo runs on your computer. Control it from elsewhere.</h2></div><div class="principles grid"><article class="principle card reveal"><span class="p-num">01 / DUO REMOTE</span><h3>Control a Duo from your phone</h3><p>Enter <code>/qrcode</code> in Duo and scan it to pair your phone. Check status, submit tasks, pause or continue, and change the mode, agent or model.</p></article><article class="principle card reveal"><span class="p-num">02 / XDUO</span><h3>Run multiple Duo sessions</h3><p>xduo is a session manager: create, open, resume and switch between multiple Duo instances. Each instance has its own session and phone pairing.</p></article><article class="principle card reveal"><span class="p-num">03 / BROWSER</span><h3>Use xduo in a browser</h3><p>Click Server in xduo and open the displayed address locally. Other devices can use the LAN address and room code. When a browser connects, the local terminal locks; click STOP SERVER to regain control.</p></article><article class="principle card reveal"><span class="p-num">04 / TUNNEL</span><h3>Access it remotely through a tunnel</h3><p>Choose your own tunnel or reverse proxy. The Tunnel button supports a configured Cloudflare Tunnel and requires your own domain and credentials; see the <a href="https://desktop.xduo.dev/setup">setup guide</a>. desktop.xduo.dev is not an automatically shared endpoint for all users.</p></article></div></section>
+  <section class="container section" id="start"><div class="start"><div class="reveal"><p class="section-eyebrow">Install and use</p><h2 class="section-title">Install it, then start working.</h2><div class="steps"><div class="step"><span class="step-num">01</span><div><h3>Prepare an agent</h3><p>Install and configure pi, opencode, codex or agy, and install Git.</p></div></div><div class="step"><span class="step-num">02</span><div><h3>Install Duo and xduo</h3><p>On macOS or Linux, run:</p><code>curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash</code><p>For Windows, see the <a href="https://github.com/atfa/duo#install">README</a>.</p></div></div><div class="step"><span class="step-num">03</span><div><h3>Run Duo</h3><p>Enter your project directory, run <code>duo</code>, and describe your task. First run guides you through the required setup.</p><code>cd /path/to/project</code> <code>duo</code></div></div><div class="step"><span class="step-num">04</span><div><h3>Manage sessions with xduo</h3><p>On Linux, install tmux 3.2 or newer, run <code>xduo</code>, and select [+] to create a workspace. Click Server for browser access; configure a tunnel for remote access.</p><code>xduo</code></div></div></div></div><div class="terminal reveal"><div class="terminal-bar"><span>terminal</span></div><pre><span class="c">$</span> cd ~/projects/your-repo
+<span class="c">$</span> duo
 
-      <div class="hero-meta">
-        <span>v0.14.5</span>
-        <span>macOS &amp; Linux</span>
-        <span>Go · single binary</span>
-        <span>MIT licensed</span>
-        <span>Bring your own agent</span>
-      </div>
-    </div>
-
-    <div class="session reveal" role="img" aria-label="A Duo session in goal mode: Austin implements and commits, Tony reviews the exact commit and signs, then the change is delivered.">
-      <div class="session-bar">
-        <span class="session-title"><b>duo</b> — goal</span>
-        <span class="session-live"><i></i>live</span>
-      </div>
-      <div class="session-phase">
-        <span class="phase done">plan</span>
-        <span class="phase done">execute</span>
-        <span class="phase active">review</span>
-        <span class="phase">integrate</span>
-      </div>
-      <div class="session-agents">
-        <div class="agent austin">
-          <div class="agent-head"><span class="agent-dot"></span>Austin<span class="agent-role">implement</span></div>
-          <div class="msg"><span class="k">plan</span> shared plan agreed</div>
-          <div class="msg"><span class="k">commit</span> 6f2a1c9 · 6 files</div>
-          <div class="msg"><span class="k">test</span> go test ./... <b>pass</b></div>
-        </div>
-        <div class="agent tony">
-          <div class="agent-head"><span class="agent-dot"></span>Tony<span class="agent-role">verify</span></div>
-          <div class="msg"><span class="k">review</span> 6f2a1c9 · independent</div>
-          <div class="msg"><span class="k">vet</span> go vet ./... <b>pass</b></div>
-          <div class="msg"><span class="k">sign</span> <span class="warn">6f2a1c9 ✓</span></div>
-        </div>
-      </div>
-      <div class="session-gate">
-        <span class="gate-label">gate</span>
-        <span class="gate-step ok">verify</span><span class="arrow" aria-hidden="true">→</span>
-        <span class="gate-step ok">sign</span><span class="arrow" aria-hidden="true">→</span>
-        <span class="gate-step">deliver</span>
-        <span class="gate-state">ready</span>
-      </div>
-    </div>
-  </section>
-
-  <section class="container section" id="why">
-    <div class="section-head reveal">
-      <p class="section-eyebrow">Why two agents</p>
-      <h2 class="section-title">An agent reviewing itself is still one perspective.</h2>
-      <p class="lede">A single agent can write the code and approve it in the same context. Duo makes review structurally independent: two sessions, two worktrees, one commit both sides can inspect.</p>
-    </div>
-
-    <div class="agents grid">
-      <article class="agent-card card reveal">
-        <span class="tag"><i></i>Austin · implementer</span>
-        <h3>Builds in its own worktree.</h3>
-        <p>Works on its own branch and checkout. Implements the agreed task, commits in reviewable increments, and reports the evidence Duo needs to verify it.</p>
-        <ul>
-          <li>own branch and worktree</li>
-          <li>commits with exact SHAs</li>
-          <li>tests and build output attached</li>
-        </ul>
-      </article>
-      <article class="agent-card card reveal">
-        <span class="tag"><i></i>Tony · independent verifier</span>
-        <h3>Verifies the exact commit.</h3>
-        <p>Reads the real diff in a separate checkout. In Goal and Step, Tony also co-designs the plan and cross-reviews the implementation before signing the gate.</p>
-        <ul>
-          <li>independent checkout</li>
-          <li>reads the real diff</li>
-          <li>signature bound to a SHA</li>
-        </ul>
-      </article>
-    </div>
-
-    <p class="agent-note reveal">
-      <svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 1.8 14 4v4.2c0 3.2-2.4 5.3-6 6-3.6-.7-6-2.8-6-6V4l6-2.2Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="m5.6 7.9 1.7 1.7 3.1-3.3" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      <span><strong>Peer, not subagent.</strong> Tony has his own context and his own worktree. He cannot rubber-stamp a summary, and Austin does not edit Tony's checkout.</span>
-    </p>
-  </section>
-
-  <section class="container manifesto reveal" aria-label="Brand statement">
-    <p>Because what matters deserves <em>more</em>.</p>
-    <small>Think Twice. Build Better.</small>
-  </section>
-
-  <section class="container section" id="workflows">
-    <div class="section-head reveal">
-      <p class="section-eyebrow">Workflows</p>
-      <h2 class="section-title">Choose the level of rigor.</h2>
-      <p class="lede">The same two agents, three coordination policies. Switch modes at runtime; protocol names stay canonical in every language.</p>
-    </div>
-
-    <div class="workflows grid">
-      <article class="workflow-card card is-fast reveal">
-        <div class="workflow-top">
-          <span class="mode">Fast</span>
-          <span class="mode-cmd">duo</span>
-        </div>
-        <h3>Ship with a second pair of eyes.</h3>
-        <p>Austin implements. Tony verifies the exact commit independently. Duo delivers the verified result.</p>
-        <div class="chain">
-          <div class="chip"><b>TASK</b> you describe it<small>01</small></div>
-          <div class="chip austin"><b>AUSTIN</b> implements + commits<small>02</small></div>
-          <div class="chip tony"><b>TONY</b> verifies that commit<small>03</small></div>
-          <div class="chip gate"><b>DELIVER</b> to your branch<small>04</small></div>
-        </div>
-        <span class="best-for">Best for <b>scoped fixes and small features</b></span>
-      </article>
-
-      <article class="workflow-card card is-goal reveal">
-        <div class="workflow-top">
-          <span class="mode">Goal</span>
-          <span class="mode-cmd">duo --mode goal</span>
-        </div>
-        <h3>Negotiate the plan, then cross-review.</h3>
-        <p>Both agents agree on a shared plan, work independently, and review each other's exact commits. Both must sign the same clean integration HEAD.</p>
-        <div class="chain">
-          <div class="chip gate"><b>PLAN</b> both agree + sign<small>01</small></div>
-          <div class="chip austin"><b>EXECUTE</b> parallel work<small>02</small></div>
-          <div class="chip tony"><b>REVIEW</b> cross-review<small>03</small></div>
-          <div class="chip gate"><b>INTEGRATE</b> both sign HEAD<small>04</small></div>
-        </div>
-        <span class="best-for">Best for <b>architecture changes and risky refactors</b></span>
-      </article>
-
-      <article class="workflow-card card is-step reveal">
-        <div class="workflow-top">
-          <span class="mode">Step</span>
-          <span class="mode-cmd">duo --mode step</span>
-        </div>
-        <h3>Land one verified increment at a time.</h3>
-        <p>Both agents agree on an ordered queue. Each step lands before the next begins, under Fast or Goal policy. The queue survives restarts.</p>
-        <div class="chain">
-          <div class="chip gate"><b>PLAN</b> ordered queue<small>01</small></div>
-          <div class="chip austin"><b>STEP 1</b> land + verify<small>02</small></div>
-          <div class="chip tony"><b>STEP 2</b> land + verify<small>03</small></div>
-          <div class="chip gate"><b>DONE</b> delivered<small>04</small></div>
-        </div>
-        <span class="best-for">Best for <b>migrations and long-running work</b></span>
-      </article>
-    </div>
-  </section>
-
-  <section class="container section" id="how">
-    <div class="section-head reveal">
-      <p class="section-eyebrow">How it lands</p>
-      <h2 class="section-title">Four checkpoints between an idea and your branch.</h2>
-      <p class="lede">Each checkpoint is backed by Git, not by a chat message. If the evidence stops matching, the gate closes.</p>
-    </div>
-
-    <div class="principles grid">
-      <article class="principle card reveal">
-        <span class="p-num">01 / ISOLATE</span>
-        <h3>Two worktrees, two branches.</h3>
-        <p>Each agent works in its own checkout under the session directory. Parallel edits become an explicit merge, never a silent overwrite.</p>
-        <div class="evidence"><span class="dim">worktrees/</span>20261022-211328/<span class="agent-a">austin</span>  <span class="dim">·</span>  <span class="dim">worktrees/</span>20261022-211328/<span class="agent-b">tony</span></div>
-      </article>
-      <article class="principle card reveal">
-        <span class="p-num">02 / COORDINATE</span>
-        <h3>A plan both agents signed.</h3>
-        <p>In Goal and Step, work starts only after both approve the same plan or step-queue version. Any edit creates a new version and resets both signatures.</p>
-        <div class="evidence"><span class="dim">plan</span> v4  <span class="agent-a">austin ✓</span>  <span class="agent-b">tony ✓</span>  <span class="dim">· any edit resets both</span></div>
-      </article>
-      <article class="principle card reveal">
-        <span class="p-num">03 / VERIFY + SIGN</span>
-        <h3>Approval covers a commit, not a vibe.</h3>
-        <p>Verification reads the real diff and runs the checks. A signature binds to the SHA that was reviewed; if the branch moves, the old approval no longer counts.</p>
-        <div class="evidence"><span class="agent-a">austin</span> 6f2a1c9  <span class="dim">·</span>  <span class="agent-b">tony</span> signed 6f2a1c9 <span class="ok">✓</span><br><span class="dim">branch moved → signature revoked</span></div>
-      </article>
-      <article class="principle card reveal">
-        <span class="p-num">04 / DELIVER</span>
-        <h3>Move only when it is provably safe.</h3>
-        <p>Delivery is read-only until the final fast-forward. When it needs to move your branch, Duo refuses if the repository is dirty or the move is not a fast-forward — and changes nothing.</p>
-        <div class="evidence"><span class="dim">deliver</span> main <span class="ok">← verified HEAD</span>  <span class="dim">(fast-forward only)</span><br><span class="dim">dirty tree → refuse, checkout untouched</span></div>
-      </article>
-    </div>
-  </section>
-
-  <section class="container section" id="screens">
-    <div class="section-head reveal">
-      <p class="section-eyebrow">Running now</p>
-      <h2 class="section-title">This is the dashboard, captured mid-session.</h2>
-      <p class="lede">Real frames of the running app, not illustrations: Duo's own tcell frontend at 120×42 and 64×22, colours from the same theme it ships with.</p>
-    </div>
-
-    <div class="shots">
-      <figure class="shot reveal">
-        <div class="shot-frame">
-          <div class="shot-bar"><span class="dots"><i></i><i></i><i></i></span><span>duo · 120×42 · split</span></div>
-          <div class="shot-scroll">
-            <img src="/assets/shots/01-dashboard-120x42.svg" width="1040" height="788" loading="lazy" decoding="async" alt="Duo's split dashboard at 120×42. The header reads DUO v0.14.5 with the repository and a FAST · RUNNING badge. The workflow sidebar shows RUNNING, verification passed and delivery pending. Austin's card is working, running go test ./... with 24% of its context used; Tony's card is ready and idle. The shared Duo/Human pane shows the task and the note that verification passed.">
-          </div>
-        </div>
-        <figcaption><b>Split dashboard.</b> Two agent cards with live model, context and tool state next to the shared transcript. Verification passed, delivery still pending.</figcaption>
-      </figure>
-
-      <figure class="shot reveal">
-        <div class="shot-frame">
-          <div class="shot-bar"><span class="dots"><i></i><i></i><i></i></span><span>duo · 120×42 · timeline</span></div>
-          <div class="shot-scroll">
-            <img src="/assets/shots/02-timeline-120x42.svg" width="1040" height="788" loading="lazy" decoding="async" alt="The same Duo session in timeline view at 120×42. The conversation pane holds the whole exchange in order: the task about cursor pagination, Austin's result with its code block and test command, and Tony's note about the expired cursor returning 400.">
-          </div>
-        </div>
-        <figcaption><b>One conversation.</b> The same session in timeline view: task, result and the reviewer's objection in order.</figcaption>
-      </figure>
-
-      <figure class="shot shot--compact reveal">
-        <div class="shot-frame">
-          <div class="shot-bar"><span class="dots"><i></i><i></i><i></i></span><span>duo · 64×22 · compact</span></div>
-          <div class="shot-scroll">
-            <img src="/assets/shots/08-narrow-64x22.svg" width="569" height="428" loading="lazy" decoding="async" alt="The compact 64×22 layout: the workflow sidebar is gone, the conversation keeps the result and the reviewer's message, and the composer and one-line key hints stay visible.">
-          </div>
-        </div>
-        <figcaption><b>Compact layout.</b> On a small terminal the sidebar is dropped rather than squeezed into an unreadable column.</figcaption>
-      </figure>
-    </div>
-  </section>
-
-  <section class="container section" id="features">
-    <div class="section-head reveal">
-      <p class="section-eyebrow">Built for real work</p>
-      <h2 class="section-title">Small surface. Serious machinery.</h2>
-      <p class="lede">A single Go binary coordinates the session, the Git state and the gates. Your agents, models and repository stay yours.</p>
-    </div>
-
-    <div class="features grid">
-      <article class="feature card reveal">
-        <span class="f-icon"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.2"/><path d="M5 5h6M5 8h6M5 11h4" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg></span>
-        <h3>A deterministic core</h3>
-        <p>Phases, gates, routing and delivery are enforced in Go, not improvised in a prompt. Agents keep their own tools; the core decides which transitions their evidence authorizes.</p>
-        <span class="f-meta">internal/project · internal/coordinator</span>
-      </article>
-
-      <article class="feature card reveal">
-        <span class="f-icon"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M8 1.8 13.5 4v4c0 3.3-2.3 5.4-5.5 6.2C4.8 13.4 2.5 11.3 2.5 8V4L8 1.8Z" stroke="currentColor" stroke-width="1.2" stroke-linejoin="round"/><path d="m5.8 7.9 1.6 1.6 3-3.1" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-        <h3>Commit-bound evidence</h3>
-        <p>Signatures, verification and delivery all reference exact SHAs. Recovery revokes any approval that Git can no longer prove.</p>
-        <span class="f-meta">duo_status · session snapshots</span>
-      </article>
-
-      <article class="feature card reveal">
-        <span class="f-icon"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M3 3v6a2 2 0 0 0 2 2h6M11 3v3M8.5 8.5 11 11l2.5-2.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-        <h3>Conflicts, not lost work</h3>
-        <p>Separate worktrees turn a race into a visible merge conflict. Nothing is silently overwritten, and uncommitted work is left exactly where it is.</p>
-        <span class="f-meta">no file locks · Git is the boundary</span>
-      </article>
-
-      <article class="feature card reveal">
-        <span class="f-icon"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M2 8h5l1.5-4 2 8L12 8h2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-        <h3>Delivery that refuses</h3>
-        <p>Before touching your checkout, Duo proves the move is a fast-forward and the tree is clean. Otherwise it stops without guessing.</p>
-        <span class="f-meta">read-only checks · fast-forward only</span>
-      </article>
-
-      <article class="feature card reveal">
-        <span class="f-icon"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/><path d="M13.7 1.8v3.4h-3.4" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-        <h3>Recovery and resume</h3>
-        <p>Plans, queues and transcripts persist. After a crash, resume reconciles approvals with Git evidence and keeps the queue position.</p>
-        <span class="f-meta">duo resume · journal replay</span>
-      </article>
-
-      <article class="feature card reveal">
-        <span class="f-icon"><svg viewBox="0 0 16 16" fill="none" aria-hidden="true"><path d="M5 3.5 1.8 8 5 12.5M11 3.5 14.2 8 11 12.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/><path d="M9.4 2.8 6.6 13.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg></span>
-        <h3>Local-first, MIT</h3>
-        <p>One binary, plain config, ordinary Git. No hosted service sits between you and your code; the source is MIT licensed.</p>
-        <span class="f-meta">macOS/Linux · amd64/arm64</span>
-      </article>
-    </div>
-
-    <div class="stack" aria-label="Works with">
-      <span class="stack-label">Works with</span>
-      <span class="stack-item"><b>pi</b></span>
-      <span class="stack-item"><b>agy</b></span>
-      <span class="stack-item"><b>opencode</b></span>
-      <span class="stack-item"><b>codex</b></span>
-      <span class="stack-item">8 Duo tools + MCP subset</span>
-      <span class="stack-item">gotui dashboard</span>
-      <span class="stack-item">phone console (/qrcode)</span>
-      <span class="stack-item">any Git repository</span>
-    </div>
-  </section>
-
-  <section class="container section" id="remote">
-    <div class="section-head reveal">
-      <p class="section-eyebrow">v0.14.5 · Remote control</p>
-      <h2 class="section-title">Steer the session from your phone.</h2>
-      <p class="lede">Type <code>/qrcode</code> and scan it. The phone becomes a console for the running session — both agents live, the next task, pause and continue, a mode, driver or model switch, a fresh session, the observer's report — while the work keeps running on your machine.</p>
-    </div>
-
-    <div class="remote">
-      <div class="remote-points">
-        <article class="principle card reveal">
-          <span class="p-num">01 / PAIR</span>
-          <h3>One QR code, eight hours.</h3>
-          <p><code>/qrcode</code> mints a room and a secret. The secret rides in the URL fragment, which a browser never sends, so the relay never sees it. A pairing expires after 8 hours, <code>/remote off</code> revokes it immediately, <code>/qrcode new</code> rotates it, and a new session reconnects by itself.</p>
-        </article>
-        <article class="principle card reveal">
-          <span class="p-num">02 / CONTROL</span>
-          <h3>The same workflow, from a phone.</h3>
-          <p>A task sent from the phone enters through the same <code>SubmitTask</code> a keystroke uses, so phases, gates and delivery behave exactly as they do at the terminal. Pause or continue the round, switch fast, step or goal, pick a driver or model, start a fresh session or ask for a report — without walking back to the desk.</p>
-        </article>
-        <article class="principle card reveal">
-          <span class="p-num">03 / RELAY</span>
-          <h3>Ciphertext in the middle.</h3>
-          <p>The default relay is a Cloudflare Worker that stores encrypted envelopes only: it can drop or delay traffic, but it cannot read a prompt or forge a command. Self-host it from <code>remote/</code> and point <code>remote.url</code> at your own worker.</p>
-        </article>
-      </div>
-
-      <div class="phone reveal" role="img" aria-label="The Duo phone console: project and phase, Austin's and Tony's live state, a task composer, pause, a new session and the report action.">
-        <div class="phone-screen">
-          <div class="phone-bar"><span>remote.xduo.dev</span><span class="phone-live"><i></i>paired</span></div>
-          <div class="phone-body">
-            <div class="phone-project">duo <span>· goal</span></div>
-            <div class="phone-phase"><span class="done">plan</span><span class="done">execute</span><span class="active">review</span><span>integrate</span></div>
-            <div class="phone-agent austin"><span class="phone-dot"></span>Austin<span class="phone-state">committed 6f2a1c9</span></div>
-            <div class="phone-agent tony"><span class="phone-dot"></span>Tony<span class="phone-state">reviewing</span></div>
-            <div class="phone-task">Review the relay budget change, then land it.</div>
-            <div class="phone-actions"><span>New task</span><span>Pause</span><span>New session</span><span>Report</span></div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <section class="container section" id="start">
-    <div class="start">
-      <div class="reveal">
-        <p class="section-eyebrow">Quick start</p>
-        <h2 class="section-title">Two commands to a second opinion.</h2>
-        <p class="lede">Install the binary, run it inside any Git repository, and describe the task. Duo handles the worktrees, the gates and the delivery.</p>
-
-        <div class="steps">
-          <div class="step">
-            <span class="step-num">01</span>
-            <div>
-              <h3>Install</h3>
-              <p>macOS or Linux, amd64 or arm64. Or build from source with Go 1.24+.</p>
-              <code id="install-cmd-start">curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash</code>
-              <code>./scripts/install.sh</code>
-              <p class="install-note">The release archive carries v0.14.5, first-run guide included.</p>
-            </div>
-          </div>
-          <div class="step">
-            <span class="step-num">02</span>
-            <div>
-              <h3>Run inside your repo</h3>
-              <p>Fast is the default. Escalate when the work needs a negotiated plan or an ordered queue.</p>
-              <code>duo</code> <code>duo --mode goal</code> <code>duo --mode step</code>
-            </div>
-          </div>
-          <div class="step">
-            <span class="step-num">03</span>
-            <div>
-              <h3>Review and push</h3>
-              <p>Duo delivers the verified result to the branch you started from. Inspect the commits, run your own tests, push when you are happy.</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="reveal">
-        <div class="terminal">
-          <div class="terminal-bar">
-            <span class="dots"><i></i><i></i><i></i></span>
-            <span>your-repo — duo</span>
-          </div>
-          <pre aria-label="Example Duo terminal session"><span class="c">$</span> cd ~/projects/your-repo
-<span class="c">$</span> duo --mode goal
-
-<span class="hl">duo</span> <span class="muted">v0.14.5</span>  <span class="muted">·</span>  goal  <span class="muted">·</span>  pi
-<span class="muted">──────────────────────────────────────</span>
-  <span class="c">austin</span>  plan      shared plan agreed
-  <span class="t">tony</span>    plan      shared plan agreed
-  <span class="muted">phase</span>   <span class="hl">execute</span>
-
-  <span class="c">austin</span>  working   src/auth/session.go
-  <span class="t">tony</span>    waiting   exact commit
-
-  <span class="muted">gate</span>    verify <span class="muted">→</span> sign <span class="muted">→</span> deliver
-</pre>
-        </div>
-        <p class="note">Requires Git and at least one supported agent CLI. Agents run with your permissions — worktrees isolate edits, they are not a security sandbox.</p>
-      </div>
-    </div>
-  </section>
-
-  <section class="container section" id="faq">
-    <div class="section-head reveal">
-      <p class="section-eyebrow">FAQ</p>
-      <h2 class="section-title">The questions engineers ask first.</h2>
-    </div>
-
-    <div class="faq reveal">
-      <details class="faq-item">
-        <summary class="faq-q">Isn't this just subagents?</summary>
-        <div class="faq-a"><p>No. A subagent shares its parent's session and working tree. Duo runs two independent agent sessions with separate worktrees and branches, and their approvals are bound to the commits they actually reviewed.</p></div>
-      </details>
-      <details class="faq-item">
-        <summary class="faq-q">Do I need two models or two API keys?</summary>
-        <div class="faq-a"><p>No. Use the same driver for both agents, or choose per agent with <code>--austin-driver</code> and <code>--tony-driver</code>. The built-in drivers are pi, agy, opencode and codex.</p></div>
-      </details>
-      <details class="faq-item">
-        <summary class="faq-q">What happens when both agents edit the same file?</summary>
-        <div class="faq-a"><p>Each edit lands in its own branch, so the result is a normal Git conflict at integration — visible and resolvable. Duo does not discard uncommitted work to force a merge.</p></div>
-      </details>
-      <details class="faq-item">
-        <summary class="faq-q">What if verification fails?</summary>
-        <div class="faq-a"><p>The gate stays closed. Tony reports the issue against that commit, Austin fixes it in his worktree, and a new commit needs a new verification. The old signature does not carry over.</p></div>
-      </details>
-      <details class="faq-item">
-        <summary class="faq-q">Does Duo rewrite my history?</summary>
-        <div class="faq-a"><p>No. Delivery only fast-forwards the branch you started from. If it cannot be fast-forwarded, or moving it would overwrite uncommitted changes, Duo refuses and leaves the checkout untouched.</p></div>
-      </details>
-      <details class="faq-item">
-        <summary class="faq-q">Does my code leave my machine?</summary>
-        <div class="faq-a"><p>Duo is a local Go binary: coordination, worktrees and evidence stay on your machine, and prompts go to your agent provider exactly as they would without Duo. Pairing a phone adds an optional relay that carries encrypted envelopes only — it never sees a prompt or the pairing secret, and a machine with no pairing sends it nothing.</p></div>
-      </details>
-      <details class="faq-item">
-        <summary class="faq-q">Is it open source?</summary>
-        <div class="faq-a"><p>Yes, MIT licensed. Source, issues and releases live at <a href="https://github.com/atfa/duo" rel="noopener">github.com/atfa/duo</a>.</p></div>
-      </details>
-    </div>
-  </section>
-
+<span class="muted"># Or manage multiple sessions on Linux</span>
+<span class="c">$</span> xduo</pre><p class="note">Agents run with your permissions; Git worktrees are not a security sandbox.</p></div></div></section>
 </main>
 
 <footer class="footer site-footer">
@@ -527,7 +95,7 @@
           </svg>
           duo
         </a>
-        <p>Think Twice. Build Better. Two peer agents, coordinated in isolated worktrees and delivered to your repository.</p>
+        <p>Two peer agents working together on one task.</p>
       </div>
       <div class="footer-cols">
         <div class="footer-col">
@@ -535,8 +103,8 @@
           <ul>
             <li><a href="#why">Why Duo</a></li>
             <li><a href="#workflows">Workflows</a></li>
-            <li><a href="#how">How it lands</a></li>
-            <li><a href="#features">Features</a></li>
+            <li></li>
+            <li></li>
             <li><a href="#remote">Remote</a></li>
             <li><a href="#start">Install</a></li>
           </ul>
