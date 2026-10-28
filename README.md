@@ -72,6 +72,8 @@ The `-duo` option is optional; without it xduo looks for `duo` on PATH. Launch `
 | r | Refresh |
 | q | Quit the panel without stopping Duo instances |
 
+The toolbar's **Server** button (or `S`) toggles a local browser terminal at `127.0.0.1:8787`. It starts off; gray means off, green means running, and red means startup failed. When enabled, open the full access link shown below the toolbar. The page includes xterm.js, connection status, Reconnect and Fullscreen; all assets are bundled in xduo, with no CDN or frontend build needed. One browser can connect at a time. Closing or refreshing the tab disconnects only its tmux client; the manager and Duo instances keep running. Turning Server off closes the listener and browser connection. Browser access is local-only in this version.
+
 Selecting `[+]` opens a directory picker at the manager's launch directory. Use `Tab` / `Shift+Tab` to move between the path input, directories, recent projects, Confirm and Cancel; use arrow keys and `Enter` within a list. Clicking a directory opens it, clicking a recent project selects it, and Confirm starts Duo in the chosen directory. `Esc` cancels. The latest ten successfully created or opened projects are stored separately in `~/.duo/xduo/recent-projects.json`.
 
 Duo instances launched by xduo show a **Back to xduo** button at the top right. Clicking it returns to the manager while keeping Duo and its agents running.

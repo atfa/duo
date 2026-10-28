@@ -5,8 +5,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	ui "github.com/metaspartan/gotui/v5"
-	"github.com/metaspartan/gotui/v5/widgets"
 	"image"
 	"os"
 	"path/filepath"
@@ -16,6 +14,8 @@ import (
 	"github.com/atfa/duo/internal/remote"
 	"github.com/atfa/duo/internal/xduo"
 	"github.com/gdamore/tcell/v3"
+	ui "github.com/metaspartan/gotui/v5"
+	"github.com/metaspartan/gotui/v5/widgets"
 )
 
 type row struct {
@@ -24,19 +24,21 @@ type row struct {
 	remote   string
 }
 type panel struct {
-	dir       string
-	tmux      xduo.Tmux
-	rows      []row
-	selected  int
-	offset    int
-	message   string
-	duo       string
-	mode      string
-	input     string
-	columns   int
-	cardRects []image.Rectangle
-	mouseDown bool
-	picker    directoryPicker
+	dir         string
+	tmux        xduo.Tmux
+	rows        []row
+	selected    int
+	offset      int
+	message     string
+	duo         string
+	mode        string
+	input       string
+	columns     int
+	cardRects   []image.Rectangle
+	mouseDown   bool
+	picker      directoryPicker
+	server      *xduo.WebServer
+	serverError bool
 }
 
 func (p *panel) refresh() {
@@ -134,6 +136,14 @@ func (p *panel) draw(s tcell.Screen) {
 	}
 	s.PutStrStyled(1, 0, "◆ XDUO   /   Workspaces", accent)
 	s.PutStrStyled(1, 1, "[ N New ]   [ R Refresh ]   [ X Close ]   [ Q Quit ]", muted)
+	label, style := "[ S Server: Off ]", muted
+	if p.server != nil {
+		label, style = "[ S Server: On ]", primaryButton
+		s.PutStrStyled(1, 2, p.server.URL, accent)
+	} else if p.serverError {
+		label, style = "[ S Server: Error ]", errorStyle
+	}
+	s.PutStrStyled(55, 1, label, style)
 	s.PutStrStyled(1, 1, "[ N New ]", primaryButton)
 	if w > 80 {
 		s.PutStrStyled(w-27, 0, fmt.Sprintf("%d workspaces  ·  local", len(p.rows)), muted)
@@ -310,6 +320,8 @@ func (p *panel) key(e *tcell.EventKey) bool {
 		switch e.Str() {
 		case "q":
 			return false
+		case "s":
+			p.toggleServer()
 		case "r":
 			p.message = ""
 			p.refresh()
@@ -322,6 +334,27 @@ func (p *panel) key(e *tcell.EventKey) bool {
 	return true
 }
 
+func (p *panel) toggleServer() {
+	if p.server != nil {
+		err := p.server.Close()
+		p.server = nil
+		p.serverError = err != nil
+		p.message = "Browser server stopped. Duo sessions keep running."
+		if err != nil {
+			p.message = err.Error()
+		}
+		return
+	}
+	server, err := xduo.StartWeb(p.tmux)
+	p.serverError = err != nil
+	if err != nil {
+		p.message = err.Error()
+		return
+	}
+	p.server = server
+	p.message = "Browser server ready. Open the access link above in your browser."
+}
+
 func runPanel(p *panel) error {
 	screen, err := tcell.NewScreen()
 	if err != nil {
@@ -331,6 +364,11 @@ func runPanel(p *panel) error {
 		return err
 	}
 	defer screen.Fini()
+	defer func() {
+		if p.server != nil {
+			_ = p.server.Close()
+		}
+	}()
 	screen.EnableFocus()
 	screen.EnableMouse(tcell.MouseButtonEvents)
 	p.refresh()
@@ -366,9 +404,9 @@ func runPanel(p *panel) error {
 				if down && !p.mouseDown && !wasPicker && p.mode == "" {
 					x, y := e.Position()
 					if y == 1 {
-						for i, key := range []string{"n", "r", "x", "q"} {
-							starts := []int{1, 13, 29, 43}
-							ends := []int{10, 26, 40, 53}
+						for i, key := range []string{"n", "r", "x", "q", "s"} {
+							starts := []int{1, 13, 29, 43, 55}
+							ends := []int{10, 26, 40, 53, 75}
 							if x >= starts[i] && x < ends[i] {
 								if !p.key(tcell.NewEventKey(tcell.KeyRune, key, tcell.ModNone)) {
 									return nil

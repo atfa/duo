@@ -276,6 +276,11 @@ func TestFailedResumeKeepsErrorUntilAcknowledged(t *testing.T) {
 	tm.Socket = "xduo-resume-error-" + filepath.Base(t.TempDir())
 	ctx := context.Background()
 	defer tm.run(ctx, "kill-server")
+	// Keep the manager alive, as in the application, so the final probe does
+	// not race tmux's automatic shutdown after its last session exits.
+	if err := tm.run(ctx, "new-session", "-d", "-s", "xduo-manager", "sleep", "30"); err != nil {
+		t.Fatal(err)
+	}
 	project, err := ValidateProject(".")
 	if err != nil {
 		t.Fatal(err)
