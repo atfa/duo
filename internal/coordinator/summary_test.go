@@ -88,7 +88,7 @@ func TestDoneAsksAustinToSummariseTheSession(t *testing.T) {
 			// "process and results" is answered by narrating the timeline, which
 			// the human has read.
 			for _, want := range []string{
-				"Answer four questions", "1. Result.", "2. Handoff.", "3. Where you and Tony agreed",
+				"First directly answer the user’s original question", "1. Result.", "2. Handoff.", "3. Where you and Tony agreed",
 				"4. Whether having two agents improved the work", "yes or no in the first sentence",
 				"If you overruled Tony", "Do not narrate the session",
 				"Austin → Human", "Do not use duo_send", "do not start new work", mode.Display(),
@@ -263,6 +263,24 @@ func TestFinalSummaryPromptAsksTheSameFourQuestionsInBothLanguages(t *testing.T)
 			if strings.Contains(got, banned) {
 				t.Fatalf("%s prompt still asks for decoration %q:\n%s", language, banned, got)
 			}
+		}
+	}
+}
+
+func TestUserQuestionPrecedesDeliveryReport(t *testing.T) {
+	for _, tc := range []struct{ language, guidance, answer, report string }{
+		{"en", "user's actual question", "First directly answer the user’s original question", "1. Result."},
+		{"zh", "用户真正关心的问题", "首先直接回答用户原问题", "1. 结果。"},
+	} {
+		coord := promptCoordinator()
+		coord.language = tc.language
+		if !strings.Contains(userFirstGuidance(tc.language), tc.guidance) {
+			t.Fatalf("%s task guidance does not prioritize the user", tc.language)
+		}
+		prompt := coord.finalSummaryPrompt(project.Snapshot{})
+		answer, report := strings.Index(prompt, tc.answer), strings.Index(prompt, tc.report)
+		if answer < 0 || report < 0 || answer > report {
+			t.Fatalf("%s summary must answer the user before delivery details", tc.language)
 		}
 	}
 }

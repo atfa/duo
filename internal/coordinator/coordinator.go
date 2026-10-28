@@ -872,6 +872,7 @@ func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 			if mode == project.ModeStep {
 				prompt = stepTaskPrompt(agent, text, c.language)
 			}
+			prompt += "\n\n" + userFirstGuidance(c.language)
 			if err := c.sendToAgent(ctx, agent, protocol.Message{
 				Version: 1, Type: protocol.MsgHumanPrompt, From: protocol.Duo, To: agent,
 				Text: prompt, Timestamp: time.Now().UnixMilli(),
@@ -887,7 +888,7 @@ func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 	if c.language == "zh" {
 		guidance = "（Duo 提示：工作提交完成且 worktree 干净后，调用 duo_set_status ready=true 请求 Tony 独立验证。）"
 	}
-	promptText += "\n\n" + guidance
+	promptText += "\n\n" + userFirstGuidance(c.language) + "\n\n" + guidance
 	if err := c.sendToAgent(ctx, protocol.Austin, protocol.Message{
 		Version: 1, Type: protocol.MsgHumanPrompt, From: protocol.Duo, To: protocol.Austin,
 		Text: promptText, Timestamp: time.Now().UnixMilli(),
@@ -896,6 +897,14 @@ func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 	}
 	c.acknowledgeTask(mode)
 	return nil
+}
+
+// userFirstGuidance applies to every mode without changing its workflow gates.
+func userFirstGuidance(language string) string {
+	if language == "zh" {
+		return "先与另一位 agent 围绕用户真正关心的问题交换结论和证据，解决分歧；不要为了达成一致而掩盖不确定性。直接向用户回答问题或说明任务结果，给出需要的具体步骤，然后再汇报必要的 Git 和流程事项。FAST 中 Austin 应把用户问题及拟给用户的答案发给 Tony 核对；Tony 发现答案缺失或答非所问时应提出问题。"
+	}
+	return "First discuss the user's actual question, conclusions and evidence with the other agent and resolve disagreements without hiding uncertainty. Answer the user directly or report the task result, including concrete steps when needed, before any necessary Git and workflow details. In FAST, Austin should send Tony the user's question and proposed answer for review; Tony should raise an issue if the answer is missing or does not address the question."
 }
 
 // acknowledgeTask closes the gap between "duo accepted the task" and an agent's
@@ -1967,11 +1976,11 @@ func (c *Coordinator) handleFastSetStatus(ctx context.Context, client *transport
 		fmt.Sprintf("Verification requested for Austin HEAD %s. Tony must independently verify before Duo delivers.", shortSHA(snap.Verification.Head)),
 		c.statusText(ctx))
 	text := fmt.Sprintf(
-		"[Duo verification request]\nAustin reports the work complete and requested independent verification of HEAD %s.\n\nInspect that exact artifact yourself. Then report a structured verdict with duo_set_verification: result=passed, or result=issue_found with a concrete note describing the problem. Fast mode is single-writer: do not commit or edit the artifact; if a fix is needed, report it so Austin applies it.",
+		"[Duo verification request]\nAustin reports the work complete and requested independent verification of HEAD %s.\n\nFirst review whether Austin has directly answered the user’s actual question and whether the answer is supported; ask Austin for the question and proposed answer if needed. Report issue_found if the answer is missing, off-topic, or unsupported. Then inspect that exact artifact yourself and report a structured verdict with duo_set_verification: result=passed, or result=issue_found with a concrete note describing the problem. Fast mode is single-writer: do not commit or edit the artifact; if a fix is needed, report it so Austin applies it.",
 		shortSHA(snap.Verification.Head),
 	)
 	if c.language == "zh" {
-		text = fmt.Sprintf("[Duo verification request]\nAustin 已报告工作完成，并请求独立验证 HEAD %s。\n\n请独立检查该精确产物，然后通过 duo_set_verification 给出结构化结论：result=passed，或 result=issue_found 并附上具体问题。Fast 模式只有 Austin 可以写入：不要提交或编辑产物；需要修复时报告问题，由 Austin 修改。", shortSHA(snap.Verification.Head))
+		text = fmt.Sprintf("[Duo verification request]\nAustin 已报告工作完成，并请求独立验证 HEAD %s。\n\n先核对 Austin 是否直接回答了用户真正的问题、答案是否有依据；必要时向 Austin 索取用户问题和拟给用户的答案。答案缺失、答非所问或缺乏依据时报告 issue_found。然后独立检查该精确产物，通过 duo_set_verification 给出结构化结论：result=passed，或 result=issue_found 并附上具体问题。Fast 模式只有 Austin 可以写入：不要提交或编辑产物；需要修复时报告问题，由 Austin 修改。", shortSHA(snap.Verification.Head))
 	}
 	c.sendFastNotice(ctx, protocol.Tony, text)
 }
