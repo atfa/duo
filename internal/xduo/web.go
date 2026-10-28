@@ -1,15 +1,12 @@
 package xduo
 
 import (
-	"crypto/rand"
-	"crypto/subtle"
 	"embed"
-	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"net"
 	"net/http"
-	"net/url"
 	"sync"
 	"time"
 
@@ -22,17 +19,22 @@ var webAssets embed.FS
 // WebServer owns only the local HTTP listener and browser connection. The
 // manager and Duo sessions remain owned by tmux when the server stops.
 type WebServer struct {
-	URL     string
-	http    *http.Server
-	mu      sync.Mutex
-	client  *websocket.Conn
-	closed  bool
-	done    chan struct{}
-	clients sync.WaitGroup
+	URL           string
+	AccessCode    string
+	LANURLs       []string
+	sessionKey    string
+	loginFailures int
+	loginBlocked  time.Time
+	http          *http.Server
+	mu            sync.Mutex
+	client        *websocket.Conn
+	closed        bool
+	done          chan struct{}
+	clients       sync.WaitGroup
 }
 
 func StartWeb(tm Tmux) (*WebServer, error) {
-	return listenWeb(tm, "127.0.0.1:8787")
+	return listenWeb(tm, "0.0.0.0:8787")
 }
 
 func listenWeb(tm Tmux, address string) (*WebServer, error) {
@@ -40,36 +42,39 @@ func listenWeb(tm Tmux, address string) (*WebServer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("start browser server: %w", err)
 	}
-	var secret [32]byte
-	if _, err = rand.Read(secret[:]); err != nil {
+	code, key, err := webCredentials()
+	if err != nil {
 		listener.Close()
 		return nil, err
 	}
-	token := hex.EncodeToString(secret[:])
-	host := listener.Addr().String()
-	s := &WebServer{URL: "http://" + host + "/#" + token, done: make(chan struct{})}
+	_, port, _ := net.SplitHostPort(listener.Addr().String())
+	s := &WebServer{URL: "http://127.0.0.1:" + port + "/", AccessCode: code, sessionKey: key, LANURLs: lanWebURLs(port), done: make(chan struct{})}
 	assets, _ := fs.Sub(webAssets, "web")
 	files := http.FileServer(http.FS(assets))
 	s.http = &http.Server{ReadHeaderTimeout: 5 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Host != host {
-			http.Error(w, "Invalid host", http.StatusForbidden)
-			return
-		}
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'")
-		if r.URL.Path != "/ws" {
+		switch r.URL.Path {
+		case "/api/session":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]bool{"authenticated": s.authenticated(r)})
+			return
+		case "/api/login":
+			s.login(w, r)
+			return
+		case "/ws":
+			if !sameWebOrigin(r) {
+				http.Error(w, "Invalid origin", http.StatusForbidden)
+				return
+			}
+			if !s.authenticated(r) {
+				http.Error(w, "Access code required", http.StatusUnauthorized)
+				return
+			}
+		default:
 			files.ServeHTTP(w, r)
-			return
-		}
-		if subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("token")), []byte(token)) != 1 {
-			http.Error(w, "Invalid access link", http.StatusForbidden)
-			return
-		}
-		origin, err := url.Parse(r.Header.Get("Origin"))
-		if err != nil || origin.Scheme != "http" || origin.Host != host {
-			http.Error(w, "Invalid origin", http.StatusForbidden)
 			return
 		}
 		s.mu.Lock()

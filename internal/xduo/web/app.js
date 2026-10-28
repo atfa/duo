@@ -5,18 +5,28 @@ term.loadAddon(fit);
 term.open(document.getElementById('terminal'));
 const status = document.getElementById('status');
 const encoder = new TextEncoder();
-const token = location.hash.slice(1);
 let socket;
 const controls=document.querySelector('.shortcuts');
 function state(name,text){if(name!=='connected')controls.hidden=true;status.dataset.state=name;status.textContent=text;document.querySelectorAll('[data-shortcut]').forEach(button=>button.disabled=name!=='connected');}
 function resize(){fit.fit();if(socket?.readyState===WebSocket.OPEN)socket.send(JSON.stringify({cols:term.cols,rows:term.rows}));}
-function connect(){
- if(!token){state('disconnected','Open the access link shown in xduo');return;}
+const login=document.getElementById('login');
+const terminalElement=document.getElementById('terminal');
+async function connect(){
+ state('connecting','Connecting…');
+ let response;
+ try{response=await fetch('/api/session',{cache:'no-store'});if(!response.ok)throw new Error();}
+ catch{state('disconnected','Server unavailable · reconnect to continue');return;}
+ const session=await response.json();
+ if(!session.authenticated){
+  login.hidden=false;terminalElement.hidden=true;
+  state('disconnected','Access code required');document.getElementById('access-code').focus();return;
+ }
+ login.hidden=true;terminalElement.hidden=false;
  const previous=socket;
  socket=null;
  if(previous)previous.close();
  fit.fit();
- const current = new WebSocket(`ws://${location.host}/ws?token=${encodeURIComponent(token)}`);
+ const current = new WebSocket(`${location.protocol==='https:'?'wss:':'ws:'}//${location.host}/ws`);
  socket=current;current.binaryType='arraybuffer';
  state('connecting','Connecting…');
  current.onopen=()=>{if(socket!==current)return;term.reset();resize();state('connected','● Connected');term.focus();};
@@ -32,6 +42,12 @@ function connect(){
 }
 term.onData(data=>{if(socket?.readyState===WebSocket.OPEN)socket.send(encoder.encode(data));});
 term.onBinary(data=>{if(socket?.readyState===WebSocket.OPEN)socket.send(Uint8Array.from(data,c=>c.charCodeAt(0)));});
+document.getElementById('login-form').onsubmit=async event=>{
+ event.preventDefault();const error=document.getElementById('login-error');error.textContent='';
+ try{const response=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:document.getElementById('access-code').value})});
+ if(!response.ok){error.textContent=await response.text();return;}document.getElementById('access-code').value='';await connect();}
+ catch{error.textContent='Server unavailable. Try again.';}
+};
 new ResizeObserver(resize).observe(document.getElementById('terminal'));
 document.getElementById('reconnect').onclick=connect;
 document.getElementById('fullscreen').onclick=async()=>{try{if(document.fullscreenElement)await document.exitFullscreen();else await document.documentElement.requestFullscreen();resize();term.focus();}catch{state('disconnected','Fullscreen is unavailable');}};

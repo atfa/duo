@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>XDUO · Local terminal</title>
+<title>XDUO · Terminal</title>
 <link rel="stylesheet" href="/vendor/xterm.css">
 <link rel="stylesheet" href="/style.css">
 <script defer src="/vendor/xterm.js"></script>
@@ -15,6 +15,15 @@
 <nav><span id="status" role="status">Connecting…</span><button id="reconnect">Reconnect</button><button id="fullscreen">Fullscreen</button></nav>
 <div class="shortcuts" aria-label="Duo shortcuts" hidden><button data-shortcut="models">Models <kbd>Alt+M</kbd></button><button data-shortcut="austin">Austin <kbd>Ctrl+A</kbd></button><button data-shortcut="tony">Tony <kbd>Ctrl+T</kbd></button><button data-shortcut="detach">Back to Duo <kbd>Ctrl+]</kbd></button><button class="quit" data-shortcut="quit">Quit Duo <kbd>Ctrl+Q</kbd></button></div>
 </header>
+<section id="login" hidden aria-labelledby="login-title">
+<form id="login-form">
+<span class="login-mark">◆</span><h1 id="login-title">Connect to xduo</h1>
+<p>Enter the access code displayed next to Server on the host computer.</p>
+<label for="access-code">Access code</label>
+<input id="access-code" name="code" placeholder="ABCD-E7K9" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="9" required>
+<p id="login-error" role="alert"></p><button type="submit">Connect</button>
+</form>
+</section>
 <main id="terminal" aria-label="Xduo terminal"></main>
 <footer>Workspaces stay running when this tab closes.<span>Click the terminal to type · Shift + drag to select text</span></footer>
 </body>

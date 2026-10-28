@@ -39,6 +39,9 @@ func TestBrowserTerminalLifecycle(t *testing.T) {
 	defer server.Close()
 	access, _ := url.Parse(server.URL)
 	base := "http://" + access.Host
+	if access.Fragment != "" || access.RawQuery != "" {
+		t.Fatal("local URL requires a token", server.URL)
+	}
 	for _, path := range []string{"/", "/vendor/xterm.js", "/vendor/addon-fit.js", "/vendor/xterm.css", "/app.js"} {
 		res, err := http.Get(base + path)
 		if err != nil {
@@ -50,14 +53,25 @@ func TestBrowserTerminalLifecycle(t *testing.T) {
 			t.Fatalf("asset %s: %d", path, res.StatusCode)
 		}
 	}
-	wsURL := "ws://" + access.Host + "/ws?token=" + access.Fragment
-	for _, test := range []struct{ url, origin string }{{"ws://" + access.Host + "/ws", base}, {wsURL, "http://untrusted.example"}} {
+	wsURL := "ws://" + access.Host + "/ws"
+	for _, test := range []struct{ url, origin string }{{wsURL, ""}, {wsURL, "http://untrusted.example"}} {
 		conn, res, err := websocket.DefaultDialer.Dial(test.url, http.Header{"Origin": {test.origin}})
 		if conn != nil {
 			conn.Close()
 		}
 		if err == nil || res == nil || res.StatusCode != 403 {
 			t.Fatalf("untrusted connection accepted: %v", err)
+		}
+		res.Body.Close()
+	}
+	for _, header := range []string{"Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto"} {
+		headers := http.Header{"Origin": {base}, header: {"external"}}
+		conn, res, err := websocket.DefaultDialer.Dial(wsURL, headers)
+		if conn != nil {
+			conn.Close()
+		}
+		if err == nil || res == nil || res.StatusCode != 401 {
+			t.Fatalf("proxy inherited local access via %s", header)
 		}
 		res.Body.Close()
 	}
@@ -172,7 +186,7 @@ func TestBrowserControlsFollowItsTmuxSession(t *testing.T) {
 	}
 	defer server.Close()
 	access, _ := url.Parse(server.URL)
-	conn, _, err := websocket.DefaultDialer.Dial("ws://"+access.Host+"/ws?token="+access.Fragment, http.Header{"Origin": {"http://" + access.Host}})
+	conn, _, err := websocket.DefaultDialer.Dial("ws://"+access.Host+"/ws", http.Header{"Origin": {"http://" + access.Host}})
 	if err != nil {
 		t.Fatal(err)
 	}

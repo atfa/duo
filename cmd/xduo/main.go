@@ -147,12 +147,14 @@ func (p *panel) draw(s tcell.Screen) {
 	if w > 80 {
 		s.PutStrStyled(w-27, 0, fmt.Sprintf("%d workspaces  ·  local", len(p.rows)), muted)
 	}
-	toolbarBottom := 1
 	if p.server != nil {
-		toolbarBottom++
-		s.PutStrStyled(1, toolbarBottom, p.server.URL, accent)
+		address := p.server.URL + "  Code: " + p.server.AccessCode
+		if len(p.server.LANURLs) > 0 {
+			address += "  LAN: " + p.server.LANURLs[0]
+		}
+		s.PutStrStyled(64, 1, address, accent)
 	}
-	gridTop := toolbarBottom + 2
+	gridTop := 3
 	p.columns = max(1, w/36)
 	width := max(1, w/p.columns)
 	visible := max(1, (h-gridTop-2)/9)
@@ -357,7 +359,7 @@ func (p *panel) toggleServer() {
 		return
 	}
 	p.server = server
-	p.message = "Browser server ready. Open the access link above in your browser."
+	p.message = "Server ready. Local access is passwordless; other devices use the remote code above."
 }
 
 func runPanel(p *panel) error {
