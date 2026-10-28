@@ -7,6 +7,14 @@ import (
 	"time"
 )
 
+const (
+	StatePlaying  = "playing"
+	StatePause    = "pause"
+	StateStop     = "stop"
+	StateUnknown  = "Unknown"
+	StateStarting = "Starting"
+)
+
 type Agent struct {
 	Driver string `json:"driver"`
 	Model  string `json:"model"`
@@ -52,34 +60,34 @@ type DisplayStatus struct {
 // Classify combines the snapshot with an independently observed tmux session.
 // A live session without a snapshot is Starting.
 func Classify(s Status, present, alive, aliveKnown bool, now time.Time) DisplayStatus {
-	d := DisplayStatus{State: "Unknown", Alive: alive, AliveKnown: aliveKnown, Snapshot: s}
+	d := DisplayStatus{State: StateUnknown, Alive: alive, AliveKnown: aliveKnown, Snapshot: s}
 	if present && !s.UpdatedAt.IsZero() && !s.UpdatedAt.After(now.Add(time.Second)) && now.Sub(s.UpdatedAt) <= 5*time.Second {
 		d.Fresh = true
 	}
 	if aliveKnown && !alive {
-		d.State = "stop"
+		d.State = StateStop
 		return d
 	}
 	if !present && aliveKnown && alive {
-		d.State = "Starting"
+		d.State = StateStarting
 		return d
 	}
 	if !d.Fresh || !aliveKnown {
 		return d
 	}
 	if s.Process == "exited" || s.Phase == "DONE" {
-		d.State = "stop"
+		d.State = StateStop
 		return d
 	}
 	if s.Process != "running" {
 		return d
 	}
 	if s.Pause == "paused" || s.Pause == "pausing" {
-		d.State = "pause"
+		d.State = StatePause
 		return d
 	}
 	if s.Pause == "running" && s.Started {
-		d.State = "playing"
+		d.State = StatePlaying
 	}
 	return d
 }
@@ -91,7 +99,7 @@ func Inspect(i Instance, now time.Time, probe func(string) (bool, error)) (Displ
 	alive, probeErr := probe(i.Session)
 	d := Classify(s, present, alive, probeErr == nil, now)
 	if readErr != nil && (!d.AliveKnown || d.Alive) {
-		d.State = "Unknown"
+		d.State = StateUnknown
 	}
 	return d, errors.Join(readErr, probeErr)
 }
