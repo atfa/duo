@@ -1,0 +1,59 @@
+package xduo
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"time"
+)
+
+// Create validates first, then creates a session and persists it. Failed
+// persistence rolls the newly started session back.
+func Create(ctx context.Context, t Tmux, dir, project, duo string) (Instance, error) {
+	project, err := ValidateProject(project)
+	if err != nil {
+		return Instance{}, err
+	}
+	duo, err = ResolveDuo(duo)
+	if err != nil {
+		return Instance{}, err
+	}
+	registry := filepath.Join(dir, "instances.json")
+	records, err := LoadRegistry(registry)
+	if err != nil {
+		return Instance{}, err
+	}
+	i, err := NewInstance(dir, project)
+	if err != nil {
+		return Instance{}, err
+	}
+	if err = t.Start(ctx, i, duo); err != nil {
+		_ = os.RemoveAll(filepath.Dir(i.StatusFile))
+		return Instance{}, err
+	}
+	if err = SaveRegistry(registry, append(records, i)); err != nil {
+		_ = t.run(context.Background(), "kill-session", "-t", "="+i.Session)
+		_ = os.RemoveAll(filepath.Dir(i.StatusFile))
+		return Instance{}, err
+	}
+	return i, nil
+}
+
+// Remove closes an instance and removes its registry entry after success.
+func Remove(ctx context.Context, t Tmux, dir string, i Instance, state DisplayStatus, confirmed bool, timeout time.Duration) error {
+	registry := filepath.Join(dir, "instances.json")
+	records, err := LoadRegistry(registry)
+	if err != nil {
+		return err
+	}
+	if err := t.Close(ctx, i, state, confirmed, timeout); err != nil {
+		return err
+	}
+	remaining := make([]Instance, 0, len(records))
+	for _, record := range records {
+		if record.ID != i.ID {
+			remaining = append(remaining, record)
+		}
+	}
+	return SaveRegistry(registry, remaining)
+}
