@@ -15,8 +15,11 @@ import (
 // room, so the phone does not have to scan a new code.
 const PairingFileName = "remote.json"
 
-// PairingPath is ~/.duo/remote.json.
+// PairingPath returns the configured pairing file or ~/.duo/remote.json.
 func PairingPath() (string, error) {
+	if path := os.Getenv("DUO_REMOTE_PAIRING_FILE"); path != "" {
+		return path, nil
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err

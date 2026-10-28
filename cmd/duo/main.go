@@ -245,6 +245,10 @@ func runWith(ctx context.Context, cfg config, attach func(context.Context, *sess
 	if err != nil {
 		return err
 	}
+	if path := os.Getenv("XDUO_STATUS_FILE"); path != "" {
+		publisher := startStatusPublisher(path, svc.View)
+		defer publisher.Close()
+	}
 	// A session that is already finished needs no interface: the artifact is in the
 	// user's repository, or delivery is pending and only a human can unblock it.
 	if result.Finished {

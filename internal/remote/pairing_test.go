@@ -87,3 +87,19 @@ func TestMissingPairingIsNotAnError(t *testing.T) {
 		t.Errorf("LoadPairing(missing) = %+v, %v, %v; want zero, false, nil", p, ok, err)
 	}
 }
+
+func TestPairingPathEnvironmentOverride(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("DUO_REMOTE_PAIRING_FILE", "")
+	got, err := PairingPath()
+	if err != nil || got != filepath.Join(home, ".duo", PairingFileName) {
+		t.Fatalf("default path: %q, %v", got, err)
+	}
+	override := filepath.Join(home, "instance with spaces", "pairing.json")
+	t.Setenv("DUO_REMOTE_PAIRING_FILE", override)
+	got, err = PairingPath()
+	if err != nil || got != override {
+		t.Fatalf("override: %q, %v", got, err)
+	}
+}
