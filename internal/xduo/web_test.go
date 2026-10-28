@@ -5,9 +5,13 @@ package xduo
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"github.com/creack/pty"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -32,7 +36,7 @@ func TestBrowserTerminalLifecycle(t *testing.T) {
 	if err := tm.run(ctx, "set-option", "-t", "xduo-manager", "status", "on"); err != nil {
 		t.Fatal(err)
 	}
-	server, err := listenWeb(tm, "127.0.0.1:0")
+	server, err := listenWeb(tm, "127.0.0.1:0", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,7 +184,7 @@ func TestBrowserControlsFollowItsTmuxSession(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	server, err := listenWeb(tm, "127.0.0.1:0")
+	server, err := listenWeb(tm, "127.0.0.1:0", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,4 +231,114 @@ func TestBrowserControlsFollowItsTmuxSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	expect(false)
+}
+
+func TestBrowserLocksLocalTmuxClient(t *testing.T) {
+	tm, err := FindTmux()
+	if err != nil {
+		t.Skip(err)
+	}
+	tm.Socket = "xduo-lock-" + filepath.Base(t.TempDir())
+	ctx := context.Background()
+	defer tm.run(ctx, "kill-server")
+	if err := tm.run(ctx, "new-session", "-d", "-s", "xduo-manager", "sleep", "30"); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(tm.Path, "-L", tm.Socket, "attach-session", "-t", "xduo-manager")
+	for _, e := range os.Environ() {
+		if !strings.HasPrefix(e, "TMUX=") && !strings.HasPrefix(e, "TERM=") {
+			cmd.Env = append(cmd.Env, e)
+		}
+	}
+	cmd.Env = append(cmd.Env, "TERM=xterm-256color")
+	tty, err := pty.StartWithSize(cmd, &pty.Winsize{Cols: 100, Rows: 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { tty.Write([]byte("\n")); cmd.Process.Kill(); tty.Close(); cmd.Wait() }()
+	until := time.Now().Add(3 * time.Second)
+	for {
+		out, _ := tm.execute(ctx, "list-clients", "-F", "#{client_pid}")
+		if strings.Contains(string(out), fmt.Sprint(cmd.Process.Pid)) {
+			break
+		}
+		if time.Now().After(until) {
+			t.Fatal("local client did not attach")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "locked")
+	locker := filepath.Join(dir, "lock-client")
+	script := "#!/bin/sh\nprintf '%s' \"$XDUO_LOCK_SERVER\" > '" + marker + "'\nread reply\n"
+	if err := os.WriteFile(locker, []byte(script), 0700); err != nil {
+		t.Fatal(err)
+	}
+	server, err := listenWeb(tm, "127.0.0.1:0", locker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	access, _ := url.Parse(server.URL)
+	conn, _, err := websocket.DefaultDialer.Dial("ws://"+access.Host+"/ws", http.Header{"Origin": {"http://" + access.Host}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := conn.WriteJSON(map[string]int{"cols": 100, "rows": 30}); err != nil {
+		t.Fatal(err)
+	}
+	for {
+		data, err := os.ReadFile(marker)
+		if err == nil && string(data) == server.URL {
+			break
+		}
+		if time.Now().After(until) {
+			t.Fatal("local client did not run lock screen", err)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	for {
+		kind, _, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatal("browser was locked", err)
+		}
+		if kind == websocket.TextMessage {
+			break
+		}
+	}
+	// A refresh must reconnect while the local client remains on its lock screen.
+	conn.Close()
+	for {
+		server.mu.Lock()
+		idle := server.client == nil
+		server.mu.Unlock()
+		if idle {
+			break
+		}
+		if time.Now().After(until) {
+			t.Fatal("old browser did not detach")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	conn, _, err = websocket.DefaultDialer.Dial("ws://"+access.Host+"/ws", http.Header{"Origin": {"http://" + access.Host}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := conn.WriteJSON(map[string]int{"cols": 100, "rows": 30}); err != nil {
+		t.Fatal(err)
+	}
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+	for {
+		kind, _, err := conn.ReadMessage()
+		if err != nil {
+			t.Fatal("reconnect failed with locked local client", err)
+		}
+		if kind == websocket.TextMessage {
+			break
+		}
+	}
+
 }

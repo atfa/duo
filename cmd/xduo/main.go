@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/atfa/duo/internal/remote"
+	"github.com/atfa/duo/internal/terminal"
 	"github.com/atfa/duo/internal/xduo"
 	"github.com/gdamore/tcell/v3"
 	ui "github.com/metaspartan/gotui/v5"
@@ -24,21 +25,33 @@ type row struct {
 	remote   string
 }
 type panel struct {
-	dir         string
-	tmux        xduo.Tmux
-	rows        []row
-	selected    int
-	offset      int
-	message     string
-	duo         string
-	mode        string
-	input       string
-	columns     int
-	cardRects   []image.Rectangle
-	mouseDown   bool
-	picker      directoryPicker
-	server      *xduo.WebServer
-	serverError bool
+	dir                 string
+	tmux                xduo.Tmux
+	rows                []row
+	selected            int
+	offset              int
+	message             string
+	duo                 string
+	mode                string
+	input               string
+	columns             int
+	cardRects           []image.Rectangle
+	mouseDown           bool
+	picker              directoryPicker
+	server              *xduo.WebServer
+	serverError         bool
+	copyCodeRect        image.Rectangle
+	tunnel              *xduo.Tunnel
+	tunnelRect          image.Rectangle
+	tunnelPending       chan tunnelStartResult
+	tunnelCancel        chan struct{}
+	tunnelFinished      chan struct{}
+	tunnelError         error
+	tunnelFrame         int
+	tunnelFocus         int
+	tunnelOKRect        image.Rectangle
+	tunnelCopyRect      image.Rectangle
+	tunnelCopyRequested bool
 }
 
 func (p *panel) refresh() {
@@ -144,15 +157,39 @@ func (p *panel) draw(s tcell.Screen) {
 		label, style = "[ S Server: Error ]", errorStyle
 	}
 	s.PutStrStyled(43, 1, label, style)
+	tunnelLabel, tunnelStyle := "[ T Tunnel: Off ]", muted
+	if p.tunnelPending != nil {
+		tunnelLabel = "[ T Tunnel: Starting ]"
+	} else if p.tunnelError != nil {
+		tunnelLabel, tunnelStyle = "[ T Tunnel: Error ]", errorStyle
+		if errors.Is(p.tunnelError, xduo.ErrTunnelNotConfigured) {
+			tunnelLabel, tunnelStyle = "[ T Tunnel: Setup ]", muted
+		}
+	}
+	if p.tunnel != nil {
+		if !p.tunnel.Running() {
+			tunnelLabel, tunnelStyle = "[ T Tunnel: Error ]", errorStyle
+		} else if p.tunnel.Ready() {
+			tunnelLabel, tunnelStyle = "[ T Tunnel: On ]", primaryButton
+		} else {
+			tunnelLabel = "[ T Tunnel: Starting ]"
+		}
+	}
+	s.PutStrStyled(30, 0, tunnelLabel, tunnelStyle)
+	p.tunnelRect = image.Rect(30, 0, min(w, 30+len(tunnelLabel)), 1)
 	if w > 80 {
 		s.PutStrStyled(w-27, 0, fmt.Sprintf("%d workspaces  ·  local", len(p.rows)), muted)
 	}
+	p.copyCodeRect = image.Rectangle{}
 	if p.server != nil {
 		address := p.server.URL + "  Code: " + p.server.AccessCode
-		if len(p.server.LANURLs) > 0 {
-			address += "  LAN: " + p.server.LANURLs[0]
-		}
 		s.PutStrStyled(64, 1, address, accent)
+		copyX := 64 + len(address) + 1
+		s.PutStrStyled(copyX, 1, "[COPY]", fieldBase)
+		p.copyCodeRect = image.Rect(copyX, 1, min(w, copyX+6), 2)
+		if len(p.server.LANURLs) > 0 {
+			s.PutStrStyled(copyX+8, 1, "LAN: "+p.server.LANURLs[0], muted)
+		}
 	}
 	gridTop := 3
 	p.columns = max(1, w/36)
@@ -233,6 +270,9 @@ func (p *panel) draw(s tcell.Screen) {
 	if p.mode == "input" {
 		p.drawPicker(s)
 	}
+	if p.mode == "tunnel" {
+		p.drawTunnel(s)
+	}
 	s.Show()
 }
 
@@ -255,6 +295,28 @@ func (p *panel) closeSelected(confirmed bool) {
 }
 
 func (p *panel) key(e *tcell.EventKey) bool {
+	if p.mode == "tunnel" {
+		switch e.Key() {
+		case tcell.KeyEsc:
+			p.mode = ""
+		case tcell.KeyTab, tcell.KeyBacktab, tcell.KeyLeft, tcell.KeyRight:
+			if p.tunnelReady() {
+				p.tunnelFocus = 1 - p.tunnelFocus
+			} else {
+				p.tunnelFocus = 0
+			}
+		case tcell.KeyEnter, tcell.KeyRune:
+			if e.Key() == tcell.KeyRune && e.Str() != " " {
+				return true
+			}
+			if p.tunnelFocus == 0 {
+				p.mode = ""
+			} else {
+				p.tunnelCopyRequested = true
+			}
+		}
+		return true
+	}
 	if p.mode == "input" {
 		p.pickerKey(e)
 		return true
@@ -329,6 +391,8 @@ func (p *panel) key(e *tcell.EventKey) bool {
 			return false
 		case "s":
 			p.toggleServer()
+		case "t":
+			p.toggleTunnel()
 		case "r":
 			p.message = ""
 			p.refresh()
@@ -343,6 +407,11 @@ func (p *panel) key(e *tcell.EventKey) bool {
 
 func (p *panel) toggleServer() {
 	if p.server != nil {
+		p.cancelTunnelStart()
+		if p.tunnel != nil {
+			p.tunnel.Close()
+			p.tunnel = nil
+		}
 		err := p.server.Close()
 		p.server = nil
 		p.serverError = err != nil
@@ -352,7 +421,13 @@ func (p *panel) toggleServer() {
 		}
 		return
 	}
-	server, err := xduo.StartWeb(p.tmux)
+	executable, err := os.Executable()
+	if err != nil {
+		p.serverError = true
+		p.message = err.Error()
+		return
+	}
+	server, err := xduo.StartWeb(p.tmux, executable)
 	p.serverError = err != nil
 	if err != nil {
 		p.message = err.Error()
@@ -360,6 +435,33 @@ func (p *panel) toggleServer() {
 	}
 	p.server = server
 	p.message = "Server ready. Local access is passwordless; other devices use the remote code above."
+}
+
+func (p *panel) copyAccessCode(screen tcell.Screen) {
+	if p.server == nil {
+		return
+	}
+	code := strings.ReplaceAll(p.server.AccessCode, "-", "")
+	screen.SetClipboard([]byte(code))
+	if err := terminal.WriteClipboard(code); err != nil {
+		p.message = "Code sent to terminal clipboard; system clipboard: " + err.Error()
+		return
+	}
+	p.message = "Access code copied (without hyphen)."
+}
+
+func (p *panel) serverStopRequests() <-chan struct{} {
+	if p.server == nil {
+		return nil
+	}
+	return p.server.StopRequests
+}
+
+func (p *panel) serverConnections() <-chan struct{} {
+	if p.server == nil {
+		return nil
+	}
+	return p.server.Connections
 }
 
 func runPanel(p *panel) error {
@@ -371,6 +473,12 @@ func runPanel(p *panel) error {
 		return err
 	}
 	defer screen.Fini()
+	defer p.cancelTunnelStart()
+	defer func() {
+		if p.tunnel != nil {
+			p.tunnel.Close()
+		}
+	}()
 	defer func() {
 		if p.server != nil {
 			_ = p.server.Close()
@@ -380,11 +488,34 @@ func runPanel(p *panel) error {
 	screen.EnableMouse(tcell.MouseButtonEvents)
 	p.refresh()
 	p.draw(screen)
+	animation := time.NewTicker(150 * time.Millisecond)
+	defer animation.Stop()
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
 		select {
+		case result := <-p.tunnelPending:
+			p.finishTunnelStart(result)
+			p.draw(screen)
+		case <-animation.C:
+			if p.mode == "tunnel" && (p.tunnelPending != nil || p.tunnel != nil && p.tunnel.Running() && !p.tunnel.Ready()) {
+				p.tunnelFrame++
+				p.draw(screen)
+			}
+		case <-p.serverConnections():
+			if p.mode == "tunnel" {
+				p.mode = ""
+			}
+			p.draw(screen)
+		case <-p.serverStopRequests():
+			if p.server != nil {
+				p.toggleServer()
+			}
+			p.draw(screen)
 		case <-ticker.C:
+			if p.mode == "tunnel" {
+				p.draw(screen)
+			}
 			if p.mode == "" {
 				p.refresh()
 				p.draw(screen)
@@ -398,19 +529,38 @@ func runPanel(p *panel) error {
 				if !p.key(e) {
 					return nil
 				}
+				if p.tunnelCopyRequested {
+					p.tunnelCopyRequested = false
+					p.copyTunnelCode(screen)
+				}
 				if e.Key() == tcell.KeyEnter {
 					screen.Sync()
 				}
 			case *tcell.EventMouse:
 				down := e.Buttons()&tcell.Button1 != 0
 				wasPicker := p.mode == "input"
+				if down && !p.mouseDown && p.mode == "tunnel" {
+					x, y := e.Position()
+					if image.Pt(x, y).In(p.tunnelOKRect) {
+						p.mode = ""
+					} else if image.Pt(x, y).In(p.tunnelCopyRect) {
+						p.copyTunnelCode(screen)
+					}
+					p.mouseDown = down
+					p.draw(screen)
+					continue
+				}
 				if down && !p.mouseDown && wasPicker {
 					x, y := e.Position()
 					p.pickerClick(x, y)
 				}
 				if down && !p.mouseDown && !wasPicker && p.mode == "" {
 					x, y := e.Position()
-					if y == 1 {
+					if image.Pt(x, y).In(p.tunnelRect) {
+						p.toggleTunnel()
+					} else if image.Pt(x, y).In(p.copyCodeRect) {
+						p.copyAccessCode(screen)
+					} else if y == 1 {
 						for i, key := range []string{"r", "x", "q", "s"} {
 							starts := []int{1, 17, 31, 43}
 							ends := []int{14, 28, 41, 63}
@@ -445,6 +595,14 @@ func runPanel(p *panel) error {
 }
 
 func main() {
+	if url := os.Getenv("XDUO_LOCK_SERVER"); url != "" {
+		if err := runServerLock(url); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	duo := flag.String("duo", "", "path to Duo executable")
 	flag.Parse()
 

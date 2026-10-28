@@ -1,0 +1,7 @@
+{
+  "name": "xduo-desktop-setup",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-10-28",
+  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true },
+  "routes": [{ "pattern": "desktop.xduo.dev/setup*", "zone_name": "xduo.dev" }]
+}

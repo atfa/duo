@@ -1,12 +1,14 @@
 package xduo
 
 import (
+	"crypto/rand"
 	"embed"
 	"encoding/json"
 	"fmt"
 	"io/fs"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,6 +23,7 @@ var webAssets embed.FS
 type WebServer struct {
 	URL           string
 	AccessCode    string
+	EntryPath     string
 	LANURLs       []string
 	sessionKey    string
 	loginFailures int
@@ -31,13 +34,15 @@ type WebServer struct {
 	closed        bool
 	done          chan struct{}
 	clients       sync.WaitGroup
+	StopRequests  chan struct{}
+	Connections   chan struct{}
 }
 
-func StartWeb(tm Tmux) (*WebServer, error) {
-	return listenWeb(tm, "0.0.0.0:8787")
+func StartWeb(tm Tmux, lockExecutable string) (*WebServer, error) {
+	return listenWeb(tm, "0.0.0.0:8787", lockExecutable)
 }
 
-func listenWeb(tm Tmux, address string) (*WebServer, error) {
+func listenWeb(tm Tmux, address, lockExecutable string) (*WebServer, error) {
 	listener, err := net.Listen("tcp", address)
 	if err != nil {
 		return nil, fmt.Errorf("start browser server: %w", err)
@@ -48,7 +53,12 @@ func listenWeb(tm Tmux, address string) (*WebServer, error) {
 		return nil, err
 	}
 	_, port, _ := net.SplitHostPort(listener.Addr().String())
-	s := &WebServer{URL: "http://127.0.0.1:" + port + "/", AccessCode: code, sessionKey: key, LANURLs: lanWebURLs(port), done: make(chan struct{})}
+	s := &WebServer{URL: "http://127.0.0.1:" + port + "/", AccessCode: code, EntryPath: "/" + strings.ToLower(rand.Text()[:16]), sessionKey: key, LANURLs: lanWebURLs(port), done: make(chan struct{}), StopRequests: make(chan struct{}, 1), Connections: make(chan struct{}, 1)}
+	lockCommand := ""
+	if lockExecutable != "" {
+		quote := func(v string) string { return "'" + strings.ReplaceAll(v, "'", "'\"'\"'") + "'" }
+		lockCommand = "env " + quote("XDUO_LOCK_SERVER="+s.URL) + " " + quote(lockExecutable)
+	}
 	assets, _ := fs.Sub(webAssets, "web")
 	files := http.FileServer(http.FS(assets))
 	s.http = &http.Server{ReadHeaderTimeout: 5 * time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -60,6 +70,17 @@ func listenWeb(tm Tmux, address string) (*WebServer, error) {
 		case "/api/session":
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(map[string]bool{"authenticated": s.authenticated(r)})
+			return
+		case "/api/stop":
+			if r.Method != http.MethodPost || !sameWebOrigin(r) || !s.authenticated(r) {
+				http.Error(w, "Not allowed", 403)
+				return
+			}
+			select {
+			case s.StopRequests <- struct{}{}:
+			default:
+			}
+			w.WriteHeader(http.StatusNoContent)
 			return
 		case "/api/login":
 			s.login(w, r)
@@ -74,6 +95,9 @@ func listenWeb(tm Tmux, address string) (*WebServer, error) {
 				return
 			}
 		default:
+			if r.URL.Path == s.EntryPath {
+				r.URL.Path = "/"
+			}
 			files.ServeHTTP(w, r)
 			return
 		}
@@ -94,10 +118,14 @@ func listenWeb(tm Tmux, address string) (*WebServer, error) {
 			return
 		}
 		s.client = ws
+		select {
+		case s.Connections <- struct{}{}:
+		default:
+		}
 		s.clients.Add(1)
 		s.mu.Unlock()
 		defer func() { ws.Close(); s.mu.Lock(); s.client = nil; s.mu.Unlock(); s.clients.Done() }()
-		bridgeWebTerminal(tm, ws)
+		bridgeWebTerminal(tm, ws, lockCommand)
 	})}
 	go func() { defer close(s.done); _ = s.http.Serve(listener) }()
 	return s, nil

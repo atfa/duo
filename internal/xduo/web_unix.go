@@ -20,7 +20,7 @@ import (
 // Client text messages carry resize controls; server text messages report the
 // active session. Binary messages carry literal terminal input/output bytes.
 // Each browser owns one disposable tmux attach process.
-func bridgeWebTerminal(tm Tmux, ws *websocket.Conn) {
+func bridgeWebTerminal(tm Tmux, ws *websocket.Conn, lockCommand string) {
 	ws.SetReadLimit(1 << 20)
 	_ = ws.SetReadDeadline(time.Now().Add(10 * time.Second))
 	kind, data, err := ws.ReadMessage()
@@ -69,16 +69,32 @@ func bridgeWebTerminal(tm Tmux, ws *websocket.Conn) {
 		ticker := time.NewTicker(250 * time.Millisecond)
 		defer ticker.Stop()
 		last := ""
+		lockedClients := map[string]bool{}
 		for {
 			// Identify this browser's client, not another local tmux client.
-			out, err := tm.execute(ctx, "list-clients", "-F", "#{client_pid}\t#{session_name}")
+			out, err := tm.execute(ctx, "list-clients", "-F", "#{client_pid}\t#{session_name}\t#{client_name}")
 			current := ""
 			if err == nil {
 				for _, line := range strings.Split(string(out), "\n") {
-					pid, name, ok := strings.Cut(line, "\t")
-					if ok && pid == strconv.Itoa(cmd.Process.Pid) {
+					fields := strings.Split(line, "\t")
+					if len(fields) != 3 {
+						continue
+					}
+					pid, name, client := fields[0], fields[1], fields[2]
+					if pid == strconv.Itoa(cmd.Process.Pid) {
 						current = name
-						break
+						continue
+					}
+					if lockCommand != "" && strings.HasPrefix(name, "xduo-") && !lockedClients[pid] {
+						if err := tm.run(ctx, "set-option", "-t", name, "lock-command", lockCommand); err != nil {
+							ws.Close()
+							return
+						}
+						if err := tm.run(ctx, "lock-client", "-t", client); err != nil {
+							ws.Close()
+							return
+						}
+						lockedClients[pid] = true
 					}
 				}
 			}

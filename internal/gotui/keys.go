@@ -1,16 +1,14 @@
 package gotui
 
 import (
-	"bytes"
 	"fmt"
 	"image"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 
 	"github.com/atfa/duo/internal/protocol"
+	"github.com/atfa/duo/internal/terminal"
 	"github.com/gdamore/tcell/v3"
 )
 
@@ -782,31 +780,7 @@ func (a *App) copyToClipboard(text string) error {
 	if a.screen != nil {
 		a.screen.SetClipboard([]byte(text))
 	}
-	_ = nativeClipboardWrite(text)
-	return nil
-}
-
-func nativeClipboardWrite(text string) error {
-	switch runtime.GOOS {
-	case "darwin":
-		cmd := exec.Command("pbcopy")
-		cmd.Stdin = bytes.NewBufferString(text)
-		return cmd.Run()
-	case "linux":
-		if os.Getenv("WAYLAND_DISPLAY") != "" {
-			cmd := exec.Command("wl-copy")
-			cmd.Stdin = bytes.NewBufferString(text)
-			return cmd.Run()
-		}
-		cmd := exec.Command("xclip", "-selection", "clipboard")
-		cmd.Stdin = bytes.NewBufferString(text)
-		if err := cmd.Run(); err == nil {
-			return nil
-		}
-		cmd = exec.Command("xsel", "--clipboard", "--input")
-		cmd.Stdin = bytes.NewBufferString(text)
-		return cmd.Run()
-	}
+	_ = terminal.WriteClipboard(text)
 	return nil
 }
 

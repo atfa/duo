@@ -33,7 +33,7 @@ func TestLocalAndRemoteAccess(t *testing.T) {
 			t.Fatalf("local detection: %+v", test)
 		}
 	}
-	server, err := listenWeb(Tmux{}, "127.0.0.1:0")
+	server, err := listenWeb(Tmux{}, "127.0.0.1:0", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -76,6 +76,10 @@ func TestLocalAndRemoteAccess(t *testing.T) {
 		data, _ := io.ReadAll(res.Body)
 		t.Fatal(res.StatusCode, string(data))
 	}
+	noHyphen := do(remoteRequest("POST", "/api/login", `{"code":"`+strings.ReplaceAll(server.AccessCode, "-", "")+`"}`))
+	if noHyphen.StatusCode != 204 {
+		t.Fatal("unformatted access code rejected", noHyphen.StatusCode)
+	}
 	cookies := res.Cookies()
 	if len(cookies) != 1 || !cookies[0].HttpOnly || !cookies[0].Secure {
 		t.Fatal(cookies)
@@ -107,5 +111,44 @@ func TestLocalAndRemoteAccess(t *testing.T) {
 	}
 	if res.StatusCode != 429 {
 		t.Fatal("login attempts not limited", res.StatusCode)
+	}
+}
+
+func TestStopServerRequiresAuthentication(t *testing.T) {
+	server, err := listenWeb(Tmux{}, "127.0.0.1:0", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer server.Close()
+	req, _ := http.NewRequest(http.MethodPost, server.URL+"api/stop", nil)
+	req.Host = "remote.example"
+	req.Header.Set("Origin", "https://remote.example")
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != 403 {
+		t.Fatal(res.StatusCode)
+	}
+	select {
+	case <-server.StopRequests:
+		t.Fatal("unauthenticated stop request")
+	default:
+	}
+	req, _ = http.NewRequest(http.MethodPost, server.URL+"api/stop", nil)
+	req.Header.Set("Origin", strings.TrimSuffix(server.URL, "/"))
+	res, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != 204 {
+		t.Fatal(res.StatusCode)
+	}
+	select {
+	case <-server.StopRequests:
+	default:
+		t.Fatal("local stop did not reach manager")
 	}
 }

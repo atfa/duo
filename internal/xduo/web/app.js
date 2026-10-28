@@ -42,6 +42,15 @@ async function connect(){
 }
 term.onData(data=>{if(socket?.readyState===WebSocket.OPEN)socket.send(encoder.encode(data));});
 term.onBinary(data=>{if(socket?.readyState===WebSocket.OPEN)socket.send(Uint8Array.from(data,c=>c.charCodeAt(0)));});
+const codeInput=document.getElementById('access-code');
+codeInput.addEventListener('input',()=>{
+ const position=codeInput.selectionStart??codeInput.value.length;
+ const before=codeInput.value.slice(0,position).replace(/[^a-z0-9]/gi,'').length;
+ const raw=codeInput.value.replace(/[^a-z0-9]/gi,'').toUpperCase().slice(0,8);
+ codeInput.value=raw.length>4?raw.slice(0,4)+'-'+raw.slice(4):raw;
+ const caret=Math.min(codeInput.value.length,before+(before>4?1:0));
+ codeInput.setSelectionRange(caret,caret);
+});
 document.getElementById('login-form').onsubmit=async event=>{
  event.preventDefault();const error=document.getElementById('login-error');error.textContent='';
  try{const response=await fetch('/api/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code:document.getElementById('access-code').value})});

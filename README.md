@@ -72,9 +72,25 @@ The `-duo` option is optional; without it xduo looks for `duo` on PATH. Launch `
 | r | Refresh |
 | q | Quit the panel without stopping Duo instances |
 
-The toolbar's **Server** button (or `S`) toggles the browser terminal on port `8787` (all IPv4 interfaces). It starts off; gray means off, green means running, and red means startup failed. When enabled, the local address, a fresh `ABCD-E7K9` access code and an available LAN address appear to the right of Server. Open `http://127.0.0.1:8787/` directly on the host without a password. Other devices open the LAN or tunnel address and enter the displayed code. Browser login is remembered for the server's lifetime; stopping/restarting Server invalidates the old login and generates a new code. Tunnel requests are treated as remote when they preserve the external Host or supply forwarding headers; proxies must preserve the browser's Host for same-origin HTTP/WebSocket requests. HTTP/WS and HTTPS/WSS are supported; TLS and tunnels are managed outside xduo.
+The toolbar's **Server** button (or `S`) toggles the browser terminal on port `8787` (all IPv4 interfaces). It starts off; gray means off, green means running, and red means startup failed. When enabled, the local address, a fresh `ABCD-E7K9` access code, a **COPY** button and an available LAN address appear to the right of Server. COPY copies the eight characters without the hyphen. The browser accepts either spelling and inserts the hyphen automatically while typing or pasting. Open `http://127.0.0.1:8787/` directly on the host without a password. Other devices open the LAN or tunnel address and enter the displayed code. Browser login is remembered for the server's lifetime; stopping/restarting Server invalidates the old login and generates a new code. Tunnel requests are treated as remote when they preserve the external Host or supply forwarding headers; proxies must preserve the browser's Host for same-origin HTTP/WebSocket requests. HTTP/WS and HTTPS/WSS are supported. TLS is handled by the chosen tunnel/reverse proxy; the optional Tunnel button can manage a configured Cloudflare connector.
 
 The page includes xterm.js, connection status, Reconnect and Fullscreen; all assets are bundled in xduo, with no CDN or frontend build needed. One browser can connect at a time. Closing or refreshing the tab disconnects only its tmux client; the manager and Duo instances keep running. Turning Server off closes the listener and browser connection.
+
+When a browser connects to the terminal, other local xduo tmux clients are locked independently of the shared dashboard. Their terminal shows only a centered **STOP SERVER** button; mouse click or Enter stops the browser server (and its managed tunnel), disconnects the browser and restores local input. Closing a browser tab alone keeps this local lock in place until Server is stopped. Browser refresh/reconnect remains available.
+
+The **Tunnel** button (or `T`) immediately opens a loading panel and starts a named Cloudflare Tunnel in the background. Repeated clicks while starting reopen the same panel. Once connected it shows `https://<hostname>/<random-entry>` and the access code, with **OK** and **Copy room code** buttons. Closing the panel does not stop startup. It automatically starts Server if needed. Click Tunnel again to stop only the connector. Configure your own Cloudflare hostname/tunnel in `~/.duo/xduo/tunnel.json` (credentials stay on the host):
+
+```json
+{
+  "hostname": "desktop.example.com",
+  "tunnel": "your-cloudflare-tunnel-id",
+  "credentialsFile": "/absolute/path/to/tunnel-credentials.json"
+}
+```
+
+Users without configuration are directed to [desktop.xduo.dev/setup](https://desktop.xduo.dev/setup), a public setup guide that stays available independently of the desktop tunnel. Downloading the binaries does not automatically register a computer with `desktop.xduo.dev`; that domain is the maintainer's configured endpoint.
+
+The hostname must already route to that named tunnel; `cloudflared` must be installed. Each host/domain can use the same feature with its own configuration. The entry path changes when Server restarts; it is an entry link, while the access code provides login. Connector output is saved in `~/.duo/xduo/tunnel.log`. Existing external tunnel services are left running.
 
 The browser's single top toolbar contains **Models (Alt+M)**, **Austin (Ctrl+A)**, **Tony (Ctrl+T)**, **Back to Duo (Ctrl+])** and **Quit Duo (Ctrl+Q)**. These controls appear only while that browser is inside a Duo instance, including its native agent terminals, and hide when returning to the xduo manager. They send the same keys to the current terminal. The xduo TUI shows only workspace-management controls.
 
