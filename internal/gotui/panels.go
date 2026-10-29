@@ -559,6 +559,7 @@ type footerBar struct {
 	status  string
 	isError bool
 	hint    string
+	actions []footerAction
 	right   string
 }
 

@@ -228,44 +228,38 @@ func (a *App) mouseMenus(x, y int) bool {
 	return false
 }
 
+type footerAction struct {
+	key       tcell.Key
+	alternate tcell.Key
+}
+
+// footerKeyAt uses the action list selected with the hint, never its translated words.
+func footerKeyAt(hint string, actions []footerAction, x int) (tcell.Key, bool) {
+	pos := 0
+	for i, part := range strings.Split(hint, " · ") {
+		end := pos + rw.StringWidth(part)
+		if x >= pos && x < end && i < len(actions) {
+			action := actions[i]
+			if action.alternate != 0 && x-pos >= (end-pos)/2 {
+				return action.alternate, true
+			}
+			return action.key, action.key != 0
+		}
+		pos = end + rw.StringWidth(" · ")
+	}
+	return 0, false
+}
 func (a *App) mouseFooter(x, y int) bool {
 	f := a.footer
 	if f.status != "" || y != f.Min.Y || x < f.Min.X+1 {
 		return false
 	}
-	pos := f.Min.X + 1
-	for _, part := range strings.Split(f.hint, " · ") {
-		end := pos + rw.StringWidth(part)
-		if x >= pos && x < end {
-			var key tcell.Key
-			var str string
-			mod := tcell.ModNone
-			switch {
-			case strings.Contains(part, "Enter send"):
-				key = tcell.KeyEnter
-			case strings.Contains(part, "Ctrl+E"):
-				key = tcell.KeyCtrlE
-			case strings.Contains(part, "Ctrl+S"):
-				key = tcell.KeyCtrlS
-			case strings.Contains(part, "Alt+M"):
-				key = tcell.KeyRune
-				str = "m"
-				mod = tcell.ModAlt
-			case strings.Contains(part, "F1"):
-				key = tcell.KeyF1
-			case strings.Contains(part, "F2"):
-				key = tcell.KeyF2
-			case strings.Contains(part, "Ctrl+Q"):
-				key = tcell.KeyCtrlQ
-			default:
-				return false
-			}
-			a.handleKey(tcell.NewEventKey(key, str, mod))
-			return true
-		}
-		pos = end + rw.StringWidth(" · ")
+	key, ok := footerKeyAt(f.hint, f.actions, x-f.Min.X-1)
+	if !ok {
+		return false
 	}
-	return false
+	a.handleKey(tcell.NewEventKey(key, "", tcell.ModNone))
+	return true
 }
 func (c *composer) click(x, y int) bool {
 	if !image.Pt(x, y).In(c.Inner) {

@@ -1,7 +1,9 @@
 package gotui
 
 import (
+	rw "github.com/mattn/go-runewidth"
 	"image"
+	"strings"
 	"testing"
 
 	"github.com/atfa/duo/internal/project"
@@ -35,5 +37,35 @@ func TestMouseModeAndConfirmation(t *testing.T) {
 	app.handleMouse(tcell.NewEventMouse(c.Inner.Max.X-1, c.Inner.Max.Y-1, tcell.Button1, 0))
 	if len(switchCommands(fake)) != 1 {
 		t.Fatal("explicit confirm did not switch mode")
+	}
+}
+
+func TestFooterMouseActionsInBothLanguages(t *testing.T) {
+	app := New(newFakeSession())
+	app.layout.width = 300
+	want := []tcell.Key{tcell.KeyEnter, tcell.KeyCtrlJ, tcell.KeyCtrlE, tcell.KeyCtrlS, tcell.KeyCtrlM, tcell.KeyCtrlA, tcell.KeyF1, tcell.KeyF2, tcell.KeyCtrlQ}
+	for _, lang := range []string{"en", "zh"} {
+		t.Run(lang, func(t *testing.T) {
+			*app.theme.Lang = lang
+			hint, actions := app.footerHintData()
+			parts := strings.Split(hint, " · ")
+			if len(parts) != len(want) {
+				t.Fatalf("hint %q", hint)
+			}
+			x := 0
+			for i, part := range parts {
+				key, ok := footerKeyAt(hint, actions, x)
+				if !ok || key != want[i] {
+					t.Errorf("%q: got %v, %v; want %v", part, key, ok, want[i])
+				}
+				if i == 5 {
+					key, ok = footerKeyAt(hint, actions, x+rw.StringWidth(part)-1)
+					if !ok || key != tcell.KeyCtrlT {
+						t.Errorf("Tony target got %v, %v", key, ok)
+					}
+				}
+				x += rw.StringWidth(part) + rw.StringWidth(" · ")
+			}
+		})
 	}
 }

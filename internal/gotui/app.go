@@ -386,12 +386,12 @@ func (a *App) busy() bool {
 // footerHint is the idle status line. A pause replaces the key help because the
 // keys that matter while pausing or paused are the pause verbs, and progress
 // towards a full pause is the only thing the human can act on.
-func (a *App) footerHint() string {
+func (a *App) footerHintData() (string, []footerAction) {
 	switch a.live.Pause.State {
 	case session.PausePausing:
-		return a.pauseProgress()
+		return a.pauseProgress(), nil
 	case session.PausePaused:
-		return a.theme.tr("paused · /continue resume · /driver switch driver")
+		return a.theme.tr("paused · /continue resume · /driver switch driver"), nil
 	}
 	hints := []string{
 		"Enter send · Ctrl+Enter newline · Ctrl+E reports · Ctrl+S mode · Alt+M models · Ctrl+A/T native · F1 help · F2 view · Ctrl+Q quit",
@@ -399,14 +399,22 @@ func (a *App) footerHint() string {
 		"Enter send · Ctrl+E reports · Ctrl+S mode · F1 help · F2 view · Ctrl+Q quit",
 		"Enter send · Ctrl+E reports · F1 help · F2 view · Ctrl+Q quit",
 	}
-	for _, hint := range hints {
+	keys := [][]footerAction{
+		{{key: tcell.KeyEnter}, {key: tcell.KeyCtrlJ}, {key: tcell.KeyCtrlE}, {key: tcell.KeyCtrlS}, {key: tcell.KeyCtrlM}, {key: tcell.KeyCtrlA, alternate: tcell.KeyCtrlT}, {key: tcell.KeyF1}, {key: tcell.KeyF2}, {key: tcell.KeyCtrlQ}},
+		{{key: tcell.KeyEnter}, {key: tcell.KeyCtrlE}, {key: tcell.KeyCtrlS}, {key: tcell.KeyCtrlM}, {key: tcell.KeyF1}, {key: tcell.KeyF2}, {key: tcell.KeyCtrlQ}},
+		{{key: tcell.KeyEnter}, {key: tcell.KeyCtrlE}, {key: tcell.KeyCtrlS}, {key: tcell.KeyF1}, {key: tcell.KeyF2}, {key: tcell.KeyCtrlQ}},
+		{{key: tcell.KeyEnter}, {key: tcell.KeyCtrlE}, {key: tcell.KeyF1}, {key: tcell.KeyF2}, {key: tcell.KeyCtrlQ}},
+	}
+	for i, hint := range hints {
 		translated := a.theme.tr(hint)
 		if rw.StringWidth(translated) <= max(0, a.layout.width-2) {
-			return translated
+			return translated, keys[i]
 		}
 	}
-	return a.theme.tr(hints[len(hints)-1])
+	return a.theme.tr(hints[len(hints)-1]), keys[len(keys)-1]
 }
+
+func (a *App) footerHint() string { hint, _ := a.footerHintData(); return hint }
 
 // pauseProgress names the agent still working, so "pausing" is never a freeze
 // with no explanation. An agent that is not busy but not acknowledged yet is
@@ -774,13 +782,15 @@ func (a *App) updateWidgets() {
 	a.footer.SetRect(l.footer.Min.X, l.footer.Min.Y, l.footer.Max.X, l.footer.Max.Y)
 	a.footer.status, a.footer.isError = a.status, a.statusErr
 	if a.overlay == overlayNone {
-		a.footer.hint = a.footerHint()
+		a.footer.hint, a.footer.actions = a.footerHintData()
 		if hint := a.searchHint(); hint != "" {
 			a.footer.hint = hint
+			a.footer.actions = nil
 		}
 		a.footer.right = ""
 	} else {
 		a.footer.hint = ""
+		a.footer.actions = nil
 		a.footer.right = ""
 	}
 	a.picker.place(l)
