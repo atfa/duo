@@ -126,6 +126,7 @@ func (q *qrcodeOverlay) Draw(buf *ui.Buffer) {
 	fillBlock(buf, q.GetRect(), ui.Style{Fg: q.theme.Fg, Bg: q.theme.PanelHigh})
 	q.Title = " " + q.theme.tr("REMOTE PAIRING") + " "
 	q.Block.Draw(buf)
+	defer drawModalClose(buf, q.Block, q.theme)
 	height := max(0, q.Inner.Dy()-1)
 	// A tall code is centred vertically so the block still reads as one panel.
 	rows := len(q.code) + len(q.lines)

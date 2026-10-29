@@ -197,6 +197,7 @@ func (p *driverPicker) Draw(buf *ui.Buffer) {
 	fillBlock(buf, p.GetRect(), ui.Style{Fg: p.theme.Fg, Bg: p.theme.PanelHigh})
 	p.Title = " " + p.theme.tr("DRIVERS") + " "
 	p.Block.Draw(buf)
+	defer drawModalClose(buf, p.Block, p.theme)
 	if p.Inner.Dx() <= 2 || p.Inner.Dy() < 6 {
 		return
 	}

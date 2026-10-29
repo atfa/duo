@@ -94,6 +94,7 @@ func (s *sessionsOverlay) Draw(buf *ui.Buffer) {
 	fillBlock(buf, s.GetRect(), ui.Style{Fg: s.theme.Fg, Bg: s.theme.PanelHigh})
 	s.Title = " " + s.theme.tr("SESSIONS") + " "
 	s.Block.Draw(buf)
+	defer drawModalClose(buf, s.Block, s.theme)
 	width := s.Inner.Dx()
 	if len(s.items) == 0 {
 		buf.SetString(fitText(s.theme.tr("no resumable sessions in this repository"), width), s.theme.Subtle, image.Pt(s.Inner.Min.X, s.Inner.Min.Y))

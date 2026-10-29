@@ -82,6 +82,7 @@ func (p *modePicker) Draw(buf *ui.Buffer) {
 	fillBlock(buf, p.GetRect(), ui.Style{Fg: p.theme.Fg, Bg: p.theme.PanelHigh})
 	p.Title = " " + p.theme.tr("MODE") + " "
 	p.Block.Draw(buf)
+	defer drawModalClose(buf, p.Block, p.theme)
 	if p.Inner.Dx() <= 2 || p.Inner.Dy() < 5 {
 		return
 	}

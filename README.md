@@ -238,3 +238,13 @@ For the complete CLI reference, run `duo --help` and `duo <command> --help`.
 ## Development
 
 Run `make check` for Go tests, vet, and command builds. Pi bridge changes also require `cd pi-extension && bun test`.
+
+### xduo：多实例管理
+
+Linux 上安装 tmux，并在仓库中执行 `go install ./cmd/duo ./cmd/xduo`，确保 Go 的 bin 目录在 PATH 中。运行 `xduo` 进入独立的 tmux 管理会话；也可以通过 `xduo --duo /path/to/duo` 或 `XDUO_DUO_PATH` 指定 Duo 可执行文件。已有 tmux 客户端会切换到管理会话，不会嵌套 tmux。
+
+使用方向键选择实例，`n` 输入 Git 项目目录创建实例，Enter 切换到原始 Duo 界面，`x` 关闭实例，`r` 刷新，`q` 退出面板。返回面板时使用 tmux 前缀（默认 Ctrl-b）然后按 `s`，选择 `xduo-manager`。关闭运行中的任务需要确认；管理器先发送 Duo 的正常退出快捷键，等待后才关闭仍存活的会话。退出面板不会关闭 Duo 实例。
+
+注册表和各实例的状态、Remote 配对文件位于 `~/.duo/xduo/`，关闭实例后数据保留。重新启动 xduo 会恢复注册表。状态过期时显示 Unknown，任务阶段和 tmux 存活状态分开显示。每个实例独立配置 Remote；原有 Duo 不设置环境变量时仍使用默认配对文件。高级用法：`DUO_REMOTE_PAIRING_FILE` 指定配对文件，`XDUO_STATUS_FILE` 指定实时状态 JSON 文件。
+
+Duo 和 xduo 的选择项、确认按钮和弹窗关闭按钮支持鼠标点击。终端需要支持鼠标事件；在 tmux 中如点击无效，可在 tmux 前缀后的命令行执行 `set -g mouse on`（或在 tmux 配置中启用）。该设置由用户决定，程序不会自动更改。需要使用终端原生文本选择时，通常可按住 Shift 拖选。

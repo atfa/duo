@@ -206,6 +206,7 @@ func (p *modelPicker) Draw(buf *ui.Buffer) {
 	fillBlock(buf, p.GetRect(), ui.Style{Fg: p.theme.Fg, Bg: p.theme.PanelHigh})
 	p.Title = " " + p.theme.tr("MODELS & THINKING") + " "
 	p.Block.Draw(buf)
+	defer drawModalClose(buf, p.Block, p.theme)
 	if p.Inner.Dx() <= 2 || p.Inner.Dy() < 6 {
 		return
 	}
@@ -234,7 +235,7 @@ func (p *modelPicker) Draw(buf *ui.Buffer) {
 	agentX := x + rw.StringWidth(agentLabel)
 	buf.SetString(austin, aStyle, image.Pt(agentX, y))
 	buf.SetString(tony, tStyle, image.Pt(agentX+rw.StringWidth(austin), y))
-	buf.SetString("   "+p.theme.tr("Tab switch agent"), p.theme.Timestamp, image.Pt(agentX+rw.StringWidth(austin)+rw.StringWidth(tony), y))
+	buf.SetString(" [Thinking]", p.theme.Timestamp, image.Pt(agentX+rw.StringWidth(austin)+rw.StringWidth(tony), y))
 	y++
 
 	if p.tab == 0 {

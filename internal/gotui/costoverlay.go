@@ -95,6 +95,7 @@ func (c *costOverlay) Draw(buf *ui.Buffer) {
 	fillBlock(buf, c.GetRect(), ui.Style{Fg: c.theme.Fg, Bg: c.theme.PanelHigh})
 	c.Title = " " + c.theme.tr("COST") + " "
 	c.Block.Draw(buf)
+	defer drawModalClose(buf, c.Block, c.theme)
 	height := max(0, c.Inner.Dy()-1)
 	for i := 0; i < height && i < len(c.lines); i++ {
 		x := c.Inner.Min.X
