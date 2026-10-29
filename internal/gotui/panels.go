@@ -429,7 +429,7 @@ func newAgentCard(t theme, id protocol.AgentID) *agentCard {
 	a := &agentCard{Block: *ui.NewBlock(), theme: t, id: id, now: time.Now()}
 	a.BorderRounded = true
 	color := t.agentColor(string(id))
-	a.BorderStyle = ui.Style{Fg: color, Bg: t.Panel}
+	a.BorderStyle = ui.Style{Fg: t.Border, Bg: t.Panel}
 	a.BackgroundColor = t.Panel
 	a.Title = expandableTitle(strings.ToUpper(string(id)), false)
 	a.TitleStyle = ui.Style{Fg: color, Bg: t.Panel, Modifier: ui.ModifierBold}

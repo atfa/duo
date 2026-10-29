@@ -206,7 +206,7 @@ func TestScreenSVG(t *testing.T) {
 
 	for _, want := range []string{
 		`width="82.4"`,                     // 16*2 + 6*8.4
-		`fill="#60c8ff" font-weight="600"`, // Austin + bold
+		`fill="#73bedb" font-weight="600"`, // Austin + bold
 		`fill="#dce3ec"`,                   // theme foreground for default cells
 		`&amp;`, `&lt;`,
 		`text-decoration="underline"`,
@@ -217,7 +217,7 @@ func TestScreenSVG(t *testing.T) {
 		}
 	}
 	// Reverse video swaps the theme colours instead of emitting defaults.
-	if !strings.Contains(svg, `fill="#dce3ec"`) || !strings.Contains(svg, `fill="#0a0e14"`) {
+	if !strings.Contains(svg, `fill="#dce3ec"`) || !strings.Contains(svg, `fill="#0d1217"`) {
 		t.Errorf("reverse video did not swap colours:\n%s", svg)
 	}
 	// One <text> per visible run: bold A, default "&<", 你, underlined u,

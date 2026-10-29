@@ -15,8 +15,7 @@ import (
 	"github.com/atfa/duo/internal/terminal"
 	"github.com/atfa/duo/internal/xduo"
 	"github.com/gdamore/tcell/v3"
-	ui "github.com/metaspartan/gotui/v5"
-	"github.com/metaspartan/gotui/v5/widgets"
+	rw "github.com/mattn/go-runewidth"
 )
 
 type row struct {
@@ -87,9 +86,9 @@ func (p *panel) refresh() {
 var base = tcell.StyleDefault.Background(tcell.NewRGBColor(10, 14, 20)).Foreground(tcell.NewRGBColor(220, 227, 236))
 var accent = base.Foreground(tcell.NewRGBColor(94, 234, 212)).Bold(true)
 var muted = base.Foreground(tcell.NewRGBColor(139, 152, 168))
-var selected = base.Background(tcell.NewRGBColor(35, 52, 66))
+var selected = base.Background(tcell.NewRGBColor(36, 48, 55))
 
-var surface = base.Background(tcell.NewRGBColor(19, 27, 38))
+var surface = base.Background(tcell.NewRGBColor(20, 27, 34))
 var surfaceMuted = surface.Foreground(tcell.NewRGBColor(139, 158, 180))
 var surfaceAccent = surface.Foreground(tcell.NewRGBColor(94, 234, 212)).Bold(true)
 var borderStyle = surface.Foreground(tcell.NewRGBColor(54, 75, 96))
@@ -98,6 +97,13 @@ var primaryButton = base.Background(tcell.NewRGBColor(94, 234, 212)).Foreground(
 var dim = base.Foreground(tcell.NewRGBColor(53, 68, 83))
 var shadow = base.Background(tcell.NewRGBColor(5, 8, 12))
 var errorStyle = surface.Foreground(tcell.NewRGBColor(251, 146, 137))
+
+func cardBg(active bool) tcell.Color {
+	if active {
+		return tcell.NewRGBColor(36, 48, 55)
+	}
+	return tcell.NewRGBColor(20, 27, 34)
+}
 
 func value(s string) string {
 	if s == "" {
@@ -203,52 +209,52 @@ func (p *panel) draw(s tcell.Screen) {
 		p.offset = focusRow - visible + 1
 	}
 	p.cardRects = make([]image.Rectangle, len(p.rows)+1)
-	buf := ui.NewBuffer(image.Rect(0, 0, w, h))
 	for index := 0; index <= len(p.rows); index++ {
 		row := index/p.columns - p.offset
 		if row < 0 || row >= visible {
 			continue
 		}
-		rect := image.Rect(index%p.columns*width+1, gridTop+row*9, min(w, (index%p.columns+1)*width), min(h-2, gridTop+row*9+8))
+		rect := image.Rect(index%p.columns*width+1, gridTop+row*9, min(w-1, (index%p.columns+1)*width-1), min(h-2, gridTop+row*9+8))
 		p.cardRects[index] = rect
-		card := widgets.NewParagraph()
-		card.SetRect(rect.Min.X, rect.Min.Y, rect.Max.X, rect.Max.Y)
-		card.BorderStyle.Fg = ui.ColorBlue
-		card.TextStyle.Fg = ui.ColorWhite
-		card.WrapText = false
+		if rect.Dx() < 4 || rect.Dy() < 2 {
+			continue
+		}
+		active := index == p.selected+1
+		cardStyle := surface
+		if active {
+			cardStyle = selected
+		}
+		for y := rect.Min.Y; y < rect.Max.Y; y++ {
+			s.PutStrStyled(rect.Min.X, y, strings.Repeat(" ", rect.Dx()), cardStyle)
+			if active {
+				s.PutStrStyled(rect.Min.X, y, "▏", cardStyle.Foreground(tcell.NewRGBColor(111, 218, 193)))
+			}
+		}
+		put := func(y int, text string, style tcell.Style) {
+			if y < rect.Max.Y {
+				s.PutStrStyled(rect.Min.X+2, y, rw.Truncate(text, max(0, rect.Dx()-4), "…"), style.Background(cardBg(active)))
+			}
+		}
 		if index == 0 {
-			card.Title = " New workspace "
-			card.Text = "\n  ＋  Create a workspace\n\n  Choose a project directory\n  Enter or click to begin"
+			put(rect.Min.Y+1, "＋  NEW WORKSPACE", accent)
+			put(rect.Min.Y+3, "Create a workspace", base.Bold(true))
+			put(rect.Min.Y+4, "Choose a project directory", muted)
+			put(rect.Min.Y+6, "Enter  ↗", muted)
 		} else {
 			r := p.rows[index-1]
-			card.Title = " " + filepath.Base(r.instance.Project) + " "
 			live := "unknown"
 			if r.status.AliveKnown {
 				live = "exited · Enter to resume"
 				if r.status.Alive {
-					live = "alive"
+					live = "running"
 				}
 			}
-			card.Text = fmt.Sprintf("%s · %s · %s\n%s\nAustin %s / %s\nTony %s / %s\nRemote %s · updated %s", r.status.State, value(r.status.Snapshot.Phase), live, r.instance.Project, value(r.status.Snapshot.Austin.Driver), value(r.status.Snapshot.Austin.Model), value(r.status.Snapshot.Tony.Driver), value(r.status.Snapshot.Tony.Model), r.remote, age(r.status.Snapshot.UpdatedAt, time.Now()))
-		}
-		if index == p.selected+1 {
-			card.BorderStyle.Fg = ui.ColorCyan
-		}
-		card.Draw(buf)
-	}
-	for y := gridTop; y < h-2; y++ {
-		for x := 0; x < w; x++ {
-			c := buf.GetCell(image.Pt(x, y))
-			if c.Rune != 0 {
-				style := surface
-				if c.Style.Fg == ui.ColorBlue {
-					style = borderStyle
-				}
-				if c.Style.Fg == ui.ColorCyan {
-					style = surfaceAccent
-				}
-				s.PutStrStyled(x, y, string(c.Rune), style)
-			}
+			put(rect.Min.Y+1, filepath.Base(r.instance.Project), base.Bold(true))
+			put(rect.Min.Y+2, r.instance.Project, muted)
+			put(rect.Min.Y+3, fmt.Sprintf("%s  ·  %s  ·  %s", r.status.State, value(r.status.Snapshot.Phase), live), accent)
+			put(rect.Min.Y+4, fmt.Sprintf("Austin  %s / %s", value(r.status.Snapshot.Austin.Driver), value(r.status.Snapshot.Austin.Model)), base)
+			put(rect.Min.Y+5, fmt.Sprintf("Tony    %s / %s", value(r.status.Snapshot.Tony.Driver), value(r.status.Snapshot.Tony.Model)), base)
+			put(rect.Min.Y+6, fmt.Sprintf("Remote %s  ·  updated %s", r.remote, age(r.status.Snapshot.UpdatedAt, time.Now())), muted)
 		}
 	}
 	s.PutStrStyled(1, h-2, "Arrow keys select · Enter open · click card to open · N new", muted)
