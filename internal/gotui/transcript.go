@@ -292,7 +292,8 @@ func (v *transcript) renderEntry(e entry, width int) entryLines {
 	}
 	runs := markdownRuns(e.text, base, v.theme, bodyWidth)
 	runs = linkifyRuns(runs, v.pathRoots[e.pane], v.theme)
-	for _, line := range wrapRuns(runs, bodyWidth) {
+	bodyLines := wrapRuns(runs, bodyWidth)
+	for _, line := range bodyLines {
 		line.entry = e.seq
 		line.runs = append([]textRun{{"  ", base, linkTarget{}}}, line.runs...)
 		block.lines = append(block.lines, line)
@@ -301,7 +302,7 @@ func (v *transcript) renderEntry(e entry, width int) entryLines {
 		for i := range block.lines {
 			line := &block.lines[i]
 			padding := max(0, fullWidth-line.width())
-			if !line.header {
+			if !line.header && len(bodyLines) > 1 {
 				padding = fullWidth - width
 			}
 			line.runs = append([]textRun{{strings.Repeat(" ", padding), base, linkTarget{}}}, line.runs...)

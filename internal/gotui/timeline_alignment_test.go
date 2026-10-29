@@ -47,3 +47,29 @@ func TestTimelineTonyClearsScrollbar(t *testing.T) {
 		}
 	}
 }
+
+func TestTimelineTonyBodyAlignmentByRenderedLines(t *testing.T) {
+	v := newTranscript(newTheme())
+	v.conversation = true
+	for _, tc := range []struct {
+		name, text string
+		multiline  bool
+	}{
+		{"short", "Tony connected", false},
+		{"wrapped", strings.Repeat("word ", 30), true},
+		{"paragraphs", "first\n\nsecond", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			block := v.renderEntry(entry{pane: "Tony", text: tc.text}, 100)
+			for _, line := range block.lines {
+				if line.header || !tc.multiline {
+					if line.width() != 98 {
+						t.Fatalf("expected right alignment: %q", line.text())
+					}
+				} else if indent := len(line.text()) - len(strings.TrimLeft(line.text(), " ")); indent != 22 {
+					t.Fatalf("expected fixed left inset: %q", line.text())
+				}
+			}
+		})
+	}
+}
