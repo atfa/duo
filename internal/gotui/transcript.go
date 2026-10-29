@@ -301,6 +301,9 @@ func (v *transcript) renderEntry(e entry, width int) entryLines {
 		for i := range block.lines {
 			line := &block.lines[i]
 			padding := max(0, fullWidth-line.width())
+			if !line.header {
+				padding = fullWidth - width
+			}
 			line.runs = append([]textRun{{strings.Repeat(" ", padding), base, linkTarget{}}}, line.runs...)
 		}
 	}
