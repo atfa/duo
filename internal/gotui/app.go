@@ -204,6 +204,7 @@ func New(svc Session) *App {
 	a.austinCard = newAgentCard(t, protocol.Austin)
 	a.tonyCard = newAgentCard(t, protocol.Tony)
 	a.timeline = newTranscript(t)
+	a.timeline.conversation = true
 	a.timeline.Title = " CONVERSATION "
 	a.austin = newTranscript(t)
 	a.austin.Title = " AUSTIN "

@@ -181,16 +181,16 @@ func (p *panel) draw(s tcell.Screen) {
 			tunnelLabel = "[ T Tunnel: Starting ]"
 		}
 	}
-	s.PutStrStyled(30, 0, tunnelLabel, tunnelStyle)
-	p.tunnelRect = image.Rect(30, 0, min(w, 30+len(tunnelLabel)), 1)
+	s.PutStrStyled(64, 1, tunnelLabel, tunnelStyle)
+	p.tunnelRect = image.Rect(64, 1, min(w, 64+len(tunnelLabel)), 2)
 	if w > 80 {
 		s.PutStrStyled(w-27, 0, fmt.Sprintf("%d workspaces  ·  local", len(p.rows)), muted)
 	}
 	p.copyCodeRect = image.Rectangle{}
 	if p.server != nil {
 		address := p.server.URL + "  Code: " + p.server.AccessCode
-		s.PutStrStyled(64, 1, address, accent)
-		copyX := 64 + len(address) + 1
+		s.PutStrStyled(90, 1, address, accent)
+		copyX := 90 + len(address) + 1
 		s.PutStrStyled(copyX, 1, "[COPY]", fieldBase)
 		p.copyCodeRect = image.Rect(copyX, 1, min(w, copyX+6), 2)
 		if len(p.server.LANURLs) > 0 {

@@ -67,6 +67,8 @@ type transcript struct {
 	// their concatenation with one blank separator between entries. A message
 	// arriving renders only its own entry, and an evicted entry takes its lines
 	// with it, so the cache never grows past the window.
+	conversation bool
+
 	blocks      []entryLines
 	renderWidth int
 	renderLang  string
@@ -244,6 +246,10 @@ func (v *transcript) renderEntry(e entry, width int) entryLines {
 	if strings.TrimSpace(e.text) == "" {
 		return block
 	}
+	fullWidth := width
+	if v.conversation && (e.pane == "Austin" || e.pane == "Tony") {
+		width = max(1, width*4/5)
+	}
 	bodyWidth := max(1, width-2)
 	label := e.label
 	if label == "" {
@@ -288,6 +294,13 @@ func (v *transcript) renderEntry(e entry, width int) entryLines {
 		line.entry = e.seq
 		line.runs = append([]textRun{{"  ", base, linkTarget{}}}, line.runs...)
 		block.lines = append(block.lines, line)
+	}
+	if v.conversation && e.pane == "Tony" {
+		for i := range block.lines {
+			line := &block.lines[i]
+			padding := max(0, fullWidth-line.width())
+			line.runs = append([]textRun{{strings.Repeat(" ", padding), base, linkTarget{}}}, line.runs...)
+		}
 	}
 	return block
 }
