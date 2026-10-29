@@ -2,6 +2,13 @@
 
 All notable project milestones are documented here.
 
+## v0.15.1 — 2026-10-29
+
+- Add mouse interaction in Duo and xduo, including localized footer actions.
+- Improve timeline dialog alignment, spacing, theme colors, and layout, with regression tests.
+- Prioritize answering user questions during collaboration.
+- Update the Chinese landing page content.
+
 ## v0.15.0
 
 ### Xduo workspace manager
