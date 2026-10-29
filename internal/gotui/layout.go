@@ -60,6 +60,8 @@ func (a *App) computeLayout(w, h int) layout {
 		y := headerH - 1
 		l.tabSplit = image.Rect(x, y, x+rw.StringWidth(split), y+1)
 		l.tabTimeline = image.Rect(l.tabSplit.Max.X, y, l.tabSplit.Max.X+rw.StringWidth(timeline), y+1)
+		l.tabSplit = l.tabSplit.Intersect(l.header)
+		l.tabTimeline = l.tabTimeline.Intersect(l.header)
 	}
 	contentTop := headerH
 	contentBottom := h - composerH - footerH

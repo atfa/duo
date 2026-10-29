@@ -82,23 +82,28 @@ func newHeader(t theme) *headerBar {
 
 func (h *headerBar) Draw(buf *ui.Buffer) {
 	fillBlock(buf, h.GetRect(), ui.Style{Fg: h.theme.Fg, Bg: h.theme.Panel})
+	put := func(text string, style ui.Style, pos image.Point) {
+		if pos.X >= h.Min.X && pos.X < h.Max.X && pos.Y >= h.Min.Y && pos.Y < h.Max.Y {
+			buf.SetString(fitText(text, h.Max.X-pos.X), style, pos)
+		}
+	}
 	h.modeBadge = image.Rectangle{}
 	y := h.Min.Y
 	x := h.Min.X + 1
 	right := h.Max.X
 	h.returnButton = image.Rectangle{}
 	if h.showReturn && h.Dx() >= 32 {
-		right -= 19
+		right = h.Max.X - 1 - rw.StringWidth("[ Back to xduo ]")
 		h.returnButton = image.Rect(right, h.Min.Y, h.Max.X-1, h.Min.Y+1)
 	}
 	width := right - h.Min.X
-	buf.SetString("◆", ui.Style{Fg: h.theme.Accent, Bg: h.theme.Panel, Modifier: ui.ModifierBold}, image.Pt(x, y))
+	put("◆", ui.Style{Fg: h.theme.Accent, Bg: h.theme.Panel, Modifier: ui.ModifierBold}, image.Pt(x, y))
 	x += 2
-	buf.SetString("DUO", ui.Style{Fg: h.theme.Fg, Bg: h.theme.Panel, Modifier: ui.ModifierBold}, image.Pt(x, y))
+	put("DUO", ui.Style{Fg: h.theme.Fg, Bg: h.theme.Panel, Modifier: ui.ModifierBold}, image.Pt(x, y))
 	x += 3
-	if h.version != "" {
-		buf.SetString(" "+h.version+" ", ui.Style{Fg: h.theme.Faint, Bg: h.theme.Panel}, image.Pt(x, y))
-		x += len(h.version) + 2
+	if h.version != "" && x+rw.StringWidth(h.version)+2 < right-30 {
+		put(" "+h.version+" ", ui.Style{Fg: h.theme.Faint, Bg: h.theme.Panel}, image.Pt(x, y))
+		x += rw.StringWidth(h.version) + 2
 	}
 	badge := strings.ToUpper(h.mode) + "  ·  " + h.phase
 	if h.mode == "" {
@@ -118,6 +123,7 @@ func (h *headerBar) Draw(buf *ui.Buffer) {
 	}
 	// Reserve the badge's actual width, not a fixed 18 columns: PAUSED grows it
 	// and the old reservation let the badge overwrite the end of the branch.
+	badge = fitText(badge, max(0, right-x-2))
 	badgeWidth := rw.StringWidth(badge)
 	reserve := 18
 	if width >= 40 {
@@ -128,15 +134,15 @@ func (h *headerBar) Draw(buf *ui.Buffer) {
 		where += "  ·  " + h.branch
 	}
 	if x < right-10 {
-		buf.SetString(fitText(where, max(1, right-x-reserve)), h.theme.Subtle, image.Pt(x, y))
+		put(fitText(where, max(1, right-x-reserve)), h.theme.Subtle, image.Pt(x, y))
 	}
 	if width >= 40 {
 		badgeX := max(h.Min.X+1, right-badgeWidth-2)
-		buf.SetString(badge, badgeStyle, image.Pt(badgeX, y))
+		put(badge, badgeStyle, image.Pt(badgeX, y))
 		h.modeBadge = image.Rect(badgeX, y, badgeX+badgeWidth, y+1)
 	}
 	if !h.returnButton.Empty() {
-		buf.SetString("[ Back to xduo ]", ui.Style{Fg: h.theme.Bg, Bg: h.theme.Accent}, h.returnButton.Min)
+		put("[ Back to xduo ]", ui.Style{Fg: h.theme.Bg, Bg: h.theme.Accent}, h.returnButton.Min)
 	}
 	y++
 	if y < h.Max.Y {
@@ -148,7 +154,7 @@ func (h *headerBar) Draw(buf *ui.Buffer) {
 			line += fmt.Sprintf("   ·   %d/%d %s", h.online, h.total, h.theme.tr("agents online"))
 		}
 		if available := tabX - (h.Min.X + 1) - 1; available > 8 {
-			buf.SetString(fitText(line, available), h.theme.Subtle, image.Pt(h.Min.X+1, y))
+			put(fitText(line, available), h.theme.Subtle, image.Pt(h.Min.X+1, y))
 		}
 		x = tabX
 		drawTab := func(label string, active bool) {
@@ -156,7 +162,7 @@ func (h *headerBar) Draw(buf *ui.Buffer) {
 			if active {
 				st = ui.Style{Fg: h.theme.Bg, Bg: h.theme.Accent, Modifier: ui.ModifierBold}
 			}
-			buf.SetString(label, st, image.Pt(x, y))
+			put(label, st, image.Pt(x, y))
 			x += rw.StringWidth(label)
 		}
 		drawTab(split, h.view == viewSplit)
@@ -593,12 +599,12 @@ func (f *footerBar) Draw(buf *ui.Buffer) {
 	rightLabel := ""
 	rightWidth := 0
 	if f.right != "" && f.Dx() > 30 {
-		rightLabel = "· " + f.right
+		rightLabel = fitText("· "+f.right, max(0, f.Dx()/2))
 		rightWidth = rw.StringWidth(rightLabel)
 	}
-	leftWidth := max(8, f.Dx()-2)
+	leftWidth := max(0, f.Dx()-2)
 	if rightWidth > 0 {
-		leftWidth = max(8, f.Dx()-rightWidth-3)
+		leftWidth = max(0, f.Dx()-rightWidth-3)
 	}
 	if text != "" {
 		buf.SetString(fitText(text, leftWidth), style, image.Pt(f.Min.X+1, f.Min.Y))

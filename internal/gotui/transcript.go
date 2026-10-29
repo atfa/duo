@@ -246,6 +246,8 @@ func (v *transcript) renderEntry(e entry, width int) entryLines {
 	if strings.TrimSpace(e.text) == "" {
 		return block
 	}
+	// Keep a gutter before the scrollbar, which occupies the last inner column.
+	width = max(1, width-2)
 	fullWidth := width
 	if v.conversation && (e.pane == "Austin" || e.pane == "Tony") {
 		width = max(1, width*4/5)

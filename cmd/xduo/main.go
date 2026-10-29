@@ -153,8 +153,27 @@ func (p *panel) draw(s tcell.Screen) {
 	if w < 1 || h < 1 {
 		return
 	}
-	s.PutStrStyled(1, 0, "◆ XDUO   /   Workspaces", accent)
-	s.PutStrStyled(1, 1, "[ R Refresh ]   [ X Close ]   [ Q Quit ]", muted)
+	p.tunnelRect, p.copyCodeRect = image.Rectangle{}, image.Rectangle{}
+	p.cardRects = nil
+	put := func(x, y int, text string, style tcell.Style) {
+		if x >= 0 && x < w && y >= 0 && y < h {
+			s.PutStrStyled(x, y, rw.Truncate(text, w-x, "…"), style)
+		}
+	}
+	p.columns = max(1, w/36)
+	if w < 36 || h < 12 {
+		p.picker.hits = nil
+		p.tunnelOKRect, p.tunnelCopyRect = image.Rectangle{}, image.Rectangle{}
+		hint := "Enlarge terminal · Q quits"
+		if p.mode == "input" || p.mode == "tunnel" {
+			hint = "Enlarge terminal · Esc closes"
+		}
+		put(0, 0, hint, muted)
+		s.Show()
+		return
+	}
+	put(1, 0, "◆ XDUO   /   Workspaces", accent)
+	put(1, 1, "[ R Refresh ]   [ X Close ]   [ Q Quit ]", muted)
 	label, style := "[ S Server: Off ]", muted
 	if p.server != nil {
 		label, style = "[ S Server: On ]", primaryButton
@@ -162,7 +181,7 @@ func (p *panel) draw(s tcell.Screen) {
 	} else if p.serverError {
 		label, style = "[ S Server: Error ]", errorStyle
 	}
-	s.PutStrStyled(43, 1, label, style)
+	put(43, 1, label, style)
 	tunnelLabel, tunnelStyle := "[ T Tunnel: Off ]", muted
 	if p.tunnelPending != nil {
 		tunnelLabel = "[ T Tunnel: Starting ]"
@@ -181,20 +200,26 @@ func (p *panel) draw(s tcell.Screen) {
 			tunnelLabel = "[ T Tunnel: Starting ]"
 		}
 	}
-	s.PutStrStyled(64, 1, tunnelLabel, tunnelStyle)
-	p.tunnelRect = image.Rect(64, 1, min(w, 64+len(tunnelLabel)), 2)
+	tunnelX := 43 + rw.StringWidth(label) + 3
+	if tunnelX+rw.StringWidth(tunnelLabel) <= w-1 {
+		put(tunnelX, 1, tunnelLabel, tunnelStyle)
+		p.tunnelRect = image.Rect(tunnelX, 1, tunnelX+rw.StringWidth(tunnelLabel), 2)
+	}
 	if w > 80 {
-		s.PutStrStyled(w-27, 0, fmt.Sprintf("%d workspaces  ·  local", len(p.rows)), muted)
+		put(w-27, 0, fmt.Sprintf("%d workspaces  ·  local", len(p.rows)), muted)
 	}
 	p.copyCodeRect = image.Rectangle{}
 	if p.server != nil {
 		address := p.server.URL + "  Code: " + p.server.AccessCode
-		s.PutStrStyled(90, 1, address, accent)
-		copyX := 90 + len(address) + 1
-		s.PutStrStyled(copyX, 1, "[COPY]", fieldBase)
-		p.copyCodeRect = image.Rect(copyX, 1, min(w, copyX+6), 2)
+		addressX := tunnelX + rw.StringWidth(tunnelLabel) + 3
+		put(addressX, 1, address, accent)
+		copyX := addressX + rw.StringWidth(address) + 1
+		if copyX+6 <= w-1 {
+			put(copyX, 1, "[COPY]", fieldBase)
+			p.copyCodeRect = image.Rect(copyX, 1, copyX+6, 2)
+		}
 		if len(p.server.LANURLs) > 0 {
-			s.PutStrStyled(copyX+8, 1, "LAN: "+p.server.LANURLs[0], muted)
+			put(copyX+8, 1, "LAN: "+p.server.LANURLs[0], muted)
 		}
 	}
 	gridTop := 3
@@ -225,21 +250,21 @@ func (p *panel) draw(s tcell.Screen) {
 			cardStyle = selected
 		}
 		for y := rect.Min.Y; y < rect.Max.Y; y++ {
-			s.PutStrStyled(rect.Min.X, y, strings.Repeat(" ", rect.Dx()), cardStyle)
+			put(rect.Min.X, y, strings.Repeat(" ", rect.Dx()), cardStyle)
 			if active {
-				s.PutStrStyled(rect.Min.X, y, "▏", cardStyle.Foreground(tcell.NewRGBColor(111, 218, 193)))
+				put(rect.Min.X, y, "▏", cardStyle.Foreground(tcell.NewRGBColor(111, 218, 193)))
 			}
 		}
-		put := func(y int, text string, style tcell.Style) {
+		cardText := func(y int, text string, style tcell.Style) {
 			if y < rect.Max.Y {
-				s.PutStrStyled(rect.Min.X+2, y, rw.Truncate(text, max(0, rect.Dx()-4), "…"), style.Background(cardBg(active)))
+				put(rect.Min.X+2, y, rw.Truncate(text, max(0, rect.Dx()-4), "…"), style.Background(cardBg(active)))
 			}
 		}
 		if index == 0 {
-			put(rect.Min.Y+1, "＋  NEW WORKSPACE", accent)
-			put(rect.Min.Y+3, "Create a workspace", base.Bold(true))
-			put(rect.Min.Y+4, "Choose a project directory", muted)
-			put(rect.Min.Y+6, "Enter  ↗", muted)
+			cardText(rect.Min.Y+1, "＋  NEW WORKSPACE", accent)
+			cardText(rect.Min.Y+3, "Create a workspace", base.Bold(true))
+			cardText(rect.Min.Y+4, "Choose a project directory", muted)
+			cardText(rect.Min.Y+6, "Enter  ↗", muted)
 		} else {
 			r := p.rows[index-1]
 			live := "unknown"
@@ -249,15 +274,15 @@ func (p *panel) draw(s tcell.Screen) {
 					live = "running"
 				}
 			}
-			put(rect.Min.Y+1, filepath.Base(r.instance.Project), base.Bold(true))
-			put(rect.Min.Y+2, r.instance.Project, muted)
-			put(rect.Min.Y+3, fmt.Sprintf("%s  ·  %s  ·  %s", r.status.State, value(r.status.Snapshot.Phase), live), accent)
-			put(rect.Min.Y+4, fmt.Sprintf("Austin  %s / %s", value(r.status.Snapshot.Austin.Driver), value(r.status.Snapshot.Austin.Model)), base)
-			put(rect.Min.Y+5, fmt.Sprintf("Tony    %s / %s", value(r.status.Snapshot.Tony.Driver), value(r.status.Snapshot.Tony.Model)), base)
-			put(rect.Min.Y+6, fmt.Sprintf("Remote %s  ·  updated %s", r.remote, age(r.status.Snapshot.UpdatedAt, time.Now())), muted)
+			cardText(rect.Min.Y+1, filepath.Base(r.instance.Project), base.Bold(true))
+			cardText(rect.Min.Y+2, r.instance.Project, muted)
+			cardText(rect.Min.Y+3, fmt.Sprintf("%s  ·  %s  ·  %s", r.status.State, value(r.status.Snapshot.Phase), live), accent)
+			cardText(rect.Min.Y+4, fmt.Sprintf("Austin  %s / %s", value(r.status.Snapshot.Austin.Driver), value(r.status.Snapshot.Austin.Model)), base)
+			cardText(rect.Min.Y+5, fmt.Sprintf("Tony    %s / %s", value(r.status.Snapshot.Tony.Driver), value(r.status.Snapshot.Tony.Model)), base)
+			cardText(rect.Min.Y+6, fmt.Sprintf("Remote %s  ·  updated %s", r.remote, age(r.status.Snapshot.UpdatedAt, time.Now())), muted)
 		}
 	}
-	s.PutStrStyled(1, h-2, "Arrow keys select · Enter open · click card to open · N new", muted)
+	put(1, h-2, "Arrow keys select · Enter open · click card to open · N new", muted)
 	if h > 1 {
 		line := p.message
 		if p.mode == "input" {
@@ -270,7 +295,7 @@ func (p *panel) draw(s tcell.Screen) {
 			line = "Select [+] to create a workspace. Duo keeps running when you return here."
 		}
 		if line != "" {
-			s.PutStrStyled(1, h-1, line, accent)
+			put(1, h-1, line, accent)
 		}
 	}
 	if p.mode == "input" {
