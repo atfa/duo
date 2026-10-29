@@ -75,3 +75,17 @@ func TestInstancesUseSeparateTmuxSessionsAndFiles(t *testing.T) {
 		t.Fatalf("registry: %+v %v", r, err)
 	}
 }
+
+func TestButtonHitAreas(t *testing.T) {
+	for _, tc := range []struct {
+		labels  []string
+		x, want int
+	}{
+		{mainButtons, 0, 0}, {mainButtons, 5, 0}, {mainButtons, 6, -1}, {mainButtons, 7, 1},
+		{confirmButtons, 0, 0}, {confirmButtons, 9, 0}, {confirmButtons, 10, -1}, {confirmButtons, 11, 1},
+	} {
+		if got := buttonAt(tc.labels, tc.x); got != tc.want {
+			t.Errorf("buttonAt(%v,%d)=%d want %d", tc.labels, tc.x, got, tc.want)
+		}
+	}
+}

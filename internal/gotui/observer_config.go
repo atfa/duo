@@ -184,6 +184,7 @@ func (o *observerConfigOverlay) Draw(buf *ui.Buffer) {
 	}
 	o.Title = " " + o.theme.tr(title) + " "
 	o.Block.Draw(buf)
+	defer drawModalClose(buf, o.Block, o.theme)
 	if o.Inner.Dx() < 24 || o.Inner.Dy() < 8 {
 		return
 	}
@@ -259,7 +260,7 @@ func (o *observerConfigOverlay) Draw(buf *ui.Buffer) {
 	if o.onboarding {
 		hint = o.theme.tr("Enter save · Esc Later")
 	}
-	buf.SetString(fitText(hint, o.Inner.Dx()), o.theme.Timestamp, image.Pt(o.Inner.Min.X, o.Inner.Max.Y-1))
+	buf.SetString(fitText("[Save]  [Cancel]  "+hint, o.Inner.Dx()), o.theme.Timestamp, image.Pt(o.Inner.Min.X, o.Inner.Max.Y-1))
 }
 
 func (a *App) handleObserverConfigKey(ev *tcell.EventKey) {

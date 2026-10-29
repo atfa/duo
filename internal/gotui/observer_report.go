@@ -168,6 +168,7 @@ func (o *observerReportOverlay) Draw(buf *ui.Buffer) {
 	fillBlock(buf, o.GetRect(), ui.Style{Fg: o.theme.Fg, Bg: o.theme.PanelHigh})
 	o.Title = " " + o.theme.tr("OBSERVER REPORTS") + " "
 	o.Block.Draw(buf)
+	defer drawModalClose(buf, o.Block, o.theme)
 	height := max(0, o.Inner.Dy()-1)
 	for i := 0; i < height; i++ {
 		idx := o.offset + i
@@ -180,7 +181,10 @@ func (o *observerReportOverlay) Draw(buf *ui.Buffer) {
 			x += rw.StringWidth(run.text)
 		}
 	}
-	hint := o.theme.tr("R re-analyze  ·  ? ask a question  ·  ↑/↓ scroll  ·  Esc close")
+	hint := "[Re-analyze] [Ask question]  ↑/↓ scroll"
+	if o.asking {
+		hint = "[Send] [Cancel]  Enter · Esc"
+	}
 	if o.Inner.Dy() > 0 {
 		buf.SetString(fitText(hint, o.Inner.Dx()), o.theme.Timestamp, image.Pt(o.Inner.Min.X, o.Inner.Max.Y-1))
 	}

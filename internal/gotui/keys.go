@@ -627,8 +627,12 @@ func (a *App) handleScrollOverlayKey(ev *tcell.EventKey, scroll func(int), maxOf
 func (a *App) handleMouse(ev *tcell.EventMouse) {
 	x, y := ev.Position()
 	btn := ev.Buttons()
+	pressed := btn&tcell.Button1 != 0 && !a.mouseDown
+	a.mouseDown = btn&tcell.Button1 != 0
 	if a.overlay != overlayNone {
 		switch {
+		case pressed:
+			a.mouseOverlay(x, y)
 		case btn&tcell.WheelUp != 0:
 			switch a.overlay {
 			case overlayHelp:
@@ -639,6 +643,14 @@ func (a *App) handleMouse(ev *tcell.EventMouse) {
 				a.plan.Scroll(-3)
 			case overlayObserverReports:
 				a.observerReports.Scroll(-3)
+			case overlayPicker:
+				if a.picker.tab == 0 {
+					a.picker.move(-3)
+				}
+			case overlayDrivers:
+				a.drivers.move(-3)
+			case overlaySessions:
+				a.sessions.move(-1)
 			}
 		case btn&tcell.WheelDown != 0:
 			switch a.overlay {
@@ -650,6 +662,14 @@ func (a *App) handleMouse(ev *tcell.EventMouse) {
 				a.plan.Scroll(3)
 			case overlayObserverReports:
 				a.observerReports.Scroll(3)
+			case overlayPicker:
+				if a.picker.tab == 0 {
+					a.picker.move(3)
+				}
+			case overlayDrivers:
+				a.drivers.move(3)
+			case overlaySessions:
+				a.sessions.move(1)
 			}
 		}
 		return
@@ -667,6 +687,9 @@ func (a *App) handleMouse(ev *tcell.EventMouse) {
 		return
 	}
 	if btn&tcell.Button1 != 0 {
+		if pressed && (a.mouseMenus(x, y) || a.mouseFooter(x, y) || a.composer.click(x, y)) {
+			return
+		}
 		if a.mousePane != nil {
 			a.mousePane.DragSelection(x, y)
 			return

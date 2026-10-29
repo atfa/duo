@@ -143,6 +143,7 @@ type App struct {
 
 	pasting     bool
 	pasteBuf    strings.Builder
+	mouseDown   bool
 	mousePane   *transcript
 	focusPane   *transcript
 	pendingLink *linkTarget

@@ -16,6 +16,7 @@ import (
 	"github.com/atfa/duo/internal/remote"
 	"github.com/atfa/duo/internal/xduo"
 	"github.com/gdamore/tcell/v3"
+	rw "github.com/mattn/go-runewidth"
 )
 
 const manager = "xduo-manager"
@@ -193,6 +194,23 @@ func run() error {
 	}
 	return dashboard(root, reg, *duo)
 }
+
+var mainButtons = []string{"[打开]", "[新建]", "[关闭]", "[刷新]", "[退出]"}
+var newButtons = []string{"[确认]", "[取消]"}
+var confirmButtons = []string{"[确认关闭]", "[取消]"}
+
+func buttonAt(labels []string, x int) int {
+	pos := 0
+	for i, label := range labels {
+		end := pos + rw.StringWidth(label)
+		if x >= pos && x < end {
+			return i
+		}
+		pos = end + 1
+	}
+	return -1
+}
+
 func dashboard(root, path, duo string) error {
 	r, e := load(path)
 	if e != nil {
@@ -206,6 +224,7 @@ func dashboard(root, path, duo string) error {
 		return e
 	}
 	defer s.Fini()
+	s.EnableMouse()
 	events := s.EventQ()
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
@@ -213,6 +232,7 @@ func dashboard(root, path, duo string) error {
 	mode := ""
 	input := ""
 	message := ""
+	mouseDown := false
 	draw := func() {
 		s.Clear()
 		_, h := s.Size()
@@ -225,8 +245,11 @@ func dashboard(root, path, duo string) error {
 		normal := tcell.StyleDefault
 		title := normal.Foreground(tcell.ColorAqua).Bold(true)
 		line(0, "xduo · Duo 实例管理", title)
-		line(1, "↑↓ 选择  Enter 打开  n 新建  x 关闭  r 刷新  q 退出", normal)
+		line(1, strings.Join(mainButtons, " ")+"   ↑↓ 选择", normal)
 		line(2, "返回面板：tmux 前缀后按 s，选择 xduo-manager", normal)
+		if out, err := exec.Command("tmux", "show-option", "-v", "-t", manager, "mouse").Output(); err == nil && strings.TrimSpace(string(out)) != "on" {
+			line(3, "鼠标未启用：tmux 前缀 : 然后输入 set -g mouse on", title)
+		}
 		start := 0
 		visible := (h - 6) / 3
 		if visible < 1 {
@@ -263,9 +286,10 @@ func dashboard(root, path, duo string) error {
 			line(y+2, fmt.Sprintf("Austin: %s / %s    Tony: %s / %s    更新: %s", st.Austin.Driver, st.Austin.Model, st.Tony.Driver, st.Tony.Model, update), style)
 		}
 		if mode == "new" {
-			line(h-1, "项目路径: "+input+"  (Enter 确认, Esc 取消)", title)
+			line(h-2, strings.Join(newButtons, " "), title)
+			line(h-1, "项目路径: "+input, title)
 		} else if mode == "confirm" {
-			line(h-1, "任务可能仍在运行，关闭？ y 确认 / n 取消", title)
+			line(h-1, strings.Join(confirmButtons, " ")+"  任务可能仍在运行", title)
 		} else {
 			line(h-1, message, title)
 		}
@@ -278,6 +302,67 @@ func dashboard(root, path, duo string) error {
 		case ev, ok := <-events:
 			if !ok {
 				return nil
+			}
+			if mouse, isMouse := ev.(*tcell.EventMouse); isMouse {
+				down := mouse.Buttons()&tcell.Button1 != 0
+				pressed := down && !mouseDown
+				mouseDown = down
+				if !pressed {
+					continue
+				}
+				x, y := mouse.Position()
+				_, h := s.Size()
+				var key tcell.Key
+				var str string
+				if mode == "new" && y == h-2 {
+					switch buttonAt(newButtons, x) {
+					case 0:
+						key = tcell.KeyEnter
+					case 1:
+						key = tcell.KeyEsc
+					}
+				}
+				if mode == "confirm" && y == h-1 {
+					switch buttonAt(confirmButtons, x) {
+					case 0:
+						key = tcell.KeyRune
+						str = "y"
+					case 1:
+						key = tcell.KeyRune
+						str = "n"
+					}
+				}
+				if mode == "" && y == 1 {
+					switch buttonAt(mainButtons, x) {
+					case 0:
+						key = tcell.KeyEnter
+					case 1:
+						key = tcell.KeyRune
+						str = "n"
+					case 2:
+						key = tcell.KeyRune
+						str = "x"
+					case 3:
+						key = tcell.KeyRune
+						str = "r"
+					case 4:
+						key = tcell.KeyRune
+						str = "q"
+					}
+				}
+				if mode == "" && y >= 4 && y < h-2 {
+					visible := max(1, (h-6)/3)
+					start := max(0, selected-visible+1)
+					idx := start + (y-4)/3
+					if idx < len(r.Items) {
+						selected = idx
+					}
+					continue
+				}
+				if key == 0 {
+					continue
+				}
+				ev = tcell.NewEventKey(key, str, tcell.ModNone)
 			}
 			k, ok := ev.(*tcell.EventKey)
 			if !ok {

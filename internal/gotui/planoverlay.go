@@ -180,6 +180,7 @@ func (p *planOverlay) Draw(buf *ui.Buffer) {
 	fillBlock(buf, p.GetRect(), ui.Style{Fg: p.theme.Fg, Bg: p.theme.PanelHigh})
 	p.Title = " " + p.theme.tr("PLAN & STEPS") + " "
 	p.Block.Draw(buf)
+	defer drawModalClose(buf, p.Block, p.theme)
 	height := max(0, p.Inner.Dy()-1)
 	for i := 0; i < height; i++ {
 		idx := p.offset + i

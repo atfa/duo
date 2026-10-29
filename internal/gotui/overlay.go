@@ -95,6 +95,7 @@ func (c *confirmOverlay) Draw(buf *ui.Buffer) {
 	fillBlock(buf, c.GetRect(), ui.Style{Fg: c.theme.Fg, Bg: c.theme.PanelHigh})
 	c.Title = " " + c.theme.tr(c.title) + " "
 	c.Block.Draw(buf)
+	defer drawModalClose(buf, c.Block, c.theme)
 	width := c.Inner.Dx()
 	y := c.Inner.Min.Y
 	lines := wrapText(c.text, c.theme.BodyMuted, max(1, width))
@@ -248,6 +249,7 @@ func (h *helpOverlay) DrawBase(buf *ui.Buffer) {
 	fillBlock(buf, h.GetRect(), ui.Style{Fg: h.theme.Fg, Bg: h.theme.PanelHigh})
 	h.Title = " " + h.theme.tr("HELP") + " "
 	h.Block.Draw(buf)
+	defer drawModalClose(buf, h.Block, h.theme)
 	height := max(0, h.Inner.Dy()-1)
 	for i := 0; i < height; i++ {
 		idx := h.offset + i
@@ -382,6 +384,7 @@ func (d *detailOverlay) Draw(buf *ui.Buffer) {
 	fillBlock(buf, d.GetRect(), ui.Style{Fg: d.theme.Fg, Bg: d.theme.PanelHigh})
 	d.Title = " " + d.theme.tr("SESSION DETAILS") + " "
 	d.Block.Draw(buf)
+	defer drawModalClose(buf, d.Block, d.theme)
 	height := max(0, d.Inner.Dy()-1)
 	for i := 0; i < height; i++ {
 		idx := d.offset + i
