@@ -225,6 +225,9 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 	case tcell.KeyF3:
 		a.openPlan()
 		return
+	case tcell.KeyF4:
+		a.openDriverPicker()
+		return
 	case tcell.KeyPgUp:
 		a.activeTranscript().Scroll(-max(3, a.activeTranscript().Inner.Dy()-2))
 		return
@@ -335,6 +338,8 @@ func (a *App) handleKey(ev *tcell.EventKey) {
 				a.openPicker()
 			case "s":
 				a.openModePicker()
+			case "d":
+				a.openDriverPicker()
 			case "a":
 				a.enterNative(protocol.Austin)
 			case "t":

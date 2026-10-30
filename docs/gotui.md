@@ -51,7 +51,7 @@ workflow state or makes project transitions:
 - **Pause and drivers.** `/pause` waits for a turn boundary and shows
   `PAUSING`/`PAUSED` in the header, with the footer naming who is still working.
   `/unpause` cancels an incomplete request; `/continue` resumes a full pause.
-  `/driver` is available before the first task, while fully paused, or after
+  `F4`, `Alt+D`, or `/driver` opens the picker before the first task, while fully paused, or after
   `DONE`: agent tabs, typing filter, a marker on the current driver, and no
   resume when a choice is applied.
 - **Recall.** `/recall` is the destructive twin of `/new`: where `/new` closes
@@ -117,6 +117,7 @@ variables. The dashboard adds:
 | `Ctrl+E` / `/reports` | Open the observer's status report; `R` asks again, `?` asks the observer your own question |
 | `Ctrl+O` / `Alt+O` | Open session details and the Git diffstat |
 | `Ctrl+M` / `Alt+M` | Open the model and thinking picker |
+| `F4` / `Alt+D` | Open the driver picker when driver changes are allowed |
 | `Ctrl+S` / `Alt+S` | Open the FAST/GOAL/STEP mode picker |
 | `Ctrl+G` | Toggle message timestamps |
 | `Ctrl+F` / `/search` | Search the active pane; `n` / `N` next hit, `Esc` restores the viewport |

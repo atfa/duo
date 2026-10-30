@@ -5,7 +5,29 @@ import (
 	"testing"
 
 	"github.com/atfa/duo/internal/protocol"
+	"github.com/gdamore/tcell/v3"
 )
+
+func TestDriverPickerShortcutsRespectSessionState(t *testing.T) {
+	for _, key := range []*tcell.EventKey{
+		tcell.NewEventKey(tcell.KeyF4, "", tcell.ModNone),
+		tcell.NewEventKey(tcell.KeyRune, "d", tcell.ModAlt),
+	} {
+		fake := newFakeSession()
+		app := New(fake)
+		app.handleKey(key)
+		if app.overlay != overlayNone || !app.statusErr {
+			t.Fatalf("%v should reject a running session", key)
+		}
+		fake.view.Project.Started = false
+		app = New(fake)
+		app.handleKey(tcell.NewEventKey(tcell.KeyRune, "x", tcell.ModNone))
+		app.handleKey(key)
+		if app.overlay != overlayDrivers || app.composer.Text() != "x" {
+			t.Fatalf("%v: overlay = %v, draft = %q", key, app.overlay, app.composer.Text())
+		}
+	}
+}
 
 func TestDriverPickerSelectsCurrentDriverAfterLoad(t *testing.T) {
 	p := newDriverPicker(newTheme())
