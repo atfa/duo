@@ -27,7 +27,7 @@ func TestPanelCreateWithDefaultProject(t *testing.T) {
 		}
 		return nil, nil
 	}}}
-	p.key(tcell.NewEventKey(tcell.KeyRune, "n", tcell.ModNone))
+	p.key(tcell.NewEventKey(tcell.KeyCtrlN, "", tcell.ModNone))
 	p.key(tcell.NewEventKey(tcell.KeyEnter, "", tcell.ModNone))
 	if !started || len(p.rows) != 1 || p.message != "Instance started." {
 		t.Fatalf("started=%v rows=%d message=%q", started, len(p.rows), p.message)
@@ -73,7 +73,7 @@ func TestPanelRenderAndNavigation(t *testing.T) {
 	if p.selected != -1 {
 		t.Fatal(p.selected)
 	}
-	if p.key(tcell.NewEventKey(tcell.KeyRune, "q", tcell.ModNone)) {
+	if p.key(tcell.NewEventKey(tcell.KeyCtrlQ, "", tcell.ModNone)) {
 		t.Fatal("q did not quit")
 	}
 }
@@ -123,7 +123,7 @@ func TestPanelOperations(t *testing.T) {
 	p := panel{dir: dir, tmux: tm}
 	p.refresh()
 	key := func(k tcell.Key, s string) { p.key(tcell.NewEventKey(k, s, tcell.ModNone)) }
-	key(tcell.KeyRune, "n")
+	key(tcell.KeyCtrlN, "")
 	p.input = "/does/not/exist"
 	key(tcell.KeyRune, "z")
 	if !strings.HasSuffix(p.input, "z") {
@@ -134,7 +134,7 @@ func TestPanelOperations(t *testing.T) {
 		t.Fatal(p.message)
 	}
 	key(tcell.KeyEsc, "")
-	key(tcell.KeyRune, "x")
+	key(tcell.KeyCtrlX, "")
 	if p.mode != "confirm" {
 		t.Fatalf("confirmation mode: %q", p.mode)
 	}
@@ -150,7 +150,7 @@ func TestPanelOperations(t *testing.T) {
 	if slices.Contains(calls, "switch-client") || !strings.Contains(p.message, "no recorded Duo session") {
 		t.Fatal(calls, p.message)
 	}
-	key(tcell.KeyRune, "x")
+	key(tcell.KeyCtrlX, "")
 	if p.mode != "" || len(p.rows) != 0 {
 		t.Fatal(p.mode, p.rows)
 	}

@@ -502,6 +502,7 @@ func (a *App) run(ctx context.Context, backend *ui.Backend) error {
 	if a.screen == nil {
 		return fmt.Errorf("terminal UI has no screen")
 	}
+	a.screen.SetTitle("duo - " + a.live.Worktrees.Repository)
 	a.screen.SetStyle(tcell.StyleDefault.Foreground(a.theme.Fg).Background(a.theme.Bg))
 	a.screen.EnableMouse()
 	a.screen.EnablePaste()

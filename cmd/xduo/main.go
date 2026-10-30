@@ -146,6 +146,11 @@ func rowLines(r row, now time.Time) [3]string {
 }
 
 func (p *panel) draw(s tcell.Screen) {
+	title := "xduo"
+	if p.selected >= 0 && p.selected < len(p.rows) {
+		title += " - " + p.rows[p.selected].instance.Project
+	}
+	s.SetTitle(title)
 	s.SetStyle(base)
 	s.Clear()
 	s.HideCursor()
@@ -164,7 +169,7 @@ func (p *panel) draw(s tcell.Screen) {
 	if w < 36 || h < 12 {
 		p.picker.hits = nil
 		p.tunnelOKRect, p.tunnelCopyRect = image.Rectangle{}, image.Rectangle{}
-		hint := "Enlarge terminal · Q quits"
+		hint := "Enlarge terminal · Ctrl-Q quits"
 		if p.mode == "input" || p.mode == "tunnel" {
 			hint = "Enlarge terminal · Esc closes"
 		}
@@ -173,31 +178,31 @@ func (p *panel) draw(s tcell.Screen) {
 		return
 	}
 	put(1, 0, "◆ XDUO   /   Workspaces", accent)
-	put(1, 1, "[ R Refresh ]   [ X Close ]   [ Q Quit ]", muted)
-	label, style := "[ S Server: Off ]", muted
+	put(1, 1, "[ ^R Refresh ] [ ^X Close ] [ ^Q Quit ]", muted)
+	label, style := "[ ^S Server: Off ]", muted
 	if p.server != nil {
-		label, style = "[ S Server: On ]", primaryButton
+		label, style = "[ ^S Server: On ]", primaryButton
 
 	} else if p.serverError {
-		label, style = "[ S Server: Error ]", errorStyle
+		label, style = "[ ^S Server: Error ]", errorStyle
 	}
 	put(43, 1, label, style)
-	tunnelLabel, tunnelStyle := "[ T Tunnel: Off ]", muted
+	tunnelLabel, tunnelStyle := "[ ^T Tunnel: Off ]", muted
 	if p.tunnelPending != nil {
-		tunnelLabel = "[ T Tunnel: Starting ]"
+		tunnelLabel = "[ ^T Tunnel: Starting ]"
 	} else if p.tunnelError != nil {
-		tunnelLabel, tunnelStyle = "[ T Tunnel: Error ]", errorStyle
+		tunnelLabel, tunnelStyle = "[ ^T Tunnel: Error ]", errorStyle
 		if errors.Is(p.tunnelError, xduo.ErrTunnelNotConfigured) {
-			tunnelLabel, tunnelStyle = "[ T Tunnel: Setup ]", muted
+			tunnelLabel, tunnelStyle = "[ ^T Tunnel: Setup ]", muted
 		}
 	}
 	if p.tunnel != nil {
 		if !p.tunnel.Running() {
-			tunnelLabel, tunnelStyle = "[ T Tunnel: Error ]", errorStyle
+			tunnelLabel, tunnelStyle = "[ ^T Tunnel: Error ]", errorStyle
 		} else if p.tunnel.Ready() {
-			tunnelLabel, tunnelStyle = "[ T Tunnel: On ]", primaryButton
+			tunnelLabel, tunnelStyle = "[ ^T Tunnel: On ]", primaryButton
 		} else {
-			tunnelLabel = "[ T Tunnel: Starting ]"
+			tunnelLabel = "[ ^T Tunnel: Starting ]"
 		}
 	}
 	tunnelX := 43 + rw.StringWidth(label) + 3
@@ -282,7 +287,7 @@ func (p *panel) draw(s tcell.Screen) {
 			cardText(rect.Min.Y+6, fmt.Sprintf("Remote %s  ·  updated %s", r.remote, age(r.status.Snapshot.UpdatedAt, time.Now())), muted)
 		}
 	}
-	put(1, h-2, "Arrow keys select · Enter open · click card to open · N new", muted)
+	put(1, h-2, "Arrow keys select · Enter open · click card to open · Ctrl-N new", muted)
 	if h > 1 {
 		line := p.message
 		if p.mode == "input" {
@@ -416,22 +421,19 @@ func (p *panel) key(e *tcell.EventKey) bool {
 				}
 			}
 		}
-	case tcell.KeyRune:
-		switch e.Str() {
-		case "q":
-			return false
-		case "s":
-			p.toggleServer()
-		case "t":
-			p.toggleTunnel()
-		case "r":
-			p.message = ""
-			p.refresh()
-		case "n":
-			p.openPicker()
-		case "x":
-			p.closeSelected(false)
-		}
+	case tcell.KeyCtrlQ:
+		return false
+	case tcell.KeyCtrlS:
+		p.toggleServer()
+	case tcell.KeyCtrlT:
+		p.toggleTunnel()
+	case tcell.KeyCtrlR:
+		p.message = ""
+		p.refresh()
+	case tcell.KeyCtrlN:
+		p.openPicker()
+	case tcell.KeyCtrlX:
+		p.closeSelected(false)
 	}
 	return true
 }
@@ -592,11 +594,11 @@ func runPanel(p *panel) error {
 					} else if image.Pt(x, y).In(p.copyCodeRect) {
 						p.copyAccessCode(screen)
 					} else if y == 1 {
-						for i, key := range []string{"r", "x", "q", "s"} {
+						for i, key := range []tcell.Key{tcell.KeyCtrlR, tcell.KeyCtrlX, tcell.KeyCtrlQ, tcell.KeyCtrlS} {
 							starts := []int{1, 17, 31, 43}
 							ends := []int{14, 28, 41, 63}
 							if x >= starts[i] && x < ends[i] {
-								if !p.key(tcell.NewEventKey(tcell.KeyRune, key, tcell.ModNone)) {
+								if !p.key(tcell.NewEventKey(key, "", tcell.ModNone)) {
 									return nil
 								}
 							}
