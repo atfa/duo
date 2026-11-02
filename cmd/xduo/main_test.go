@@ -80,17 +80,47 @@ func TestPanelRenderAndNavigation(t *testing.T) {
 
 func TestBootstrap(t *testing.T) {
 	var calls [][]string
+	existing := false
 	runner := func(interactive bool, args ...string) ([]byte, error) {
 		calls = append(calls, args)
-		if args[0] == "has-session" {
+		if args[0] == "has-session" && !existing {
 			return nil, errors.New("absent")
 		}
 		return nil, nil
 	}
+	checkStyles := func(t *testing.T, calls [][]string) {
+		t.Helper()
+		want := append([][2]string{{"status-left-length", "32"}}, xduo.StatusStyle()...)
+		var got [][2]string
+		for _, call := range calls {
+			if len(call) == 5 && call[0] == "set-option" && call[1] == "-t" && call[2] == "xduo-manager" {
+				got = append(got, [2]string{call[3], call[4]})
+			}
+		}
+		if !slices.Equal(got, want) {
+			t.Fatalf("status options: %v want %v", got, want)
+		}
+	}
 	handled, err := bootstrap("/path/duo", "", "", true, runner)
-	if err != nil || !handled || len(calls) != 4 || calls[1][0] != "new-session" || !slices.Equal(calls[2], []string{"set-option", "-t", "xduo-manager", "status-left-length", "32"}) || calls[3][0] != "attach-session" {
+	if err != nil || !handled || calls[1][0] != "new-session" || calls[len(calls)-1][0] != "attach-session" {
 		t.Fatalf("%v %v %v", handled, err, calls)
 	}
+	checkStyles(t, calls)
+
+	// Session options live in the tmux server, so joining a manager created by
+	// an earlier xduo must restyle it instead of inheriting the green default.
+	calls, existing = nil, true
+	handled, err = bootstrap("/path/duo", "tmux-client", "", true, runner)
+	if err != nil || !handled || calls[len(calls)-1][0] != "switch-client" {
+		t.Fatalf("%v %v %v", handled, err, calls)
+	}
+	for _, call := range calls {
+		if call[0] == "new-session" {
+			t.Fatalf("existing manager recreated: %v", calls)
+		}
+	}
+	checkStyles(t, calls)
+
 	calls = nil
 	handled, err = bootstrap("", "", "1", true, runner)
 	if err != nil || handled || len(calls) != 0 {

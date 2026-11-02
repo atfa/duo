@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/atfa/duo/internal/xduo"
 	"golang.org/x/term"
 )
 
@@ -67,6 +68,13 @@ func bootstrap(duo, tmuxEnv, manager string, tty bool, run tmuxRunner) (bool, er
 	}
 	if out, err := run(false, "set-option", "-t", "xduo-manager", "status-left-length", "32"); err != nil {
 		return false, fmt.Errorf("xduo: configure manager status: %w: %s", err, strings.TrimSpace(string(out)))
+	}
+	// The palette is cosmetic, so a tmux that rejects an option must not stop
+	// xduo from opening. Reapplied on every start so a manager created by an
+	// older xduo is restyled too; session options, never global, keep other
+	// tmux users' bars untouched.
+	for _, option := range xduo.StatusStyle() {
+		_, _ = run(false, "set-option", "-t", "xduo-manager", option[0], option[1])
 	}
 	var out []byte
 	if tmuxEnv != "" {
