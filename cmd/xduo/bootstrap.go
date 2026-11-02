@@ -66,14 +66,15 @@ func bootstrap(duo, tmuxEnv, manager string, tty bool, run tmuxRunner) (bool, er
 			return false, fmt.Errorf("xduo: create manager: %w: %s", e, strings.TrimSpace(string(out)))
 		}
 	}
-	if out, err := run(false, "set-option", "-t", "xduo-manager", "status-left-length", "32"); err != nil {
+	if out, err := run(false, "set-option", "-t", "xduo-manager", "status-left-length", xduo.StatusLeftLength); err != nil {
 		return false, fmt.Errorf("xduo: configure manager status: %w: %s", err, strings.TrimSpace(string(out)))
 	}
-	// The palette is cosmetic, so a tmux that rejects an option must not stop
-	// xduo from opening. Reapplied on every start so a manager created by an
-	// older xduo is restyled too; session options, never global, keep other
+	// Palette and label are cosmetic, so a tmux that rejects an option must not
+	// stop xduo from opening. Reapplied on every start so a manager created by
+	// an older xduo is relabelled too; session options, never global, keep other
 	// tmux users' bars untouched.
-	for _, option := range xduo.StatusStyle() {
+	options := append(xduo.StatusStyle(), xduo.StatusContent("xduo")...)
+	for _, option := range options {
 		_, _ = run(false, "set-option", "-t", "xduo-manager", option[0], option[1])
 	}
 	var out []byte

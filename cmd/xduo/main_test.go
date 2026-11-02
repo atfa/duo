@@ -90,7 +90,8 @@ func TestBootstrap(t *testing.T) {
 	}
 	checkStyles := func(t *testing.T, calls [][]string) {
 		t.Helper()
-		want := append([][2]string{{"status-left-length", "32"}}, xduo.StatusStyle()...)
+		want := append([][2]string{{"status-left-length", xduo.StatusLeftLength}}, xduo.StatusStyle()...)
+		want = append(want, xduo.StatusContent("xduo")...)
 		var got [][2]string
 		for _, call := range calls {
 			if len(call) == 5 && call[0] == "set-option" && call[1] == "-t" && call[2] == "xduo-manager" {
