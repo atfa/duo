@@ -97,20 +97,23 @@ func (t Tmux) start(ctx context.Context, i Instance, duo string, commandArgs ...
 	for _, option := range [][2]string{
 		{"detach-on-destroy", "off"},
 		{"status-right-length", "60"},
-		{"status-right", "#{prefix} then Shift+L: return to xduo"},
+		{"status-right", StatusRightText},
 	} {
 		if err := t.run(ctx, "set-option", "-t", i.Session, option[0], option[1]); err != nil {
 			_ = t.run(context.Background(), "kill-session", "-t", "="+i.Session)
 			return err
 		}
 	}
-	t.setStatusStyle(ctx, i.Session)
+	t.applyStatus(ctx, i)
 	return nil
 }
 
-func (t Tmux) setStatusStyle(ctx context.Context, session string) {
-	for _, option := range StatusStyle() {
-		_ = t.run(ctx, "set-option", "-t", session, option[0], option[1])
+func (t Tmux) applyStatus(ctx context.Context, i Instance) {
+	options := append(StatusStyle(), StatusContent("Duo · "+filepath.Base(i.Project))...)
+	options = append(options, StatusHint()...)
+	options = append(options, [2]string{"status-left-length", StatusLeftLength})
+	for _, option := range options {
+		_ = t.run(ctx, "set-option", "-t", i.Session, option[0], option[1])
 	}
 }
 
@@ -165,7 +168,11 @@ func (t Tmux) Close(ctx context.Context, i Instance, state DisplayStatus, confir
 }
 
 // Switch activates an existing instance for the current tmux client.
-func (t Tmux) Switch(ctx context.Context, session string) error {
-	t.setStatusStyle(ctx, session)
-	return t.run(ctx, "switch-client", "-t", "="+session)
+func (t Tmux) Switch(ctx context.Context, i Instance) error {
+	t.applyStatus(ctx, i)
+	return t.run(ctx, "switch-client", "-t", "="+i.Session)
+}
+
+func (t Tmux) SwitchManager(ctx context.Context) error {
+	return t.run(ctx, "switch-client", "-t", "=xduo-manager")
 }

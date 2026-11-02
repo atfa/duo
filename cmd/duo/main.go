@@ -198,7 +198,7 @@ func run(ctx context.Context, cfg config) error {
 					if err != nil {
 						return err
 					}
-					return tm.Switch(context.Background(), "xduo-manager")
+					return tm.SwitchManager(context.Background())
 				})
 			}
 			// The view the human configured in ~/.duo/config.json applies unless this

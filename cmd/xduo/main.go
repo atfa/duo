@@ -396,7 +396,7 @@ func (p *panel) key(e *tcell.EventKey) bool {
 					p.message = err.Error()
 					return true
 				}
-				if err = p.tmux.Switch(context.Background(), r.instance.Session); err != nil {
+				if err = p.tmux.Switch(context.Background(), r.instance); err != nil {
 					p.message = err.Error()
 				} else {
 					records, saveErr := xduo.LoadRegistry(filepath.Join(p.dir, "instances.json"))
