@@ -106,8 +106,53 @@ func TestTmuxArgumentsAndGracefulTimeout(t *testing.T) {
 	if err := tm.Close(context.Background(), i, DisplayStatus{}, true, time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(calls[1], []string{"set-option", "-t", "xduo-abc", "detach-on-destroy", "off"}) || !reflect.DeepEqual(calls[2], []string{"set-option", "-t", "xduo-abc", "status-right-length", "60"}) || !reflect.DeepEqual(calls[3], []string{"set-option", "-t", "xduo-abc", "status-right", "#{prefix} then Shift+L: return to xduo"}) || !reflect.DeepEqual(calls[4], []string{"has-session", "-t", "=xduo-abc"}) || !reflect.DeepEqual(calls[5], []string{"send-keys", "-t", "=xduo-abc:", "C-q"}) || !reflect.DeepEqual(calls[6], []string{"kill-session", "-t", "=xduo-abc"}) {
+	n := 4 + len(StatusStyle())
+	if !reflect.DeepEqual(calls[1], []string{"set-option", "-t", "xduo-abc", "detach-on-destroy", "off"}) || !reflect.DeepEqual(calls[2], []string{"set-option", "-t", "xduo-abc", "status-right-length", "60"}) || !reflect.DeepEqual(calls[3], []string{"set-option", "-t", "xduo-abc", "status-right", "#{prefix} then Shift+L: return to xduo"}) || !reflect.DeepEqual(calls[n], []string{"has-session", "-t", "=xduo-abc"}) || !reflect.DeepEqual(calls[n+1], []string{"send-keys", "-t", "=xduo-abc:", "C-q"}) || !reflect.DeepEqual(calls[n+2], []string{"kill-session", "-t", "=xduo-abc"}) {
 		t.Fatalf("close argv: %#v", calls)
+	}
+}
+
+func TestTmuxStatusStyleIsSessionScoped(t *testing.T) {
+	t.Setenv("TMUX", "")
+	tm, err := FindTmux()
+	if err != nil {
+		t.Skip(err)
+	}
+	tm.Socket = "xduo-style-" + filepath.Base(t.TempDir())
+	ctx := context.Background()
+	defer tm.run(ctx, "kill-server")
+	if err := tm.run(ctx, "new-session", "-d", "-s", "other", "sleep", "30"); err != nil {
+		t.Fatal(err)
+	}
+	global, err := tm.execute(ctx, "show-options", "-gv", "status-style")
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := Instance{Session: "xduo-test", Project: t.TempDir()}
+	if err := tm.start(ctx, i, "sleep", "30"); err != nil {
+		t.Fatal(err)
+	}
+	check := func(option, want string) {
+		t.Helper()
+		got, err := tm.execute(ctx, "show-options", "-Av", "-t", i.Session, option)
+		if err != nil || strings.TrimSpace(string(got)) != want {
+			t.Fatalf("%s: %q: %v", option, got, err)
+		}
+	}
+	check("status-style", "bg=#141b22,fg=#8b98a8")
+	check("window-status-current-style", "bg=#1d262d,fg=#6fdac1,bold")
+	if err := tm.run(ctx, "set-option", "-t", i.Session, "status-style", "bg=red"); err != nil {
+		t.Fatal(err)
+	}
+	_ = tm.Switch(ctx, i.Session) // No attached client; styling precedes switching.
+	check("status-style", "bg=#141b22,fg=#8b98a8")
+	other, err := tm.execute(ctx, "show-options", "-Av", "-t", "other", "status-style")
+	if err != nil || string(other) != string(global) {
+		t.Fatalf("other: %q, global: %q, err: %v", other, global, err)
+	}
+	after, err := tm.execute(ctx, "show-options", "-gv", "status-style")
+	if err != nil || string(after) != string(global) {
+		t.Fatalf("global changed: %q to %q: %v", global, after, err)
 	}
 }
 

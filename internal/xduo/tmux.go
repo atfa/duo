@@ -104,7 +104,14 @@ func (t Tmux) start(ctx context.Context, i Instance, duo string, commandArgs ...
 			return err
 		}
 	}
+	t.setStatusStyle(ctx, i.Session)
 	return nil
+}
+
+func (t Tmux) setStatusStyle(ctx context.Context, session string) {
+	for _, option := range StatusStyle() {
+		_ = t.run(ctx, "set-option", "-t", session, option[0], option[1])
+	}
 }
 
 // Alive distinguishes an absent session from a tmux server failure where possible.
@@ -159,5 +166,6 @@ func (t Tmux) Close(ctx context.Context, i Instance, state DisplayStatus, confir
 
 // Switch activates an existing instance for the current tmux client.
 func (t Tmux) Switch(ctx context.Context, session string) error {
+	t.setStatusStyle(ctx, session)
 	return t.run(ctx, "switch-client", "-t", "="+session)
 }
