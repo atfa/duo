@@ -29,11 +29,15 @@ func StatusStyle() [][2]string {
 // appears once a session actually holds more than one window. xduo sessions are
 // single-window Duo terminals, where "0:sh*" only ever meant "this is the only
 // window" — the index, the shell name and the * marker carried no information.
+// The window list stays unstyled on purpose: inline "#[...]" styles contain
+// commas, which the #{?} conditional would parse as argument separators. The
+// current window is distinguished by window-status-current-style instead.
 func StatusContent(label string) [][2]string {
+	windowList := "#{?#{==:#{session_windows},1},,#{window_index}:#{window_name} }"
 	return [][2]string{
 		{"status-left", "#[fg=#6fdac1,bold]" + escapeStatusText(label) + "#[fg=#8b98a8] "},
-		{"window-status-format", "#{?#{==:#{session_windows},1},,#{window_index}:#{window_name} }"},
-		{"window-status-current-format", "#{?#{==:#{session_windows},1},,#[fg=#6fdac1,bold]#{window_index}:#{window_name}#[fg=#8b98a8,nobold] }"},
+		{"window-status-format", windowList},
+		{"window-status-current-format", windowList},
 	}
 }
 
