@@ -60,6 +60,8 @@ func shortPath(path string, max int) string {
 
 func modeChain(mode string) []string {
 	switch strings.ToUpper(mode) {
+	case "LOOP":
+		return []string{"RUNNING", "DONE"}
 	case "FAST":
 		return []string{"RUNNING", "VERIFY", "DONE"}
 	case "STEP":

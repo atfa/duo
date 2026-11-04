@@ -297,3 +297,32 @@ func TestRunCleanDryRunPreservesFiles(t *testing.T) {
 		t.Fatal("dry-run must not delete store files")
 	}
 }
+
+func TestCleanLoopRequiresForceEvenWhenDoneOrExplicit(t *testing.T) {
+	baseDir := t.TempDir()
+	const repoID, id = "loop-repo", "loop-done"
+	store, err := sessionstore.New(baseDir, repoID, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(sessionstore.Snapshot{SessionID: id, RepoID: repoID, Mode: project.ModeLoop, Phase: "DONE"}); err != nil {
+		t.Fatal(err)
+	}
+	items, err := sessionstore.List(baseDir, repoID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, opts := range []cleanArgs{{}, {all: true}, {sessionID: id}} {
+		cleaned, skipped, err := cleanSummaries(context.Background(), baseDir, repoID, items, opts)
+		if err != nil || cleaned != 0 || skipped != 1 {
+			t.Fatalf("clean = %d/%d, %v", cleaned, skipped, err)
+		}
+		if _, err := os.Stat(store.Dir()); err != nil {
+			t.Fatalf("LOOP result removed: %v", err)
+		}
+	}
+	cleaned, skipped, err := cleanSummaries(context.Background(), baseDir, repoID, items, cleanArgs{force: true})
+	if err != nil || cleaned != 1 || skipped != 0 {
+		t.Fatalf("force = %d/%d, %v", cleaned, skipped, err)
+	}
+}

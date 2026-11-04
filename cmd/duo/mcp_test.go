@@ -316,7 +316,7 @@ func TestMCPToolsListMatchesTheBridge(t *testing.T) {
 	if err := json.Unmarshal(out, &listed); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"duo_send", "duo_status", "duo_set_status", "duo_set_verification", "duo_set_plan", "duo_set_steps", "duo_escalate", "duo_restart_duo"}
+	want := []string{"duo_send", "duo_wait", "duo_finish", "duo_status", "duo_set_status", "duo_set_verification", "duo_set_plan", "duo_set_steps", "duo_escalate", "duo_restart_duo"}
 	if len(listed.Result.Tools) != len(want) {
 		t.Fatalf("tools/list returned %d tools, want %d", len(listed.Result.Tools), len(want))
 	}

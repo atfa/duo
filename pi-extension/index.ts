@@ -4,6 +4,7 @@ import { parseDuoMode } from "./mode";
 import { installDuoPrompt } from "./prompt";
 import type { AgentName } from "./protocol";
 import { DuoTransport } from "./transport";
+import { registerLoopTools } from "./tools/loop";
 import { registerPlanTool } from "./tools/plan";
 import { registerProjectStatusTool } from "./tools/project-status";
 import { registerSendTool } from "./tools/send";
@@ -45,6 +46,7 @@ export default function (pi: any) {
   installModelBridge(pi, transport, AGENT);
 
   registerSendTool(pi, transport);
+  registerLoopTools(pi, transport);
   registerPlanTool(pi, transport);
   registerStepsTool(pi, transport);
   registerStatusTool(pi, transport);

@@ -17,7 +17,7 @@ type slashCommand struct {
 
 var slashCommands = []slashCommand{
 	{name: "/escalate", args: "[reason]", desc: "Switch to Goal mode", needsArg: true},
-	{name: "/mode", args: "[fast|goal|step]", desc: "Mode picker, or switch directly (Ctrl+S)"},
+	{name: "/mode", args: "[fast|goal|step|loop]", desc: "Mode picker, or switch directly (Ctrl+S)"},
 	{name: "/model", desc: "Model & thinking picker (Ctrl+M)"},
 	{name: "/austin", desc: "Attach Austin's native terminal (Ctrl+A / Alt+A)"},
 	{name: "/tony", desc: "Attach Tony's native terminal (Ctrl+T / Alt+T)"},
@@ -130,7 +130,7 @@ func (s *slashMenu) Draw(buf *ui.Buffer) {
 		s.offset = maxOffset
 	}
 	// The command column must fit the longest documented spelling, not a fixed
-	// guess. `/mode [fast|goal|step]` is 22 cells; the old 18-cell column cut it
+	// guess. `/mode [fast|goal|step|loop]` is 22 cells; the old 18-cell column cut it
 	// to `/mode [fast|goal…` and hid the mode this release added.
 	nameWidth := 18
 	for _, cmd := range s.commands {

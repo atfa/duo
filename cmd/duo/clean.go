@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
 	"github.com/atfa/duo/internal/sessionstore"
 	"github.com/atfa/duo/internal/workspace"
@@ -192,6 +193,12 @@ func cleanSummaries(ctx context.Context, baseDir, repoID string, items []session
 	skipped := 0
 
 	for _, item := range items {
+		if item.Snapshot.EffectiveMode() == project.ModeLoop && !opts.force {
+			fmt.Printf("  Skipping LOOP session %s: results are not delivered; pass --force to discard worktrees\n", item.SessionID)
+			skipped++
+			continue
+		}
+
 		// Eligibility check
 		isExplicit := opts.sessionID == item.SessionID
 		if !isExplicit && !opts.all && opts.sessionID == "" && !opts.force {

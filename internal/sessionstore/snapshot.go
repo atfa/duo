@@ -144,10 +144,11 @@ type Snapshot struct {
 	BaseBranch string `json:"baseBranch"`
 	BaseCommit string `json:"baseCommit"`
 
-	Phase       string `json:"phase"`
-	Plan        string `json:"plan"`
-	PlanVersion int    `json:"planVersion"`
-	Started     bool   `json:"started"`
+	Loop        project.LoopState `json:"loop,omitempty"`
+	Phase       string            `json:"phase"`
+	Plan        string            `json:"plan"`
+	PlanVersion int               `json:"planVersion"`
+	Started     bool              `json:"started"`
 
 	// Step is the Step-mode queue cursor (1-based; len(Steps)+1 when the queue is
 	// finished) and Steps is the queue itself. Both are additive optional state, so
@@ -274,6 +275,8 @@ func (s Snapshot) NeedsDelivery() bool {
 		return false
 	}
 	switch s.EffectiveMode() {
+	case project.ModeLoop:
+		return false
 	case project.ModeFast:
 		return s.Phase == string(project.PhaseVerify) && s.VerificationResult().Status == project.VerificationPassed
 	case project.ModeStep:

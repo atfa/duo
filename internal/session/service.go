@@ -480,6 +480,8 @@ func (s *Service) launch(ctx context.Context) (Result, error) {
 		s.logger.Printf("checkpoint after startup: %v", err)
 	}
 
+	go coord.RunLoop(s.ctx)
+
 	if s.opts.HarnessEnabled {
 		harnessConfig := s.opts.Harness
 		harnessConfig.Language = s.opts.Language

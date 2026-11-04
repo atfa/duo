@@ -249,7 +249,7 @@ func parseArgs(args []string) (cliArgs, error) {
 			out.help = true
 		case arg == "--mode" || arg == "-m":
 			if i+1 >= len(args) {
-				return out, fmt.Errorf("--mode requires a value (fast, goal or step)")
+				return out, fmt.Errorf("--mode requires a value (fast, goal, step or loop)")
 			}
 			out.mode = strings.TrimSpace(args[i+1])
 			out.modeExplicit = true

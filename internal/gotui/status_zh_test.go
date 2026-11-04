@@ -129,7 +129,7 @@ func TestStatusMessagesHaveChineseTranslations(t *testing.T) {
 		"timestamps shown",
 		"timestamps hidden",
 		"already in %s mode",
-		"usage: /mode [fast|goal|step]",
+		"usage: /mode [fast|goal|step|loop]",
 		"mode → %s; pause is still active — use /continue or /unpause",
 		"mode → %s; agents not resumed yet",
 		"%s driver → %s (new process starts idle)",

@@ -20,7 +20,7 @@ type modePicker struct {
 	box     image.Rectangle
 }
 
-var pickerModes = []project.Mode{project.ModeFast, project.ModeGoal, project.ModeStep}
+var pickerModes = []project.Mode{project.ModeFast, project.ModeGoal, project.ModeStep, project.ModeLoop}
 
 func newModePicker(t theme) *modePicker {
 	p := &modePicker{Block: newModalBlock(t), theme: t}
@@ -29,7 +29,7 @@ func newModePicker(t theme) *modePicker {
 }
 
 func (p *modePicker) place(l layout) {
-	p.box = centered(l, 68, 9)
+	p.box = centered(l, 68, 10)
 	p.Block.SetRect(p.box.Min.X, p.box.Min.Y, p.box.Max.X, p.box.Max.Y)
 	p.clamp()
 }
@@ -71,6 +71,8 @@ func modePurpose(mode project.Mode) string {
 	switch mode {
 	case project.ModeFast:
 		return "Austin implements; Tony verifies before Duo lands"
+	case project.ModeLoop:
+		return "Ongoing collaboration with durable waits; no Git delivery"
 	case project.ModeStep:
 		return "Dual-approved queue; each step runs FAST or GOAL"
 	default:

@@ -336,7 +336,7 @@ func TestSimulationDashboardCommandsAndOverlays(t *testing.T) {
 	waitForText(t, sim, "COMMANDS")
 	// The command column must show the full mode spelling; a fixed narrow column
 	// used to truncate it to `/mode [fast|goal…`.
-	waitForText(t, sim, "/mode [fast|goal|step]")
+	waitForText(t, sim, "/mode [fast|goal|step|loop]")
 	typeText(sim, "he")
 	waitForText(t, sim, "Help and workflow guide")
 	injectKey(sim, tcell.KeyEsc, 0, tcell.ModNone)

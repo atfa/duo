@@ -111,6 +111,7 @@ func Compose(in ComposeInput) sessionstore.Snapshot {
 		BaseBranch:    in.BaseBranch,
 		BaseCommit:    in.BaseCommit,
 		Phase:         string(in.Project.Phase),
+		Loop:          in.Project.Loop,
 		Plan:          in.Project.Plan,
 		PlanVersion:   in.Project.PlanVersion,
 		Step:          in.Project.Step,
@@ -197,6 +198,7 @@ func driverOf(mode project.Mode) string {
 func ProjectSnapshot(snap sessionstore.Snapshot) project.Snapshot {
 	out := project.Snapshot{
 		Mode:         snap.EffectiveMode(),
+		Loop:         snap.Loop,
 		Phase:        project.Phase(snap.Phase),
 		Plan:         snap.Plan,
 		PlanVersion:  snap.PlanVersion,
@@ -305,7 +307,7 @@ func Reconcile(ctx context.Context, ws *workspace.GitManager, snap sessionstore.
 	// merges Tony's per-step work inside EXECUTE, and a step is gated by Tony's
 	// per-step verdict, so promoting a STEP session to INTEGRATE on merge evidence
 	// would land a step that was never reviewed.
-	stepMode := snap.EffectiveMode() == project.ModeStep
+	stepMode := snap.EffectiveMode() == project.ModeStep || snap.EffectiveMode() == project.ModeLoop
 
 	switch {
 	case mergeState.InProgress && stepMode:

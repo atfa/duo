@@ -187,7 +187,9 @@ request/response calls over the same socket:
 | call | purpose |
 |---|---|
 | `duo_status` | read mode, phase, plan or queue, signatures and worktrees |
-| `duo_send` | send a message to the peer |
+| `duo_send` | send a message to the peer; in LOOP enqueue a durable event |
+| `duo_wait` | LOOP: read pending events, acknowledge a processed event, and register a deadline or event wait |
+| `duo_finish` | LOOP: propose a completion summary; both agents must supply the same summary |
 | `duo_set_plan` | publish the shared plan (Goal, or the design prose in Step) |
 | `duo_set_steps` | publish the Step queue (Step only) |
 | `duo_set_status` | Fast and every Step `[fast]` item: Austin requests Tony's verification. Goal and Step plans and `[goal]` items: both agents sign. The final Step also needs both signatures. |
@@ -195,7 +197,7 @@ request/response calls over the same socket:
 | `duo_escalate` | switch the session to Goal from any mode |
 | `duo_restart_duo` | request a guarded STEP/EXECUTE restart between steps, optionally installing a new binary |
 
-These eight are the whole set; availability still follows the session mode. The MCP
+These ten are the whole set; availability still follows the session mode. The MCP
 server (`duo mcp-server`) exposes all eight over JSON-RPC, so an adapter can serve
 the tools natively or over MCP.
 
@@ -208,3 +210,24 @@ An agent that cannot call them has no coordination tools, and Duo says so plainl
 completely inert** without it, so a normal session with your agent behaves exactly as
 it would with Duo uninstalled. Both shipped adapters return immediately when
 `DUO_ACTIVE !== "1"`, and that check belongs at the very top of your entry point.
+
+## LOOP events and waiting
+
+`loop_wait` takes optional `text` (an RFC3339 deadline), `note` (reason), and
+`eventId` (the string ID of one previously processed event). Its response
+lists pending events. Events are retained until acknowledged, so a lost response
+can be read again; acknowledgement is idempotent. Reading a pending event with
+no deadline preserves an existing deadline. Register a new deadline explicitly
+to replace it. End the turn after an empty response. Duo wakes an agent when an
+event is ready, including when it has not yet registered a wait. `loop_finish`
+takes `note` as the summary. Both agents must propose identical summaries; new
+peer messages, human input and timer events invalidate previous proposals.
+
+LOOP uses the same isolated Git worktrees as other modes. It does not commit,
+merge or deliver them. Preserve or manually transfer results from the worktrees;
+ordinary `duo clean` skips LOOP sessions, and `--force` removes them. A Git
+repository is still required. Event wakes are retried at most three times per
+pending event, and an idle agent without a wait receives at most three nudges
+per idle episode. Pause and continue to reset exhausted retries. There is no
+configurable token, time or cost budget in this version. The UI's human input
+provides external events; arbitrary external integrations are not provided.

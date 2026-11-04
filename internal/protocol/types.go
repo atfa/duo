@@ -48,6 +48,8 @@ const (
 	MsgAssistantMessage MessageType = "assistant_message"
 	MsgAgentError       MessageType = "agent_error"
 	MsgPeerMessage      MessageType = "peer_message"
+	MsgLoopWait         MessageType = "loop_wait"
+	MsgLoopFinish       MessageType = "loop_finish"
 	MsgSteer            MessageType = "steer"
 	MsgDuoNotice        MessageType = "duo_notice"
 	MsgHarnessPrompt    MessageType = "harness_prompt"

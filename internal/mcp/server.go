@@ -64,6 +64,14 @@ func DefaultTools() []Tool {
 			},
 		},
 		{
+			Name: "duo_wait", Description: "LOOP: register an event or deadline wait and read pending events. After processing an event, acknowledge its ID on a later call.",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{"until": map[string]any{"type": "string", "description": "Optional RFC3339 deadline"}, "reason": map[string]any{"type": "string"}, "ack": map[string]any{"type": "string", "description": "ID of a processed event"}}},
+		},
+		{
+			Name: "duo_finish", Description: "LOOP: propose completion with a summary; both agents must approve the identical summary.",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{"summary": map[string]any{"type": "string"}}, "required": []string{"summary"}},
+		},
+		{
 			Name:        "duo_set_status",
 			Description: "Sign the current gate (ready: true) or revoke the signature (ready: false). Fast and every Step [fast] item: Austin requests Tony's verification. Goal and Step plans and [goal] items: both agents sign. The final Step also needs both signatures once its verdict or delivery is settled. A new plan or queue version resets signatures.",
 			InputSchema: map[string]any{
@@ -508,6 +516,15 @@ func (s *Server) executeTool(ctx context.Context, params callToolParams) toolRes
 			To:   peer,
 			Text: text,
 		}
+
+	case "duo_wait":
+		until, _ := params.Arguments["until"].(string)
+		reason, _ := params.Arguments["reason"].(string)
+		ack, _ := params.Arguments["ack"].(string)
+		msg = protocol.Message{Type: protocol.MsgLoopWait, Text: until, Note: reason, EventID: ack}
+	case "duo_finish":
+		summary, _ := params.Arguments["summary"].(string)
+		msg = protocol.Message{Type: protocol.MsgLoopFinish, Note: summary}
 
 	case "duo_set_status":
 		readyVal, ok := params.Arguments["ready"]

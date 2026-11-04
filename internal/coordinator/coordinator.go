@@ -337,6 +337,11 @@ func (c *Coordinator) ContinuePause(ctx context.Context) error {
 		}
 	}
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		if snap := c.project.Snapshot(); snap.EffectiveMode() == project.ModeLoop {
+			if _, waiting := snap.Loop.Waiting[id]; waiting {
+				continue
+			}
+		}
 		// A mode change requested while pausing was held with its user-facing
 		// notice. Refresh adapter mode silently before the one combined wake.
 		c.sendModeChange(ctx, c.project.Mode(), "", id)
@@ -615,6 +620,11 @@ func (c *Coordinator) deliverResumeWork(ctx context.Context, agent protocol.Agen
 	}
 	c.resumeWorkAttempted[agent] = true
 	c.resumeWorkMu.Unlock()
+	if snap := c.project.Snapshot(); snap.EffectiveMode() == project.ModeLoop {
+		if _, waiting := snap.Loop.Waiting[agent]; waiting {
+			return nil
+		}
+	}
 	message := protocol.Message{Version: protocol.Version, Type: protocol.MsgResumePrompt, From: protocol.Duo, To: agent, Text: c.ResumePrompt(agent), Timestamp: time.Now().UnixMilli()}
 	if err := c.sendToAgent(ctx, agent, message); err != nil {
 		c.resumeWorkMu.Lock()
@@ -829,7 +839,7 @@ func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 	if strings.HasPrefix(text, "/mode") {
 		fields := strings.Fields(text)
 		if len(fields) != 2 {
-			err := fmt.Errorf("usage: /mode [fast|goal|step]")
+			err := fmt.Errorf("usage: /mode [fast|goal|step|loop]")
 			c.emit(events.KindSystem, protocol.Duo, "", err.Error())
 			return err
 		}
@@ -848,6 +858,16 @@ func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 		return c.SwitchMode(ctx, project.ModeGoal, reason)
 	}
 
+	if snap := c.project.Snapshot(); snap.EffectiveMode() == project.ModeLoop && snap.Started && snap.Phase != project.PhaseDone {
+		if err := c.project.LoopHuman(text); err != nil {
+			return err
+		}
+		if err := c.persistStrict("loop human event"); err != nil {
+			return err
+		}
+		c.emit(events.KindUser, protocol.Duo, "", text)
+		return nil
+	}
 	c.clearResumePending()
 	if !c.IsAgentConnected(protocol.Austin) {
 		return fmt.Errorf("Austin is not connected yet")
@@ -871,6 +891,8 @@ func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 			prompt := goalTaskPrompt(agent, text, c.language)
 			if mode == project.ModeStep {
 				prompt = stepTaskPrompt(agent, text, c.language)
+			} else if mode == project.ModeLoop {
+				prompt = "[Duo LOOP task] Collaborate autonomously using duo_send. Use duo_wait to wait for events or a deadline, acknowledge each event by ID after processing, and call duo_finish with a summary when finished. Your worktree is isolated; no commit or delivery is required.\n\nTask: " + text
 			}
 			prompt += "\n\n" + userFirstGuidance(c.language)
 			if err := c.sendToAgent(ctx, agent, protocol.Message{
@@ -1057,8 +1079,8 @@ func (c *Coordinator) SwitchModeQuiet(ctx context.Context, target project.Mode, 
 }
 
 func (c *Coordinator) switchMode(ctx context.Context, target project.Mode, reason string, notify bool) error {
-	if target != project.ModeFast && target != project.ModeGoal && target != project.ModeStep {
-		return fmt.Errorf("unknown Duo mode %q (expected fast, goal or step)", target)
+	if target != project.ModeFast && target != project.ModeGoal && target != project.ModeStep && target != project.ModeLoop {
+		return fmt.Errorf("unknown Duo mode %q (expected fast, goal, step or loop)", target)
 	}
 	reason = strings.TrimSpace(reason)
 	before := c.project.Snapshot()
@@ -1164,7 +1186,7 @@ func (c *Coordinator) sendModeChange(ctx context.Context, mode project.Mode, tex
 }
 
 func (c *Coordinator) modeSwitchNotice(agent protocol.AgentID, target project.Mode, reason string, done bool) string {
-	if c.language == "zh" {
+	if c.language == "zh" && target != project.ModeLoop {
 		return c.modeSwitchNoticeZh(agent, target, reason, done)
 	}
 	var text string
@@ -1173,6 +1195,8 @@ func (c *Coordinator) modeSwitchNotice(agent protocol.AgentID, target project.Mo
 		text = "[Duo mode change: FAST]\nThe session is now in FAST mode. Austin implements; Tony independently verifies from his own worktree. There is no shared plan and no step queue. Austin: commit your work, keep the worktree clean, then call duo_set_status ready=true to request verification. Tony: do not commit or edit; report with duo_set_verification when requested."
 	case project.ModeGoal:
 		text = "[Duo mode change: GOAL]\nThe session is now in GOAL mode and the current round starts in PLAN. Both agents co-design the plan with duo_send and duo_set_plan, then both approve with duo_set_status ready=true. In EXECUTE both implement in their own worktrees; REVIEW cross-checks the peer's HEAD; INTEGRATE merges Tony's branch into Austin's and both sign the integrated HEAD."
+	case project.ModeLoop:
+		text = "[Duo mode change: LOOP] Collaborate autonomously using duo_send. Use duo_wait for pending events and deadlines; acknowledge events after processing. Agree the same summary with duo_finish to complete. No Git delivery is performed."
 	case project.ModeStep:
 		text = "[Duo mode change: STEP]\nThe session is now in STEP mode and the current round starts in PLAN. Both agents agree on a queue with duo_set_steps and approve it with duo_set_status ready=true. Tag each item [fast] or [goal]. A FAST item is Austin implementing and Tony verifying with duo_set_verification. A GOAL item is both implementing, cross-reviewing and signing EXECUTE/REVIEW/INTEGRATE. Every final step also needs both agents' signatures."
 	}
@@ -1316,6 +1340,11 @@ func (c *Coordinator) OnMessage(ctx context.Context, client *transport.Client, m
 
 	case protocol.MsgPeerMessage:
 		c.handlePeerMessage(ctx, client, message)
+
+	case protocol.MsgLoopWait:
+		c.handleLoopWait(ctx, client, message)
+	case protocol.MsgLoopFinish:
+		c.handleLoopFinish(ctx, client, message)
 
 	case protocol.MsgSetPlan:
 		c.handleSetPlan(ctx, client, message)
@@ -1637,6 +1666,19 @@ func (c *Coordinator) handlePeerMessage(ctx context.Context, client *transport.C
 		return
 	}
 
+	if c.project.Mode() == project.ModeLoop {
+		if err := c.project.LoopSend(from, message.Text); err != nil {
+			_ = c.respond(ctx, client, message.RequestID, false, err.Error(), "")
+			return
+		}
+		if err := c.persistStrict("loop peer event"); err != nil {
+			_ = c.respond(ctx, client, message.RequestID, false, err.Error(), "")
+			return
+		}
+		c.emit(events.KindPeer, from, to, message.Text)
+		_ = c.respond(ctx, client, message.RequestID, true, "Event queued for "+string(to)+"; delivery is not acknowledgement.", "")
+		return
+	}
 	c.tracker.Touch(from)
 	c.emit(events.KindPeer, from, to, message.Text)
 

@@ -13,7 +13,7 @@
  * conservative behavior, and the Go runtime validates the mode before exporting
  * it anyway.
  */
-export type DuoMode = "fast" | "goal" | "step";
+export type DuoMode = "fast" | "goal" | "step" | "loop";
 export type DuoLanguage = "zh" | "en";
 
 export function parseDuoLanguage(value: string | undefined): DuoLanguage {
@@ -24,6 +24,8 @@ export function parseDuoMode(value: string | undefined): DuoMode {
   switch (value?.trim().toLowerCase()) {
     case "fast":
       return "fast";
+    case "loop":
+      return "loop";
     case "step":
       return "step";
     default:

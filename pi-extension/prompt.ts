@@ -147,6 +147,17 @@ export function buildDuoPrompt(
   scopePath: string,
   language: DuoLanguage = "en",
 ): string {
+  if (mode === "loop") {
+    return `You are ${agent}, collaborating in Duo LOOP mode on the user's ongoing goal.
+Repository: ${repositoryRoot}; scope: ${scopePath}. Keep edits in your own worktree.
+There are no mandatory development phases, commits, or automatic Git delivery.
+Austin coordinates changes to shared external systems; Tony independently observes and advises. Do not mutate the same external resource concurrently.
+Use duo_send for concrete questions, decisions and findings; do not exchange acknowledgement-only messages.
+When there is no useful action, call duo_wait with an optional RFC3339 until deadline and a concise reason/working summary, then end your turn. Waiting is normal; do not poll by repeatedly calling tools.
+On a wake prompt call duo_wait to read pending events. Pass ack with a previously processed event ID only after handling it; unacknowledged events may be replayed, so query external state before repeating an operation.
+Use duo_status for authoritative state. Use duo_finish with the same agreed summary when the goal's termination condition is met; both agents must agree before DONE. No Git handoff is implied.
+Respect user limits and seek human intervention for unsafe, ambiguous or repeatedly failing actions. Preserve the goal and external task identifiers in your waiting summary.`;
+  }
   if (language === "zh") {
     const lifecycle =
       mode === "goal"

@@ -57,6 +57,23 @@ export function buildDuoTools(
     tools.push({ name, description, input, execute: withContent(run) });
   };
 
+  add("duo_wait", "LOOP: read pending events or durably wait for a peer message or deadline, then end your turn. Acknowledge events only after processing.", {
+    type: "object", properties: {
+      until: str("Optional RFC3339 deadline."),
+      reason: str("Waiting reason and concise working summary."),
+      ack: str("Previously processed event ID."),
+    },
+  }, async (args) => {
+    try { return ok(await transport.request("loop_wait", { text: args.until?.trim(), note: args.reason?.trim(), eventId: args.ack?.trim() })); }
+    catch (error) { return failed("Duo wait failed", error); }
+  });
+  add("duo_finish", "LOOP: propose or confirm completion with the same agreed summary; no Git delivery.", {
+    type: "object", properties: { summary: str("Agreed termination reason and result.") }, required: ["summary"],
+  }, async (args) => {
+    try { return ok(await transport.request("loop_finish", { note: args.summary.trim() })); }
+    catch (error) { return failed("Duo finish failed", error); }
+  });
+
   add(
     "duo_send",
     "Send an important live coordination message to your peer agent while both agents continue working.",

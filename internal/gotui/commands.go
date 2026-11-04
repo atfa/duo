@@ -233,7 +233,7 @@ func (a *App) runSlash(text string) bool {
 			return true
 		}
 		if len(fields) != 2 {
-			a.setStatus(a.theme.tr("usage: /mode [fast|goal|step]"), true)
+			a.setStatus(a.theme.tr("usage: /mode [fast|goal|step|loop]"), true)
 			return true
 		}
 		target, err := project.ParseMode(fields[1])

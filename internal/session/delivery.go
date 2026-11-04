@@ -64,6 +64,9 @@ func DeliverAndPersistTo(
 	snap sessionstore.Snapshot,
 	opts DeliveryOptions,
 ) (DeliveryOutcome, error) {
+	if snap.EffectiveMode() == project.ModeLoop {
+		return DeliveryOutcome{Snapshot: snap}, fmt.Errorf("LOOP sessions have no automatic Git delivery; inspect the agent worktrees")
+	}
 	// Applied is monotonic for this final artifact. A stale caller must reconcile
 	// DONE, never replace it with a new pending checkpoint or re-run Git.
 	if snap.Delivery.Applied() {

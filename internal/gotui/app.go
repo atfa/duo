@@ -855,6 +855,8 @@ func (a *App) startupMessage() string {
 	where := fmt.Sprintf("\n%s: %s (%s %s) · %s: %s", a.theme.tr("Repository"), repo, a.theme.tr("branch"), set.BaseBranch, a.theme.tr("Session"), sessionID)
 	mode := a.live.EffectiveMode()
 	switch mode {
+	case project.ModeLoop:
+		return "Duo " + a.live.Version + " " + a.theme.tr("ready (LOOP mode). Enter an ongoing goal and termination conditions; both agents collaborate and wait without Git delivery.") + where
 	case project.ModeFast:
 		return "Duo " + a.live.Version + " " + a.theme.tr("ready (FAST mode). Type a task and press Enter; Austin drives while Tony independently verifies before Duo delivers the result.") + where
 	case project.ModeStep:

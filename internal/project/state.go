@@ -21,6 +21,7 @@ var (
 )
 
 type Snapshot struct {
+	Loop         LoopState `json:"loop,omitempty"`
 	Mode         Mode
 	Phase        Phase
 	Plan         string
@@ -47,6 +48,8 @@ func (s Snapshot) EffectiveMode() Mode {
 
 func (s Snapshot) String() string {
 	switch s.EffectiveMode() {
+	case ModeLoop:
+		return fmt.Sprintf("Duo state (LOOP):\n- phase: %s\n- Austin waiting: %t; pending events: %d\n- Tony waiting: %t; pending events: %d\n- summary: %s", s.Phase, hasLoopWait(s.Loop, protocol.Austin), len(s.Loop.Events[protocol.Austin]), hasLoopWait(s.Loop, protocol.Tony), len(s.Loop.Events[protocol.Tony]), s.Loop.Summary)
 	case ModeFast:
 		return s.fastString()
 	case ModeStep:
@@ -170,6 +173,7 @@ type State struct {
 	mu sync.RWMutex
 
 	mode         Mode
+	loop         LoopState
 	phase        Phase
 	plan         string
 	planVersion  int
@@ -231,6 +235,7 @@ func (s *State) Snapshot() Snapshot {
 
 func (s *State) snapshotLocked() Snapshot {
 	return Snapshot{
+		Loop:  cloneLoop(s.loop),
 		Mode:  s.mode,
 		Phase: s.phase,
 		Plan:  s.plan,
@@ -418,6 +423,15 @@ func (s *State) Complete() (Snapshot, error) {
 // and the integration result) are the caller's responsibility to clear.
 func (s *State) Reopen() (Snapshot, error) {
 	s.mu.Lock()
+	if s.mode == ModeLoop && s.phase == PhaseDone {
+		s.phase = PhaseRunning
+		s.loop = LoopState{}
+		s.started = false
+		snap, hook := s.snapshotLocked(), s.onChange
+		s.mu.Unlock()
+		notify(hook, snap)
+		return snap, nil
+	}
 	if err := s.workflow().reopen(s); err != nil {
 		snap := s.snapshotLocked()
 		s.mu.Unlock()
@@ -464,7 +478,7 @@ func (s *State) EscalateToGoal(reason string) (Snapshot, error) {
 // Fast → Goal delegates to the escalation rule so its seeded plan and prior
 // notes stay intact. Every other transition uses the generic reset below.
 func (s *State) SwitchMode(target Mode, reason string) (Snapshot, error) {
-	if target != ModeFast && target != ModeGoal && target != ModeStep {
+	if target != ModeFast && target != ModeGoal && target != ModeStep && target != ModeLoop {
 		return Snapshot{}, fmt.Errorf("unknown Duo mode %q (expected fast, goal or step)", target)
 	}
 
@@ -536,6 +550,7 @@ func (s *State) switchModeLocked(target Mode, reason string) {
 	s.resetApprovalsLocked()
 	s.verification = Verification{}
 	s.steps, s.step = nil, 0
+	s.loop = LoopState{}
 	s.started = true
 	s.lastMutation = time.Now()
 
@@ -546,7 +561,7 @@ func (s *State) switchModeLocked(target Mode, reason string) {
 	}
 
 	switch target {
-	case ModeFast:
+	case ModeLoop, ModeFast:
 		s.plan = ""
 		s.planVersion = 0
 		s.phase = PhaseRunning
@@ -618,6 +633,7 @@ func (s *State) Restore(snap Snapshot) error {
 
 	s.mu.Lock()
 	s.mode = mode
+	s.loop = cloneLoop(snap.Loop)
 	s.phase = snap.Phase
 	s.plan = snap.Plan
 	s.planVersion = snap.PlanVersion

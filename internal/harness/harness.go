@@ -96,6 +96,8 @@ func (m *Monitor) maybeWake(ctx context.Context) {
 	// next; Goal keeps the original both-idle logic untouched below.
 	state := m.project.Snapshot()
 	switch state.EffectiveMode() {
+	case project.ModeLoop:
+		return
 	case project.ModeFast:
 		m.maybeWakeFast(ctx)
 		return

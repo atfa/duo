@@ -24,6 +24,8 @@ export type DuoMessageType =
   | "response"
   | "set_verification"
   | "set_steps"
+  | "loop_wait"
+  | "loop_finish"
   | "escalate"
   | "mode_change"
   | "set_model"
@@ -62,6 +64,7 @@ export type DuoMessage = {
   version: typeof PROTOCOL_VERSION;
   type: DuoMessageType;
   requestId?: string;
+  eventId?: string;
 
   sessionId?: string;
   token?: string;
@@ -82,7 +85,7 @@ export type DuoMessage = {
   ready?: boolean;
   verification?: VerificationResult;
   /** Runtime mode switch: the adapter updates its prompt without restarting. */
-  mode?: "fast" | "goal" | "step";
+  mode?: "fast" | "goal" | "step" | "loop";
 
   /** Model switching: target/reported model and thinking level. */
   provider?: string;

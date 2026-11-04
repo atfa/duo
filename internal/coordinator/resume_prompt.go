@@ -147,6 +147,9 @@ func (c *Coordinator) ResumePrompt(agent protocol.AgentID) string {
 }
 
 func (c *Coordinator) resumePrompt(agent protocol.AgentID, snap project.Snapshot) string {
+	if snap.EffectiveMode() == project.ModeLoop {
+		return loopResumePrompt()
+	}
 	// STEP is checked before the language: its resume prompt is the one surface
 	// that must re-inject the queue, and a language dispatch that ran first handed
 	// a STEP session the Goal wake, which never mentions the queue.

@@ -23,12 +23,16 @@ func TestModePickerStartsAtCurrentAndWraps(t *testing.T) {
 		t.Fatalf("after one move = %s, want STEP", got)
 	}
 	p.move(1)
+	if got := p.selected(); got != project.ModeLoop {
+		t.Fatalf("selection = %s, want LOOP", got)
+	}
+	p.move(1)
 	if got := p.selected(); got != project.ModeFast {
 		t.Fatalf("wrapped selection = %s, want FAST", got)
 	}
 	p.move(-1)
-	if got := p.selected(); got != project.ModeStep {
-		t.Fatalf("wrapped back = %s, want STEP", got)
+	if got := p.selected(); got != project.ModeLoop {
+		t.Fatalf("wrapped back = %s, want LOOP", got)
 	}
 	p.begin(project.ModeFast)
 	if got := p.selected(); got != project.ModeFast {

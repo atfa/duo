@@ -24,6 +24,7 @@ const (
 	// The queue is always dual-approved in PLAN, and the final step is signed
 	// off by both agents before the session can finish.
 	ModeStep Mode = "step"
+	ModeLoop Mode = "loop"
 
 	// DefaultMode is the workflow of a brand-new session.
 	DefaultMode = ModeFast
@@ -43,8 +44,10 @@ func ParseMode(value string) (Mode, error) {
 		return ModeGoal, nil
 	case ModeStep:
 		return ModeStep, nil
+	case ModeLoop:
+		return ModeLoop, nil
 	default:
-		return "", fmt.Errorf("unknown Duo mode %q (expected fast, goal or step)", value)
+		return "", fmt.Errorf("unknown Duo mode %q (expected fast, goal, step or loop)", value)
 	}
 }
 
@@ -55,7 +58,7 @@ func ParseMode(value string) (Mode, error) {
 // cannot drift between state, snapshot, recovery and harness.
 func (m Mode) Normalize() Mode {
 	switch m {
-	case ModeFast, ModeStep:
+	case ModeFast, ModeStep, ModeLoop:
 		return m
 	default:
 		return ModeGoal
@@ -78,7 +81,7 @@ func (m Mode) Display() string {
 
 // initialPhase is the phase a brand-new session starts in.
 func (m Mode) initialPhase() Phase {
-	if m == ModeFast {
+	if m == ModeFast || m == ModeLoop {
 		return PhaseRunning
 	}
 	// Step starts in PLAN because the step queue is the plan: a Step session with
@@ -91,6 +94,8 @@ func (m Mode) initialPhase() Phase {
 // the reverse) after a schema change or a hand-edited state.json.
 func (m Mode) validPhase(p Phase) bool {
 	switch m {
+	case ModeLoop:
+		return p == PhaseRunning || p == PhaseDone
 	case ModeFast:
 		switch p {
 		case PhaseRunning, PhaseVerify, PhaseDone:
@@ -111,6 +116,12 @@ func (m Mode) validPhase(p Phase) bool {
 // different chains, so the chain belongs to the mode rather than to a shared
 // global phase sequence that both modes would have to special-case.
 func (m Mode) Next(p Phase) (Phase, bool) {
+	if m == ModeLoop {
+		if p == PhaseRunning {
+			return PhaseDone, true
+		}
+		return p, false
+	}
 	if m == ModeFast {
 		switch p {
 		case PhaseRunning:

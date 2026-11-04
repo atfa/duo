@@ -8,7 +8,7 @@ The core should enforce only what benefits from deterministic coordination:
 
 - agent identity;
 - peer routing;
-- session mode (Fast, Goal or Step) and mode-scoped phase transitions;
+- session mode (Fast, Goal, Step or Loop) and mode-scoped phase transitions;
 - shared Plan versioning (Goal) and step-queue versioning (Step);
 - verification, signatures and evidence;
 - Git worktree isolation;
@@ -163,7 +163,7 @@ state must read `History()` and the journal, not the stream.
 
 ## Current constraints
 
-- The topology has two fixed roles, Austin and Tony. Fast, Goal and Step can be
+- The topology has two fixed roles, Austin and Tony. Fast, Goal, Step and Loop can be
   selected at runtime; switching modes resets the current round's plan, queue,
   phase and signatures.
 - Session state is local to a machine and repository path. Recovery restores
@@ -176,3 +176,20 @@ state must read `History()` and the journal, not the stream.
 - `session.Service` is the frontend seam; frontends do not independently start
   agents or authorize gate decisions. See [the frontend guide](gotui.md) for the
   terminal implementation and [SECURITY.md](../SECURITY.md) for trust boundaries.
+
+## LOOP collaboration
+
+LOOP runs both agents in RUNNING without plan, review, commit or delivery gates.
+The project snapshot owns each wait, deadline, pending event and completion
+proposal. Peer messages and later human input become events; wake notifications
+are best effort and do not remove them. `duo_wait` returns the queue and an
+explicit acknowledgement removes one processed event. Expired deadlines become
+events before dispatch, and waiting and events survive restart. Pause and the
+resume hold suppress dispatch. Both agents must propose the same summary to
+finish; new substantive events invalidate completion proposals.
+
+This mode still requires a Git repository and uses separate worktrees. It leaves
+work in those worktrees, with no automatic integration or handoff. LOOP sessions
+are excluded from ordinary cleanup, including completed sessions; explicit
+`duo clean --force` can remove their work. There is no automatic token, cost or
+time budget; event wake attempts and unregistered idle recovery are bounded.
