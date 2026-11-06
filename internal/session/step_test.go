@@ -401,6 +401,7 @@ func stepAwaitingDelivery(t *testing.T, id string) (sessionstore.Snapshot, strin
 		FinalBranch: "duo/" + id + "/austin", TargetRepo: repo, TargetBranch: "main",
 	}
 	snap.Integration = sessionstore.Integration{Head: stepHead}
+	snap.Evidence = map[protocol.AgentID]string{protocol.Austin: stepHead, protocol.Tony: stepHead}
 	return snap, stepHead
 }
 

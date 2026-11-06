@@ -194,7 +194,7 @@ func cleanSummaries(ctx context.Context, baseDir, repoID string, items []session
 
 	for _, item := range items {
 		if item.Snapshot.EffectiveMode() == project.ModeLoop && !opts.force {
-			fmt.Printf("  Skipping LOOP session %s: results are not delivered; pass --force to discard worktrees\n", item.SessionID)
+			fmt.Printf("  Skipping LOOP session %s: it may still be running or awaiting delivery; pass --force to discard worktrees\n", item.SessionID)
 			skipped++
 			continue
 		}

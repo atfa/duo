@@ -43,8 +43,58 @@ func (s *State) workflow() workflow {
 		return fastWorkflow{}
 	case ModeStep:
 		return stepWorkflow{}
+	case ModeLoop:
+		return loopWorkflow{}
 	}
 	return goalWorkflow{}
+}
+
+// loopWorkflow exists so LOOP has no phase sign-off at all. Without it LOOP fell
+// through to goalWorkflow, whose dual-ready path calls Next and would move
+// RUNNING straight to DONE — a completion that skips the owner's settled finish,
+// the delivery transaction and the phase that gates them. Every write that a
+// phase gate owns is refused here with LOOP's own guidance, so an agent that
+// reaches for duo_set_status is told how LOOP finishes instead of being told
+// about PLAN.
+type loopWorkflow struct{}
+
+func (loopWorkflow) setPlan(*State, string) error {
+	return fmt.Errorf("%w: LOOP mode has no shared plan; Austin owns the work and its report (use `duo --mode goal` for a negotiated plan)", ErrModeMismatch)
+}
+
+// setReady refuses both directions: LOOP's only completion claim is
+// duo_finish(summary), and only the owner's real turn boundary can act on it.
+func (loopWorkflow) setReady(*State, protocol.AgentID, bool, string, string) (Transition, error) {
+	return Transition{}, fmt.Errorf("%w: LOOP mode has no phase sign-off; Austin finishes with duo_finish(summary) and Tony's advice is not approval", ErrModeMismatch)
+}
+
+func (loopWorkflow) setVerification(*State, protocol.AgentID, VerificationResult, string, string) (Transition, error) {
+	return Transition{}, fmt.Errorf("%w: structured verification is only used in Fast mode", ErrModeMismatch)
+}
+
+func (loopWorkflow) setSteps(*State, Steps, bool) error {
+	return fmt.Errorf("%w: LOOP mode has no step queue (use `duo --mode step`)", ErrModeMismatch)
+}
+
+func (loopWorkflow) landStep(*State, string) (Transition, error) {
+	return Transition{}, fmt.Errorf("%w: only STEP mode lands steps", ErrModeMismatch)
+}
+
+func (loopWorkflow) revokeStep(*State, string) (Transition, error) {
+	return Transition{}, fmt.Errorf("%w: only STEP mode has step submissions", ErrModeMismatch)
+}
+
+// complete is never reached: State.Complete owns LOOP's INTEGRATE → DONE edge,
+// which is only legal after the owner settled and delivery applied.
+func (loopWorkflow) complete(*State) error {
+	return fmt.Errorf("%w: LOOP completion requires the owner's settled finish and a successful delivery", ErrModeMismatch)
+}
+
+// reopen is never reached either: State.Reopen clears LOOP's round before the
+// workflow is consulted, because that round is the durable inbox rather than a
+// phase chain.
+func (loopWorkflow) reopen(*State) error {
+	return fmt.Errorf("%w: LOOP reopens by clearing its round, not through a plan phase", ErrModeMismatch)
 }
 
 // goalWorkflow is the original PLAN → EXECUTE → REVIEW → INTEGRATE → DONE

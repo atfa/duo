@@ -386,14 +386,14 @@ func Reconcile(ctx context.Context, ws *workspace.GitManager, snap sessionstore.
 		}
 	}
 
-	// STEP sessions reach INTEGRATE only through Tony's per-step verdict, which is
+	// FAST steps reach INTEGRATE only through Tony's per-step verdict, which is
 	// bound to one exact Austin HEAD. A checkpoint that claims INTEGRATE without a
 	// verdict binding Austin's current artifact is a phase record that outlived the
 	// gate that created it, and INTEGRATE is the phase that lands a step, so the
 	// step would land on the user's branch unreviewed. The finished queue has no
 	// current step and its gate is the two signatures, so it stands.
 	if out.EffectiveMode() == project.ModeStep && out.Phase == string(project.PhaseIntegrate) {
-		if cur := stepUnderCursor(out.Steps, out.Step); cur != nil && !cur.Done {
+		if cur := stepUnderCursor(out.Steps, out.Step); cur != nil && !cur.Done && cur.EffectivePolicy() == project.ModeFast {
 			head, err := FastVerificationTarget(ctx, ws)
 			if err != nil || cur.Verification.Status != project.VerificationPassed || !cur.Verification.Targets(head) {
 				steps := make(project.Steps, len(out.Steps))

@@ -246,6 +246,12 @@ func (s Snapshot) StepDeliveryIsCurrent() bool {
 		return false
 	}
 	head := strings.TrimSpace(current.Head)
+	if current.EffectivePolicy() == project.ModeGoal {
+		head = strings.TrimSpace(s.Evidence[protocol.Austin])
+		if !s.Ready[protocol.Austin] || !s.Ready[protocol.Tony] || head != strings.TrimSpace(s.Evidence[protocol.Tony]) {
+			return false
+		}
+	}
 	return head != "" && strings.EqualFold(head, strings.TrimSpace(s.Delivery.FinalHead))
 }
 

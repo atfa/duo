@@ -44,7 +44,7 @@ const (
 )
 
 // Attention reasons are stable identifiers a frontend maps to localised text. They
-// name the four situations where a Duo session stops until a human acts, which is
+// name the five situations where a Duo session stops until a human acts, which is
 // exactly the list a notification is allowed to interrupt someone for.
 const (
 	// AttentionConflict: a merge produced conflicts, and the session cannot move
@@ -56,9 +56,13 @@ const (
 	// AttentionVerification: Fast mode is waiting for Tony's verdict, which a human
 	// has to unblock when Tony is not answering.
 	AttentionVerification = "verification"
+	// AttentionConsultation: LOOP is holding Austin behind a consultation that
+	// nobody answered, and the guard does not release him without a human.
+	AttentionConsultation = "consultation"
 	// AttentionSummary: Austin's final report for the human has arrived, after
 	// delivery, when nobody is watching the dashboard any more.
-	AttentionSummary = "summary"
+	AttentionSummary     = "summary"
+	AttentionLoopStalled = "loop_stalled"
 )
 
 // ConnectionEvent marks the system event a bridge attach or detach produces. The

@@ -1010,17 +1010,20 @@ func (c *Coordinator) EscalateToGoal(ctx context.Context, reason string) error {
 
 func (c *Coordinator) escalateToGoal(ctx context.Context, reason string, notify bool) error {
 	reason = strings.TrimSpace(reason)
+	// Any mode can escalate, so the journal records the mode the session actually
+	// left instead of naming FAST unconditionally.
+	from := c.project.Snapshot().EffectiveMode()
 	if _, err := c.project.EscalateToGoal(reason); err != nil {
 		return err
 	}
 
 	c.recordEvent("mode_escalated", map[string]any{
-		"from":   project.ModeFast.String(),
+		"from":   from.String(),
 		"to":     project.ModeGoal.String(),
 		"reason": reason,
 	})
 
-	msg := "mode escalated: FAST → GOAL"
+	msg := "mode escalated: " + from.Display() + " → " + project.ModeGoal.Display()
 	if reason != "" {
 		msg += fmt.Sprintf(" (reason: %s)", reason)
 	}
@@ -1865,6 +1868,13 @@ func (c *Coordinator) handleSetStatus(ctx context.Context, client *transport.Cli
 		return
 	case project.ModeStep:
 		c.handleStepSetStatus(ctx, client, message)
+		return
+	case project.ModeLoop:
+		// LOOP has no signature map at all; without this case the Goal handler
+		// below would run and only fail later in evidence computation, telling a
+		// LOOP agent about a phase it does not have.
+		_ = c.respond(ctx, client, message.RequestID, false,
+			"LOOP mode has no phase sign-off; Austin finishes with duo_finish(summary) and Tony's advice is not approval", c.statusText(ctx))
 		return
 	}
 	if message.Ready == nil {

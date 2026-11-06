@@ -84,6 +84,28 @@ func TestLoopDurableEventsAndFinishWithDelivery(t *testing.T) {
 	}
 }
 
+// TestLoopRejectsPhaseSignOff checks the guard at the coordinator seam: LOOP has
+// no signature map, so duo_set_status is refused with LOOP's own guidance instead
+// of running the Goal sign-off path, and the phase stays in RUNNING.
+func TestLoopRejectsPhaseSignOff(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r := startE2EWithMode(t, ctx, project.ModeLoop)
+	a := r.dialAgent(t, protocol.Austin)
+	b := r.dialAgent(t, protocol.Tony)
+	waitFor(t, func() bool { return r.server.IsConnected(protocol.Austin) && r.server.IsConnected(protocol.Tony) }, "agents")
+	r.state.MarkStarted()
+	ready := true
+	for _, agent := range []*testAgent{a, b} {
+		if resp, err := agent.request(protocol.Message{Version: protocol.Version, Type: protocol.MsgSetStatus, Ready: &ready, Note: "head"}); err == nil {
+			t.Fatalf("LOOP accepted a phase sign-off: %+v", resp)
+		}
+	}
+	if snap := r.state.Snapshot(); snap.Phase != project.PhaseRunning {
+		t.Fatalf("sign-off moved the phase to %s", snap.Phase)
+	}
+}
+
 func TestLoopResumeHoldKeepsPendingEventSilent(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -284,5 +306,32 @@ func TestLoopOwnerStartsWithoutConnectedAdvisor(t *testing.T) {
 	request(t, a, protocol.Message{Version: 1, Type: protocol.MsgLoopAsk, Text: "need advice now"})
 	if r.state.LoopCanAct(protocol.Austin) == nil {
 		t.Fatal("offline advisor bypassed requested consultation")
+	}
+}
+
+func TestLoopHumanInstructionRefreshesEventKey(t *testing.T) {
+	s := project.NewStateFor(project.ModeLoop)
+	_ = s.LoopSend(protocol.Tony, "ordinary")
+	now := time.Now()
+	_, first := loopWake(s.Snapshot(), protocol.Austin, now, now, false)
+	_ = s.LoopSend(protocol.Tony, "more ordinary")
+	_, ordinary := loopWake(s.Snapshot(), protocol.Austin, now, now, false)
+	if first != ordinary {
+		t.Fatal("ordinary event reset retry key")
+	}
+	_ = s.LoopHuman("new instruction")
+	_, human := loopWake(s.Snapshot(), protocol.Austin, now, now, false)
+	if human == first || !strings.HasPrefix(human, "human:") {
+		t.Fatalf("human key = %q", human)
+	}
+	_ = s.LoopSend(protocol.Tony, "ordinary after human")
+	_, same := loopWake(s.Snapshot(), protocol.Austin, now, now, false)
+	if same != human {
+		t.Fatal("ordinary event reset human retry key")
+	}
+	_ = s.LoopHuman("another instruction")
+	_, next := loopWake(s.Snapshot(), protocol.Austin, now, now, false)
+	if next == human || !strings.HasPrefix(next, "human:") {
+		t.Fatal("second human did not refresh retry key")
 	}
 }

@@ -212,6 +212,44 @@ func TestLoopOwnerFinishesWithoutAdvisorApproval(t *testing.T) {
 	}
 }
 
+// TestLoopHasNoSignOffPath pins LOOP's one completion rule: the generic
+// goalWorkflow sign-off is not reachable in LOOP, so two duo_set_status calls can
+// never move RUNNING to DONE behind the owner's settled finish and the delivery
+// that DONE claims. Completion itself must still work through LoopFinish.
+func TestLoopHasNoSignOffPath(t *testing.T) {
+	s := NewStateFor(ModeLoop)
+	s.MarkStarted()
+	if _, _, err := s.SetReady(protocol.Austin, true, "", "head"); err == nil {
+		t.Fatal("LOOP accepted an owner signature")
+	}
+	if _, _, err := s.SetReady(protocol.Tony, true, "", "head"); err == nil {
+		t.Fatal("LOOP accepted an advisor signature")
+	}
+	if snap := s.Snapshot(); snap.Phase != PhaseRunning || snap.Ready[protocol.Austin] || snap.Ready[protocol.Tony] {
+		t.Fatalf("sign-off changed LOOP state: phase=%s ready=%v", snap.Phase, snap.Ready)
+	}
+	if _, err := s.SetPlan(protocol.Austin, "a plan"); err == nil {
+		t.Fatal("LOOP accepted a shared plan")
+	}
+	if next, ok := ModeLoop.Next(PhaseRunning); ok {
+		t.Fatalf("LOOP exposes a linear edge to %s", next)
+	}
+	if snap, err := s.Complete(); err == nil || snap.Phase != PhaseRunning {
+		t.Fatalf("completed without a settled finish: phase=%s err=%v", snap.Phase, err)
+	}
+
+	if _, err := s.LoopFinish(protocol.Austin, "done", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	s.LoopActivity(protocol.Austin, protocol.ActivityAgentSettled, "")
+	if snap := s.Snapshot(); snap.Phase != PhaseIntegrate {
+		t.Fatalf("owner settle did not reach delivery: %s", snap.Phase)
+	}
+	if snap, err := s.Complete(); err != nil || snap.Phase != PhaseDone {
+		t.Fatalf("completion after delivery: phase=%s err=%v", snap.Phase, err)
+	}
+}
+
 func TestLoopWakeBudgetSurvivesRestart(t *testing.T) {
 	s := NewStateFor(ModeLoop)
 	if !s.LoopWake(1) {

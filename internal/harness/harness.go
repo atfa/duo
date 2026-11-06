@@ -44,6 +44,7 @@ type Monitor struct {
 	mu        sync.Mutex
 	lastWake  time.Time
 
+	loopStalls map[protocol.AgentID]time.Time
 	// fast tracks one consecutive-idle episode so the Fast harness can ask Tony
 	// for a diagnosis at most once before Austin shows real activity again.
 	fast fastStuckEpisode
@@ -97,6 +98,7 @@ func (m *Monitor) maybeWake(ctx context.Context) {
 	state := m.project.Snapshot()
 	switch state.EffectiveMode() {
 	case project.ModeLoop:
+		m.diagnoseLoop(state)
 		return
 	case project.ModeFast:
 		m.maybeWakeFast(ctx)
@@ -424,4 +426,33 @@ func shortSHA(value string) string {
 		return value[:10]
 	}
 	return value
+}
+
+// diagnoseLoop reports one quiet busy episode without interrupting the agent.
+func (m *Monitor) diagnoseLoop(state project.Snapshot) {
+	if !state.Started || state.Phase == project.PhaseDone || m.cfg.StallThreshold <= 0 {
+		return
+	}
+	now := time.Now()
+	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+		rt := m.tracker.Snapshot(id)
+		if !m.sender.IsAgentConnected(id) || rt.HumanAttached || !rt.Busy || rt.LastActivity.IsZero() || now.Sub(rt.LastActivity) < m.cfg.StallThreshold {
+			continue
+		}
+		m.mu.Lock()
+		if m.loopStalls == nil {
+			m.loopStalls = make(map[protocol.AgentID]time.Time)
+		}
+		if m.loopStalls[id].Equal(rt.LastActivity) || (!m.lastWake.IsZero() && now.Sub(m.lastWake) < m.cfg.Cooldown) {
+			m.mu.Unlock()
+			continue
+		}
+		m.loopStalls[id] = rt.LastActivity
+		m.lastWake = now
+		m.mu.Unlock()
+		if m.bus != nil {
+			m.bus.Emit(events.Event{Kind: events.KindHarness, Agent: id, Text: "LOOP agent is busy without recent activity; inspect the agent if it is stalled."})
+			m.bus.Emit(events.Event{Kind: events.KindAttention, Agent: protocol.Duo, Attention: events.AttentionLoopStalled})
+		}
+	}
 }

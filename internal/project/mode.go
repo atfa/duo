@@ -115,11 +115,14 @@ func (m Mode) validPhase(p Phase) bool {
 // Next returns the next phase of this mode's chain. Fast and Goal have
 // different chains, so the chain belongs to the mode rather than to a shared
 // global phase sequence that both modes would have to special-case.
+//
+// LOOP has no linear chain to return: RUNNING advances only when the owner's
+// finish settles (a real turn boundary the domain observes) and then through
+// delivery, so its edges live in LoopFinish/LoopActivity/Complete. Answering
+// RUNNING→DONE here would let the generic sign-off path complete a LOOP session
+// without the delivery that DONE claims.
 func (m Mode) Next(p Phase) (Phase, bool) {
 	if m == ModeLoop {
-		if p == PhaseRunning {
-			return PhaseDone, true
-		}
 		return p, false
 	}
 	if m == ModeFast {

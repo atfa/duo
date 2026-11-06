@@ -12,6 +12,7 @@ import (
 
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
+	"github.com/atfa/duo/internal/recovery"
 	"github.com/atfa/duo/internal/sessionstore"
 	"github.com/atfa/duo/internal/workspace"
 )
@@ -271,5 +272,130 @@ func TestLoopDeliveryRefusalAndRestart(t *testing.T) {
 	outcome, stop, err := ReconcileDelivery(ctx, f.store, f.ws, f.store.OpenEvents(), snap)
 	if err != nil || !stop || !outcome.Applied || outcome.Snapshot.Phase != string(project.PhaseDone) || headOf(t, f.repo) != f.final {
 		t.Fatalf("resume failed: %+v stop=%v err=%v", outcome, stop, err)
+	}
+}
+
+func TestGoalDeliveryUsesSignedCurrentBranchAndPinsPending(t *testing.T) {
+	ctx := context.Background()
+	for _, pending := range []bool{false, true} {
+		t.Run(strconv.FormatBool(pending), func(t *testing.T) {
+			f := newDeliveryFixture(t)
+			runGit(t, f.repo, "checkout", "-q", "duo/deliver/austin")
+			if err := os.WriteFile(filepath.Join(f.repo, "second"), []byte("new"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			runGit(t, f.repo, "add", "second")
+			runGit(t, f.repo, "commit", "-q", "-m", "second")
+			head := headOf(t, f.repo)
+			runGit(t, f.repo, "checkout", "-q", "main")
+			if _, err := DeliverAndPersist(ctx, f.store, f.ws, f.snap); err == nil || headOf(t, f.repo) != f.base {
+				t.Fatal("old signatures must not deliver the new head")
+			}
+			f.snap.Evidence[protocol.Austin], f.snap.Evidence[protocol.Tony] = head, head
+			if pending {
+				f.snap.Delivery = sessionstore.Delivery{Status: sessionstore.DeliveryPending, FinalHead: f.final}
+			}
+			out, err := DeliverAndPersist(ctx, f.store, f.ws, f.snap)
+			if pending {
+				if err == nil || headOf(t, f.repo) != f.base {
+					t.Fatal("stale checkpoint must be refused without moving the branch")
+				}
+				f.snap.Delivery.FinalHead = head
+				out, err = DeliverAndPersist(ctx, f.store, f.ws, f.snap)
+			}
+			if err != nil || !out.Applied || headOf(t, f.repo) != head {
+				t.Fatalf("delivery: %+v %v", out, err)
+			}
+		})
+	}
+}
+
+func TestGoalStepFullRecoveryDeliversSignedHead(t *testing.T) {
+	for _, mode := range []project.Mode{project.ModeGoal, project.ModeStep} {
+		t.Run(string(mode), func(t *testing.T) {
+			ctx := context.Background()
+			repo := gitRepo(t)
+			ws := workspace.NewGitManager(workspace.GitConfig{Repository: repo, Root: t.TempDir(), Session: "goal-step"})
+			set, err := ws.Prepare(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(set.Austin.Path, "change"), []byte("work"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			runGit(t, set.Austin.Path, "add", "change")
+			runGit(t, set.Austin.Path, "commit", "-q", "-m", "change")
+			head := headOf(t, set.Austin.Path)
+			snap := recovery.Compose(recovery.ComposeInput{SessionID: "goal-step", RepoID: "repo", Repository: repo, BaseBranch: set.BaseBranch, BaseCommit: set.BaseCommit, Worktrees: set, Project: project.Snapshot{Mode: project.ModeStep, Phase: project.PhaseIntegrate, Started: true, Step: 1, Steps: project.Steps{{Title: "goal", Policy: project.ModeGoal}, {Title: "next"}}, Ready: map[protocol.AgentID]bool{protocol.Austin: true, protocol.Tony: true}, Evidence: map[protocol.AgentID]string{protocol.Austin: head, protocol.Tony: head}}})
+			snap.Integration = sessionstore.Integration{Started: true, Head: set.BaseCommit}
+			if mode == project.ModeStep {
+				snap.Delivery = sessionstore.Delivery{Status: sessionstore.DeliveryPending, FinalHead: head}
+			}
+			if mode == project.ModeGoal {
+				snap.Mode = mode
+				snap.Steps = nil
+				snap.Step = 0
+			}
+			stale := snap
+			stale.Evidence = map[protocol.AgentID]string{protocol.Austin: set.BaseCommit, protocol.Tony: head}
+			stale.Ready = map[protocol.AgentID]bool{protocol.Austin: true, protocol.Tony: true}
+			revoked, err := recovery.Reconcile(ctx, ws, stale)
+			if err != nil || revoked.Snapshot.Ready[protocol.Austin] {
+				t.Fatalf("stale signature not revoked: %+v %v", revoked, err)
+			}
+			result, err := recovery.Reconcile(ctx, ws, snap)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Snapshot.Phase != string(project.PhaseIntegrate) || !result.Snapshot.Ready[protocol.Austin] || !result.Snapshot.Ready[protocol.Tony] {
+				t.Fatalf("recovery revoked valid goal: %+v", result.Snapshot)
+			}
+			store, err := sessionstore.New(t.TempDir(), "repo", "goal-step")
+			if err != nil {
+				t.Fatal(err)
+			}
+			out, stop, err := ReconcileDelivery(ctx, store, ws, store.OpenEvents(), result.Snapshot)
+			if err != nil || stop != (mode == project.ModeGoal) || !out.Applied || headOf(t, repo) != head {
+				t.Fatalf("reconcile delivery: %+v stop=%v err=%v", out, stop, err)
+			}
+		})
+	}
+}
+
+func TestGoalStepAppliedCheckpointAdvancesWithoutSubmissionHead(t *testing.T) {
+	f := newDeliveryFixture(t)
+	f.snap.Mode = project.ModeStep
+	f.snap.Step = 1
+	f.snap.Steps = project.Steps{{Title: "goal", Policy: project.ModeGoal}, {Title: "next"}}
+	f.snap.Delivery = sessionstore.Delivery{Status: sessionstore.DeliveryApplied, FinalHead: f.final, AppliedHead: f.final}
+	if !f.snap.StepDeliveryIsCurrent() {
+		t.Fatal("signed GOAL step must identify its applied checkpoint")
+	}
+	runGit(t, f.repo, "merge", "--ff-only", f.final)
+	out, stop, err := ReconcileDelivery(context.Background(), f.store, f.ws, f.store.OpenEvents(), f.snap)
+	if err != nil || stop || !out.Snapshot.Steps[0].Done || out.Snapshot.Step != 2 {
+		t.Fatalf("reconcile: %+v stop=%v err=%v", out, stop, err)
+	}
+}
+
+func TestGoalDeliveryFallsBackToSignedCommitOnlyWhenBranchIsMissing(t *testing.T) {
+	ctx := context.Background()
+	for _, branchExists := range []bool{false, true} {
+		t.Run(strconv.FormatBool(branchExists), func(t *testing.T) {
+			f := newDeliveryFixture(t)
+			if branchExists {
+				runGit(t, f.repo, "branch", "-f", "duo/deliver/austin", f.base)
+			} else {
+				runGit(t, f.repo, "branch", "-D", "duo/deliver/austin")
+			}
+			out, err := DeliverAndPersist(ctx, f.store, f.ws, f.snap)
+			if branchExists {
+				if err == nil || headOf(t, f.repo) != f.base {
+					t.Fatal("existing mismatched branch must be refused")
+				}
+			} else if err != nil || !out.Applied || headOf(t, f.repo) != f.final {
+				t.Fatalf("signed commit fallback failed: %+v %v", out, err)
+			}
+		})
 	}
 }

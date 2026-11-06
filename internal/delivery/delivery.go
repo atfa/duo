@@ -494,6 +494,11 @@ func BranchHead(ctx context.Context, repository, branch string) (string, error) 
 	return revParse(ctx, repository, "refs/heads/"+branch)
 }
 
+// CommitHead verifies a recorded commit exists in the repository.
+func CommitHead(ctx context.Context, repository, head string) (string, error) {
+	return revParse(ctx, repository, head)
+}
+
 func short(value string) string {
 	value = strings.TrimSpace(value)
 	if len(value) > 10 {

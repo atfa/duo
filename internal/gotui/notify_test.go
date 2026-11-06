@@ -40,8 +40,8 @@ func TestWriteAttentionStripsSequenceTerminators(t *testing.T) {
 // every reason code it emits has text, and an unknown code interrupts nobody.
 // The codes come from the events package, so a Core rename breaks this test at
 // compile time instead of silently dropping notifications.
-func TestAttentionBodyCoversTheFourReasonCodes(t *testing.T) {
-	for _, reason := range []string{events.AttentionConflict, events.AttentionDelivery, events.AttentionVerification, events.AttentionSummary} {
+func TestAttentionBodyCoversEveryReasonCode(t *testing.T) {
+	for _, reason := range []string{events.AttentionConflict, events.AttentionDelivery, events.AttentionVerification, events.AttentionConsultation, events.AttentionSummary, events.AttentionLoopStalled} {
 		if attentionBody(reason) == "" {
 			t.Errorf("reason %q has no notification text", reason)
 		}
@@ -102,5 +102,19 @@ func TestNotifyTextFollowsLanguage(t *testing.T) {
 	want := "\a\x1b]777;notify;Duo 需要你;最终摘要已就绪；会话正在等你查看。\a"
 	if string(data) != want {
 		t.Errorf("zh notification = %q\nwant %q", data, want)
+	}
+}
+
+func TestLoopStalledNotificationIsLocalized(t *testing.T) {
+	zh := "zh"
+	a, f := notifyAppForTest(t, true)
+	a.theme.Lang = &zh
+	a.notifyHuman(events.AttentionLoopStalled)
+	data, err := os.ReadFile(f.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(data, []byte("LOOP 智能体可能已停滞")) {
+		t.Fatalf("notification = %q", data)
 	}
 }

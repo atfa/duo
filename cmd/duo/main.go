@@ -346,7 +346,7 @@ func printUsage() {
 	fmt.Println("Starting a session:")
 	fmt.Println("  duo                    start a new Fast session (Austin drives, Tony verifies)")
 	fmt.Println("  duo --mode goal        start a new Goal session (shared plan + dual sign-off)")
-	fmt.Println("  duo --mode loop        start ongoing collaboration with durable waits and no Git delivery")
+	fmt.Println("  duo --mode loop        start an ongoing LOOP session (Austin owns completion; Tony advises; durable waits)")
 	fmt.Println("  duo --mode step        start a new Step session (a queue tagged [fast] or [goal], landed step by step)")
 	fmt.Println("  duo --language zh        set the language (or -l zh; values: zh, en)")
 	fmt.Println("  duo --test-cmd \"go test ./...\"  run the test command before accepting verification (short: -t)")

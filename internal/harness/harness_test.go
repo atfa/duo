@@ -124,3 +124,31 @@ func TestMonitorDoesNotNudgeAfterFinalApproval(t *testing.T) {
 		t.Fatalf("harness nudged Austin after final approval: %+v", sender.sent)
 	}
 }
+
+func TestLoopBusyDiagnosisIsBoundedAndDoesNotInterrupt(t *testing.T) {
+	state := project.NewStateFor(project.ModeLoop)
+	state.MarkStarted()
+	sender := &recordingSender{connected: true}
+	m := newTestMonitor(state, sender)
+	m.cfg.StallThreshold = time.Minute
+	ch, cancel := m.bus.Subscribe(8)
+	defer cancel()
+	m.tracker.Handle(protocol.Austin, protocol.ActivityAgentStart)
+	m.maybeWake(context.Background())
+	if len(ch) != 0 {
+		t.Fatal("active agent diagnosed")
+	}
+	m.tracker.mu.Lock()
+	m.tracker.agents[protocol.Austin].LastActivity = time.Now().Add(-2 * time.Minute)
+	m.tracker.mu.Unlock()
+	m.maybeWake(context.Background())
+	m.maybeWake(context.Background())
+	if len(ch) != 2 || sender.count() != 0 {
+		t.Fatalf("events=%d prompts=%d", len(ch), sender.count())
+	}
+	<-ch
+	attention := <-ch
+	if attention.Kind != events.KindAttention || attention.Attention != events.AttentionLoopStalled {
+		t.Fatalf("attention = %+v", attention)
+	}
+}

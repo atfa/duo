@@ -856,7 +856,7 @@ func (a *App) startupMessage() string {
 	mode := a.live.EffectiveMode()
 	switch mode {
 	case project.ModeLoop:
-		return "Duo " + a.live.Version + " " + a.theme.tr("ready (LOOP mode). Austin owns the goal; Tony observes and advises. Explicit consultations wait for a reply; no Git delivery.") + where
+		return "Duo " + a.live.Version + " " + a.theme.tr("ready (LOOP mode). Austin owns the goal; Tony observes and advises. Explicit consultations wait for a reply; a clean committed Austin HEAD is delivered.") + where
 	case project.ModeFast:
 		return "Duo " + a.live.Version + " " + a.theme.tr("ready (FAST mode). Type a task and press Enter; Austin drives while Tony independently verifies before Duo delivers the result.") + where
 	case project.ModeStep:

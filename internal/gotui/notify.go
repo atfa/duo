@@ -27,6 +27,10 @@ func attentionBody(reason string) string {
 		return "Delivery was rejected; the finished work is waiting for you."
 	case events.AttentionVerification:
 		return "A Fast verification is waiting; the session is paused in VERIFICATION."
+	case events.AttentionLoopStalled:
+		return "A LOOP agent may be stalled; inspect the agent and continue if needed."
+	case events.AttentionConsultation:
+		return "A LOOP consultation is still unanswered; Austin is blocked until it is resolved."
 	case events.AttentionSummary:
 		return "The final summary is ready; the session is waiting for you."
 	}

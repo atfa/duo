@@ -3,6 +3,7 @@ package coordinator
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/atfa/duo/internal/events"
@@ -180,7 +181,7 @@ func (c *Coordinator) RunLoop(ctx context.Context) {
 				}
 				a := attempts[id]
 				if a.key != key {
-					a = attempt{key: key}
+					a = attempt{key: key, last: a.last}
 				}
 				if a.count >= 3 || (!a.last.IsZero() && now.Sub(a.last) < 30*time.Second) {
 					continue
@@ -202,6 +203,16 @@ func (c *Coordinator) RunLoop(ctx context.Context) {
 				}
 				if a.count == 3 {
 					c.emit(events.KindSystem, protocol.Duo, id, "LOOP wake retry limit reached; inspect the agent, then pause and continue to retry.")
+					// A consultation is the one LOOP block no agent can clear by
+					// itself: the guard keeps Austin from working until he processes
+					// the exact reply. Three undelivered/unread nudges are therefore a
+					// human problem, not a scheduling detail.
+					if strings.HasPrefix(key, "question:") || strings.HasPrefix(key, "reply:") {
+						c.recordEvent("loop_consultation_unanswered", map[string]any{"agent": id, "key": key})
+						c.attention(events.AttentionConsultation)
+					} else if strings.HasPrefix(key, "human:") {
+						c.attention(events.AttentionLoopStalled)
+					}
 				}
 			}
 		}
@@ -235,7 +246,15 @@ func loopWake(snap project.Snapshot, id protocol.AgentID, now, activity time.Tim
 				return "", ""
 			}
 		}
-		return "A LOOP event batch is ready. Call duo_events; process relevant events and acknowledge them. Tony: observe and advise only; answer a question with duo_reply using its questionId. Austin: notifications do not require replies; only a matching consultation reply releases your wait.", "event:" + inbox[0].ID
+		key := "event:" + inbox[0].ID
+		if id == protocol.Austin {
+			for _, event := range inbox {
+				if event.Kind == "human" {
+					key = "human:" + event.ID
+				}
+			}
+		}
+		return "A LOOP event batch is ready. Call duo_events; process relevant events and acknowledge them. Tony: observe and advise only; answer a question with duo_reply using its questionId. Austin: notifications do not require replies; only a matching consultation reply releases your wait.", key
 	}
 	if id == protocol.Austin && !waiting && !activity.IsZero() && now.Sub(activity) >= 2*time.Minute {
 		return "LOOP owner is idle without a wait. Continue, use duo_ask if advice is needed, duo_wait for external change, or duo_finish(summary) when stopping. Tony approval is not required.", "idle:" + activity.String()
@@ -244,5 +263,5 @@ func loopWake(snap project.Snapshot, id protocol.AgentID, now, activity time.Tim
 }
 
 func loopResumePrompt() string {
-	return "[Duo LOOP resumed] Austin owns the task and user report; Tony observes and advises without executing the task. Read duo_status and duo_events. If a consultation is pending, Austin must wait for its matching reply, even after restart. Use duo_ask for blocking consultation, duo_reply(questionId,message) for its answer, and duo_send for asynchronous notifications/advice. Austin decides whether to accept advice and finishes with duo_finish(summary), without Tony approval. No Git delivery is performed."
+	return "[Duo LOOP resumed] Austin owns the task and user report; Tony observes and advises without executing the task. Read duo_status and duo_events. If a consultation is pending, Austin must wait for its matching reply, even after restart. Use duo_ask for blocking consultation, duo_reply(questionId,message) for its answer, and duo_send for asynchronous notifications/advice. Austin decides whether to accept advice and finishes with duo_finish(summary), without Tony approval. Commit your work and keep your worktree clean: when the finished turn settles, Duo delivers Austin's HEAD to the branch the session started on, and DONE follows only after that delivery succeeds."
 }

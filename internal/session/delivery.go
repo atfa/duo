@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -148,15 +149,60 @@ func DeliverAndPersistTo(
 		)
 	}
 
-	// A STEP landing is gated by Tony's verdict for that step, bound to one exact
+	// A FAST STEP landing is gated by Tony's verdict for that step, bound to one exact
 	// HEAD. The same re-check belongs here: `duo apply` runs this transaction on
 	// its own, so a checkpoint that claims INTEGRATE without a verdict binding the
 	// HEAD must not land unreviewed work. A finished queue has no step left to gate.
-	if snap.EffectiveMode() == project.ModeStep && !project.QueueFinished(snap.Steps) && !stepVerdictBinds(snap, finalHead) {
+	current := snap.StepUnderCursor()
+	if snap.EffectiveMode() == project.ModeStep && !project.QueueFinished(snap.Steps) && (current == nil || current.EffectivePolicy() == project.ModeFast) && !stepVerdictBinds(snap, finalHead) {
 		return DeliveryOutcome{Snapshot: snap}, fmt.Errorf(
 			"session %s: step %d has no passed verdict binding the HEAD to deliver; Tony must verify the step before apply",
 			snap.SessionID, snap.Step,
 		)
+	}
+
+	goalGate := snap.EffectiveMode() == project.ModeGoal
+	if snap.EffectiveMode() == project.ModeStep {
+		goalGate = current == nil || current.EffectivePolicy() == project.ModeGoal || snap.Step == len(snap.Steps)
+	}
+	if goalGate {
+		if snap.Phase != string(project.PhaseIntegrate) && !(snap.EffectiveMode() == project.ModeGoal && snap.Phase == string(project.PhaseDone)) {
+			return DeliveryOutcome{Snapshot: snap}, fmt.Errorf("session %s: artifact is not in the integrate phase", snap.SessionID)
+		}
+		var status workspace.Status
+		var statusErr error
+		if ws == nil || strings.TrimSpace(ws.Set().Austin.Path) == "" {
+			statusErr = fmt.Errorf("Austin worktree unavailable")
+		} else {
+			status, statusErr = ws.Status(ctx, protocol.Austin)
+			if statusErr != nil {
+				if _, err := os.Stat(ws.Set().Austin.Path); err == nil || !os.IsNotExist(err) {
+					return DeliveryOutcome{Snapshot: snap}, fmt.Errorf("session %s: cannot inspect Austin's worktree: %w", snap.SessionID, statusErr)
+				}
+			}
+		}
+		if statusErr == nil {
+			if status.Dirty || status.Head != finalHead {
+				return DeliveryOutcome{Snapshot: snap}, fmt.Errorf("session %s: Austin's clean HEAD does not match the delivery artifact", snap.SessionID)
+			}
+		} else {
+			branch := austinBranch(snap)
+			head, err := delivery.BranchHead(ctx, snap.Repository, branch)
+			if err == nil && head != finalHead {
+				return DeliveryOutcome{Snapshot: snap}, fmt.Errorf("session %s: Austin's branch does not match the delivery artifact", snap.SessionID)
+			}
+			if err != nil {
+				head, err = delivery.CommitHead(ctx, snap.Repository, finalHead)
+				if err != nil || head != finalHead {
+					return DeliveryOutcome{Snapshot: snap}, fmt.Errorf("session %s: cannot verify the signed delivery artifact", snap.SessionID)
+				}
+			}
+		}
+		for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
+			if !snap.Ready[id] || strings.TrimSpace(snap.Evidence[id]) != finalHead {
+				return DeliveryOutcome{Snapshot: snap}, fmt.Errorf("session %s: integrate signatures do not bind the artifact to deliver", snap.SessionID)
+			}
+		}
 	}
 
 	manager := ManagerFor(snap, finalHead)
@@ -324,6 +370,16 @@ func currentStepLanded(snap sessionstore.Snapshot) bool {
 	return snap.Steps[idx-1].Done && snap.Steps[idx-1].DeliveryHead == snap.Delivery.FinalHead
 }
 
+func austinBranch(snap sessionstore.Snapshot) string {
+	if snap.Delivery.Status == sessionstore.DeliveryPending && strings.TrimSpace(snap.Delivery.FinalBranch) != "" {
+		return strings.TrimSpace(snap.Delivery.FinalBranch)
+	}
+	if wt, ok := snap.Worktree(protocol.Austin); ok && strings.TrimSpace(wt.Branch) != "" {
+		return strings.TrimSpace(wt.Branch)
+	}
+	return strings.TrimSpace(snap.Delivery.FinalBranch)
+}
+
 // stepVerdictBinds reports whether the step under the cursor carries Tony's passed
 // verdict for exactly the HEAD about to be delivered.
 func stepVerdictBinds(snap sessionstore.Snapshot, head string) bool {
@@ -374,12 +430,17 @@ func CompleteSnapshot(snap *sessionstore.Snapshot) error {
 }
 
 // ResolveFinalHead proves which artifact this session considers final. It trusts
-// the durable record first, then the integration checkpoint, then the persisted
-// Austin worktree, and finally the persisted Austin branch ref in the original
+// a pending or applied record first, then the Austin worktree and branch. FAST
+// may use its integration checkpoint. The final fallback is the branch ref in the original
 // repository. Every fallback is verified against Git, never guessed.
 func ResolveFinalHead(ctx context.Context, ws *workspace.GitManager, snap sessionstore.Snapshot) (string, error) {
-	if head := snap.FinalHead(); head != "" {
+	if head := strings.TrimSpace(snap.Delivery.FinalHead); head != "" && (snap.Delivery.Status == sessionstore.DeliveryPending || snap.Delivery.Applied()) {
 		return head, nil
+	}
+	if snap.EffectiveMode() == project.ModeFast || (snap.EffectiveMode() == project.ModeStep && snap.StepUnderCursor() != nil && snap.StepUnderCursor().EffectivePolicy() == project.ModeFast) {
+		if head := strings.TrimSpace(snap.Integration.Head); head != "" {
+			return head, nil
+		}
 	}
 	if wt, ok := snap.Worktree(protocol.Austin); ok {
 		if strings.TrimSpace(wt.Path) != "" {
@@ -393,8 +454,17 @@ func ResolveFinalHead(ctx context.Context, ws *workspace.GitManager, snap sessio
 			}
 		}
 	}
+	// Older snapshots can retain the signed commit after worktree cleanup.
+	if snap.Ready[protocol.Austin] && snap.Ready[protocol.Tony] {
+		head := strings.TrimSpace(snap.Evidence[protocol.Austin])
+		if head != "" && head == strings.TrimSpace(snap.Evidence[protocol.Tony]) {
+			if resolved, err := delivery.CommitHead(ctx, snap.Repository, head); err == nil && resolved == head {
+				return head, nil
+			}
+		}
+	}
 	return "", fmt.Errorf(
-		"session %s has no recoverable final artifact: state records neither an integration head nor an Austin branch",
+		"session %s has no recoverable final artifact: Austin worktree and branch are unavailable",
 		snap.SessionID,
 	)
 }
@@ -440,7 +510,7 @@ func ReconcileDelivery(
 			})
 			return DeliveryOutcome{Snapshot: snap, Applied: true}, false, nil
 
-		case snap.StepDeliveryIsCurrent() && stepVerdictBinds(snap, snap.Delivery.FinalHead):
+		case snap.StepDeliveryIsCurrent() && (snap.StepUnderCursor().EffectivePolicy() == project.ModeGoal || stepVerdictBinds(snap, snap.Delivery.FinalHead)):
 			// The record is this step's own landing, interrupted before the queue
 			// moved: finish the transaction the crash left half-done.
 			if err := LandStepSnapshot(&snap, snap.Delivery.FinalHead); err != nil {
