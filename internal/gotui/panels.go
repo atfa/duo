@@ -16,6 +16,27 @@ import (
 	ui "github.com/metaspartan/gotui/v5"
 )
 
+// labelColumn is the value column shared by a panel's label/value rows: the
+// widest label it can show plus a one-cell gap. It is measured every frame
+// because a translated label is not the same display width as its source:
+// "context" is seven cells, "上下文" six, so no literal padding can line both up.
+// The gap stays at one cell so the widest row still fits a narrow sidebar card
+// (a two-cell gap pushed a long model id onto its own line).
+func labelColumn(labels ...string) int {
+	column := 0
+	for _, label := range labels {
+		column = max(column, rw.StringWidth(label))
+	}
+	return column + 1
+}
+
+// labelPad pads label out to column so the value written after it starts on the
+// shared column. The one-space fallback keeps a label and its value apart when a
+// caller passes a column narrower than the label.
+func labelPad(label string, column int) string {
+	return label + strings.Repeat(" ", max(1, column-rw.StringWidth(label)))
+}
+
 func fillBlock(buf *ui.Buffer, r image.Rectangle, style ui.Style) {
 	for y := r.Min.Y; y < r.Max.Y; y++ {
 		for x := r.Min.X; x < r.Max.X; x++ {
@@ -151,7 +172,7 @@ func (h *headerBar) Draw(buf *ui.Buffer) {
 		tabX := max(h.Min.X+1, h.Max.X-tabWidth-1)
 		line := h.theme.tr("session") + " " + h.session
 		if h.online > 0 {
-			line += fmt.Sprintf("   ·   %d/%d %s", h.online, h.total, h.theme.tr("agents online"))
+			line += fmt.Sprintf("  ·  %d/%d %s", h.online, h.total, h.theme.tr("agents online"))
 		}
 		if available := tabX - (h.Min.X + 1) - 1; available > 8 {
 			put(fitText(line, available), h.theme.Subtle, image.Pt(h.Min.X+1, y))
@@ -228,11 +249,16 @@ func (w *workflowPanel) Draw(buf *ui.Buffer) {
 	if !lineRuns(stageChainRuns(modeChain(mode.String()), phase, mode, w.theme)) {
 		return
 	}
+	// The short status rows share one value column so their numbers line up down
+	// the panel; note rows are prose and keep their own line.
+	column := labelColumn(w.theme.tr("verify"), w.theme.tr("delivery"), w.theme.tr("worktrees"),
+		w.theme.tr("plan"), w.theme.tr("steps"), w.theme.tr("current"))
+	row := func(label, value string) string { return labelPad(w.theme.tr(label), column) + value }
 	if mode == project.ModeFast {
-		line(w.theme.tr("verify")+"  "+w.theme.tr(w.view.Project.Verification.Label()), w.verifyStyle())
-		line(w.theme.tr("delivery")+"  "+deliveryLabel(w.view.Delivery, w.theme), w.deliveryStyle())
+		line(row("verify", w.theme.tr(w.view.Project.Verification.Label())), w.verifyStyle())
+		line(row("delivery", deliveryLabel(w.view.Delivery, w.theme)), w.deliveryStyle())
 	} else {
-		line(fmt.Sprintf("%s v%d  ·  %d %s", w.theme.tr("plan"), w.view.Project.PlanVersion, len(strings.TrimSpace(w.view.Project.Plan)), w.theme.tr("bytes")), w.theme.Subtle)
+		line(fmt.Sprintf("%sv%d  ·  %d %s", row("plan", ""), w.view.Project.PlanVersion, len(strings.TrimSpace(w.view.Project.Plan)), w.theme.tr("bytes")), w.theme.Subtle)
 		if mode == project.ModeStep && len(w.view.Project.Steps) > 0 {
 			cur := w.view.Project.Step
 			if cur < 1 {
@@ -244,10 +270,10 @@ func (w *workflowPanel) Draw(buf *ui.Buffer) {
 					done++
 				}
 			}
-			line(fmt.Sprintf("%s  %d/%d %s", w.theme.tr("steps"), done, len(w.view.Project.Steps), w.theme.tr("landed")), w.theme.Subtle)
+			line(fmt.Sprintf("%s%d/%d %s", row("steps", ""), done, len(w.view.Project.Steps), w.theme.tr("landed")), w.theme.Subtle)
 			if cur <= len(w.view.Project.Steps) {
 				step := w.view.Project.Steps[cur-1]
-				line(fmt.Sprintf("%s  %d. [%s] %s", w.theme.tr("current"), cur, strings.ToUpper(step.EffectivePolicy().String()), step.Title), w.theme.BodyMuted)
+				line(fmt.Sprintf("%s%d. [%s] %s", row("current", ""), cur, strings.ToUpper(step.EffectivePolicy().String()), step.Title), w.theme.BodyMuted)
 				if phase == "STEPS" {
 					// The queue lifecycle alone cannot say where the step is: a FAST
 					// step and a GOAL step share the queue but not their gates.
@@ -262,14 +288,14 @@ func (w *workflowPanel) Draw(buf *ui.Buffer) {
 		} else {
 			line(fmt.Sprintf("%s  A:%s  T:%s", w.theme.tr("ready"), readyMark(w.view.Project.Ready[protocol.Austin]), readyMark(w.view.Project.Ready[protocol.Tony])), w.theme.Subtle)
 		}
-		line(w.theme.tr("delivery")+"  "+deliveryLabel(w.view.Delivery, w.theme), w.deliveryStyle())
+		line(row("delivery", deliveryLabel(w.view.Delivery, w.theme)), w.deliveryStyle())
 	}
 	if w.Inner.Dy() >= 7 {
 		root := w.view.Worktrees.Root
 		if root == "" {
 			root = w.view.Worktrees.Repository
 		}
-		line(w.theme.tr("worktrees")+"  "+shortPath(root, max(8, w.Inner.Dx()-14)), w.theme.Subtle)
+		line(row("worktrees", shortPath(root, max(8, w.Inner.Dx()-14))), w.theme.Subtle)
 	}
 	if !w.compact {
 		if note := strings.TrimSpace(w.view.Project.Verification.Note); note != "" && mode == project.ModeFast {
@@ -466,6 +492,11 @@ func (a *agentCard) Draw(buf *ui.Buffer) {
 		spin = spinnerFrame(a.frame) + " "
 	}
 	line(spin+state, stateStyle)
+	// Every optional row is listed, not only the ones this frame draws, so the
+	// column does not jump when a tool starts or an error clears.
+	column := labelColumn(a.theme.tr("model"), a.theme.tr("driver"), a.theme.tr("thinking"),
+		a.theme.tr("context"), a.theme.tr("tool"), a.theme.tr("turn"), a.theme.tr("idle"), a.theme.tr("error"))
+	row := func(label, value string) string { return labelPad(a.theme.tr(label), column) + value }
 	model := a.model
 	if model == "" {
 		model = a.av.Model
@@ -476,7 +507,7 @@ func (a *agentCard) Draw(buf *ui.Buffer) {
 	if model == "" {
 		model = a.theme.tr("model not reported")
 	}
-	line(a.theme.tr("model")+"    "+model, a.theme.Body)
+	line(row("model", model), a.theme.Body)
 	driver := a.av.Driver
 	if driver == "" {
 		driver = a.theme.tr("driver")
@@ -488,8 +519,8 @@ func (a *agentCard) Draw(buf *ui.Buffer) {
 	if thinking == "" {
 		thinking = a.theme.tr("default")
 	}
-	line(a.theme.tr("driver")+"   "+driver, a.theme.Subtle)
-	line(a.theme.tr("thinking")+" "+thinking, a.theme.Subtle)
+	line(row("driver", driver), a.theme.Subtle)
+	line(row("thinking", thinking), a.theme.Subtle)
 	rt := a.av.Runtime
 	if rt.ContextWindow > 0 {
 		pct := float64(rt.ContextTokens) / float64(rt.ContextWindow) * 100
@@ -500,9 +531,9 @@ func (a *agentCard) Draw(buf *ui.Buffer) {
 		if rt.ContextWarned {
 			contextStyle = a.theme.Error
 		}
-		line(fmt.Sprintf("%s  %s / %s  %.0f%%", a.theme.tr("context"), humanTokens(rt.ContextTokens), humanTokens(rt.ContextWindow), pct), contextStyle)
+		line(row("context", fmt.Sprintf("%s / %s  %.0f%%", humanTokens(rt.ContextTokens), humanTokens(rt.ContextWindow), pct)), contextStyle)
 	} else {
-		line(a.theme.tr("context")+"  "+a.theme.tr("not reported"), a.theme.Subtle)
+		line(row("context", a.theme.tr("not reported")), a.theme.Subtle)
 	}
 	if rt.ToolDepth > 0 || rt.Tool != "" {
 		tool := rt.Tool
@@ -516,12 +547,12 @@ func (a *agentCard) Draw(buf *ui.Buffer) {
 		if !rt.ToolStarted.IsZero() && rt.ToolDepth > 0 {
 			dur = "  " + shortDuration(a.now.Sub(rt.ToolStarted))
 		}
-		line(a.theme.tr("tool")+"     "+tool+dur, a.theme.Warning)
+		line(row("tool", tool+dur), a.theme.Warning)
 	}
 	if rt.Busy && !rt.TurnStarted.IsZero() {
-		line(fmt.Sprintf("%s     %s  ·  %d %s", a.theme.tr("turn"), shortDuration(a.now.Sub(rt.TurnStarted)), rt.Tools, a.theme.tr("tools")), a.theme.Subtle)
+		line(fmt.Sprintf("%s%s  ·  %d %s", row("turn", ""), shortDuration(a.now.Sub(rt.TurnStarted)), rt.Tools, a.theme.tr("tools")), a.theme.Subtle)
 	} else if !rt.LastActivity.IsZero() {
-		line(a.theme.tr("idle")+"     "+shortDuration(a.now.Sub(rt.LastActivity))+" "+a.theme.tr("ago"), a.theme.Subtle)
+		line(row("idle", shortDuration(a.now.Sub(rt.LastActivity))+" "+a.theme.tr("ago")), a.theme.Subtle)
 	}
 	if !a.compact {
 		for i := len(rt.Recent) - 1; i >= 0 && i >= len(rt.Recent)-2; i-- {
@@ -535,7 +566,7 @@ func (a *agentCard) Draw(buf *ui.Buffer) {
 			line("  "+mark+" "+n.Name+"  "+shortDuration(n.Duration), st)
 		}
 		if rt.LastError != "" {
-			line("error    "+rt.LastError, a.theme.Error)
+			line(row("error", rt.LastError), a.theme.Error)
 		}
 	}
 }
