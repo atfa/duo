@@ -650,9 +650,10 @@ func TestAnUnstartedSessionWithWorkIsKept(t *testing.T) {
 	}
 }
 
-// The session names its store after the canonical repository root. A launch
+// The session names its store after the physical repository root. A launch
 // directory reached through a symlink (macOS /var -> /private/var, or any linked
-// checkout) must still find that store instead of reporting an unknown session.
+// checkout) must name that same store, so the session stays resumable whichever
+// spelling the caller happens to hold.
 func TestSessionStoreFollowsASymlinkedRepositoryPath(t *testing.T) {
 	repo := gitRepo(t)
 	link := filepath.Join(t.TempDir(), "linked-repo")
@@ -671,8 +672,10 @@ func TestSessionStoreFollowsASymlinkedRepositoryPath(t *testing.T) {
 	if ended := svc.Close(); ended.Discarded {
 		t.Fatal("a session with work was discarded")
 	}
-	if _, err := sessionstore.Open(baseDir, sessionstore.RepoID(link), set.Session); err == nil {
-		t.Fatal("the raw launch path named a store, so this test cannot catch the symlink mismatch")
+	// The raw, symlinked spelling names the same store - not a second, empty one - so
+	// a caller that never resolved the path still reaches this session.
+	if _, err := sessionstore.Open(baseDir, sessionstore.RepoID(link), set.Session); err != nil {
+		t.Fatalf("a symlinked checkout named a different store: %v", err)
 	}
 	if _, err := openSessionStore(t, baseDir, link, set.Session).Load(); err != nil {
 		t.Fatalf("a symlinked checkout must stay resumable: %v", err)

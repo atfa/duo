@@ -449,6 +449,40 @@ func TestRepoIDIsStableAndPathScoped(t *testing.T) {
 	}
 }
 
+// TestRepoIDSharesOneStoreAcrossSpellings covers the symlinked spelling a checkout
+// can arrive with: Git reports resolved paths (on macOS /var is really
+// /private/var), so one repository recorded under two ids would hide its sessions
+// from the other spelling. A store created through one name has to be listed and
+// opened through the other.
+func TestRepoIDSharesOneStoreAcrossSpellings(t *testing.T) {
+	repo := t.TempDir()
+	link := filepath.Join(t.TempDir(), "checkout")
+	if err := os.Symlink(repo, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if RepoID(repo) != RepoID(link) {
+		t.Fatalf("one repository got two ids: %q and %q", RepoID(repo), RepoID(link))
+	}
+	base := t.TempDir()
+	store, err := New(base, RepoID(repo), "session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(testSnapshot("session")); err != nil {
+		t.Fatal(err)
+	}
+	items, err := List(base, RepoID(link))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].SessionID != "session" {
+		t.Fatalf("the store is not visible through the symlinked spelling: %+v", items)
+	}
+	if _, err := Open(base, RepoID(link), "session"); err != nil {
+		t.Fatalf("open through the symlinked spelling: %v", err)
+	}
+}
+
 func TestStoreRejectsUnsafeSessionIDs(t *testing.T) {
 	base := t.TempDir()
 	for _, id := range []string{"..", "../escape", "a/b", `a\b`, ""} {

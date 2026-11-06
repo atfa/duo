@@ -137,19 +137,31 @@ func (s *Service) takeObserverRequest() (observerRequest, bool) {
 //
 // The live block is rendered here, at request time, so a queued re-run reports
 // what is true when it runs rather than what was true when the key was pressed.
+//
+// The failure diagnostic is published only after the analyzing state ends, and
+// the view reads them in that order. Two mutexes cannot make a two-step read
+// atomic, but this write order does: a reader that sees the notice has already
+// passed the point where the panel stopped claiming to work, so a finished
+// failure can never be rendered as still analyzing.
 func (s *Service) analyzeObserverReport(ctx context.Context, req observerRequest) {
-	defer func() {
-		s.observerReportMu.Lock()
-		s.observerAnalyzing = false
-		s.observerAnswering = ""
-		s.observerReportMu.Unlock()
-	}()
+	notice := s.runObserverReport(ctx, req)
+	s.observerReportMu.Lock()
+	s.observerAnalyzing = false
+	s.observerAnswering = ""
+	s.observerReportMu.Unlock()
+	if notice != "" {
+		s.setObserverNotice(notice)
+	}
+}
 
+// runObserverReport performs the request and returns the diagnostic to publish
+// once the analyzing state has ended, or the empty string when there is none.
+func (s *Service) runObserverReport(ctx context.Context, req observerRequest) string {
 	s.mu.RLock()
 	obs := s.observer
 	s.mu.RUnlock()
 	if obs == nil {
-		return
+		return ""
 	}
 
 	var (
@@ -167,9 +179,15 @@ func (s *Service) analyzeObserverReport(ctx context.Context, req observerRequest
 		// again immediately below.
 		s.clearObserverNotice()
 	}
-	if err != nil {
-		s.observerLogf()("observer: %v", err)
+	if err == nil {
+		return ""
 	}
+	message := fmt.Sprintf("observer: %v", err)
+	s.logf()("%s", message)
+	if !observerNoteworthy(message) {
+		return ""
+	}
+	return message
 }
 
 // setObserverReport files one report, newest first, keeping a short history.
@@ -201,11 +219,16 @@ func (s *Service) observerReportSnapshot() ([]ObserverReport, bool, time.Time, s
 func (s *Service) observerLogf() func(string, ...any) {
 	return func(format string, args ...any) {
 		message := fmt.Sprintf(format, args...)
-		if !strings.Contains(message, "no API key in DUO_OBSERVER_API_KEY") {
+		if observerNoteworthy(message) {
 			s.setObserverNotice(message)
 		}
 		s.logf()("%s", message)
 	}
+}
+
+// observerNoteworthy reports whether a message deserves a panel notice.
+func observerNoteworthy(message string) bool {
+	return !strings.Contains(message, "no API key in DUO_OBSERVER_API_KEY")
 }
 
 // observerLiveContext renders the runtime state a report is written from: mode,

@@ -351,12 +351,26 @@ func SamePath(a, b string) bool {
 	if filepath.Clean(a) == filepath.Clean(b) {
 		return true
 	}
-	resolvedA, errA := filepath.EvalSymlinks(a)
-	resolvedB, errB := filepath.EvalSymlinks(b)
-	if errA != nil || errB != nil {
-		return false
+	return CanonicalPath(a) == CanonicalPath(b)
+}
+
+// CanonicalPath returns the physical spelling of a path. The same directory
+// reached through a symlink (on macOS /var is really /private/var) must name one
+// location no matter how it was written down, so anything that keys data by a
+// path - a session store, a worktree record, a comparison against Git's output -
+// derives it from where the path points instead. A path that cannot be resolved,
+// because it does not exist (yet), falls back to its cleaned absolute spelling:
+// that is the best identity available, and it is stable for the caller.
+func CanonicalPath(path string) string {
+	abs, err := filepath.Abs(path)
+	if err != nil {
+		return filepath.Clean(path)
 	}
-	return filepath.Clean(resolvedA) == filepath.Clean(resolvedB)
+	abs = filepath.Clean(abs)
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return filepath.Clean(resolved)
+	}
+	return abs
 }
 
 // Restore installs a previously persisted workspace set without touching Git or

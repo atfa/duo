@@ -10,7 +10,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/atfa/duo/internal/workspace"
 )
+
+// paneDeadline is how long a test waits for tmux to show an effect. It is
+// generous because a full `go test ./...` run competes with the tmux server it
+// polls, and a busy machine must not turn a slow pane into a false failure.
+const paneDeadline = 10 * time.Second
 
 func TestTmuxLifecycleAndLiteralArguments(t *testing.T) {
 	tm, err := FindTmux()
@@ -45,11 +52,18 @@ func TestTmuxLifecycleAndLiteralArguments(t *testing.T) {
 	if err != nil || !strings.Contains(string(hint), "back to xduo") {
 		t.Fatalf("return hint: %q %v", hint, err)
 	}
-	for deadline := time.Now().Add(3 * time.Second); ; {
+	// Create canonicalises the project through Git, which reports resolved paths
+	// (a t.TempDir() on macOS is /var/..., Git says /private/var/...). The pane must
+	// receive that spelling literally rather than re-derived by a shell.
+	if !workspace.SamePath(i.Project, project) {
+		t.Fatalf("instance project %q does not name the requested %q", i.Project, project)
+	}
+	want := i.Project + "\n" + i.StatusFile + "\n" + i.PairingFile + "\n"
+	for deadline := time.Now().Add(paneDeadline); ; {
 		data, err := os.ReadFile(filepath.Join(project, "result"))
 		if err == nil {
-			if string(data) != project+"\n"+i.StatusFile+"\n"+i.PairingFile+"\n" {
-				t.Fatalf("arguments: %q", data)
+			if string(data) != want {
+				t.Fatalf("arguments: %q, want %q", data, want)
 			}
 			break
 		}
@@ -308,7 +322,7 @@ func TestDuoExitReturnsTmuxClient(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { stdin.Close(); client.Process.Kill(); client.Wait() }()
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(paneDeadline)
 	for {
 		out, _ := tm.execute(ctx, "list-clients", "-F", "#{session_name}")
 		_, ready := os.Stat(filepath.Join(dir, "ready"))
@@ -316,7 +330,7 @@ func TestDuoExitReturnsTmuxClient(t *testing.T) {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("client or reader did not start")
+			t.Fatalf("client or reader did not start: clients %q, reader %v", out, ready)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -326,6 +340,8 @@ func TestDuoExitReturnsTmuxClient(t *testing.T) {
 	if err := tm.run(ctx, "send-keys", "-t", i.Session+":", "C-d"); err != nil {
 		t.Fatal(err)
 	}
+	// A fresh budget: the wait above may have used nearly all of the first one.
+	deadline = time.Now().Add(paneDeadline)
 	for {
 		out, _ := tm.execute(ctx, "list-clients", "-F", "#{session_name}")
 		if strings.TrimSpace(string(out)) == "xduo-manager" {

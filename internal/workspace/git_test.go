@@ -11,6 +11,30 @@ import (
 	"github.com/atfa/duo/internal/protocol"
 )
 
+func TestCanonicalPathResolvesSymlinkedSpelling(t *testing.T) {
+	dir := t.TempDir()
+	link := filepath.Join(t.TempDir(), "checkout")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	canonical := CanonicalPath(dir)
+	if canonical != CanonicalPath(link) {
+		t.Fatalf("one directory has two identities: %q and %q", canonical, CanonicalPath(link))
+	}
+	if !filepath.IsAbs(canonical) {
+		t.Fatalf("the identity is not absolute: %q", canonical)
+	}
+	if !SamePath(link, dir) {
+		t.Fatal("SamePath disagrees with CanonicalPath")
+	}
+	// A path that does not exist yet (a repository about to be created) still has a
+	// stable identity, so callers can key data before the directory appears.
+	missing := filepath.Join(dir, "missing")
+	if got := CanonicalPath(missing); got != CanonicalPath(filepath.Join(dir, ".", "missing")) {
+		t.Fatalf("the identity of a missing path is unstable: %q", got)
+	}
+}
+
 func TestGitManagerPrepareCaptureAndIntegrate(t *testing.T) {
 	ctx := context.Background()
 	repo := initRepo(t)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/atfa/duo/internal/project"
 	"github.com/atfa/duo/internal/protocol"
+	"github.com/atfa/duo/internal/workspace"
 )
 
 // SchemaVersion is the persisted snapshot schema. Version 3 records the workflow
@@ -322,14 +323,14 @@ func (s Snapshot) FinalHead() string {
 	return strings.TrimSpace(s.Integration.Head)
 }
 
-// RepoID derives a stable, collision-resistant store name from the absolute
-// repository path, so ~/Projects/foo and /tmp/foo never share a session store.
+// RepoID derives a stable, collision-resistant store name from the repository
+// path, so ~/Projects/foo and /tmp/foo never share a session store. The path is
+// canonicalised first: Git reports resolved paths (on macOS /var is really
+// /private/var), and a store keyed by the spelling it was handed would record one
+// repository twice - the same split that used to make a session started from one
+// spelling invisible from the other.
 func RepoID(repository string) string {
-	path := strings.TrimSpace(repository)
-	if abs, err := filepath.Abs(path); err == nil {
-		path = abs
-	}
-	path = filepath.Clean(path)
+	path := workspace.CanonicalPath(strings.TrimSpace(repository))
 	sum := sha256.Sum256([]byte(path))
 	name := sanitize(filepath.Base(path))
 	if name == "" || name == "." || name == string(filepath.Separator) {
