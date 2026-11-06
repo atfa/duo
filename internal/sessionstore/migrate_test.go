@@ -126,3 +126,24 @@ func TestResumeRejectsUnknownFutureVersion(t *testing.T) {
 		t.Fatal("a version without a migration chain must be refused")
 	}
 }
+
+func TestMigrateLoopV3PreservesInboxWithoutTrustingOldWaitOrApproval(t *testing.T) {
+	store := newTestStore(t, "loop-v3")
+	writeRawSnapshot(t, store, `{"schemaVersion":3,"sessionId":"loop-v3","repoId":"repo-1234","mode":"loop","phase":"RUNNING","loop":{"nextId":8,"waiting":{"Tony":{"until":"2030-01-01T00:00:00Z","reason":"observe"}},"events":{"Tony":[{"id":"8","text":"observation"}]},"approvals":{"Austin":"finished"}}}`)
+	snap, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snap.Loop.Waiting[protocol.Tony].Pending || snap.Loop.Waiting[protocol.Tony].Until.IsZero() || len(snap.Loop.Events[protocol.Tony]) != 1 || len(snap.Loop.Approvals) != 0 {
+		t.Fatalf("migration=%+v", snap.Loop)
+	}
+}
+
+func TestMigrateLoopV4DropsApprovalProtocol(t *testing.T) {
+	for _, phase := range []string{"RUNNING", "DONE"} {
+		snap, ok := Migrate(Snapshot{SchemaVersion: 4, Mode: project.ModeLoop, Phase: phase, Loop: project.LoopState{NextID: 12, Summary: "historic result", Proposal: &project.LoopProposal{ID: "11", Author: protocol.Tony, Summary: "old proposal"}}})
+		if !ok || snap.Loop.Proposal != nil || snap.Loop.NextID != 12 || snap.Loop.Summary != "historic result" || snap.Phase != phase {
+			t.Fatalf("migration: %+v", snap)
+		}
+	}
+}

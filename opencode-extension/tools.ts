@@ -57,19 +57,33 @@ export function buildDuoTools(
     tools.push({ name, description, input, execute: withContent(run) });
   };
 
-  add("duo_wait", "LOOP: read pending events or durably wait for a peer message or deadline, then end your turn. Acknowledge events only after processing.", {
-    type: "object", properties: {
-      until: str("Optional RFC3339 deadline."),
-      reason: str("Waiting reason and concise working summary."),
-      ack: str("Previously processed event ID."),
-    },
+  add("duo_events", "LOOP: read pending events or acknowledge one processed event from your inbox. Does not register a wait.", {
+    type: "object", properties: { ack: str("One processed event ID."), through: str("Last processed event ID: acknowledge the entire processed prefix in one call. Use ack or through.") },
   }, async (args) => {
-    try { return ok(await transport.request("loop_wait", { text: args.until?.trim(), note: args.reason?.trim(), eventId: args.ack?.trim() })); }
+    try { return ok(await transport.request("loop_events", { eventId: args.ack?.trim(), through: args.through?.trim() })); }
+    catch (error) { return failed("Duo events failed", error); }
+  });
+  add("duo_wait", "LOOP: register a wait, then end this turn without more tools. Waiting takes effect at turn end. Unread events prevent waiting; process them with duo_events first.", {
+    type: "object", properties: { until: str("Future RFC3339 deadline."), reason: str("Waiting reason and concise working summary.") },
+  }, async (args) => {
+    try { return ok(await transport.request("loop_wait", { text: args.until?.trim(), note: args.reason?.trim() })); }
     catch (error) { return failed("Duo wait failed", error); }
   });
-  add("duo_finish", "LOOP: propose or confirm completion with the same agreed summary; no Git delivery.", {
-    type: "object", properties: { summary: str("Agreed termination reason and result.") }, required: ["summary"],
-  }, async (args) => {
+  add("duo_ask", "LOOP owner Austin: ask Tony and end your turn. Wait for the matching reply before further work; duo_send is non-blocking.", {
+    type: "object", properties: { question: str() }, required: ["question"],
+  }, async (args: { question: string }) => {
+    try { return ok(await transport.request("loop_ask", { text: args.question.trim() })); }
+    catch (error) { return failed("Duo ask failed", error); }
+  });
+  add("duo_reply", "LOOP advisor Tony: answer a questionId from duo_events; Austin decides whether to accept the advice.", {
+    type: "object", properties: { questionId: str(), message: str() }, required: ["questionId", "message"],
+  }, async (args: { questionId: string; message: string }) => {
+    try { return ok(await transport.request("loop_reply", { questionId: args.questionId.trim(), text: args.message.trim() })); }
+    catch (error) { return failed("Duo reply failed", error); }
+  });
+  add("duo_finish", "LOOP owner Austin: finish with a summary and end your turn. Commit code changes and leave the worktree clean first; Duo safely delivers them before completion. No advisor approval is required; pending consultations must be answered first.", {
+    type: "object", properties: { summary: str() }, required: ["summary"],
+  }, async (args: { summary: string }) => {
     try { return ok(await transport.request("loop_finish", { note: args.summary.trim() })); }
     catch (error) { return failed("Duo finish failed", error); }
   });

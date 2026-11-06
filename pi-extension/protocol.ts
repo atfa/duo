@@ -24,6 +24,10 @@ export type DuoMessageType =
   | "response"
   | "set_verification"
   | "set_steps"
+  | "loop_ask"
+  | "loop_reply"
+  | "loop_guard"
+  | "loop_events"
   | "loop_wait"
   | "loop_finish"
   | "escalate"
@@ -65,6 +69,10 @@ export type DuoMessage = {
   type: DuoMessageType;
   requestId?: string;
   eventId?: string;
+  through?: string;
+  questionId?: string;
+  approve?: string;
+  reject?: string;
 
   sessionId?: string;
   token?: string;

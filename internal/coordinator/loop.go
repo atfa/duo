@@ -3,8 +3,6 @@ package coordinator
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"strings"
 	"time"
 
 	"github.com/atfa/duo/internal/events"
@@ -13,7 +11,32 @@ import (
 	"github.com/atfa/duo/internal/transport"
 )
 
+func (c *Coordinator) handleLoopEvents(ctx context.Context, client *transport.Client, msg protocol.Message) {
+	if msg.EventID != "" && msg.Through != "" {
+		_ = c.respond(ctx, client, msg.RequestID, false, "supply ack or through, not both", "")
+		return
+	}
+	ack := msg.EventID
+	if msg.Through != "" {
+		ack = msg.Through
+	}
+	pending, err := c.project.LoopEvents(client.Identity(), ack, msg.Through != "")
+	if err == nil {
+		err = c.persistStrict("loop events")
+	}
+	if err != nil {
+		_ = c.respond(ctx, client, msg.RequestID, false, err.Error(), "")
+		return
+	}
+	data, _ := json.Marshal(pending)
+	c.recordEvent("loop_events", map[string]any{"agent": client.Identity(), "ack": ack, "through": msg.Through != "", "pending": len(pending)})
+	_ = c.respond(ctx, client, msg.RequestID, true, "Pending events (acknowledge after processing): "+string(data), "")
+}
 func (c *Coordinator) handleLoopWait(ctx context.Context, client *transport.Client, msg protocol.Message) {
+	if msg.EventID != "" {
+		_ = c.respond(ctx, client, msg.RequestID, false, "use duo_events to acknowledge events before waiting", "")
+		return
+	}
 	var until time.Time
 	var err error
 	if msg.Text != "" {
@@ -23,7 +46,7 @@ func (c *Coordinator) handleLoopWait(ctx context.Context, client *transport.Clie
 			return
 		}
 	}
-	pending, err := c.project.LoopWait(client.Identity(), until, msg.Note, msg.EventID)
+	registered, err := c.project.LoopWait(client.Identity(), until, msg.Note)
 	if err == nil {
 		err = c.persistStrict("loop wait")
 	}
@@ -31,15 +54,15 @@ func (c *Coordinator) handleLoopWait(ctx context.Context, client *transport.Clie
 		_ = c.respond(ctx, client, msg.RequestID, false, err.Error(), "")
 		return
 	}
-	data, _ := json.Marshal(pending)
-	text := "Waiting. End your turn; Duo will wake you when an event is ready."
-	if len(pending) > 0 {
-		text = "Pending events (acknowledge each event ID only after processing): " + string(data)
+	text := "Wait intent registered. End this turn now without more tools. Waiting becomes effective when the turn settles."
+	if !registered {
+		text = "Not waiting: unread events exist. Use duo_events to read and acknowledge them, then decide whether to wait."
 	}
+	c.recordEvent("loop_wait", map[string]any{"agent": client.Identity(), "registered": registered, "until": until, "reason": msg.Note})
 	_ = c.respond(ctx, client, msg.RequestID, true, text, "")
 }
 func (c *Coordinator) handleLoopFinish(ctx context.Context, client *transport.Client, msg protocol.Message) {
-	done, err := c.project.LoopFinish(client.Identity(), msg.Note)
+	_, err := c.project.LoopFinish(client.Identity(), msg.Note, msg.Approve, msg.Reject)
 	if err == nil {
 		err = c.persistStrict("loop finish")
 	}
@@ -47,12 +70,51 @@ func (c *Coordinator) handleLoopFinish(ctx context.Context, client *transport.Cl
 		_ = c.respond(ctx, client, msg.RequestID, false, err.Error(), "")
 		return
 	}
-	text := "Finish proposed; waiting for your peer to approve the same summary."
-	if done {
-		text = "LOOP complete: " + strings.TrimSpace(msg.Note)
-		c.emit(events.KindSystem, protocol.Duo, "", text)
+	c.recordEvent("loop_finish", map[string]any{"agent": client.Identity(), "summary": msg.Note})
+	_ = c.respond(ctx, client, msg.RequestID, true, "Completion registered by Austin. End this turn without further work; no advisor approval is required.", "")
+}
+
+func (c *Coordinator) handleLoopAsk(ctx context.Context, client *transport.Client, msg protocol.Message) {
+	id, err := c.project.LoopAsk(client.Identity(), msg.Text)
+	if err == nil {
+		err = c.persistStrict("loop consultation")
 	}
-	_ = c.respond(ctx, client, msg.RequestID, true, text, "")
+	if err != nil {
+		_ = c.respond(ctx, client, msg.RequestID, false, err.Error(), "")
+		return
+	}
+	c.recordEvent("loop_ask", map[string]any{"agent": client.Identity(), "questionId": id})
+	_ = c.respond(ctx, client, msg.RequestID, true, "Consultation "+id+" queued for Tony. End your turn now. You must wait for its matching duo_reply and process that event before any further work. Advice is not approval; decide after reading it.", "")
+}
+func (c *Coordinator) handleLoopReply(ctx context.Context, client *transport.Client, msg protocol.Message) {
+	err := c.project.LoopReply(client.Identity(), msg.QuestionID, msg.Text)
+	if err == nil {
+		err = c.persistStrict("loop consultation reply")
+	}
+	if err != nil {
+		_ = c.respond(ctx, client, msg.RequestID, false, err.Error(), "")
+		return
+	}
+	c.recordEvent("loop_reply", map[string]any{"agent": client.Identity(), "questionId": msg.QuestionID})
+	_ = c.respond(ctx, client, msg.RequestID, true, "Reply queued for Austin. Austin decides whether to use it. End silently unless another question needs attention.", "")
+}
+
+// SetLoopWakeLimit configures the number of automatic wakes between explicit
+// human continuations. Zero selects the default; negative disables the budget.
+func (c *Coordinator) SetLoopWakeLimit(limit int) { c.loopWakeLimit = limit }
+func (c *Coordinator) allowLoopWake() bool {
+	limit := c.loopWakeLimit
+	if limit == 0 {
+		limit = 100
+	}
+	if limit < 0 || c.project.LoopWake(limit) {
+		return true
+	}
+	if err := c.SetPause(); err == nil {
+		c.emit(events.KindSystem, protocol.Duo, "", "LOOP automatic wake budget exhausted; inspect progress and /continue to grant another budget.")
+		_ = c.persistStrict("loop wake budget exhausted")
+	}
+	return false
 }
 
 // RunLoop persists elapsed timers before asking an agent to fetch events. Wakes
@@ -102,15 +164,17 @@ func (c *Coordinator) RunLoop(ctx context.Context) {
 				if busy {
 					continue
 				}
-				_, waiting := snap.Loop.Waiting[id]
-				text, key := "", ""
-				if len(snap.Loop.Events[id]) > 0 {
-					key = "event:" + snap.Loop.Events[id][0].ID
-					text = "A LOOP event is ready. Call duo_wait to read it; acknowledge its ID only after processing."
-				} else if !waiting && !activity.IsZero() && now.Sub(activity) >= 2*time.Minute {
-					key = "idle:" + activity.String()
-					text = "LOOP is idle without a registered wait. Continue the task, call duo_wait, or agree a finish summary with your peer."
+				wait, hasWait := snap.Loop.Waiting[id]
+				waiting := hasWait && !wait.Pending
+				if snap.Loop.Finishing {
+					continue
 				}
+				// A pending consultation is not idle. Ordinary advice, timers
+				// and human continuation do not release the owner early.
+				if q := snap.Loop.Consultation; id == protocol.Austin && q != nil && q.Waiting && q.Answer == "" {
+					continue
+				}
+				text, key := loopWake(snap, id, now, activity, waiting)
 				if key == "" {
 					continue
 				}
@@ -121,10 +185,14 @@ func (c *Coordinator) RunLoop(ctx context.Context) {
 				if a.count >= 3 || (!a.last.IsZero() && now.Sub(a.last) < 30*time.Second) {
 					continue
 				}
+				if !c.allowLoopWake() {
+					break
+				}
 				if err := c.persistStrict("loop event before wake"); err != nil {
 					c.logf("%v", err)
 					continue
 				}
+				c.recordEvent("loop_wake", map[string]any{"agent": id, "key": key, "attempt": a.count + 1})
 				err := c.sendToAgent(ctx, id, protocol.Message{Version: protocol.Version, Type: protocol.MsgDuoNotice, From: protocol.Duo, To: id, Text: text, Timestamp: now.UnixMilli()})
 				a.last = now
 				a.count++
@@ -140,6 +208,41 @@ func (c *Coordinator) RunLoop(ctx context.Context) {
 	}
 }
 
+// loopWake keeps scheduling independent of model speed: notifications are
+// batched, busy agents are skipped by RunLoop, and only the owner gets idle nudges.
+func loopWake(snap project.Snapshot, id protocol.AgentID, now, activity time.Time, waiting bool) (string, string) {
+	// Consultation delivery has its own retry key: an old unread notification
+	// must not consume the retry budget of a later question or answer.
+	if q := snap.Loop.Consultation; q != nil && q.Waiting {
+		if id == protocol.Tony && q.Answer == "" {
+			return "Austin is waiting for consultation " + q.ID + ". Read duo_events/duo_status and answer with duo_reply(questionId,message). Do not repeat unrelated work or wait without answering.", "question:" + q.ID
+		}
+		if id == protocol.Austin && q.Answer != "" {
+			return "The reply to consultation " + q.ID + " is ready. Read duo_events, process and acknowledge its reply event before continuing. You decide whether to accept the advice.", "reply:" + q.ReplyID
+		}
+	}
+	inbox := snap.Loop.Events[id]
+	if len(inbox) > 0 {
+		if id == protocol.Tony {
+			urgent := false
+			for _, e := range inbox {
+				if e.Kind == "question" {
+					urgent = true
+					break
+				}
+			}
+			if !urgent && !inbox[0].At.IsZero() && now.Sub(inbox[0].At) < 5*time.Second {
+				return "", ""
+			}
+		}
+		return "A LOOP event batch is ready. Call duo_events; process relevant events and acknowledge them. Tony: observe and advise only; answer a question with duo_reply using its questionId. Austin: notifications do not require replies; only a matching consultation reply releases your wait.", "event:" + inbox[0].ID
+	}
+	if id == protocol.Austin && !waiting && !activity.IsZero() && now.Sub(activity) >= 2*time.Minute {
+		return "LOOP owner is idle without a wait. Continue, use duo_ask if advice is needed, duo_wait for external change, or duo_finish(summary) when stopping. Tony approval is not required.", "idle:" + activity.String()
+	}
+	return "", ""
+}
+
 func loopResumePrompt() string {
-	return fmt.Sprint("[Duo LOOP resumed] Read duo_status and continue the collaboration. Call duo_wait for pending events and acknowledge each event ID after processing. Call duo_finish with the same summary as your peer to finish.")
+	return "[Duo LOOP resumed] Austin owns the task and user report; Tony observes and advises without executing the task. Read duo_status and duo_events. If a consultation is pending, Austin must wait for its matching reply, even after restart. Use duo_ask for blocking consultation, duo_reply(questionId,message) for its answer, and duo_send for asynchronous notifications/advice. Austin decides whether to accept advice and finishes with duo_finish(summary), without Tony approval. No Git delivery is performed."
 }

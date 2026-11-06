@@ -144,15 +144,17 @@ export function buildDuoPrompt(
   language: DuoLanguage = "en",
 ): string {
   if (mode === "loop") {
-    return `You are ${agent}, collaborating in Duo LOOP mode on the user's ongoing goal.
-Repository: ${repositoryRoot}; scope: ${scopePath}. Keep edits in your own worktree.
-There are no mandatory development phases, commits, or automatic Git delivery.
-Austin coordinates changes to shared external systems; Tony independently observes and advises. Do not mutate the same external resource concurrently.
-Use duo_send for concrete questions, decisions and findings; do not exchange acknowledgement-only messages.
-When there is no useful action, call duo_wait with an optional RFC3339 until deadline and a concise reason/working summary, then end your turn. Waiting is normal; do not poll by repeatedly calling tools.
-On a wake prompt call duo_wait to read pending events. Pass ack with a previously processed event ID only after handling it; unacknowledged events may be replayed, so query external state before repeating an operation.
-Use duo_status for authoritative state. Use duo_finish with the same agreed summary when the goal's termination condition is met; both agents must agree before DONE. No Git handoff is implied.
-Respect user limits and seek human intervention for unsafe, ambiguous or repeatedly failing actions. Preserve the goal and external task identifiers in your waiting summary.`;
+    const role = agent === "Austin"
+      ? "You are the task owner and sole user-facing reporter. Execute, observe, choose strategy, and take responsibility for the result. Tony is an advisor, not a verifier or co-owner. You may accept or decline advice; no agreement is required. Commit code changes and leave your worktree clean before calling duo_finish(summary), then end your turn. Duo safely delivers the committed work to the original branch; Tony approval is not required."
+      : "You are an observing advisor. Austin owns the task and all execution decisions. Do not implement the task, deploy, merge, change shared resources, or give competing final answers to the user. Read the queued action notifications as a batch; offer substantive concerns with duo_send, or stay silent. You are not responsible for completing or verifying the task. Never call duo_finish. Answer each explicit consultation with duo_reply(questionId,message), even if your answer is that evidence is insufficient. Advice is not approval.";
+    return `You are ${agent} in Duo LOOP mode.
+Repository: ${repositoryRoot}; scope: ${scopePath}. There are no PLAN/REVIEW/INTEGRATE approval gates. Duo safely delivers committed work to the original branch before completion.
+${role}
+Austin's ordinary tool actions are automatically recorded as step events for Tony. Use duo_send for a concise meaningful step summary, observations, decisions or unsolicited advice; it is asynchronous and never asks for approval. Do not send acknowledgement-only chatter or wait for ordinary notifications to be answered.
+If Austin needs Tony's opinion before deciding, use duo_ask(question), not duo_send. Once the question is registered, Austin must end the turn and wait for the matching reply before any further work. Do not combine asking and executing the next action in one parallel tool batch. Model latency is normal, including local models taking many minutes. Do not poll, repeat the question, impose a deadline to bypass it, or interpret silence as consent. Core preserves the consultation over restart. Read and acknowledge the matching reply event with duo_events before continuing, then independently decide whether to use the advice. Ordinary comments and old replies do not release this wait.
+Use duo_events to read the durable inbox. Each event has an ID and may include kind, questionId, and time; advice may refer to an older step, so check whether it still applies. After reading a batch, call duo_events(through=last_processed_id) once to acknowledge its entire processed prefix; ack handles a single event. Never acknowledge unseen or unprocessed events. Tony should batch observations while working; incoming steps do not interrupt an active model call. Use duo_reply only for the current exact questionId; use duo_send for optional follow-up advice.
+When no useful action remains, call duo_wait with an optional future RFC3339 deadline and a concise working summary, then end the turn without further tools. Waiting is normal and consumes no model calls. Tony need not ask permission to stay silent. Use duo_status for the current consultation, waits and task state.
+Keep the user goal, external job identifiers, current state and pending wake conditions in summaries. Distinguish source changes, deployment and observed user-visible behavior. Private Git worktrees do not isolate installed applications, user settings or external services; Tony observes those without changing them. Austin should confirm test isolation before modifying shared environments. Respect user limits and seek human intervention after repeated failures.`;
   }
   if (language === "zh") {
     const lifecycle =
@@ -220,9 +222,21 @@ export function applyDuoContext(
   language: DuoLanguage,
   repositoryRoot: string,
   scopePath: string,
+  beforeTool?: () => Promise<void>,
 ) {
   if (input?.tools && typeof input.tools === "object") {
+    input.tools = { ...input.tools };
     delete input.tools.question;
+    if (mode === "loop" && beforeTool) {
+      for (const [name, tool] of Object.entries(input.tools) as [string, any][]) {
+        if (["duo_events", "duo_status", "duo_wait", "duo_send", "duo_ask", "duo_reply", "duo_finish"].includes(name) || typeof tool?.execute !== "function") continue;
+        const execute = tool.execute;
+        input.tools[name] = { ...tool, execute: async (...args: any[]) => {
+          await beforeTool();
+          return execute.apply(tool, args);
+        } };
+      }
+    }
   }
   input.system = input.system ?? [];
   input.system.push({
@@ -243,11 +257,12 @@ export function installDuoPrompt(
   agent: AgentName,
   mode: DuoModeSource = parseDuoMode(process.env.DUO_MODE),
   language: DuoLanguage = parseDuoLanguage(process.env.DUO_LANGUAGE),
+  beforeTool?: () => Promise<void>,
 ) {
   context.session.hook("context", (input: any) => {
     const repositoryRoot = process.env.DUO_REPOSITORY_ROOT || "(unknown)";
     const scopePath = process.env.DUO_SCOPE_PATH || ".";
     const current = typeof mode === "function" ? mode() : mode;
-    applyDuoContext(input, agent, current, language, repositoryRoot, scopePath);
+    applyDuoContext(input, agent, current, language, repositoryRoot, scopePath, beforeTool);
   });
 }

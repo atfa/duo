@@ -179,17 +179,76 @@ state must read `History()` and the journal, not the stream.
 
 ## LOOP collaboration
 
-LOOP runs both agents in RUNNING without plan, review, commit or delivery gates.
-The project snapshot owns each wait, deadline, pending event and completion
-proposal. Peer messages and later human input become events; wake notifications
-are best effort and do not remove them. `duo_wait` returns the queue and an
-explicit acknowledgement removes one processed event. Expired deadlines become
-events before dispatch, and waiting and events survive restart. Pause and the
-resume hold suppress dispatch. Both agents must propose the same summary to
-finish; new substantive events invalidate completion proposals.
+Austin owns the ongoing goal, all execution decisions and the user-facing report.
+Tony observes and advises without implementing the task or approving completion.
+New tasks go directly to Austin; Tony receives durable context notifications.
+Austin can work while Tony is disconnected, until he explicitly asks for advice.
+Austin may accept or decline advice. LOOP has no plan, review or advisor approval gates. Final delivery requires a clean committed Austin worktree. It is not repeated FAST verification or a GOAL phase cycle.
 
-This mode still requires a Git repository and uses separate worktrees. It leaves
-work in those worktrees, with no automatic integration or handoff. LOOP sessions
-are excluded from ordinary cleanup, including completed sessions; explicit
-`duo clean --force` can remove their work. There is no automatic token, cost or
-time budget; event wake attempts and unregistered idle recovery are bounded.
+There are two distinct communication paths:
+
+- `duo_send` queues asynchronous notifications or unsolicited advice. It never
+  blocks Austin or requires a reply. Core automatically records each ordinary
+  Austin tool completion/error as a compact step event for Tony, using existing
+  activity previews, not full command outputs. Agents can add meaningful result
+  summaries with `duo_send`.
+- `duo_ask(question)` creates a durable, correlated consultation owned by Austin.
+  Once registered, Austin must end the turn and cannot do further task work until
+  Tony calls `duo_reply(questionId,message)` and Austin reads and acknowledges
+  that exact reply event. Ordinary advice, deadlines, user continuation and
+  restart do not bypass the wait. A reply is advice, not approval. One question
+  may be pending at a time; retries of the same question/reply are idempotent.
+
+The snapshot is authoritative for consultation IDs, question/answer, wait intent,
+settled waits, deadlines, pending events and the automatic wake count. Events
+include IDs, timestamps and kinds so late advice can refer to an older step.
+`duo_events` reads or acknowledges a processed event; it never registers a wait.
+Wrong-inbox and unknown acknowledgements fail. `through` acknowledges the entire
+processed inbox prefix in one call, avoiding a model/tool round-trip per step. Only the latest acknowledgement
+may be retried. IDs are monotonic across reopened rounds.
+
+Pi's pre-tool hook and OpenCode's execution wrappers query `loop_guard` before
+ordinary tools. They block during an outstanding consultation or owner finish
+intent, including after model/adapter restart and when the bridge is unavailable.
+Coordination tools remain available for reading/acknowledging replies and waiting.
+Already-started commands and external jobs are not interrupted. Agents must not
+submit a question and the next action in the same parallel batch. Other driver
+adapters must implement the pre-tool guard to provide the same enforcement; a
+plain MCP connection cannot intercept that driver's non-MCP shell tools.
+
+Notifications are batched for five seconds from the first queued event. Explicit
+questions bypass the batch delay. A busy Tony is never interrupted or repeatedly
+woken; new steps accumulate in his inbox until his turn settles. There are no idle
+nudges telling the advisor to invent work. After observing, Tony can give a useful
+comment or silently wait. Austin awaiting a consultation is not idle and is not
+woken for unrelated messages. This supports slow local models without repeated
+LLM calls. No response timeout silently releases Austin: recover the advisor or
+intervene as a human when it fails.
+
+`duo_wait` registers a deadline/event wait when the inbox is empty. The wait takes
+effect only after `agent_settled`; further work cancels it. Expired timers become
+durable events before dispatch. Pause and resume hold suppress dispatch. Inboxes,
+consultations and deadlines survive restart; notifications never consume events.
+
+Only Austin calls `duo_finish(summary)`. This records a stopping decision and
+suppresses new dispatch; after Austin's settled turn, Duo delivers his committed HEAD to the recorded starting branch. DONE follows successful delivery, without waiting for Tony's approval or turn boundary. Optional advice does not revoke the decision.
+An unanswered/unprocessed consultation or unprocessed human instruction prevents
+finishing. A later human input
+cancels a pending finish, or starts a new round after DONE. Restore clears an
+unobserved finish intent but preserves the summary for re-evaluation. Stopping
+need not claim success; summaries should distinguish achieved results, limits and
+reasons for stopping. Delivery uses the same pending and applied checkpoints and safe fast-forward checks described above. Uncommitted Austin work or a refused handoff leaves delivery pending.
+
+`loopWakeLimit` in `.duo/config.json` bounds automatic dispatch attempts between
+explicit human continuations (default 100, 0 selects default, -1 unlimited).
+The durable count survives restart; exhaustion pauses dispatch until `/continue`
+grants another budget. This bounds wakes, not the tokens or cost of a running
+turn. Per-event transport retries remain limited to three. Use `duo run --timeout`
+for a headless wall-time limit.
+
+LOOP still requires a Git repository and separate worktrees. Worktrees do not
+isolate installed apps, user settings or external services; Austin owns operations
+on them while Tony observes. Waiting and completion do not terminate external
+jobs. Ordinary cleanup skips LOOP sessions; `duo clean --force` can discard them.
+Schema 5 migrates old sessions, preserving IDs, inboxes, deadlines and historical
+DONE summaries while discarding the obsolete completion-approval protocol.

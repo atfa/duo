@@ -23,6 +23,7 @@ func TestSessionExportsModeForThePiExtension(t *testing.T) {
 		{"fast", "fast"},
 		{"goal", "goal"},
 		{"step", "step"},
+		{"loop", "loop"},
 		{"", "goal"},
 		{"bogus", "goal"},
 	} {

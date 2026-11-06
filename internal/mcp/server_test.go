@@ -53,16 +53,19 @@ func TestMCPServerInitializeAndToolsList(t *testing.T) {
 		t.Fatalf("tools result not map: %#v", resp.Result)
 	}
 	toolsList, ok := toolsMap["tools"].([]any)
-	if !ok || len(toolsList) != 10 {
-		t.Fatalf("tools count = %d, want 10", len(toolsList))
+	if !ok || len(toolsList) != 13 {
+		t.Fatalf("tools count = %d, want 13", len(toolsList))
 	}
 
-	// Verify all 10 Duo tools are listed
+	// Verify all 13 Duo tools are listed
 	expectedTools := map[string]bool{
 		"duo_status":           false,
 		"duo_send":             false,
+		"duo_events":           false,
 		"duo_wait":             false,
 		"duo_finish":           false,
+		"duo_ask":              false,
+		"duo_reply":            false,
 		"duo_set_status":       false,
 		"duo_set_verification": false,
 		"duo_set_plan":         false,

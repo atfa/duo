@@ -46,7 +46,7 @@ export default function (pi: any) {
   installModelBridge(pi, transport, AGENT);
 
   registerSendTool(pi, transport);
-  registerLoopTools(pi, transport);
+  registerLoopTools(pi, transport, () => modeState.current);
   registerPlanTool(pi, transport);
   registerStepsTool(pi, transport);
   registerStatusTool(pi, transport);

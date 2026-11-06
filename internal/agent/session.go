@@ -31,6 +31,8 @@ func modeEnv(mode string) string {
 		return "fast"
 	case "step":
 		return "step"
+	case "loop":
+		return "loop"
 	default:
 		return "goal"
 	}

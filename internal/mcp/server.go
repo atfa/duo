@@ -64,11 +64,23 @@ func DefaultTools() []Tool {
 			},
 		},
 		{
-			Name: "duo_wait", Description: "LOOP: register an event or deadline wait and read pending events. After processing an event, acknowledge its ID on a later call.",
-			InputSchema: map[string]any{"type": "object", "properties": map[string]any{"until": map[string]any{"type": "string", "description": "Optional RFC3339 deadline"}, "reason": map[string]any{"type": "string"}, "ack": map[string]any{"type": "string", "description": "ID of a processed event"}}},
+			Name: "duo_events", Description: "LOOP: read pending events or acknowledge a processed event. Does not register a wait.",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{"ack": map[string]any{"type": "string", "description": "One processed event ID"}, "through": map[string]any{"type": "string", "description": "Last processed event ID; acknowledge the entire processed prefix in one call"}}},
 		},
 		{
-			Name: "duo_finish", Description: "LOOP: propose completion with a summary; both agents must approve the identical summary.",
+			Name: "duo_wait", Description: "LOOP: register a deadline or event wait, then end this turn without more tools. Unread events prevent waiting; read them with duo_events.",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{"until": map[string]any{"type": "string", "description": "Optional future RFC3339 deadline"}, "reason": map[string]any{"type": "string"}}},
+		},
+		{
+			Name: "duo_ask", Description: "LOOP owner Austin: request Tony's advice and stop work until the matching reply is processed. Use duo_send for non-blocking notifications.",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{"question": map[string]any{"type": "string"}}, "required": []string{"question"}},
+		},
+		{
+			Name: "duo_reply", Description: "LOOP advisor Tony: answer a consultation using its exact questionId. Austin decides whether to accept the advice.",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{"questionId": map[string]any{"type": "string"}, "message": map[string]any{"type": "string"}}, "required": []string{"questionId", "message"}},
+		},
+		{
+			Name: "duo_finish", Description: "LOOP owner Austin: stop when the termination condition is met. No advisor approval or Git delivery. Cannot finish while a consultation is pending. End the turn after calling.",
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{"summary": map[string]any{"type": "string"}}, "required": []string{"summary"}},
 		},
 		{
@@ -517,6 +529,17 @@ func (s *Server) executeTool(ctx context.Context, params callToolParams) toolRes
 			Text: text,
 		}
 
+	case "duo_ask":
+		question, _ := params.Arguments["question"].(string)
+		msg = protocol.Message{Type: protocol.MsgLoopAsk, Text: question}
+	case "duo_reply":
+		id, _ := params.Arguments["questionId"].(string)
+		text, _ := params.Arguments["message"].(string)
+		msg = protocol.Message{Type: protocol.MsgLoopReply, QuestionID: id, Text: text}
+	case "duo_events":
+		ack, _ := params.Arguments["ack"].(string)
+		through, _ := params.Arguments["through"].(string)
+		msg = protocol.Message{Type: protocol.MsgLoopEvents, EventID: ack, Through: through}
 	case "duo_wait":
 		until, _ := params.Arguments["until"].(string)
 		reason, _ := params.Arguments["reason"].(string)
@@ -524,7 +547,9 @@ func (s *Server) executeTool(ctx context.Context, params callToolParams) toolRes
 		msg = protocol.Message{Type: protocol.MsgLoopWait, Text: until, Note: reason, EventID: ack}
 	case "duo_finish":
 		summary, _ := params.Arguments["summary"].(string)
-		msg = protocol.Message{Type: protocol.MsgLoopFinish, Note: summary}
+		approve, _ := params.Arguments["approve"].(string)
+		reject, _ := params.Arguments["reject"].(string)
+		msg = protocol.Message{Type: protocol.MsgLoopFinish, Note: summary, Approve: approve, Reject: reject}
 
 	case "duo_set_status":
 		readyVal, ok := params.Arguments["ready"]

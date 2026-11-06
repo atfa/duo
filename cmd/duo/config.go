@@ -75,6 +75,7 @@ type config struct {
 	// contextWarnPercent is the context occupancy at which Duo tells an agent its
 	// window is nearly full. It defaults to 85; 0 turns the warning off.
 	contextWarnPercent int
+	loopWakeLimit      int
 
 	// remoteURL is the relay a phone pairs through, and remoteEnabled is whether
 	// a stored pairing may be resumed. Both are resolved here so the remote
@@ -160,6 +161,7 @@ func (c config) sessionOptions() session.Options {
 		ObserverConfigured:  c.observerConfigured,
 		Notify:              &c.notify,
 		ContextWarnPercent:  c.contextWarnPercent,
+		LoopWakeLimit:       c.loopWakeLimit,
 		AgentCommands:       c.agentCommands,
 		AgentCommandDefault: c.agentCommandDefault,
 		DefaultAgentDriver:  defaultDriver,
@@ -195,6 +197,7 @@ type configFile struct {
 	// Duo tells an agent to start wrapping up. 0 turns the warning off; the default
 	// is 85.
 	ContextWarnPercent *int `json:"contextWarnPercent,omitempty"`
+	LoopWakeLimit      *int `json:"loopWakeLimit,omitempty"`
 
 	// Remote configures the phone pairing relay.
 	Remote *remoteFile `json:"remote,omitempty"`
@@ -584,6 +587,14 @@ func loadConfigCommand(args []string, resume bool) (config, error) {
 		return config{}, fmt.Errorf("contextWarnPercent must be between 0 and 100, got %d", contextWarnPercent)
 	}
 
+	loopWakeLimit := 100
+	if fileCfg.LoopWakeLimit != nil {
+		loopWakeLimit = *fileCfg.LoopWakeLimit
+	}
+	if loopWakeLimit < -1 {
+		return config{}, fmt.Errorf("loopWakeLimit must be -1 (unlimited), 0 (default), or positive")
+	}
+
 	// The relay is a decision, not a guess: a config file may name it, the
 	// environment wins over the file, and the shared relay is the default.
 	remoteURL := remote.DefaultServer
@@ -610,6 +621,7 @@ func loadConfigCommand(args []string, resume bool) (config, error) {
 		observerConfigured:  fileCfg.Observer != nil,
 		notify:              notify,
 		contextWarnPercent:  contextWarnPercent,
+		loopWakeLimit:       loopWakeLimit,
 		repository:          launch,
 		launchDir:           launch,
 		worktreeRoot:        strings.TrimSpace(os.Getenv("DUO_WORKTREE_ROOT")),
@@ -713,7 +725,7 @@ func loadMergedConfigFile(launchDir string) (configFile, error) {
 	}
 	for _, p := range candidates {
 		projectCfg, err := loadConfigFile(p)
-		if err == nil && (projectCfg.Mode != "" || projectCfg.Language != "" || projectCfg.TUIMode != "" || projectCfg.PiCommand != "" || projectCfg.Driver != "" || projectCfg.TestCommand != "" || len(projectCfg.Agents) > 0 || projectCfg.Harness != (harnessFile{}) || projectCfg.Observer != nil || projectCfg.Notify != nil || projectCfg.ContextWarnPercent != nil || projectCfg.Remote != nil) {
+		if err == nil && (projectCfg.Mode != "" || projectCfg.Language != "" || projectCfg.TUIMode != "" || projectCfg.PiCommand != "" || projectCfg.Driver != "" || projectCfg.TestCommand != "" || len(projectCfg.Agents) > 0 || projectCfg.Harness != (harnessFile{}) || projectCfg.Observer != nil || projectCfg.Notify != nil || projectCfg.ContextWarnPercent != nil || projectCfg.LoopWakeLimit != nil || projectCfg.Remote != nil) {
 			mergeConfig(&merged, projectCfg)
 			break
 		} else if err != nil && !os.IsNotExist(err) {
@@ -784,6 +796,9 @@ func mergeConfig(dst *configFile, src configFile) {
 	}
 	if src.Notify != nil {
 		dst.Notify = src.Notify
+	}
+	if src.LoopWakeLimit != nil {
+		dst.LoopWakeLimit = src.LoopWakeLimit
 	}
 	if src.ContextWarnPercent != nil {
 		dst.ContextWarnPercent = src.ContextWarnPercent

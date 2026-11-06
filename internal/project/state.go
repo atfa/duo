@@ -49,7 +49,7 @@ func (s Snapshot) EffectiveMode() Mode {
 func (s Snapshot) String() string {
 	switch s.EffectiveMode() {
 	case ModeLoop:
-		return fmt.Sprintf("Duo state (LOOP):\n- phase: %s\n- Austin waiting: %t; pending events: %d\n- Tony waiting: %t; pending events: %d\n- summary: %s", s.Phase, hasLoopWait(s.Loop, protocol.Austin), len(s.Loop.Events[protocol.Austin]), hasLoopWait(s.Loop, protocol.Tony), len(s.Loop.Events[protocol.Tony]), s.Loop.Summary)
+		return fmt.Sprintf("Duo state (LOOP):\n- goal: %s\n- phase: %s\n- Austin waiting: %t; pending events: %d\n- Tony waiting: %t; pending events: %d\n- summary: %s", s.Loop.Goal, s.Phase, hasLoopWait(s.Loop, protocol.Austin), len(s.Loop.Events[protocol.Austin]), hasLoopWait(s.Loop, protocol.Tony), len(s.Loop.Events[protocol.Tony]), s.Loop.Summary) + fmt.Sprintf("\n- owner: Austin; advisor: Tony\n- consultation: %+v\n- finishing: %t\n- automatic wakes: %d", s.Loop.Consultation, s.Loop.Finishing, s.Loop.Wakes)
 	case ModeFast:
 		return s.fastString()
 	case ModeStep:
@@ -405,7 +405,11 @@ func (s *State) SetVerification(agent protocol.AgentID, result VerificationResul
 // been handed back to the user's repository.
 func (s *State) Complete() (Snapshot, error) {
 	s.mu.Lock()
-	if err := s.workflow().complete(s); err != nil {
+	if s.mode == ModeLoop && s.phase == PhaseIntegrate && s.loop.Finishing {
+		s.phase = PhaseDone
+		s.loop.Finishing = false
+		s.loop.Waiting = nil
+	} else if err := s.workflow().complete(s); err != nil {
 		snap := s.snapshotLocked()
 		s.mu.Unlock()
 		return snap, err
@@ -425,7 +429,7 @@ func (s *State) Reopen() (Snapshot, error) {
 	s.mu.Lock()
 	if s.mode == ModeLoop && s.phase == PhaseDone {
 		s.phase = PhaseRunning
-		s.loop = LoopState{}
+		s.loop = LoopState{NextID: s.loop.NextID}
 		s.started = false
 		snap, hook := s.snapshotLocked(), s.onChange
 		s.mu.Unlock()
@@ -550,7 +554,7 @@ func (s *State) switchModeLocked(target Mode, reason string) {
 	s.resetApprovalsLocked()
 	s.verification = Verification{}
 	s.steps, s.step = nil, 0
-	s.loop = LoopState{}
+	s.loop = LoopState{NextID: s.loop.NextID}
 	s.started = true
 	s.lastMutation = time.Now()
 
@@ -634,6 +638,10 @@ func (s *State) Restore(snap Snapshot) error {
 	s.mu.Lock()
 	s.mode = mode
 	s.loop = cloneLoop(snap.Loop)
+	// Completion intent cannot prove a settled owner turn after process restart.
+	if snap.Phase == PhaseRunning {
+		s.loop.Finishing = false
+	}
 	s.phase = snap.Phase
 	s.plan = snap.Plan
 	s.planVersion = snap.PlanVersion

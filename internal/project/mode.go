@@ -95,7 +95,7 @@ func (m Mode) initialPhase() Phase {
 func (m Mode) validPhase(p Phase) bool {
 	switch m {
 	case ModeLoop:
-		return p == PhaseRunning || p == PhaseDone
+		return p == PhaseRunning || p == PhaseIntegrate || p == PhaseDone
 	case ModeFast:
 		switch p {
 		case PhaseRunning, PhaseVerify, PhaseDone:

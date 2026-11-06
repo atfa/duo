@@ -1,5 +1,7 @@
 package sessionstore
 
+import "github.com/atfa/duo/internal/project"
+
 // Snapshot migrations are versioned steps, not a compatibility shim. Every
 // released schema version keeps the step that upgrades it to the next one, so a
 // binary that publishes a new schema can still read the sessions written before
@@ -11,6 +13,8 @@ package sessionstore
 // snapshot written with it to the next version.
 var migrations = map[int]func(Snapshot) Snapshot{
 	2: migrateV2ToV3,
+	3: migrateV3ToV4,
+	4: migrateV4ToV5,
 }
 
 // hasMigrationPath reports whether this binary can read a snapshot written with
@@ -57,6 +61,33 @@ func migrateV2ToV3(snap Snapshot) Snapshot {
 	snap.Mode = snap.EffectiveMode()
 	for i := range snap.Steps {
 		snap.Steps[i].Policy = snap.Steps[i].EffectivePolicy()
+	}
+	return snap
+}
+
+// v3 did not observe settled wait boundaries. Keep deadlines and inboxes, but
+// require a settled turn before claiming that an old LOOP wait is effective.
+// Old text approvals cannot authorize a versioned proposal. Finished sessions
+// keep their historical summary unchanged.
+func migrateV3ToV4(snap Snapshot) Snapshot {
+	if snap.EffectiveMode() == project.ModeLoop && snap.Phase != string(project.PhaseDone) {
+		snap.Loop.Approvals = nil
+		snap.Loop.Proposal = nil
+		for id, w := range snap.Loop.Waiting {
+			w.Pending = true
+			snap.Loop.Waiting[id] = w
+		}
+	}
+	return snap
+}
+
+// Old approval protocols are historical only. Preserve inboxes, IDs and DONE
+// summaries, but never reinterpret an old proposal as the owner's finish intent.
+func migrateV4ToV5(snap Snapshot) Snapshot {
+	if snap.EffectiveMode() == project.ModeLoop {
+		snap.Loop.Proposal = nil
+		snap.Loop.Approvals = nil
+		snap.Loop.Finishing = false
 	}
 	return snap
 }

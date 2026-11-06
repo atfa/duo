@@ -316,7 +316,7 @@ func TestMCPToolsListMatchesTheBridge(t *testing.T) {
 	if err := json.Unmarshal(out, &listed); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"duo_send", "duo_wait", "duo_finish", "duo_status", "duo_set_status", "duo_set_verification", "duo_set_plan", "duo_set_steps", "duo_escalate", "duo_restart_duo"}
+	want := []string{"duo_ask", "duo_reply", "duo_send", "duo_events", "duo_wait", "duo_finish", "duo_status", "duo_set_status", "duo_set_verification", "duo_set_plan", "duo_set_steps", "duo_escalate", "duo_restart_duo"}
 	if len(listed.Result.Tools) != len(want) {
 		t.Fatalf("tools/list returned %d tools, want %d", len(listed.Result.Tools), len(want))
 	}
@@ -338,4 +338,29 @@ func runMCPRequest(t *testing.T, server *mcp.Server, request string) []byte {
 		t.Fatal(err)
 	}
 	return out.Bytes()
+}
+
+func TestMCPLoopInboxAndConsultationArguments(t *testing.T) {
+	server, core := startMCPBridge(t, func(protocol.Message) (bool, string) { return true, "OK" })
+	for _, tc := range []struct {
+		name string
+		args map[string]any
+		want protocol.Message
+	}{
+		{"duo_events", map[string]any{"ack": "7"}, protocol.Message{Type: protocol.MsgLoopEvents, EventID: "7"}},
+		{"duo_events", map[string]any{"through": "9"}, protocol.Message{Type: protocol.MsgLoopEvents, Through: "9"}},
+		{"duo_wait", map[string]any{"reason": "observe", "until": "2030-01-01T00:00:00Z"}, protocol.Message{Type: protocol.MsgLoopWait, Note: "observe", Text: "2030-01-01T00:00:00Z"}},
+		{"duo_finish", map[string]any{"summary": "goal met"}, protocol.Message{Type: protocol.MsgLoopFinish, Note: "goal met"}},
+		{"duo_ask", map[string]any{"question": "strategy?"}, protocol.Message{Type: protocol.MsgLoopAsk, Text: "strategy?"}},
+		{"duo_reply", map[string]any{"questionId": "8", "message": "try B"}, protocol.Message{Type: protocol.MsgLoopReply, QuestionID: "8", Text: "try B"}},
+	} {
+		result := callMCPTool(t, server, tc.name, tc.args)
+		if result.Error != nil || result.Result.IsError {
+			t.Fatalf("%s: %+v", tc.name, result)
+		}
+		got := core.received()
+		if got.Type != tc.want.Type || got.Through != tc.want.Through || got.QuestionID != tc.want.QuestionID || got.EventID != tc.want.EventID || got.Text != tc.want.Text || got.Note != tc.want.Note || got.Approve != tc.want.Approve || got.Reject != tc.want.Reject {
+			t.Fatalf("%s mapped to %+v", tc.name, got)
+		}
+	}
 }

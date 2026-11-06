@@ -13,10 +13,14 @@ type Message struct {
 	To         AgentID `json:"to,omitempty"`
 	ClientType string  `json:"clientType,omitempty"`
 
-	EventID string `json:"eventId,omitempty"`
-	Text    string `json:"text,omitempty"`
-	Plan    string `json:"plan,omitempty"`
-	Note    string `json:"note,omitempty"`
+	Through    string `json:"through,omitempty"`
+	QuestionID string `json:"questionId,omitempty"`
+	Approve    string `json:"approve,omitempty"`
+	Reject     string `json:"reject,omitempty"`
+	EventID    string `json:"eventId,omitempty"`
+	Text       string `json:"text,omitempty"`
+	Plan       string `json:"plan,omitempty"`
+	Note       string `json:"note,omitempty"`
 
 	// Mode carries the target of a MsgModeChange. The adapters keep their
 	// mode-dependent prompt current without restarting the agent process.

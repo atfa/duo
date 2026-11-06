@@ -129,7 +129,10 @@ export default {
 
     // Setup-time registrations. All tools are registered in every mode because
     // opencode is never restarted just to switch workflow.
-    installDuoPrompt(context, AGENT, () => modeState.current);
+    installDuoPrompt(context, AGENT, () => modeState.current, undefined, async () => {
+      const response = await transport.request("loop_guard");
+      if (!response.ok) throw new Error(response.text || "LOOP work is blocked");
+    });
     await context.tool.transform((editor: any) => {
       for (const tool of buildDuoTools(transport, AGENT)) {
         editor.add(tool);

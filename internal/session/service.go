@@ -359,6 +359,7 @@ func (s *Service) launch(ctx context.Context) (Result, error) {
 	coord.SetPauseObserver(s.pauseChanged)
 	coord.RestoreUsage(s.usage)
 	coord.SetContextWarnPercent(s.opts.ContextWarnPercent)
+	coord.SetLoopWakeLimit(s.opts.LoopWakeLimit)
 	if s.pauseState == PausePausing || s.pauseState == PausePaused {
 		coord.RestorePause(coordinator.PauseSnapshot{State: string(s.pauseState), Paused: s.pausedAgents})
 	}

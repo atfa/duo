@@ -228,3 +228,48 @@ func TestDeliveryCrashWindowReconcilesOnResume(t *testing.T) {
 		t.Fatalf("a second reconciliation rewrote the completion time")
 	}
 }
+
+func TestLoopDeliveryRefusalAndRestart(t *testing.T) {
+	ctx := context.Background()
+	f := newDeliveryFixture(t)
+	wt := filepath.Join(t.TempDir(), "austin")
+	runGit(t, f.repo, "worktree", "add", "-q", wt, "duo/deliver/austin")
+	f.ws.Restore(workspace.Set{Repository: f.repo, BaseBranch: f.branch, BaseCommit: f.base, Austin: workspace.Worktree{Path: wt, Branch: "duo/deliver/austin"}})
+	f.snap.Mode = project.ModeLoop
+	f.snap.Loop = project.LoopState{Finishing: true, Summary: "finished"}
+	f.snap.Integration = sessionstore.Integration{Started: true, Head: f.base}
+	f.snap.Worktrees[protocol.Austin] = sessionstore.Worktree{Path: wt, Branch: "duo/deliver/austin"}
+	if err := os.WriteFile(filepath.Join(wt, "unfinished"), []byte("work"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := DeliverAndPersist(ctx, f.store, f.ws, f.snap); err != nil || out.Applied || out.Reason == "" {
+		t.Fatalf("dirty Austin worktree accepted: %+v %v", out, err)
+	}
+	if headOf(t, f.repo) != f.base {
+		t.Fatal("dirty worktree moved target")
+	}
+	if err := os.Remove(filepath.Join(wt, "unfinished")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.repo, "user-file"), []byte("user"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	outcome, err := DeliverAndPersist(ctx, f.store, f.ws, f.snap)
+	if err != nil || outcome.Applied || outcome.Snapshot.Delivery.Status != sessionstore.DeliveryPending {
+		t.Fatalf("expected pending refusal: %+v %v", outcome, err)
+	}
+	if headOf(t, f.repo) != f.base {
+		t.Fatal("dirty target moved")
+	}
+	if err := os.Remove(filepath.Join(f.repo, "user-file")); err != nil {
+		t.Fatal(err)
+	}
+	snap, err := f.store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	outcome, stop, err := ReconcileDelivery(ctx, f.store, f.ws, f.store.OpenEvents(), snap)
+	if err != nil || !stop || !outcome.Applied || outcome.Snapshot.Phase != string(project.PhaseDone) || headOf(t, f.repo) != f.final {
+		t.Fatalf("resume failed: %+v stop=%v err=%v", outcome, stop, err)
+	}
+}

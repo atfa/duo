@@ -65,6 +65,10 @@ type Options struct {
 	// one place; 0 turns the warning off.
 	ContextWarnPercent int
 
+	// LoopWakeLimit bounds automatic dispatches between human continuations.
+	// Zero selects 100; -1 permits unlimited wakes.
+	LoopWakeLimit int
+
 	// Drivers. Every map is keyed by agent. Missing agent entries use the
 	// frontend-selected default; Core does not choose a driver name.
 	AgentCommands       map[protocol.AgentID]string

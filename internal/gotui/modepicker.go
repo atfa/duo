@@ -72,7 +72,7 @@ func modePurpose(mode project.Mode) string {
 	case project.ModeFast:
 		return "Austin implements; Tony verifies before Duo lands"
 	case project.ModeLoop:
-		return "Ongoing collaboration with durable waits; no Git delivery"
+		return "Austin acts; Tony advises; explicit questions wait for replies"
 	case project.ModeStep:
 		return "Dual-approved queue; each step runs FAST or GOAL"
 	default:

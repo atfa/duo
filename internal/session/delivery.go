@@ -64,9 +64,6 @@ func DeliverAndPersistTo(
 	snap sessionstore.Snapshot,
 	opts DeliveryOptions,
 ) (DeliveryOutcome, error) {
-	if snap.EffectiveMode() == project.ModeLoop {
-		return DeliveryOutcome{Snapshot: snap}, fmt.Errorf("LOOP sessions have no automatic Git delivery; inspect the agent worktrees")
-	}
 	// Applied is monotonic for this final artifact. A stale caller must reconcile
 	// DONE, never replace it with a new pending checkpoint or re-run Git.
 	if snap.Delivery.Applied() {
@@ -107,7 +104,36 @@ func DeliverAndPersistTo(
 			return outcome, nil
 		}
 	}
-	finalHead, err := ResolveFinalHead(ctx, ws, snap)
+	loopHead := ""
+	if snap.EffectiveMode() == project.ModeLoop {
+		if snap.Phase != string(project.PhaseIntegrate) || !snap.Loop.Finishing {
+			return DeliveryOutcome{Snapshot: snap}, fmt.Errorf("LOOP owner has not settled completion")
+		}
+		status, err := ws.Status(ctx, protocol.Austin)
+		if err != nil {
+			return DeliveryOutcome{Snapshot: snap}, err
+		}
+		if status.Dirty {
+			snap.Delivery = FailedDelivery(snap.Delivery, "Austin worktree has uncommitted changes")
+			if err := store.Save(snap); err != nil {
+				return DeliveryOutcome{Snapshot: snap}, err
+			}
+			return DeliveryOutcome{Snapshot: snap, Reason: snap.Delivery.Reason}, nil
+		}
+		loopHead = status.Head
+		if head := strings.TrimSpace(snap.Delivery.FinalHead); head != "" && head != status.Head {
+			snap.Delivery = FailedDelivery(snap.Delivery, "Austin HEAD changed after the delivery checkpoint")
+			if err := store.Save(snap); err != nil {
+				return DeliveryOutcome{Snapshot: snap}, err
+			}
+			return DeliveryOutcome{Snapshot: snap, Reason: snap.Delivery.Reason}, nil
+		}
+	}
+	finalHead := loopHead
+	var err error
+	if finalHead == "" {
+		finalHead, err = ResolveFinalHead(ctx, ws, snap)
+	}
 	if err != nil {
 		return DeliveryOutcome{Snapshot: snap}, err
 	}
@@ -343,6 +369,7 @@ func CompleteSnapshot(snap *sessionstore.Snapshot) error {
 		return err
 	}
 	snap.Phase = string(done.Phase)
+	snap.Loop = done.Loop
 	return nil
 }
 

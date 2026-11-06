@@ -1250,3 +1250,34 @@ func TestTUIModeConfiguration(t *testing.T) {
 		t.Fatal("a view the interface cannot draw must be a config error")
 	}
 }
+
+func TestLoopWakeLimitConfiguration(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("DUO_REPO", root)
+	for _, tc := range []struct {
+		body string
+		want int
+		bad  bool
+	}{
+		{`{}`, 100, false}, {`{"loopWakeLimit":7}`, 7, false},
+		{`{"loopWakeLimit":0}`, 0, false}, {`{"loopWakeLimit":-1}`, -1, false},
+		{`{"loopWakeLimit":-2}`, 0, true},
+	} {
+		if err := os.WriteFile(filepath.Join(root, ".duo.json"), []byte(tc.body), 0600); err != nil {
+			t.Fatal(err)
+		}
+		cfg, err := loadConfig(nil)
+		if tc.bad {
+			if err == nil {
+				t.Fatal("accepted invalid budget")
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.sessionOptions().LoopWakeLimit != tc.want {
+			t.Fatalf("budget=%d want=%d", cfg.sessionOptions().LoopWakeLimit, tc.want)
+		}
+	}
+}

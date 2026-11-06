@@ -17,7 +17,9 @@ import (
 // mode and each step's policy explicitly; older snapshots are upgraded by the
 // migration chain in migrate.go, and a version this binary cannot upgrade is
 // refused.
-const SchemaVersion = 3
+// Version 4 separates LOOP wait intent from settled waiting and uses proposal IDs.
+// Version 5 makes Austin the LOOP owner and persists correlated consultations.
+const SchemaVersion = 5
 
 type Worktree struct {
 	Path   string `json:"path"`
@@ -276,7 +278,7 @@ func (s Snapshot) NeedsDelivery() bool {
 	}
 	switch s.EffectiveMode() {
 	case project.ModeLoop:
-		return false
+		return s.Phase == string(project.PhaseIntegrate) && s.Loop.Finishing
 	case project.ModeFast:
 		return s.Phase == string(project.PhaseVerify) && s.VerificationResult().Status == project.VerificationPassed
 	case project.ModeStep:

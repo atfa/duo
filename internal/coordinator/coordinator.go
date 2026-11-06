@@ -50,6 +50,7 @@ type Coordinator struct {
 	// window is nearly full; zero disables it. In-memory, like the runtime figures
 	// it is computed from.
 	contextWarnPercent int
+	loopWakeLimit      int
 
 	// restartMu guards a pending request to continue the session on a new Duo
 	// binary. It is in-memory on purpose: a restart that never happened is just a
@@ -325,6 +326,9 @@ func (c *Coordinator) ContinuePause(ctx context.Context) error {
 	state := c.pauseSnapshotLocked()
 	c.pauseMu.Unlock()
 	c.clearResumePending()
+	if c.project.Mode() == project.ModeLoop {
+		c.project.ResetLoopWakes()
+	}
 	c.emitPause(state, "continued")
 	var summaries [2][]string
 	for _, item := range held {
@@ -338,7 +342,10 @@ func (c *Coordinator) ContinuePause(ctx context.Context) error {
 	}
 	for _, id := range []protocol.AgentID{protocol.Austin, protocol.Tony} {
 		if snap := c.project.Snapshot(); snap.EffectiveMode() == project.ModeLoop {
-			if _, waiting := snap.Loop.Waiting[id]; waiting {
+			if q := snap.Loop.Consultation; id == protocol.Austin && q != nil && q.Waiting && q.Answer == "" {
+				continue
+			}
+			if wait, waiting := snap.Loop.Waiting[id]; waiting && !wait.Pending {
 				continue
 			}
 		}
@@ -621,7 +628,10 @@ func (c *Coordinator) deliverResumeWork(ctx context.Context, agent protocol.Agen
 	c.resumeWorkAttempted[agent] = true
 	c.resumeWorkMu.Unlock()
 	if snap := c.project.Snapshot(); snap.EffectiveMode() == project.ModeLoop {
-		if _, waiting := snap.Loop.Waiting[agent]; waiting {
+		if q := snap.Loop.Consultation; agent == protocol.Austin && q != nil && q.Waiting && q.Answer == "" {
+			return nil
+		}
+		if wait, waiting := snap.Loop.Waiting[agent]; waiting && !wait.Pending {
 			return nil
 		}
 	}
@@ -873,13 +883,27 @@ func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 		return fmt.Errorf("Austin is not connected yet")
 	}
 	mode := c.project.Snapshot().EffectiveMode()
-	collaborative := mode != project.ModeFast
+	collaborative := mode != project.ModeFast && mode != project.ModeLoop
 	if collaborative && !c.IsAgentConnected(protocol.Tony) {
 		return fmt.Errorf("Tony is not connected; %s mode requires both Austin and Tony", mode.Display())
 	}
 	c.reopenFinishedSession()
 	c.project.MarkStarted()
 	c.tracker.Touch(protocol.Austin)
+	if mode == project.ModeLoop {
+		if err := c.project.LoopHuman(text); err != nil {
+			return err
+		}
+		if err := c.persistStrict("loop task"); err != nil {
+			return err
+		}
+		c.emit(events.KindUser, protocol.Duo, protocol.Austin, text)
+		if err := c.sendToAgent(ctx, protocol.Austin, protocol.Message{Version: protocol.Version, Type: protocol.MsgHumanPrompt, From: protocol.Duo, To: protocol.Austin, Text: loopResumePrompt() + "\n\nTask: " + text, Timestamp: time.Now().UnixMilli()}); err != nil {
+			return err
+		}
+		c.acknowledgeTask(mode)
+		return nil
+	}
 	promptText := "[Human task from Duo]\n\n" + text
 	if c.language == "zh" {
 		promptText = "[Human task from Duo]\n\n以下是用户提交的原始任务，请按原文执行：\n\n" + text
@@ -891,8 +915,6 @@ func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 			prompt := goalTaskPrompt(agent, text, c.language)
 			if mode == project.ModeStep {
 				prompt = stepTaskPrompt(agent, text, c.language)
-			} else if mode == project.ModeLoop {
-				prompt = "[Duo LOOP task] Collaborate autonomously using duo_send. Use duo_wait to wait for events or a deadline, acknowledge each event by ID after processing, and call duo_finish with a summary when finished. Your worktree is isolated; no commit or delivery is required.\n\nTask: " + text
 			}
 			prompt += "\n\n" + userFirstGuidance(c.language)
 			if err := c.sendToAgent(ctx, agent, protocol.Message{
@@ -1196,7 +1218,7 @@ func (c *Coordinator) modeSwitchNotice(agent protocol.AgentID, target project.Mo
 	case project.ModeGoal:
 		text = "[Duo mode change: GOAL]\nThe session is now in GOAL mode and the current round starts in PLAN. Both agents co-design the plan with duo_send and duo_set_plan, then both approve with duo_set_status ready=true. In EXECUTE both implement in their own worktrees; REVIEW cross-checks the peer's HEAD; INTEGRATE merges Tony's branch into Austin's and both sign the integrated HEAD."
 	case project.ModeLoop:
-		text = "[Duo mode change: LOOP] Collaborate autonomously using duo_send. Use duo_wait for pending events and deadlines; acknowledge events after processing. Agree the same summary with duo_finish to complete. No Git delivery is performed."
+		text = loopResumePrompt()
 	case project.ModeStep:
 		text = "[Duo mode change: STEP]\nThe session is now in STEP mode and the current round starts in PLAN. Both agents agree on a queue with duo_set_steps and approve it with duo_set_status ready=true. Tag each item [fast] or [goal]. A FAST item is Austin implementing and Tony verifying with duo_set_verification. A GOAL item is both implementing, cross-reviewing and signing EXECUTE/REVIEW/INTEGRATE. Every final step also needs both agents' signatures."
 	}
@@ -1322,6 +1344,15 @@ func (c *Coordinator) onDisconnect(agent protocol.AgentID) {
 }
 
 func (c *Coordinator) OnMessage(ctx context.Context, client *transport.Client, message protocol.Message) {
+	if c.project.Mode() == project.ModeLoop {
+		switch message.Type {
+		case protocol.MsgSetPlan, protocol.MsgSetSteps, protocol.MsgSetStatus, protocol.MsgSetVerification, protocol.MsgEscalate, protocol.MsgRestartDuo:
+			if err := c.project.LoopCanAct(client.Identity()); err != nil {
+				_ = c.respond(ctx, client, message.RequestID, false, err.Error(), "")
+				return
+			}
+		}
+	}
 	switch message.Type {
 	case protocol.MsgTest:
 		c.emit(events.KindSystem, client.Identity(), "", "TEST: "+message.Text)
@@ -1341,6 +1372,19 @@ func (c *Coordinator) OnMessage(ctx context.Context, client *transport.Client, m
 	case protocol.MsgPeerMessage:
 		c.handlePeerMessage(ctx, client, message)
 
+	case protocol.MsgLoopGuard:
+		err := c.project.LoopCanAct(client.Identity())
+		text := "May continue."
+		if err != nil {
+			text = err.Error()
+		}
+		_ = c.respond(ctx, client, message.RequestID, err == nil, text, "")
+	case protocol.MsgLoopAsk:
+		c.handleLoopAsk(ctx, client, message)
+	case protocol.MsgLoopReply:
+		c.handleLoopReply(ctx, client, message)
+	case protocol.MsgLoopEvents:
+		c.handleLoopEvents(ctx, client, message)
 	case protocol.MsgLoopWait:
 		c.handleLoopWait(ctx, client, message)
 	case protocol.MsgLoopFinish:
@@ -1382,6 +1426,29 @@ func (c *Coordinator) OnMessage(ctx context.Context, client *transport.Client, m
 
 func (c *Coordinator) handleActivity(agent protocol.AgentID, message protocol.Message) {
 	c.tracker.Handle(agent, message.Activity)
+	if c.project.Mode() == project.ModeLoop {
+		beforeLoop := c.project.Snapshot()
+		_, hadWait := beforeLoop.Loop.Waiting[agent]
+		c.project.LoopActivity(agent, message.Activity, message.Tool)
+		afterLoop := c.project.Snapshot()
+		if beforeLoop.Phase == project.PhaseRunning && afterLoop.Phase == project.PhaseIntegrate {
+			if err := c.persistStrict("loop owner settled completion"); err != nil {
+				c.logf("%v", err)
+			} else {
+				c.deliverFinal(context.Background(), afterLoop)
+			}
+		}
+		if agent == protocol.Austin && (message.Activity == protocol.ActivityToolEnd || message.Activity == protocol.ActivityToolError) && message.Tool != "" && !strings.HasPrefix(message.Tool, "duo_") {
+			detail := message.Detail
+			if detail == "" {
+				detail = c.tracker.Snapshot(agent).ToolDetail
+			}
+			c.project.LoopObserve(message.Tool, string(message.Activity)+" "+detail)
+		}
+		if hadWait && (message.Activity == protocol.ActivityAgentSettled || message.Activity == protocol.ActivityAgentStart || message.Activity == protocol.ActivityToolStart) {
+			c.recordEvent("loop_wait_boundary", map[string]any{"agent": agent, "activity": message.Activity, "tool": message.Tool})
+		}
+	}
 	c.tracker.Note(agent, message.Activity, message.Tool, message.Detail)
 	c.refreshPause(agent, message.Activity)
 	// Each figure is gated on the capability that promises it. A driver that
@@ -2278,6 +2345,19 @@ func (c *Coordinator) deliverFinal(ctx context.Context, _ project.Snapshot) {
 	// point is the same idempotent delivery transaction for all three.
 	fast := snap.EffectiveMode() == project.ModeFast
 	switch snap.EffectiveMode() {
+	case project.ModeLoop:
+		if snap.Phase != project.PhaseIntegrate || !snap.Loop.Finishing {
+			return
+		}
+		status, err := c.workspace.Status(ctx, protocol.Austin)
+		if err != nil || status.Dirty {
+			reason := "Austin worktree has uncommitted changes"
+			if err != nil {
+				reason = "cannot inspect Austin worktree: " + err.Error()
+			}
+			_ = c.markDeliveryPending(ctx, currentDelivery, reason)
+			return
+		}
 	case project.ModeFast:
 		if snap.Phase != project.PhaseVerify {
 			return
@@ -2317,6 +2397,8 @@ func (c *Coordinator) deliverFinal(ctx context.Context, _ project.Snapshot) {
 
 	// Each mode compares the delivered HEAD with the artifact its gate approved.
 	switch snap.EffectiveMode() {
+	case project.ModeLoop:
+		// Austin owns the stopping decision; no advisor signature is required.
 	case project.ModeFast:
 		// Tony's verdict describes one exact Austin HEAD. If that HEAD moved after
 		// verification, the verdict no longer covers the artifact and delivery
@@ -2607,7 +2689,9 @@ func (c *Coordinator) completeDelivery(ctx context.Context, record sessionstore.
 	c.broadcastPhaseAdvance(ctx, previous, project.PhaseDone, done, "")
 	// The round is finished and delivered, so the human gets the account of it
 	// from the agent that did the work rather than from Duo's own notices.
-	c.requestFinalSummary(ctx)
+	if c.project.Mode() != project.ModeLoop {
+		c.requestFinalSummary(ctx)
+	}
 	return nil
 }
 
