@@ -253,7 +253,7 @@ func (v *transcript) renderEntry(e entry, width int) entryLines {
 		width = max(1, width*4/5)
 	}
 	bodyWidth := max(1, width-2)
-	label := e.label
+	label := v.localizeLabel(e.label)
 	if label == "" {
 		label = e.pane
 	}
@@ -414,6 +414,19 @@ func (v *transcript) language() string {
 		return "en"
 	}
 	return *v.theme.Lang
+}
+
+// localizeLabel translates the human side of a stored "from → to" header. The
+// label is baked when the entry is appended (and restored verbatim from the
+// session log), so the translation belongs here rather than in the stored text:
+// agent names stay canonical, only the human is chrome. A rebuilt transcript
+// picks up a /language switch because renderLang invalidates every block.
+func (v *transcript) localizeLabel(label string) string {
+	from, to, ok := strings.Cut(label, " → ")
+	if !ok {
+		return label
+	}
+	return v.theme.tr(from) + " → " + v.theme.tr(to)
 }
 
 func (v *transcript) clampOffset() {
