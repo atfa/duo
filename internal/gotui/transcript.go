@@ -299,13 +299,19 @@ func (v *transcript) renderEntry(e entry, width int) entryLines {
 		block.lines = append(block.lines, line)
 	}
 	if v.conversation && e.pane == "Tony" {
+		// A message from Tony mirrors one from Austin: the block hugs the right of
+		// the pane while its header sits on the same left edge as its own body. A
+		// shared inset is what keeps the header attached to the text it belongs to;
+		// a per-line right flush left a wrapped body's header floating far to its
+		// right, and pushed a one-line reply out to a different column again.
+		blockWidth := 0
+		for _, line := range block.lines {
+			blockWidth = max(blockWidth, line.width())
+		}
+		inset := max(0, fullWidth-blockWidth)
 		for i := range block.lines {
 			line := &block.lines[i]
-			padding := max(0, fullWidth-line.width())
-			if !line.header && len(bodyLines) > 1 {
-				padding = fullWidth - width
-			}
-			line.runs = append([]textRun{{strings.Repeat(" ", padding), base, linkTarget{}}}, line.runs...)
+			line.runs = append([]textRun{{strings.Repeat(" ", inset), base, linkTarget{}}}, line.runs...)
 		}
 	}
 	return block
