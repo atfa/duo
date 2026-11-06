@@ -11,6 +11,12 @@ import (
 	"strings"
 	"time"
 
+	// The manager measures text with go-runewidth and paints it with tcell, so
+	// both have to agree on ambiguous-character widths: on a zh_CN host the
+	// package default counts the "·" separators and the "…" truncation mark as
+	// two cells while the terminal paints one, which opened gaps between the
+	// status segments and put click rectangles off the text they belong to.
+	_ "github.com/atfa/duo/internal/cellwidth"
 	"github.com/atfa/duo/internal/remote"
 	"github.com/atfa/duo/internal/terminal"
 	"github.com/atfa/duo/internal/xduo"
@@ -169,7 +175,7 @@ func (p *panel) draw(s tcell.Screen) {
 	if w < 36 || h < 12 {
 		p.picker.hits = nil
 		p.tunnelOKRect, p.tunnelCopyRect = image.Rectangle{}, image.Rectangle{}
-		hint := "Enlarge terminal · Ctrl-Q quits"
+		hint := "Enlarge terminal · Ctrl+Q quits"
 		if p.mode == "input" || p.mode == "tunnel" {
 			hint = "Enlarge terminal · Esc closes"
 		}
@@ -178,37 +184,45 @@ func (p *panel) draw(s tcell.Screen) {
 		return
 	}
 	put(1, 0, "◆ XDUO   /   Workspaces", accent)
-	put(1, 1, "[ ^R Refresh ] [ ^X Close ] [ ^Q Quit ]", muted)
-	label, style := "[ ^S Server: Off ]", muted
+	// One notation for every shortcut on this row: Ctrl+X, the way the Duo
+	// dashboard spells them. Brackets mark a segment that can be clicked, so the
+	// clickable tunnel keeps them and the plain key hints do not.
+	keys := "Ctrl+R refresh · Ctrl+X close · Ctrl+Q quit"
+	x := 1
+	put(x, 1, keys, muted)
+	x += rw.StringWidth(keys) + 3
+	serverLabel, serverStyle := "Ctrl+S server: off", muted
 	if p.server != nil {
-		label, style = "[ ^S Server: On ]", primaryButton
-
+		serverLabel, serverStyle = "Ctrl+S server: on", primaryButton
 	} else if p.serverError {
-		label, style = "[ ^S Server: Error ]", errorStyle
+		serverLabel, serverStyle = "Ctrl+S server: error", errorStyle
 	}
-	put(43, 1, label, style)
-	tunnelLabel, tunnelStyle := "[ ^T Tunnel: Off ]", muted
+	put(x, 1, serverLabel, serverStyle)
+	x += rw.StringWidth(serverLabel) + 3
+	// A segment that does not fit is dropped and the rest of the row still moves
+	// left, so a phantom width never pushes the address out of the terminal.
+	tunnelLabel, tunnelStyle := "[ Ctrl+T tunnel: off ]", muted
 	if p.tunnelPending != nil {
-		tunnelLabel = "[ ^T Tunnel: Starting ]"
+		tunnelLabel = "[ Ctrl+T tunnel: starting ]"
 	} else if p.tunnelError != nil {
-		tunnelLabel, tunnelStyle = "[ ^T Tunnel: Error ]", errorStyle
+		tunnelLabel, tunnelStyle = "[ Ctrl+T tunnel: error ]", errorStyle
 		if errors.Is(p.tunnelError, xduo.ErrTunnelNotConfigured) {
-			tunnelLabel, tunnelStyle = "[ ^T Tunnel: Setup ]", muted
+			tunnelLabel, tunnelStyle = "[ Ctrl+T tunnel: setup ]", muted
 		}
 	}
 	if p.tunnel != nil {
 		if !p.tunnel.Running() {
-			tunnelLabel, tunnelStyle = "[ ^T Tunnel: Error ]", errorStyle
+			tunnelLabel, tunnelStyle = "[ Ctrl+T tunnel: error ]", errorStyle
 		} else if p.tunnel.Ready() {
-			tunnelLabel, tunnelStyle = "[ ^T Tunnel: On ]", primaryButton
+			tunnelLabel, tunnelStyle = "[ Ctrl+T tunnel: on ]", primaryButton
 		} else {
-			tunnelLabel = "[ ^T Tunnel: Starting ]"
+			tunnelLabel = "[ Ctrl+T tunnel: starting ]"
 		}
 	}
-	tunnelX := 43 + rw.StringWidth(label) + 3
-	if tunnelX+rw.StringWidth(tunnelLabel) <= w-1 {
-		put(tunnelX, 1, tunnelLabel, tunnelStyle)
-		p.tunnelRect = image.Rect(tunnelX, 1, tunnelX+rw.StringWidth(tunnelLabel), 2)
+	if x+rw.StringWidth(tunnelLabel) <= w-1 {
+		put(x, 1, tunnelLabel, tunnelStyle)
+		p.tunnelRect = image.Rect(x, 1, x+rw.StringWidth(tunnelLabel), 2)
+		x += rw.StringWidth(tunnelLabel) + 3
 	}
 	if w > 80 {
 		put(w-27, 0, fmt.Sprintf("%d workspaces  ·  local", len(p.rows)), muted)
@@ -216,15 +230,21 @@ func (p *panel) draw(s tcell.Screen) {
 	p.copyCodeRect = image.Rectangle{}
 	if p.server != nil {
 		address := p.server.URL + "  Code: " + p.server.AccessCode
-		addressX := tunnelX + rw.StringWidth(tunnelLabel) + 3
-		put(addressX, 1, address, accent)
-		copyX := addressX + rw.StringWidth(address) + 1
+		// Row 2 is empty above the workspace cards, so a terminal too narrow for
+		// the whole row keeps the access code on screen instead of truncating it:
+		// the code is the part a human has to type on the phone.
+		addressY := 1
+		if x+rw.StringWidth(address)+1 > w-1 {
+			addressY, x = 2, 1
+		}
+		put(x, addressY, address, accent)
+		copyX := x + rw.StringWidth(address) + 1
 		if copyX+6 <= w-1 {
-			put(copyX, 1, "[COPY]", fieldBase)
-			p.copyCodeRect = image.Rect(copyX, 1, copyX+6, 2)
+			put(copyX, addressY, "[COPY]", fieldBase)
+			p.copyCodeRect = image.Rect(copyX, addressY, copyX+6, addressY+1)
 		}
 		if len(p.server.LANURLs) > 0 {
-			put(copyX+8, 1, "LAN: "+p.server.LANURLs[0], muted)
+			put(copyX+8, addressY, "LAN: "+p.server.LANURLs[0], muted)
 		}
 	}
 	gridTop := 3
@@ -287,7 +307,7 @@ func (p *panel) draw(s tcell.Screen) {
 			cardText(rect.Min.Y+6, fmt.Sprintf("Remote %s  ·  updated %s", r.remote, age(r.status.Snapshot.UpdatedAt, time.Now())), muted)
 		}
 	}
-	put(1, h-2, "Arrow keys select · Enter open · click card to open · Ctrl-N new", muted)
+	put(1, h-2, "Arrow keys select · Enter open · click card to open · Ctrl+N new", muted)
 	if h > 1 {
 		line := p.message
 		if p.mode == "input" {

@@ -222,3 +222,67 @@ func TestPanelGridLayoutAndNewCard(t *testing.T) {
 		t.Fatal(p.columns)
 	}
 }
+
+// The status row is the only place the manager lists its shortcut keys, so it
+// has to spell them the same way everywhere: Ctrl+X, like the Duo dashboard,
+// never a mixed "^R ... Ctrl-N" pair. Brackets stay reserved for the segment
+// that can be clicked.
+func TestStatusRowUsesOneKeyNotation(t *testing.T) {
+	server := &xduo.WebServer{URL: "http://127.0.0.1:8787", AccessCode: "ABCD-E7K9", LANURLs: []string{"http://192.168.1.5:8787"}}
+	p := panel{server: server, selected: -1}
+	s := tcell.NewSimulationScreen("")
+	if err := s.Init(); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Fini()
+	line := func(width, y int) string {
+		s.SetSize(width, 20)
+		p.draw(s)
+		var b strings.Builder
+		for x := 0; x < width; x++ {
+			c, _, _ := s.Get(x, y)
+			b.WriteString(c)
+		}
+		return strings.TrimRight(b.String(), " ")
+	}
+	const keys = "Ctrl+R refresh · Ctrl+X close · Ctrl+Q quit"
+
+	// Wide enough for one row: everything after the keys follows in order, which
+	// also proves the segments never overlap.
+	wide := line(160, 1)
+	want := "   Ctrl+S server: on   [ Ctrl+T tunnel: off ]   http://127.0.0.1:8787  Code: ABCD-E7K9"
+	if !strings.Contains(wide, keys+want) {
+		t.Fatalf("status row = %q, want it to contain %q", wide, keys+want)
+	}
+	if strings.ContainsAny(wide, "^") {
+		t.Fatalf("status row still uses caret notation: %q", wide)
+	}
+	if second := line(160, 2); second != "" {
+		t.Fatalf("wide status row spilled onto row 2: %q", second)
+	}
+
+	// A segment that does not fit is dropped, and the address takes the empty row
+	// above the cards instead of losing the access code to truncation.
+	narrow := line(120, 1)
+	if !strings.Contains(narrow, keys+"   Ctrl+S server: on   [ Ctrl+T tunnel: off ]") {
+		t.Fatalf("narrow status row = %q", narrow)
+	}
+	if strings.Contains(narrow, "Code:") {
+		t.Fatalf("address stayed on a row that cannot hold it: %q", narrow)
+	}
+	if second := line(120, 2); !strings.Contains(second, "http://127.0.0.1:8787  Code: ABCD-E7K9") || !strings.Contains(second, "[COPY]") {
+		t.Fatalf("address was not moved to row 2 intact: %q", second)
+	}
+
+	// Too narrow even for the tunnel: it is dropped, not drawn half over the row.
+	small := line(80, 1)
+	if !strings.Contains(small, keys+"   Ctrl+S server: on") {
+		t.Fatalf("small status row = %q", small)
+	}
+	if strings.Contains(small, "tunnel") {
+		t.Fatalf("tunnel segment drawn without fitting: %q", small)
+	}
+	if second := line(80, 2); !strings.Contains(second, "Code: ABCD-E7K9") {
+		t.Fatalf("access code lost on a small terminal: %q", second)
+	}
+}
