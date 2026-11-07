@@ -2,11 +2,12 @@
 
 **Two peer coding agents, coordinated in isolated Git worktrees and delivered back to your repository.**
 
-Duo offers three workflows:
+Duo offers four workflows:
 
 - **Fast** (default): Austin implements; Tony independently verifies the exact commit; Duo delivers it.
 - **Goal** (`duo --mode goal`): both agents agree on a plan, work independently, cross-review, and sign off before delivery.
 - **Step** (`duo --mode step`): both agents agree on an ordered queue; each step uses Fast or Goal policy and lands before the next begins.
+- **Loop** (`duo --mode loop`): Austin owns the task and reports to you; Tony observes and advises without approving completion. Only an explicit consultation waits for a reply, and there is no plan or approval gate.
 
 Duo owns coordination, verification gates, Git evidence, and safe delivery. Agents work in separate Git worktrees; the result is delivered to the branch from which you started Duo.
 
@@ -19,6 +20,7 @@ cd /path/to/git/repository
 duo                     # Fast
 duo --mode goal         # negotiated collaboration
 duo --mode step         # incremental queue
+duo --mode loop         # one ongoing goal, Tony advises
 ```
 
 Duo runs on macOS, Linux and Windows (Windows 10 1809+ or newer, which is where the ConPTY agent terminals come from) and requires Git plus at least one supported agent CLI. It opens the gotui dashboard; enter a task and press `Enter`. Open `/help` (or press `F1`) for the in-app command and keyboard reference.
@@ -27,7 +29,7 @@ On a first run `duo` checks that it can start before it opens the dashboard, and
 
 ## Install
 
-**Latest published release v0.15.1** (macOS/Linux/Windows, amd64, plus arm64 on macOS/Linux):
+**Latest published release v0.16.0** (macOS/Linux/Windows, amd64, plus arm64 on macOS/Linux):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash
@@ -144,7 +146,7 @@ Settings can be stored globally in `~/.duo/config.json` or per repository in `.d
 
 | Variable | Purpose |
 |---|---|
-| `DUO_MODE` | Default mode for new sessions (`fast`, `goal`, `step`). |
+| `DUO_MODE` | Default mode for new sessions (`fast`, `goal`, `step`, `loop`). |
 | `DUO_TEST_COMMAND` | Test command to run before accepting verification. |
 | `DUO_REPO` | Repository or subdirectory to launch against. |
 | `DUO_DRIVER` | Default driver for both agents. |
@@ -219,9 +221,9 @@ the Worker in `remote/` is yours to deploy. See [docs/remote.md](docs/remote.md)
 
 ## Resume and delivery
 
-`duo resume [session-id]` restores a saved session; `duo sessions` lists sessions and the snapshot schema each one was read with (`2→3` means an older session was upgraded). Resume keeps the session's recorded mode; legacy sessions without one resume as Goal, and `DUO_MODE` does not override a resumed session. After approval, Duo delivers by fast-forwarding the original branch only. If delivery is blocked, resolve the cause and retry with `duo apply`; on a repository whose base branch is protected, `duo apply --branch <name>` puts the verified result on a new branch instead of moving yours (`--keep` preserves the Duo worktrees); `--push` also updates the branch's upstream, refusing before it moves anything if the remote has moved; `--pr` does the same and then opens the pull request with `gh`, or prints the same body when `gh` is not installed. `duo run -m fast|goal|step "task" [--json] [--timeout 90m]` runs one round without a terminal, which is what CI and batch scripts need: it submits the task, waits for DONE, and exits 0 when the artifact was delivered, 3 when it was not, and 124 when the timeout stopped the round. `duo status [session-id]` prints the authoritative session state — phase, mode, plan version, queue, signatures and each agent's HEAD, dirtiness and ahead count — and `duo status --json` prints the same facts as JSON for scripts. `duo logs` lists transcripts; `duo export <session-id>` writes one session's plan, queue, signatures, verification, delivery record and diffstat as Markdown on stdout, so a finished round can be archived or reviewed offline (`--repo <path>` when the id exists in more than one repository); `duo clean` removes completed session data and worktrees. Each command supports `--help`.
+`duo resume [session-id]` restores a saved session; `duo sessions` lists sessions and the snapshot schema each one was read with (`2→3` means an older session was upgraded). Resume keeps the session's recorded mode; legacy sessions without one resume as Goal, and `DUO_MODE` does not override a resumed session. After approval, Duo delivers by fast-forwarding the original branch only. If delivery is blocked, resolve the cause and retry with `duo apply`; on a repository whose base branch is protected, `duo apply --branch <name>` puts the verified result on a new branch instead of moving yours (`--keep` preserves the Duo worktrees); `--push` also updates the branch's upstream, refusing before it moves anything if the remote has moved; `--pr` does the same and then opens the pull request with `gh`, or prints the same body when `gh` is not installed. `duo run -m fast|goal|step|loop "task" [--json] [--timeout 90m]` runs one round without a terminal, which is what CI and batch scripts need: it submits the task, waits for DONE, and exits 0 when the artifact was delivered, 3 when it was not, and 124 when the timeout stopped the round. `duo status [session-id]` prints the authoritative session state — phase, mode, plan version, queue, signatures and each agent's HEAD, dirtiness and ahead count — and `duo status --json` prints the same facts as JSON for scripts. `duo logs` lists transcripts; `duo export <session-id>` writes one session's plan, queue, signatures, verification, delivery record and diffstat as Markdown on stdout, so a finished round can be archived or reviewed offline (`--repo <path>` when the id exists in more than one repository); `duo clean` removes completed session data and worktrees. Each command supports `--help`.
 
-Resuming never sends anything to the agents: the transcripts and state are restored, both agents start idle, and the automatic idle nudges stay quiet. Read the record first; when you want the agents to continue, run `/resume` in the dashboard. Submitting a task always wakes them, and `/resume` is the only way to wake them without a new task. Fast, Goal, and Step mode behave the same way. A finished (DONE) session has nothing to resume, so submit a task to start a new round instead.
+Resuming never sends anything to the agents: the transcripts and state are restored, both agents start idle, and the automatic idle nudges stay quiet. Read the record first; when you want the agents to continue, run `/resume` in the dashboard. Submitting a task always wakes them, and `/resume` is the only way to wake them without a new task. Fast, Goal, Step, and Loop mode behave the same way. A finished (DONE) session has nothing to resume, so submit a task to start a new round instead.
 
 ## Documentation
 

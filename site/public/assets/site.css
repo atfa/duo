@@ -1074,7 +1074,7 @@ p {
 
 .workflows {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
   gap: 16px;
   margin-top: 44px;
 }
@@ -1099,6 +1099,12 @@ p {
 .workflow-card.is-step {
   background:
     radial-gradient(420px 200px at 100% 0%, rgba(255, 194, 102, 0.05), transparent 70%),
+    linear-gradient(180deg, rgba(220, 227, 236, 0.028), rgba(220, 227, 236, 0.008));
+}
+
+.workflow-card.is-loop {
+  background:
+    radial-gradient(420px 200px at 100% 0%, rgba(96, 200, 255, 0.055), transparent 70%),
     linear-gradient(180deg, rgba(220, 227, 236, 0.028), rgba(220, 227, 236, 0.008));
 }
 

@@ -134,6 +134,10 @@ func (p *planOverlay) rebuild() {
 		case project.ModeStep:
 			add(p.theme.tr("This round has no plan or step queue yet."), p.theme.Body)
 			add(p.theme.tr("STEP starts in PLAN: both agents publish the plan and the queue before work begins."), p.theme.BodyMuted)
+		case project.ModeLoop:
+			add(p.theme.tr("LOOP has no shared plan."), p.theme.Body)
+			add(p.theme.tr("Austin owns the work and reports to you; Tony observes and advises."), p.theme.BodyMuted)
+			add(p.theme.tr("delivery")+"  "+deliveryLabel(p.view.Delivery, p.theme), p.theme.Subtle)
 		}
 		if snap.Phase == project.PhaseDone {
 			add(p.theme.tr("This round is DONE; its plan was cleared."), p.theme.Subtle)

@@ -483,7 +483,7 @@ func (s *State) EscalateToGoal(reason string) (Snapshot, error) {
 // notes stay intact. Every other transition uses the generic reset below.
 func (s *State) SwitchMode(target Mode, reason string) (Snapshot, error) {
 	if target != ModeFast && target != ModeGoal && target != ModeStep && target != ModeLoop {
-		return Snapshot{}, fmt.Errorf("unknown Duo mode %q (expected fast, goal or step)", target)
+		return Snapshot{}, fmt.Errorf("unknown Duo mode %q (expected fast, goal, step or loop)", target)
 	}
 
 	s.mu.Lock()

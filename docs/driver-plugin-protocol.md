@@ -478,7 +478,7 @@ Core defines these for both your plugin process and the agent process:
 ```
 DUO_ACTIVE=1
 DUO_AGENT=Austin|Tony
-DUO_MODE=fast|goal|step
+DUO_MODE=fast|goal|step|loop
 DUO_LANGUAGE=en|zh
 DUO_HOST=127.0.0.1
 DUO_PORT=<port>

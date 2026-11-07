@@ -138,6 +138,18 @@ func TestPlanOverlayEmptyStates(t *testing.T) {
 	if text := planLines(stepApp.plan); !strings.Contains(text, "No step queue yet.") {
 		t.Fatalf("empty Step queue missing its notice:\n%s", text)
 	}
+
+	loop := newFakeSession()
+	loop.view.Project = project.Snapshot{Mode: project.ModeLoop, Phase: project.PhaseRunning, Started: true}
+	loopApp := New(loop)
+	loopApp.openPlan()
+	placePlan(t, loopApp)
+	text = planLines(loopApp.plan)
+	for _, want := range []string{"LOOP has no shared plan.", "Tony observes and advises.", "delivery", "Ctrl+O opens session details."} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("LOOP empty state missing %q:\n%s", want, text)
+		}
+	}
 }
 
 func TestPlanOverlayIsTranslated(t *testing.T) {
@@ -167,6 +179,26 @@ func TestPlanOverlayIsTranslated(t *testing.T) {
 	app.plan.Draw(ui.NewBuffer(app.plan.GetRect()))
 	if got := strings.TrimSpace(app.plan.Title); got != "计划与步骤" {
 		t.Fatalf("zh plan title = %q, want 计划与步骤", got)
+	}
+}
+
+// TestPlanOverlayLoopEmptyStateIsTranslated pins the LOOP branch: the mode has no
+// plan, so the panel explains it, and /language zh must not leave English there.
+func TestPlanOverlayLoopEmptyStateIsTranslated(t *testing.T) {
+	fake := newFakeSession()
+	fake.view.Language = "zh"
+	fake.view.Project = project.Snapshot{Mode: project.ModeLoop, Phase: project.PhaseRunning, Started: true}
+	app := New(fake)
+	app.openPlan()
+	placePlan(t, app)
+	text := planLines(app.plan)
+	for _, want := range []string{"LOOP 模式没有共享计划。", "Tony 观察并提供建议。"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("zh LOOP empty state missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "no shared plan") {
+		t.Fatalf("zh LOOP empty state leaked English:\n%s", text)
 	}
 }
 

@@ -2,6 +2,23 @@
 
 All notable project milestones are documented here.
 
+## v0.16.0 — 2026-11-07
+
+### LOOP mode
+
+- Add a fourth workflow: `duo --mode loop`. Austin owns the goal, all execution decisions and the user-facing report; Tony observes and advises without implementing the task or approving completion.
+- Communication is durable: `duo_send` queues asynchronous notifications and advice, `duo_ask` registers a correlated consultation that blocks Austin until Tony's `duo_reply` is read, and `duo_wait` suspends a turn until an event or deadline. A clean committed Austin HEAD is delivered when the finished turn settles; there is no plan, review or advisor approval gate.
+- A quiet mode switch into LOOP wakes nobody, a new task still releases the hold, a long busy agent raises one attention notice instead of interrupting the model, and `/mode loop` is available from the dashboard, the mode picker and the remote console.
+- LOOP has its own help line, plan-panel explanation and Chinese translations, so `/language zh` leaves no English LOOP description behind.
+
+### Fixes
+
+- GOAL: delivery must match the commit both agents signed, so an approved change cannot be left behind; older sessions keep their delivery behavior.
+- STEP: a resumed `[goal]` step no longer demands FAST verification, with regression tests for pending and delivered checkpoints.
+- gotui: one measured label column for card and workflow rows, a Tony message header anchored to its own block, and translated transcript direction labels.
+- xduo: readable per-session status, identity labels on the status bar, palette-styled rows, and one Ctrl+X notation on the manager status row.
+- Fix the macOS build.
+
 ## v0.15.1 — 2026-10-29
 
 - Add mouse interaction in Duo and xduo, including localized footer actions.

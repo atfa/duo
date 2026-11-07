@@ -2,11 +2,12 @@
 
 **两个平级 Coding Agent 在隔离的 Git 工作树中协作，成果交付回你的仓库。**
 
-Duo 提供三种工作流：
+Duo 提供四种工作流：
 
 - **Fast**（默认）：Austin 负责实现；Tony 独立验证确切的 commit；Duo 负责交付。
 - **Goal**（`duo --mode goal`）：双方先就计划达成一致，各自独立工作，交叉审查并签字后交付。
 - **Step**（`duo --mode step`）：双方先商定有序队列；每个条目按 Fast 或 Goal 策略执行，落地后才进入下一步。
+- **Loop**（`duo --mode loop`）：Austin 负责任务并向你汇报；Tony 观察并提供建议，不批准完成。只有明确请教时才等待回复，且没有计划或批准环节。
 
 Duo 负责协调、验证关卡、Git 证据与安全交付。Agent 在各自独立的 Git 工作树中工作，结果交付回你启动 Duo 时所在的分支。
 
@@ -19,6 +20,7 @@ cd /path/to/git/repository
 duo                     # Fast
 duo --mode goal         # 协商式协作
 duo --mode step         # 逐步推进的队列
+duo --mode loop         # 持续的目标，Tony 只提供建议
 ```
 
 Duo 运行于 macOS、Linux 与 Windows（需要 Windows 10 1809 或更新版本，Agent 终端依赖 ConPTY），需要 Git 以及至少一种受支持的 Agent CLI。启动后会打开 gotui 仪表盘；输入任务并按 `Enter`。应用内的命令与快捷键参考请打开 `/help`（或按 `F1`）。
@@ -52,7 +54,7 @@ Duo 通过 `XDUO_STATUS_FILE` 约每秒发布状态。面板显示 `playing`、`
 
 ## 安装
 
-**最新发布版 v0.14.5**（macOS/Linux/Windows，amd64；macOS/Linux 另有 arm64）：
+**最新发布版 v0.16.0**（macOS/Linux/Windows，amd64；macOS/Linux 另有 arm64）：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash
@@ -92,7 +94,7 @@ Agent bridge 提供八个 Duo 工具，用于同伴消息、共享状态、计�
 
 | 变量 | 用途 |
 |---|---|
-| `DUO_MODE` | 新会话的默认模式（`fast`、`goal`、`step`）。 |
+| `DUO_MODE` | 新会话的默认模式（`fast`、`goal`、`step`、`loop`）。 |
 | `DUO_TEST_COMMAND` | 接受验证前运行的测试命令。 |
 | `DUO_REPO` | 启动时使用的仓库或子目录。 |
 | `DUO_DRIVER` | 双方共用的默认 driver。 |
@@ -163,9 +165,9 @@ URL 的 fragment 中，浏览器不会把它发送给服务器。
 
 ## 恢复与交付
 
-`duo resume [session-id]` 恢复已保存的会话；`duo sessions` 列出会话，并显示每个会话读取时的快照 schema（`2→3` 表示旧会话已升级）。恢复会保留会话记录的模式；没有记录模式的旧会话按 Goal 恢复，且 `DUO_MODE` 不会覆盖已恢复的会话。批准后，Duo 只通过快进（fast-forward）原始分支来交付。若交付受阻，排除原因后用 `duo apply` 重试；在基线分支受保护的仓库里，`duo apply --branch <name>` 会把已验证的结果放到一个新分支上而不动你的分支（`--keep` 保留 Duo 的工作树）；`--push` 还会把该分支推到它的 upstream，推送前若远端已移动则直接拒绝且本地与远端都不变；`--pr` 在此基础上用 `gh` 创建 PR，未安装 `gh` 时打印同样的 PR 正文。`duo run -m fast|goal|step "task" [--json] [--timeout 90m]` 不开终端跑完整一轮，供 CI 与批处理使用：提交任务、等到 DONE，交付成功退出码 0，未交付 3，被超时中断 124。`duo status [session-id]` 打印权威会话状态——阶段、模式、计划版本、步骤队列、签名，以及两个 agent 的 HEAD、脏状态与领先提交数——`duo status --json` 以 JSON 输出同一份事实，供脚本使用。`duo logs` 列出会话记录；`duo export <session-id>` 把单个会话的计划、队列、签名、验证、交付记录与 diffstat 以 Markdown 输出到 stdout，便于归档或离线评审（同一 session id 存在于多个仓库时用 `--repo <path>` 指定）；`duo clean` 删除已完成的会话数据与工作树。每个命令都支持 `--help`。
+`duo resume [session-id]` 恢复已保存的会话；`duo sessions` 列出会话，并显示每个会话读取时的快照 schema（`2→3` 表示旧会话已升级）。恢复会保留会话记录的模式；没有记录模式的旧会话按 Goal 恢复，且 `DUO_MODE` 不会覆盖已恢复的会话。批准后，Duo 只通过快进（fast-forward）原始分支来交付。若交付受阻，排除原因后用 `duo apply` 重试；在基线分支受保护的仓库里，`duo apply --branch <name>` 会把已验证的结果放到一个新分支上而不动你的分支（`--keep` 保留 Duo 的工作树）；`--push` 还会把该分支推到它的 upstream，推送前若远端已移动则直接拒绝且本地与远端都不变；`--pr` 在此基础上用 `gh` 创建 PR，未安装 `gh` 时打印同样的 PR 正文。`duo run -m fast|goal|step|loop "task" [--json] [--timeout 90m]` 不开终端跑完整一轮，供 CI 与批处理使用：提交任务、等到 DONE，交付成功退出码 0，未交付 3，被超时中断 124。`duo status [session-id]` 打印权威会话状态——阶段、模式、计划版本、步骤队列、签名，以及两个 agent 的 HEAD、脏状态与领先提交数——`duo status --json` 以 JSON 输出同一份事实，供脚本使用。`duo logs` 列出会话记录；`duo export <session-id>` 把单个会话的计划、队列、签名、验证、交付记录与 diffstat 以 Markdown 输出到 stdout，便于归档或离线评审（同一 session id 存在于多个仓库时用 `--repo <path>` 指定）；`duo clean` 删除已完成的会话数据与工作树。每个命令都支持 `--help`。
 
-恢复会话不会向 agent 发送任何消息：记录与状态会还原，两个 agent 启动后保持空闲，自动的空闲提醒也不会打扰它们。你可以先安静查看记录；需要继续工作时，在仪表盘执行 `/resume`。提交任务总会唤醒它们，而 `/resume` 是不提交新任务就唤醒它们的唯一方式。Fast、Goal、Step 三种模式行为一致。已完成的（DONE）会话没有可恢复的工作，请提交任务开启新一轮。
+恢复会话不会向 agent 发送任何消息：记录与状态会还原，两个 agent 启动后保持空闲，自动的空闲提醒也不会打扰它们。你可以先安静查看记录；需要继续工作时，在仪表盘执行 `/resume`。提交任务总会唤醒它们，而 `/resume` 是不提交新任务就唤醒它们的唯一方式。Fast、Goal、Step、Loop 四种模式行为一致。已完成的（DONE）会话没有可恢复的工作，请提交任务开启新一轮。
 
 ## 文档
 

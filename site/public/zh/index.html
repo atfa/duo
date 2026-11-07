@@ -68,13 +68,13 @@
 
   <section class="container hero" id="top">
     <div class="hero-copy">
-      <span class="eyebrow"><span class="pulse"></span>v0.15.1 · 两个 Agent，共同完成一个任务</span>
+      <span class="eyebrow"><span class="pulse"></span>v0.16.0 · 两个 Agent，共同完成一个任务</span>
       <h1>多花一点时间，<span class="line-2">换一个更好的结果。</span></h1>
       <p class="hero-sub">如果你愿意多花一点时间和 token，让模型交付更高质量的成果，Duo 就是为你准备的。</p>
-      <p class="lede">Austin 和 Tony 是两个平级的 Agent。他们相互协商，用 FAST、GOAL 或 STEP 模式共同完成同一个任务。他们不是老板和员工，也不被固定为计划者、执行者或检查者。</p>
+      <p class="lede">Austin 和 Tony 是两个平级的 Agent。他们相互协商，用 FAST、GOAL、STEP 或 LOOP 模式共同完成同一个任务。他们不是老板和员工，也不被固定为计划者、执行者或检查者。</p>
       <div class="install"><code id="install-cmd"><span class="prompt">$</span> curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash</code><button class="copy" type="button" data-copy="#install-cmd" aria-label="复制安装命令"><span class="copy-label">复制</span></button><span class="copy-status sr-only" role="status" aria-live="polite"></span></div>
       <div class="hero-actions"><a class="btn btn-primary" href="#start">开始使用</a><a class="btn btn-ghost" href="https://github.com/atfa/duo#readme">阅读文档</a></div>
-      <div class="hero-meta"><span>v0.15.1</span><span>MIT 开源</span><span>自备 Agent CLI</span></div>
+      <div class="hero-meta"><span>v0.16.0</span><span>MIT 开源</span><span>自备 Agent CLI</span></div>
     </div>
     <div class="terminal reveal"><div class="terminal-bar"><span>你的项目 — duo</span></div><pre><span class="c">$</span> cd ~/projects/your-repo
 <span class="c">$</span> duo
@@ -82,13 +82,13 @@
 <span class="c">Austin</span>  协商 · 工作 · 审查
 <span class="t">Tony</span>    协商 · 工作 · 审查
 
-<span class="muted">FAST  /  GOAL  /  STEP</span></pre></div>
+<span class="muted">FAST  /  GOAL  /  STEP  /  LOOP</span></pre></div>
   </section>
   <section class="container section" id="why"><div class="section-head reveal"><p class="section-eyebrow">Duo 是什么</p><h2 class="section-title">你提供 Agent，Duo 组织协作。</h2><p class="lede">Duo 本身不是一个 Agent，也不提供模型。你需要事先安装并配置好 pi、opencode、codex 或 agy 中至少一个。两个 Agent 可以使用相同或不同的工具与模型。</p></div><p class="agent-note reveal">Duo 会花费更多时间和 token，目标是通过协商与相互审查交付更好的结果；结果仍需要你自己判断。</p></section>
-  <section class="container section" id="workflows"><div class="section-head reveal"><p class="section-eyebrow">三种工作模式</p><h2 class="section-title">按任务选择协作方式。</h2></div><div class="workflows grid">
+  <section class="container section" id="workflows"><div class="section-head reveal"><p class="section-eyebrow">四种工作模式</p><h2 class="section-title">按任务选择协作方式。</h2></div><div class="workflows grid">
     <article class="workflow-card card is-fast reveal"><span class="mode">FAST</span><h3>直接开始</h3><p>一方实现，另一方验证，适合边界清晰的任务。</p></article>
     <article class="workflow-card card is-goal reveal"><span class="mode">GOAL</span><h3>先商量，再动手</h3><p>双方共同确定计划，独立工作并交叉审查，适合复杂任务。</p></article>
-    <article class="workflow-card card is-step reveal"><span class="mode">STEP</span><h3>一步一步完成</h3><p>双方商定有序步骤，逐步实现与验证，适合较长的任务。</p></article>
+    <article class="workflow-card card is-step reveal"><span class="mode">STEP</span><h3>一步一步完成</h3><p>双方商定有序步骤，逐步实现与验证，适合较长的任务。</p></article><article class="workflow-card card is-loop reveal"><span class="mode">LOOP</span><h3>持续推进一个目标</h3><p>Austin 负责任务并向你汇报，Tony 观察并提供建议；只有明确请教时才等待回复，没有计划或批准环节。</p></article>
   </div></section>
   <section class="container section" id="remote"><div class="section-head reveal"><p class="section-eyebrow">手机与浏览器</p><h2 class="section-title">Duo 在你的电脑上运行，你可以从别处控制。</h2></div><div class="principles grid">
     <article class="principle card reveal"><span class="p-num">01 / DUO REMOTE</span><h3>在手机上控制一个 Duo</h3><p>在 Duo 中输入 <code>/qrcode</code>，用手机扫码配对。你可以查看状态、提交任务、暂停或继续，以及切换模式、Agent 和模型。</p></article>

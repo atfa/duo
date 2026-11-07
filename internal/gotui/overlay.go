@@ -175,6 +175,7 @@ func helpSections() []helpSection {
 			"FAST: RUNNING → VERIFY → DONE. Austin implements, Tony verifies, Duo lands the diff.",
 			"GOAL: PLAN → EXECUTE → REVIEW → INTEGRATE → DONE. Both agents agree on the plan first.",
 			"STEP: plan a dual-approved queue, then run each step as FAST (Austin implements, Tony verifies) or GOAL (both implement and cross-sign).",
+			"LOOP: Austin owns the task and reports to you; Tony observes and advises, and only an explicit consultation waits for a reply. No plan or approval gates.",
 		}},
 		{"KEYS", []string{
 			"Enter send  ·  Ctrl+Enter / Shift+Enter / Alt+Enter / Ctrl+J newline",

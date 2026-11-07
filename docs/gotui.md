@@ -33,10 +33,10 @@ workflow state or makes project transitions:
   palette, and the model/thinking picker.
 - **Language.** `/language zh|en` changes Duo-authored messages and the dashboard
   chrome immediately, and the choice is persisted in `.duo/config.json` for the
-  next launch. Protocol names such as FAST/GOAL/STEP stay canonical.
-- **Mode switching.** `Ctrl+S` or `Alt+S` opens a FAST/GOAL/STEP panel with
+  next launch. Protocol names such as FAST/GOAL/STEP/LOOP stay canonical.
+- **Mode switching.** `Ctrl+S` or `Alt+S` opens a FAST/GOAL/STEP/LOOP panel with
   the current mode marked; `/mode` without an argument opens the same panel and
-  `/mode fast|goal|step` still switches directly. The mode badge in the header
+  `/mode fast|goal|step|loop` still switches directly. The mode badge in the header
   is clickable. A switch that would reset the current round first names exactly
   what is discarded (plan version, Step queue, signatures, Fast verification)
   and keeps the current mode by default; Fast → Goal escalation and a DONE round
@@ -118,7 +118,7 @@ variables. The dashboard adds:
 | `Ctrl+O` / `Alt+O` | Open session details and the Git diffstat |
 | `Ctrl+M` / `Alt+M` | Open the model and thinking picker |
 | `F4` / `Alt+D` | Open the driver picker when driver changes are allowed |
-| `Ctrl+S` / `Alt+S` | Open the FAST/GOAL/STEP mode picker |
+| `Ctrl+S` / `Alt+S` | Open the FAST/GOAL/STEP/LOOP mode picker |
 | `Ctrl+G` | Toggle message timestamps |
 | `Ctrl+F` / `/search` | Search the active pane; `n` / `N` next hit, `Esc` restores the viewport |
 | `/sessions` | List unfinished sessions; `Enter` resumes the selected one |

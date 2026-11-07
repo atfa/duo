@@ -293,6 +293,9 @@ test("a mode switch carries the mode name and asks before discarding a round", a
   assert.ok(COMMAND_KINDS.has("switch_mode"));
   assert.equal(modeKey("STEP"), "step");
   assert.equal(modeKey(" step "), "step");
+  // LOOP is a mode the select already offers, so the page must show a host in
+  // LOOP mode as LOOP instead of leaving the select blank.
+  assert.equal(modeKey("LOOP"), "loop");
   assert.equal(modeKey("turbo"), "");
   assert.equal(modeKey(undefined), "");
 

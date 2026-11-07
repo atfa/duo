@@ -13,7 +13,7 @@ export const MAX_ACTIVITY = 12;
 
 // MODES is every workflow mode the phone may switch to. The host validates the
 // name again; this only keeps a typo off the wire.
-export const MODES = ["fast", "step", "goal"];
+export const MODES = ["fast", "step", "loop", "goal"];
 
 // nextSeq is the sequence rule: the newest sequence number wins, and one that
 // does not move forward means the room was recreated, so the epoch restarts at
