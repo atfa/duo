@@ -91,6 +91,39 @@ func TestLoopTaskAfterQuietSwitchWakesAustin(t *testing.T) {
 	}
 }
 
+// TestRestoredLoopSessionTaskReleasesResumeHold is the same defect through the
+// other door: a restored session is held by HoldResume (resumePending and
+// harnessOff), and only an explicit human continuation clears it. A LOOP task
+// must count as one, otherwise RunLoop never wakes the restored round.
+func TestRestoredLoopSessionTaskReleasesResumeHold(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runtime := startE2EWithMode(t, ctx, project.ModeLoop)
+	austin := runtime.dialAgent(t, protocol.Austin)
+	runtime.dialAgent(t, protocol.Tony)
+	waitFor(t, func() bool {
+		return runtime.server.IsConnected(protocol.Austin) && runtime.server.IsConnected(protocol.Tony)
+	}, "both agents to connect")
+
+	// What recovery does for a started, unfinished session.
+	runtime.state.MarkStarted()
+	runtime.coord.HoldResume()
+	if !runtime.coord.HarnessHeld() || !runtime.coord.ResumePending() {
+		t.Fatal("a restored session must stay quiet until the human continues")
+	}
+
+	go runtime.coord.RunLoop(ctx)
+	if err := runtime.coord.SubmitUserTask(ctx, "finish the restored round"); err != nil {
+		t.Fatalf("restored LOOP task: %v", err)
+	}
+	if runtime.coord.HarnessHeld() || runtime.coord.ResumePending() {
+		t.Fatal("a human task must clear the restored-session hold")
+	}
+	austin.awaitMessage(t, "LOOP wake for the restored task", func(m protocol.Message) bool {
+		return m.Type == protocol.MsgDuoNotice && strings.Contains(m.Text, "LOOP event")
+	})
+}
+
 func TestQuietModeSwitchDoesNotWakeAgents(t *testing.T) {
 	for _, tc := range []struct {
 		name string
