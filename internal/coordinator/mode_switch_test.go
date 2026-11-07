@@ -132,6 +132,9 @@ func TestQuietModeSwitchDoesNotWakeAgents(t *testing.T) {
 	}{
 		{"fast-to-goal-escalation", project.ModeFast, project.ModeGoal},
 		{"goal-to-step", project.ModeGoal, project.ModeStep},
+		// LOOP is scheduled by RunLoop, so a quiet switch there must be quiet too:
+		// only a human task releases the hold that keeps the watchdog silent.
+		{"goal-to-loop", project.ModeGoal, project.ModeLoop},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
