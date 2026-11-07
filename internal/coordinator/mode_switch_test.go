@@ -2,6 +2,7 @@ package coordinator
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/atfa/duo/internal/project"
@@ -30,6 +31,63 @@ func TestHumanTaskReleasesHarnessHold(t *testing.T) {
 	}
 	if runtime.coord.HarnessHeld() {
 		t.Fatal("a human task must release the harness hold")
+	}
+}
+
+// TestLoopTaskAfterQuietSwitchWakesAustin pins the reported bug: a session
+// started in GOAL, switched to LOOP from the interface (/mode → "Not now", which
+// is the documented safe answer for typing the next prompt first) must still
+// deliver the task. LOOP only queues the prompt as an inbox event and RunLoop
+// sends the wake, so a task that leaves the quiet-switch hold in place is dropped
+// silently: no agent receives anything and the event never leaves the inbox.
+func TestLoopTaskAfterQuietSwitchWakesAustin(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	runtime := startE2EWithMode(t, ctx, project.ModeGoal)
+	austin := runtime.dialAgent(t, protocol.Austin)
+	tony := runtime.dialAgent(t, protocol.Tony)
+	waitFor(t, func() bool {
+		return runtime.server.IsConnected(protocol.Austin) && runtime.server.IsConnected(protocol.Tony)
+	}, "both agents to connect")
+
+	if err := runtime.coord.SubmitUserTask(ctx, "publish the release notes"); err != nil {
+		t.Fatalf("goal task: %v", err)
+	}
+	for _, agent := range []*testAgent{austin, tony} {
+		agent.awaitMessage(t, "goal task", func(m protocol.Message) bool {
+			return m.Type == protocol.MsgHumanPrompt
+		})
+	}
+
+	if err := runtime.coord.SwitchModeQuiet(ctx, project.ModeLoop, ""); err != nil {
+		t.Fatalf("SwitchModeQuiet: %v", err)
+	}
+	if !runtime.coord.HarnessHeld() {
+		t.Fatal("a quiet mode switch must hold the harness until the human continues")
+	}
+
+	go runtime.coord.RunLoop(ctx)
+	if err := runtime.coord.SubmitUserTask(ctx, "also update the changelog"); err != nil {
+		t.Fatalf("LOOP task: %v", err)
+	}
+	if runtime.coord.HarnessHeld() {
+		t.Fatal("a human task must release the harness hold held by the quiet switch")
+	}
+
+	// The prompt itself stays an inbox event, so the wake is what makes it
+	// effective for Austin.
+	austin.awaitMessage(t, "LOOP wake for the human task", func(m protocol.Message) bool {
+		return m.Type == protocol.MsgDuoNotice && strings.Contains(m.Text, "LOOP event")
+	})
+	snap := runtime.state.Snapshot()
+	if got := len(snap.Loop.Events[protocol.Austin]); got != 1 {
+		t.Fatalf("Austin's loop inbox has %d events, want the one human event", got)
+	}
+	if got := snap.Loop.Events[protocol.Austin][0]; got.Kind != "human" || !strings.Contains(got.Text, "changelog") {
+		t.Fatalf("queued event = %+v, want the human task", got)
+	}
+	if snap.Mode != project.ModeLoop || snap.Started != true {
+		t.Fatalf("mode=%s started=%v, want a started LOOP round", snap.Mode, snap.Started)
 	}
 }
 

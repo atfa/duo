@@ -868,6 +868,13 @@ func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 		return c.SwitchMode(ctx, project.ModeGoal, reason)
 	}
 
+	// A human task is an explicit continuation in every mode, so the hold a quiet
+	// mode switch or a restored session installed must be released before any
+	// mode-specific dispatch. In LOOP the task below is only queued as an inbox
+	// event and RunLoop delivers the wake, and RunLoop stays silent while the
+	// harness is held: clearing the hold after that branch would leave the prompt
+	// queued forever.
+	c.clearResumePending()
 	if snap := c.project.Snapshot(); snap.EffectiveMode() == project.ModeLoop && snap.Started && snap.Phase != project.PhaseDone {
 		if err := c.project.LoopHuman(text); err != nil {
 			return err
@@ -878,7 +885,6 @@ func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 		c.emit(events.KindUser, protocol.Duo, "", text)
 		return nil
 	}
-	c.clearResumePending()
 	if !c.IsAgentConnected(protocol.Austin) {
 		return fmt.Errorf("Austin is not connected yet")
 	}
