@@ -1,6 +1,8 @@
 package project
 
 import (
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -143,7 +145,7 @@ func TestLoopConsultationBlocksUntilMatchingReplyIsProcessed(t *testing.T) {
 	if err := restored.LoopReply(protocol.Tony, "stale", "answer"); err == nil {
 		t.Fatal("wrong reply ID")
 	}
-	if _, err := restored.LoopFinish(protocol.Austin, "finished", "", ""); err == nil {
+	if err := restored.LoopFinish(protocol.Austin, "finished", "", ""); err == nil {
 		t.Fatal("finished while waiting")
 	}
 	if err := restored.LoopReply(protocol.Tony, id, "use strategy B"); err != nil {
@@ -178,13 +180,13 @@ func TestLoopConsultationBlocksUntilMatchingReplyIsProcessed(t *testing.T) {
 func TestLoopOwnerFinishesWithoutAdvisorApproval(t *testing.T) {
 	s := NewStateFor(ModeLoop)
 	_ = s.LoopSend(protocol.Tony, "optional advice")
-	if _, err := s.LoopFinish(protocol.Tony, "done", "", ""); err == nil {
+	if err := s.LoopFinish(protocol.Tony, "done", "", ""); err == nil {
 		t.Fatal("advisor finished task")
 	}
-	if _, err := s.LoopFinish(protocol.Austin, "", "legacy-id", ""); err == nil {
+	if err := s.LoopFinish(protocol.Austin, "", "legacy-id", ""); err == nil {
 		t.Fatal("legacy approval accepted")
 	}
-	if done, err := s.LoopFinish(protocol.Austin, "stopped at target", "", ""); err != nil || done {
+	if err := s.LoopFinish(protocol.Austin, "stopped at target", "", ""); err != nil {
 		t.Fatal("expected pending owner boundary")
 	}
 	s.LoopActivity(protocol.Tony, protocol.ActivityAgentSettled, "")
@@ -238,7 +240,7 @@ func TestLoopHasNoSignOffPath(t *testing.T) {
 		t.Fatalf("completed without a settled finish: phase=%s err=%v", snap.Phase, err)
 	}
 
-	if _, err := s.LoopFinish(protocol.Austin, "done", "", ""); err != nil {
+	if err := s.LoopFinish(protocol.Austin, "done", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	s.LoopActivity(protocol.Austin, protocol.ActivityAgentSettled, "")
@@ -302,17 +304,76 @@ func TestLoopBatchAcknowledgementConsumesOnlyProcessedPrefix(t *testing.T) {
 
 func TestLoopNewHumanInputSupersedesOwnerFinish(t *testing.T) {
 	s := NewStateFor(ModeLoop)
-	_, _ = s.LoopFinish(protocol.Austin, "previous goal done", "", "")
+	_ = s.LoopFinish(protocol.Austin, "previous goal done", "", "")
 	_ = s.LoopHuman("also observe the next run")
 	s.LoopActivity(protocol.Austin, protocol.ActivityAgentSettled, "")
 	if s.Snapshot().Phase == PhaseDone {
 		t.Fatal("ignored new human input")
 	}
-	if _, err := s.LoopFinish(protocol.Austin, "old conclusion", "", ""); err == nil {
+	if err := s.LoopFinish(protocol.Austin, "old conclusion", "", ""); err == nil {
 		t.Fatal("finished before processing new user instruction")
 	}
 	ackLoopInbox(t, s, protocol.Austin)
-	if _, err := s.LoopFinish(protocol.Austin, "new instruction considered", "", ""); err != nil {
+	if err := s.LoopFinish(protocol.Austin, "new instruction considered", "", ""); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestLoopObserveInboxIsBoundedAndKeepsCriticalEvents(t *testing.T) {
+	s := NewStateFor(ModeLoop)
+
+	// An advisor that never reads must not let the owner's observation stream grow
+	// the durable inbox without bound.
+	for i := 0; i < maxLoopInbox+50; i++ {
+		s.LoopObserve("bash", strconv.Itoa(i))
+	}
+	events := s.Snapshot().Loop.Events[protocol.Tony]
+	if len(events) != maxLoopInbox {
+		t.Fatalf("observation inbox = %d events, want bounded at %d", len(events), maxLoopInbox)
+	}
+	// The oldest step events were shed; the newest observation survives.
+	if got := events[len(events)-1].Text; !strings.HasSuffix(got, strconv.Itoa(maxLoopInbox+49)) {
+		t.Fatalf("newest observation not retained: %q", got)
+	}
+
+	// A consultation question is never shed by the observation trim.
+	id, err := s.LoopAsk(protocol.Austin, "which strategy?")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range s.Snapshot().Loop.Events[protocol.Tony] {
+		if e.Kind == "question" && e.QuestionID == id {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("consultation question was shed by observation trimming")
+	}
+}
+
+func TestLoopObserveDefersPersistence(t *testing.T) {
+	s := NewStateFor(ModeLoop)
+	var persisted int
+	s.SetPersistence(func(Snapshot) { persisted++ })
+
+	// A burst of observations records without a snapshot write per tool; the
+	// coordinator flushes them on its one-second tick.
+	if !s.LoopObserve("bash", "first") {
+		t.Fatal("first observation not recorded")
+	}
+	if !s.LoopObserve("bash", "second") {
+		t.Fatal("second observation not recorded")
+	}
+	if persisted != 0 {
+		t.Fatalf("observations persisted %d times, want 0 (coalesced)", persisted)
+	}
+
+	// A critical mutation still persists through onChange.
+	if err := s.LoopSend(protocol.Tony, "advice"); err != nil {
+		t.Fatal(err)
+	}
+	if persisted != 1 {
+		t.Fatalf("persisted %d times after critical mutation, want 1", persisted)
 	}
 }

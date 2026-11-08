@@ -138,3 +138,27 @@ func TestTrackerNoteRecordsTurnShape(t *testing.T) {
 		t.Fatal("a finished tool must clear the start time")
 	}
 }
+
+// TestCurrentToolDetailRestoresEnclosingTool pins the nested-tool case: a tool_end
+// observation must read the enclosing tool's arguments, not the inner tool's.
+func TestCurrentToolDetailRestoresEnclosingTool(t *testing.T) {
+	tr := NewTracker()
+	agent := protocol.Austin
+	note := func(activity protocol.ActivityType, tool, detail string) {
+		tr.Handle(agent, activity)
+		tr.Note(agent, activity, tool, detail)
+	}
+
+	note(protocol.ActivityToolStart, "bash", "outer")
+	note(protocol.ActivityToolStart, "read", "inner")
+	if got := tr.CurrentToolDetail(agent); got != "inner" {
+		t.Fatalf("inner tool detail = %q", got)
+	}
+
+	// The inner tool ends; the outer tool's arguments must survive for its own end.
+	note(protocol.ActivityToolEnd, "read", "")
+	if got := tr.CurrentToolDetail(agent); got != "outer" {
+		t.Fatalf("enclosing detail after inner end = %q", got)
+	}
+	note(protocol.ActivityToolEnd, "bash", "")
+}

@@ -335,3 +335,44 @@ func TestLoopHumanInstructionRefreshesEventKey(t *testing.T) {
 		t.Fatal("second human did not refresh retry key")
 	}
 }
+
+func TestWakeThrottleResetsCooldownForNewKey(t *testing.T) {
+	now := time.Now()
+	var a attempt
+	var ok bool
+
+	a, ok = wakeThrottled(a, "event:1", now)
+	if !ok {
+		t.Fatal("first wake throttled")
+	}
+	a.last, a.count = now, 1
+
+	// The same key is still inside its 30-second cooldown.
+	if _, ok = wakeThrottled(a, "event:1", now.Add(10*time.Second)); ok {
+		t.Fatal("same key within cooldown was not throttled")
+	}
+
+	// A new key — a fresh human instruction — resets the cooldown and wakes now.
+	a, ok = wakeThrottled(a, "human:9", now.Add(10*time.Second))
+	if !ok {
+		t.Fatal("new human key inherited the previous key's cooldown")
+	}
+	if a.key != "human:9" || a.count != 0 || !a.last.IsZero() {
+		t.Fatalf("new key did not reset attempt state: %+v", a)
+	}
+
+	// The retry limit is still enforced per key even past the cooldown.
+	exhausted := attempt{key: "event:1", count: 3}
+	if _, ok = wakeThrottled(exhausted, "event:1", now.Add(time.Minute)); ok {
+		t.Fatal("retry limit not enforced")
+	}
+}
+
+func TestLoopResumePromptLocalized(t *testing.T) {
+	if zh := loopResumePrompt("zh"); !strings.Contains(zh, "Austin 负责任务") || !strings.Contains(zh, "duo_finish") {
+		t.Fatalf("zh loop prompt missing expected content: %q", zh)
+	}
+	if en := loopResumePrompt("en"); !strings.Contains(en, "Austin owns the task") {
+		t.Fatalf("en loop prompt missing expected content: %q", en)
+	}
+}

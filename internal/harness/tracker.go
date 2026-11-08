@@ -25,6 +25,12 @@ type AgentRuntime struct {
 	StreamTail string
 	LastError  string
 
+	// toolDetailStack mirrors the in-flight tool nesting so a nested tool's
+	// completion does not overwrite the enclosing tool's detail. The top of the
+	// stack is the tool most recently started; it feeds LoopObserve's fallback
+	// when a tool_end carries no detail of its own.
+	toolDetailStack []string
+
 	// Context usage and approximate output rate for the native preview. Drivers
 	// without a bridge may leave these unset.
 	ContextTokens   int
@@ -149,6 +155,7 @@ func (t *Tracker) Note(agent protocol.AgentID, activity protocol.ActivityType, t
 	switch activity {
 	case protocol.ActivityAgentStart:
 		rt.Tool, rt.ToolDetail, rt.ToolFailed, rt.StreamTail, rt.LastError = "", "", false, "", ""
+		rt.toolDetailStack = nil
 		rt.TurnStarted, rt.ToolStarted = time.Now(), time.Time{}
 		rt.Tools, rt.Recent = 0, nil
 	case protocol.ActivityProviderStart, protocol.ActivityAgentSettled:
@@ -158,6 +165,7 @@ func (t *Tracker) Note(agent protocol.AgentID, activity protocol.ActivityType, t
 		rt.StreamTail = ""
 		rt.ToolStarted = time.Now()
 		rt.Tools++
+		rt.toolDetailStack = append(rt.toolDetailStack, detail)
 	case protocol.ActivityToolEnd:
 		// tool_end keeps the arguments captured at tool_start; the result summary
 		// is only worth showing when it is a failure.
@@ -165,6 +173,7 @@ func (t *Tracker) Note(agent protocol.AgentID, activity protocol.ActivityType, t
 			rt.Tool = tool
 		}
 		rt.ToolFailed = false
+		rt.popToolDetailLocked()
 		rt.recordToolLocked(tool, "", true)
 	case protocol.ActivityToolError:
 		if tool != "" {
@@ -174,12 +183,40 @@ func (t *Tracker) Note(agent protocol.AgentID, activity protocol.ActivityType, t
 			rt.ToolDetail = detail
 		}
 		rt.ToolFailed = true
+		rt.popToolDetailLocked()
 		rt.recordToolLocked(tool, detail, false)
 	case protocol.ActivityStream:
 		if detail != "" {
 			rt.StreamTail = detail
 		}
 	}
+}
+
+// popToolDetailLocked drops the just-completed tool from the in-flight stack.
+// ToolDetail itself keeps the preview's semantics (the most recent tool's
+// arguments, retained after it ends), so it is left unchanged here; callers that
+// need the enclosing tool's detail read CurrentToolDetail instead.
+func (rt *AgentRuntime) popToolDetailLocked() {
+	if len(rt.toolDetailStack) > 0 {
+		rt.toolDetailStack = rt.toolDetailStack[:len(rt.toolDetailStack)-1]
+	}
+}
+
+// CurrentToolDetail returns the detail of the tool most recently started and not
+// yet completed, falling back to the last completed tool's detail when idle. A
+// tool_end observation reads this so a nested tool's completion cannot overwrite
+// the enclosing tool's arguments.
+func (t *Tracker) CurrentToolDetail(agent protocol.AgentID) string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	rt := t.agents[agent]
+	if rt == nil {
+		return ""
+	}
+	if len(rt.toolDetailStack) > 0 {
+		return rt.toolDetailStack[len(rt.toolDetailStack)-1]
+	}
+	return rt.ToolDetail
 }
 
 // recordToolLocked moves a finished tool into the recent trail. The name comes

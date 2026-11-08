@@ -310,20 +310,55 @@ func (s *State) LoopReply(id protocol.AgentID, questionID, answer string) error 
 	return nil
 }
 
+// maxLoopInbox bounds the pending events one agent can accumulate. Step
+// observations are the only unbounded source: a long-running owner completes many
+// tools while the advisor is busy or disconnected, and without a bound the
+// durable snapshot grows without limit and every observation rewrites the whole
+// checkpoint. The bound is generous enough that a normal batch is never
+// truncated, and only the oldest informational step events are shed — never a
+// question, reply, human instruction or timer.
+const maxLoopInbox = 100
+
 // LoopObserve records completed owner actions without another model call. The
 // coordinator dispatches these as a batch only when the advisor is idle.
-func (s *State) LoopObserve(tool, detail string) {
+//
+// It reports whether an event was recorded and deliberately does not persist:
+// observation events are informational, and a long-running owner can complete
+// many tools in quick succession, so the coordinator coalesces a burst into one
+// snapshot write on its one-second tick instead of writing the whole snapshot
+// once per tool.
+func (s *State) LoopObserve(tool, detail string) bool {
 	s.mu.Lock()
 	if s.mode != ModeLoop || s.phase == PhaseDone || s.loop.Finishing {
 		s.mu.Unlock()
-		return
+		return false
 	}
 	s.loopEventLocked(protocol.Tony, protocol.Austin, tool+": "+detail)
 	inbox := s.loop.Events[protocol.Tony]
 	inbox[len(inbox)-1].Kind = "step"
-	snap, hook := s.snapshotLocked(), s.onChange
+	s.trimStepInboxLocked(protocol.Tony)
 	s.mu.Unlock()
-	notify(hook, snap)
+	return true
+}
+
+// trimStepInboxLocked drops the oldest step observations once the inbox passes
+// maxLoopInbox. Step events are informational, so shedding history is safe;
+// questions, replies, human instructions and timers are never evicted.
+func (s *State) trimStepInboxLocked(id protocol.AgentID) {
+	inbox := s.loop.Events[id]
+	if len(inbox) <= maxLoopInbox {
+		return
+	}
+	excess := len(inbox) - maxLoopInbox
+	kept := make([]LoopEvent, 0, maxLoopInbox)
+	for _, e := range inbox {
+		if excess > 0 && e.Kind == "step" {
+			excess--
+			continue
+		}
+		kept = append(kept, e)
+	}
+	s.loop.Events[id] = kept
 }
 
 // LoopWake counts automatic dispatches durably, across Duo restarts.
@@ -371,26 +406,27 @@ func (s *State) LoopTimers(now time.Time) {
 }
 
 // LoopFinish is the owner's stopping decision, not an advisor approval gate.
-// DONE waits only for Austin's real turn boundary; Tony need not sign or settle.
-func (s *State) LoopFinish(id protocol.AgentID, summary, approve, reject string) (bool, error) {
+// DONE waits only for Austin's real turn boundary; Tony need not sign or settle,
+// so finishing is always pending until LoopActivity observes that boundary.
+func (s *State) LoopFinish(id protocol.AgentID, summary, approve, reject string) error {
 	s.mu.Lock()
 	if err := s.loopCheck(id); err != nil {
 		s.mu.Unlock()
-		return false, err
+		return err
 	}
 	summary = strings.TrimSpace(summary)
 	if id != protocol.Austin || summary == "" || approve != "" || reject != "" {
 		s.mu.Unlock()
-		return false, fmt.Errorf("only Austin finishes LOOP with summary; approval/rejection is no longer used")
+		return fmt.Errorf("only Austin finishes LOOP with summary; approval/rejection is no longer used")
 	}
 	if q := s.loop.Consultation; q != nil && q.Waiting {
 		s.mu.Unlock()
-		return false, fmt.Errorf("consultation %s must be answered and processed before finishing", q.ID)
+		return fmt.Errorf("consultation %s must be answered and processed before finishing", q.ID)
 	}
 	for _, event := range s.loop.Events[protocol.Austin] {
 		if event.Kind == "human" {
 			s.mu.Unlock()
-			return false, fmt.Errorf("process pending human input before finishing")
+			return fmt.Errorf("process pending human input before finishing")
 		}
 	}
 	s.loop.Summary = summary
@@ -398,7 +434,7 @@ func (s *State) LoopFinish(id protocol.AgentID, summary, approve, reject string)
 	snap, hook := s.snapshotLocked(), s.onChange
 	s.mu.Unlock()
 	notify(hook, snap)
-	return false, nil
+	return nil
 }
 
 // LoopHuman queues an external operator event for both agents.

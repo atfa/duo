@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	agentpkg "github.com/atfa/duo/internal/agent"
@@ -51,6 +52,11 @@ type Coordinator struct {
 	// it is computed from.
 	contextWarnPercent int
 	loopWakeLimit      int
+
+	// loopObserveDirty marks that LoopObserve recorded events that have not yet
+	// been written to the durable snapshot. RunLoop coalesces a burst of tool
+	// completions into one write per tick instead of one write per tool.
+	loopObserveDirty atomic.Bool
 
 	// restartMu guards a pending request to continue the session on a new Duo
 	// binary. It is in-memory on purpose: a restart that never happened is just a
@@ -904,7 +910,7 @@ func (c *Coordinator) SubmitUserTask(ctx context.Context, text string) error {
 			return err
 		}
 		c.emit(events.KindUser, protocol.Duo, protocol.Austin, text)
-		if err := c.sendToAgent(ctx, protocol.Austin, protocol.Message{Version: protocol.Version, Type: protocol.MsgHumanPrompt, From: protocol.Duo, To: protocol.Austin, Text: loopResumePrompt() + "\n\nTask: " + text, Timestamp: time.Now().UnixMilli()}); err != nil {
+		if err := c.sendToAgent(ctx, protocol.Austin, protocol.Message{Version: protocol.Version, Type: protocol.MsgHumanPrompt, From: protocol.Duo, To: protocol.Austin, Text: loopResumePrompt(c.language) + "\n\nTask: " + text, Timestamp: time.Now().UnixMilli()}); err != nil {
 			return err
 		}
 		c.acknowledgeTask(mode)
@@ -1227,7 +1233,7 @@ func (c *Coordinator) modeSwitchNotice(agent protocol.AgentID, target project.Mo
 	case project.ModeGoal:
 		text = "[Duo mode change: GOAL]\nThe session is now in GOAL mode and the current round starts in PLAN. Both agents co-design the plan with duo_send and duo_set_plan, then both approve with duo_set_status ready=true. In EXECUTE both implement in their own worktrees; REVIEW cross-checks the peer's HEAD; INTEGRATE merges Tony's branch into Austin's and both sign the integrated HEAD."
 	case project.ModeLoop:
-		text = loopResumePrompt()
+		text = loopResumePrompt(c.language)
 	case project.ModeStep:
 		text = "[Duo mode change: STEP]\nThe session is now in STEP mode and the current round starts in PLAN. Both agents agree on a queue with duo_set_steps and approve it with duo_set_status ready=true. Tag each item [fast] or [goal]. A FAST item is Austin implementing and Tony verifying with duo_set_verification. A GOAL item is both implementing, cross-reviewing and signing EXECUTE/REVIEW/INTEGRATE. Every final step also needs both agents' signatures."
 	}
@@ -1450,9 +1456,11 @@ func (c *Coordinator) handleActivity(agent protocol.AgentID, message protocol.Me
 		if agent == protocol.Austin && (message.Activity == protocol.ActivityToolEnd || message.Activity == protocol.ActivityToolError) && message.Tool != "" && !strings.HasPrefix(message.Tool, "duo_") {
 			detail := message.Detail
 			if detail == "" {
-				detail = c.tracker.Snapshot(agent).ToolDetail
+				detail = c.tracker.CurrentToolDetail(agent)
 			}
-			c.project.LoopObserve(message.Tool, string(message.Activity)+" "+detail)
+			if c.project.LoopObserve(message.Tool, string(message.Activity)+" "+detail) {
+				c.loopObserveDirty.Store(true)
+			}
 		}
 		if hadWait && (message.Activity == protocol.ActivityAgentSettled || message.Activity == protocol.ActivityAgentStart || message.Activity == protocol.ActivityToolStart) {
 			c.recordEvent("loop_wait_boundary", map[string]any{"agent": agent, "activity": message.Activity, "tool": message.Tool})
@@ -2681,6 +2689,15 @@ func (c *Coordinator) completeDelivery(ctx context.Context, record sessionstore.
 
 	done, err := c.project.Complete()
 	if err != nil {
+		// A concurrent human instruction or mode switch can move the session out
+		// of its delivery phase after Git already landed the artifact (LOOP's
+		// LoopHuman reverts INTEGRATE back to RUNNING). The artifact is still
+		// delivered, so keep the applied record and let the new round finish and
+		// deliver again instead of marking a delivered artifact pending.
+		if phase := c.project.Snapshot().Phase; phase != previous {
+			c.logf("delivery applied but session moved from %s to %s before DONE; keeping applied record", previous, phase)
+			return nil
+		}
 		if persistErr := c.markDeliveryPending(ctx, applied, "delivery applied but DONE transition failed: "+err.Error()); persistErr != nil {
 			return fmt.Errorf("complete delivery: %w (persist pending: %v)", err, persistErr)
 		}

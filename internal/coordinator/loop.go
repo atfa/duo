@@ -63,7 +63,7 @@ func (c *Coordinator) handleLoopWait(ctx context.Context, client *transport.Clie
 	_ = c.respond(ctx, client, msg.RequestID, true, text, "")
 }
 func (c *Coordinator) handleLoopFinish(ctx context.Context, client *transport.Client, msg protocol.Message) {
-	_, err := c.project.LoopFinish(client.Identity(), msg.Note, msg.Approve, msg.Reject)
+	err := c.project.LoopFinish(client.Identity(), msg.Note, msg.Approve, msg.Reject)
 	if err == nil {
 		err = c.persistStrict("loop finish")
 	}
@@ -118,16 +118,34 @@ func (c *Coordinator) allowLoopWake() bool {
 	return false
 }
 
+// attempt is the per-agent retry/cooldown state for automatic LOOP wakes.
+type attempt struct {
+	key   string
+	count int
+	last  time.Time
+}
+
+// wakeThrottled decides whether a wake for key should be sent now and returns the
+// updated attempt state. A key change resets both the retry budget and the
+// cooldown, so a new target — a fresh human instruction or a newly answered
+// consultation — wakes immediately instead of inheriting the previous key's
+// 30-second cooldown. The key is stable for a stream of ordinary observations
+// (it names the oldest unread event), so those batches stay throttled.
+func wakeThrottled(a attempt, key string, now time.Time) (attempt, bool) {
+	if a.key != key {
+		a = attempt{key: key}
+	}
+	if a.count >= 3 || (!a.last.IsZero() && now.Sub(a.last) < 30*time.Second) {
+		return a, false
+	}
+	return a, true
+}
+
 // RunLoop persists elapsed timers before asking an agent to fetch events. Wakes
 // are retried because a successful transport write is not an acknowledgement.
 func (c *Coordinator) RunLoop(ctx context.Context) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
-	type attempt struct {
-		key   string
-		count int
-		last  time.Time
-	}
 	attempts := map[protocol.AgentID]attempt{}
 	wasHeld := false
 	for {
@@ -139,6 +157,11 @@ func (c *Coordinator) RunLoop(ctx context.Context) {
 				continue
 			}
 			c.project.LoopTimers(now)
+			// LoopObserve does not persist per tool; coalesce a burst of completed
+			// tools into one snapshot write per tick.
+			if c.loopObserveDirty.Swap(false) {
+				c.persistNow("loop observations")
+			}
 			snap := c.project.Snapshot()
 			held := c.HarnessHeld() || c.PauseSnapshot().State != "running"
 			if held {
@@ -180,10 +203,9 @@ func (c *Coordinator) RunLoop(ctx context.Context) {
 					continue
 				}
 				a := attempts[id]
-				if a.key != key {
-					a = attempt{key: key, last: a.last}
-				}
-				if a.count >= 3 || (!a.last.IsZero() && now.Sub(a.last) < 30*time.Second) {
+				var ok bool
+				a, ok = wakeThrottled(a, key, now)
+				if !ok {
 					continue
 				}
 				if !c.allowLoopWake() {
@@ -262,6 +284,12 @@ func loopWake(snap project.Snapshot, id protocol.AgentID, now, activity time.Tim
 	return "", ""
 }
 
-func loopResumePrompt() string {
+// loopResumePrompt is the authoritative LOOP instruction for both the resume path
+// and a mode switch. It is language-aware so a Chinese session does not hand the
+// agent an English-only brief.
+func loopResumePrompt(language string) string {
+	if language == "zh" {
+		return "[Duo LOOP 已恢复] Austin 负责任务与用户汇报；Tony 只观察并提供建议，不执行任务。先读 duo_status 和 duo_events。若有未决的咨询，即使重启后 Austin 也必须等待对应的回复。用 duo_ask 发起阻塞式咨询，用 duo_reply(questionId,message) 作答，用 duo_send 发送异步通知/建议。Austin 自行决定是否采纳建议，并用 duo_finish(summary) 结束，无需 Tony 批准。提交工作并保持 worktree 干净：当结束回合稳定后，Duo 会把 Austin 的 HEAD 交付到会话起始分支，只有交付成功后才进入 DONE。"
+	}
 	return "[Duo LOOP resumed] Austin owns the task and user report; Tony observes and advises without executing the task. Read duo_status and duo_events. If a consultation is pending, Austin must wait for its matching reply, even after restart. Use duo_ask for blocking consultation, duo_reply(questionId,message) for its answer, and duo_send for asynchronous notifications/advice. Austin decides whether to accept advice and finishes with duo_finish(summary), without Tony approval. Commit your work and keep your worktree clean: when the finished turn settles, Duo delivers Austin's HEAD to the branch the session started on, and DONE follows only after that delivery succeeds."
 }
