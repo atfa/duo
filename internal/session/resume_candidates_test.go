@@ -9,7 +9,7 @@ import (
 )
 
 // TestResumeCandidatesFiltersWhatCanBeResumed pins the one definition of
-// "resumable" the /sessions picker and `duo resume` share: unfinished, readable,
+// "resumable" the /sessions picker uses: readable,
 // not the open session, and not owned by another live Duo.
 func TestResumeCandidatesFiltersWhatCanBeResumed(t *testing.T) {
 	base, root := t.TempDir(), t.TempDir()
@@ -55,12 +55,11 @@ func TestResumeCandidatesFiltersWhatCanBeResumed(t *testing.T) {
 	}
 	got := resumeCandidates(list, open.SessionID)
 
-	if len(got) != 1 || got[0].SessionID != unfinished.SessionID {
-		ids := make([]string, 0, len(got))
-		for _, item := range got {
-			ids = append(ids, item.SessionID)
-		}
-		t.Fatalf("resumeCandidates = %v, want only %q (excluded: current %q, done %q, unreadable, unlocked %q, locked %q)",
-			ids, unfinished.SessionID, open.SessionID, done.SessionID, started.SessionID, locked.SessionID)
+	ids := make(map[string]bool, len(got))
+	for _, item := range got {
+		ids[item.SessionID] = true
+	}
+	if len(ids) != 3 || !ids[unfinished.SessionID] || !ids[done.SessionID] || !ids[started.SessionID] {
+		t.Fatalf("resumeCandidates = %v, want unfinished, finished and never-started sessions; exclude current %q, unreadable and locked %q", ids, open.SessionID, locked.SessionID)
 	}
 }

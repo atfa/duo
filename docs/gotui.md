@@ -66,7 +66,7 @@ workflow state or makes project transitions:
   transcript for next/previous (wrapping); `Esc` ends the search and restores the
   viewport it opened on. The match is a plain substring, and column positions are
   counted in cells, so wide CJK text highlights exactly.
-- **Session picker.** `/sessions` lists this repository's unfinished sessions
+- **Session picker.** `/sessions` lists this repository's available sessions, including completed ones
   with their mode, phase, time on the session and measured cost. A session the
   observer has named is listed by its title; a session without a title falls
   back to its id. `Enter` resumes
@@ -121,7 +121,7 @@ variables. The dashboard adds:
 | `Ctrl+S` / `Alt+S` | Open the FAST/GOAL/STEP/LOOP mode picker |
 | `Ctrl+G` | Toggle message timestamps |
 | `Ctrl+F` / `/search` | Search the active pane; `n` / `N` next hit, `Esc` restores the viewport |
-| `/sessions` | List unfinished sessions; `Enter` resumes the selected one |
+| `/sessions` | List available sessions; `Enter` resumes the selected one |
 | `Ctrl+A` / `Alt+A` | Attach to Austin |
 | `Ctrl+T` / `Alt+T` | Attach to Tony |
 | `Ctrl+]` / `Ctrl+\` / `Ctrl+】` | Detach from an attached agent |

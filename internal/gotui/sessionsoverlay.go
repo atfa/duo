@@ -97,7 +97,7 @@ func (s *sessionsOverlay) Draw(buf *ui.Buffer) {
 	defer drawModalClose(buf, s.Block, s.theme)
 	width := s.Inner.Dx()
 	if len(s.items) == 0 {
-		buf.SetString(fitText(s.theme.tr("no resumable sessions in this repository"), width), s.theme.Subtle, image.Pt(s.Inner.Min.X, s.Inner.Min.Y))
+		buf.SetString(fitText(s.theme.tr("no other sessions available"), width), s.theme.Subtle, image.Pt(s.Inner.Min.X, s.Inner.Min.Y))
 		buf.SetString(fitText(s.theme.tr("Esc close"), width), s.theme.Timestamp, image.Pt(s.Inner.Min.X, s.Inner.Max.Y-1))
 		return
 	}

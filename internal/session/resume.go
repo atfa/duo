@@ -236,14 +236,14 @@ func (s *Service) Sessions() []sessionstore.Summary {
 	return resumeCandidates(list, current)
 }
 
-// resumeCandidates keeps the sessions a human may switch to: unfinished, readable
-// and not owned by a live Duo process. The open session is excluded because
+// resumeCandidates keeps readable sessions a human may switch to that are not
+// owned by a live Duo process. The open session is excluded because
 // "resuming" it would only close it, and a locked one is excluded because the
 // resume that followed would fail after this session was already closed.
 func resumeCandidates(list []sessionstore.Summary, current string) []sessionstore.Summary {
 	out := make([]sessionstore.Summary, 0, len(list))
 	for _, item := range list {
-		if item.SessionID == current || item.Err != nil || !item.Unfinished() {
+		if item.SessionID == current || item.Err != nil {
 			continue
 		}
 		if sessionstore.SessionActive(item.Dir) {
