@@ -87,12 +87,22 @@ func runUpgrade(ctx context.Context, args []string) error {
 		Client:  &http.Client{Timeout: 2 * time.Minute},
 		APIBase: upgradeAPIBase,
 		RawBase: upgradeRawBase,
-		GOOS:    runtime.GOOS,
+		GOOS:    releaseGOOS(),
 		GOARCH:  runtime.GOARCH,
 		Target:  target,
 		DryRun:  parsed.dryRun,
 		Out:     os.Stdout,
 	})
+}
+
+// releaseGOOS names the release asset family for this machine. Termux reports
+// GOOS=android while running the same Linux build the release ships, so the
+// asset lookup has to ask for linux; every other platform names itself.
+func releaseGOOS() string {
+	if runtime.GOOS == "android" {
+		return "linux"
+	}
+	return runtime.GOOS
 }
 
 // currentExecutable resolves the file to replace. A symlinked `duo` is replaced at

@@ -324,3 +324,17 @@ func TestUpgradeInstallsAVerifiedArchive(t *testing.T) {
 		t.Errorf("the upgrade does not report what it installed\n%s", out.String())
 	}
 }
+
+// TestReleaseGOOSNamesThePublishedAssetFamily pins the one platform whose Go name
+// is not a release asset family: Termux reports android and runs the Linux build.
+func TestReleaseGOOSNamesThePublishedAssetFamily(t *testing.T) {
+	if runtime.GOOS == "android" {
+		if got := releaseGOOS(); got != "linux" {
+			t.Fatalf("releaseGOOS() = %q, want linux so the linux release archive is fetched", got)
+		}
+		return
+	}
+	if got := releaseGOOS(); got != runtime.GOOS {
+		t.Fatalf("releaseGOOS() = %q, want the platform to name itself", got)
+	}
+}
