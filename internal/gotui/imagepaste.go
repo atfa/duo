@@ -32,6 +32,9 @@ func clipboardImageCommands(goos string, getenv func(string) string) []clipboard
 	case "darwin":
 		// pngpaste requires an output target; "-" means stdout.
 		return []clipboardCommand{{name: "pngpaste", args: []string{"-"}}}
+	case "android":
+		// Termux: the Termux:API bridge writes the clipboard image to stdout.
+		return []clipboardCommand{{name: "termux-clipboard-get", args: []string{"--image"}}}
 	case "linux":
 		var commands []clipboardCommand
 		if strings.TrimSpace(getenv("WAYLAND_DISPLAY")) != "" {

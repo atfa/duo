@@ -33,6 +33,7 @@ func TestClipboardImageCommands(t *testing.T) {
 		want []string
 	}{
 		{name: "macOS", goos: "darwin", want: []string{"pngpaste"}},
+		{name: "Termux", goos: "android", want: []string{"termux-clipboard-get"}},
 		{
 			name: "Wayland before X11",
 			goos: "linux",

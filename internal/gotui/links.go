@@ -261,6 +261,9 @@ func openURLDefault(target string) error {
 	switch runtime.GOOS {
 	case "darwin":
 		return launch("open", target)
+	case "android":
+		// Termux has no xdg-open; the Termux:API launcher is what opens a URL.
+		return launch("termux-open", target)
 	case "windows":
 		return launch("rundll32", "url.dll,FileProtocolHandler", target)
 	default:
@@ -283,6 +286,10 @@ func openFileDefault(path string) error {
 			return launch("open", dir)
 		}
 		return launch("open", "-R", path)
+	case "android":
+		// Android has no "reveal in folder", and no xdg-open. The Termux:API
+		// launcher opens a file, and a directory is opened as a directory.
+		return launch("termux-open", path)
 	case "windows":
 		if info.IsDir() {
 			return launch("explorer", dir)
