@@ -25,6 +25,12 @@ func (c *Coordinator) requestFinalSummary(ctx context.Context) {
 		return
 	}
 	snap := c.project.Snapshot()
+	// From before the request is written, the next Austin message is the report
+	// Duo promised the human. Setting this after the send lost the race: a bridge
+	// that answers the notice immediately can have its reply handled here before
+	// this function resumes, and that reply is then ordinary conversation.
+	// A send that fails gives the claim and the flag back together.
+	c.oweFinalSummary()
 	if err := c.sendToAgent(ctx, protocol.Austin, protocol.Message{
 		Version:   protocol.Version,
 		Type:      protocol.MsgDuoNotice,
@@ -41,9 +47,6 @@ func (c *Coordinator) requestFinalSummary(ctx context.Context) {
 			"Duo could not ask Austin for the final summary: "+err.Error())
 		return
 	}
-	// From here on the next Austin message is the report Duo promised the human,
-	// so it is marked from this request instead of from its own first line.
-	c.oweFinalSummary()
 	c.recordEvent("summary_requested", map[string]any{
 		"mode": snap.EffectiveMode().String(),
 		"head": c.CurrentDelivery().FinalHead,
