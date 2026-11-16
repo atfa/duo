@@ -421,6 +421,13 @@ func makeTestProtoPayload(prompt, candidates, cached int, model string) []byte {
 
 func createTestSqliteDB(t *testing.T, dir string, populateMode string) string {
 	t.Helper()
+	// The fixture is built by the sqlite3 CLI, the same tool the driver shells out
+	// to for token metrics. A host that does not install it (a Termux box, where
+	// agy is not a supported driver) cannot build the fixture, and that says
+	// nothing about the code under test.
+	if _, err := exec.LookPath("sqlite3"); err != nil {
+		t.Skip("sqlite3 is not installed, so the agy fixture cannot be built")
+	}
 	dbPath := filepath.Join(dir, "test.db")
 	switch populateMode {
 	case "with_data":
