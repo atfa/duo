@@ -76,7 +76,7 @@ Windows 上请从 release 下载 `duo_windows_amd64.tar.gz`，解压后把 `duo.
 
 该脚本一次构建并安装 `duo`、`xduo` 和 driver 可执行文件到 `~/.local/bin`，同时安装 bridge。请将该目录加入 PATH。
 
-Termux（Android）用同一套源码安装脚本即可，发布版安装脚本同样可用，因为 Termux 报告 `Linux aarch64`，运行的就是 Linux arm64 归档；`duo upgrade` 取的也是同一个归档。那里只有 `pi` 和 `opencode` 有可用 CLI，所以 `codex` 与 `agy` 装得上但会报告 CLI 缺失，`xduo` 需要 tmux。Android 会杀死后台进程，所以长任务前先执行 `termux-wake-lock` 并固定 Termux 通知，否则 agent 会在任务中途被杀。`pkg install termux-api` 提供 Duo 使用的剪贴板与打开链接工具；没有 Termux:API 应用时这些功能不可用，其余功能不受影响。
+Termux（Android）用同一套源码安装脚本即可，发布版安装脚本同样可用，因为 Termux 报告 `Linux aarch64`，运行的就是 Linux arm64 归档；`duo upgrade` 取的也是同一个归档。那里只有 `pi` 和 `opencode` 有可用 CLI，所以 `codex` 与 `agy` 装得上但会报告 CLI 缺失，`xduo` 需要 tmux。Android 会杀死后台进程，所以长任务前先执行 `termux-wake-lock` 并固定 Termux 通知，否则 agent 会在任务中途被杀。打开链接用的是 Termux 基础安装自带的 `termux-open`。`pkg install termux-api` 提供 Duo 使用的剪贴板复制功能，还需要安装 Termux:API 应用；没有它时只有这一项不可用，其余功能不受影响。从剪贴板粘贴图片在 Termux 上始终不可用：Termux:API 剪贴板只传文本，所以 `Ctrl+V` 会提示改用 agent 自己的附件快捷键。
 
 安装 bridge 后请重启正在运行的 Pi 或 OpenCode 进程。
 

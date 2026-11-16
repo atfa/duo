@@ -33,8 +33,12 @@ func clipboardImageCommands(goos string, getenv func(string) string) []clipboard
 		// pngpaste requires an output target; "-" means stdout.
 		return []clipboardCommand{{name: "pngpaste", args: []string{"-"}}}
 	case "android":
-		// Termux: the Termux:API bridge writes the clipboard image to stdout.
-		return []clipboardCommand{{name: "termux-clipboard-get", args: []string{"--image"}}}
+		// No clipboard image command exists on Termux, so this platform is named
+		// rather than left to the default: the Termux:API clipboard carries text only
+		// (ClipboardAPI coerces the clip to text), and its command rejects every
+		// option, so nothing there can hand over clipboard pixels. The status message
+		// then points at the agent's own attach keys, which is the paste that works.
+		return nil
 	case "linux":
 		var commands []clipboardCommand
 		if strings.TrimSpace(getenv("WAYLAND_DISPLAY")) != "" {
