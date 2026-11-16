@@ -413,8 +413,12 @@ func (s *Session) Start(ctx context.Context) error {
 	if ctx.Err() != nil {
 		return fmt.Errorf("start %s: %w", s.cfg.Agent, ctx.Err())
 	}
+	// "android" is Termux: Go reports GOOS=android there, while the PTY, the
+	// process group and the shell are the Unix ones this package already builds
+	// under //go:build !windows. Listing it is what keeps a Termux session from
+	// being refused by a gate that has nothing Termux-specific to refuse.
 	switch runtime.GOOS {
-	case "darwin", "linux", "windows":
+	case "darwin", "linux", "android", "windows":
 	default:
 		return fmt.Errorf("%s: unsupported platform %s", s.cfg.Agent, runtime.GOOS)
 	}
