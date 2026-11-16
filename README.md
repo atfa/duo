@@ -23,7 +23,7 @@ duo --mode step         # incremental queue
 duo --mode loop         # one ongoing goal, Tony advises
 ```
 
-Duo runs on macOS, Linux and Windows (Windows 10 1809+ or newer, which is where the ConPTY agent terminals come from) and requires Git plus at least one supported agent CLI. It opens the gotui dashboard; enter a task and press `Enter`. Open `/help` (or press `F1`) for the in-app command and keyboard reference.
+Duo runs on macOS, Linux (Termux on Android included) and Windows (Windows 10 1809+ or newer, which is where the ConPTY agent terminals come from) and requires Git plus at least one supported agent CLI. It opens the gotui dashboard; enter a task and press `Enter`. Open `/help` (or press `F1`) for the in-app command and keyboard reference.
 
 On a first run `duo` checks that it can start before it opens the dashboard, and asks before it changes anything. In a directory that is not a Git repository it offers to run `git init`; in a repository with no commit it offers an initial commit; with uncommitted work it offers to commit or stash it. If `~/.duo/config.json` does not exist it offers to create one with English, GOAL mode and the TIMELINE view. With no terminal — a script, CI, `duo run` — it asks nothing and reports the same errors it always did. When none of the four agent CLIs is on `PATH`, Duo refuses to start and names what to install, in a headless round as well.
 
@@ -50,6 +50,8 @@ Or install from source (Go 1.24+; the script runs the Go test suite):
 ```
 
 This builds and installs both `duo` and `xduo` to `~/.local/bin`, along with the driver binaries and bridges. Add that directory to PATH.
+
+On Termux (Android) the same source install works, and so does the release installer, because Termux reports `Linux aarch64` and runs the Linux arm64 archive; `duo upgrade` asks for the same archive. Only the `pi` and `opencode` drivers have a CLI there, so `codex` and `agy` install and then report their CLI missing, and `xduo` needs tmux. Android kills backgrounded processes, so run `termux-wake-lock` and keep the Termux notification pinned before a long round, or the agents die mid-task. `pkg install termux-api` adds the clipboard and link-opening tools Duo uses when they are present; without the Termux:API app those features stay unavailable and nothing else changes.
 
 Restart running Pi or OpenCode processes after installing their bridges.
 

@@ -23,7 +23,7 @@ duo --mode step         # 逐步推进的队列
 duo --mode loop         # 持续的目标，Tony 只提供建议
 ```
 
-Duo 运行于 macOS、Linux 与 Windows（需要 Windows 10 1809 或更新版本，Agent 终端依赖 ConPTY），需要 Git 以及至少一种受支持的 Agent CLI。启动后会打开 gotui 仪表盘；输入任务并按 `Enter`。应用内的命令与快捷键参考请打开 `/help`（或按 `F1`）。
+Duo 运行于 macOS、Linux（含 Android 上的 Termux）与 Windows（需要 Windows 10 1809 或更新版本，Agent 终端依赖 ConPTY），需要 Git 以及至少一种受支持的 Agent CLI。启动后会打开 gotui 仪表盘；输入任务并按 `Enter`。应用内的命令与快捷键参考请打开 `/help`（或按 `F1`）。
 
 ## xduo：管理多个 Duo 实例
 
@@ -75,6 +75,8 @@ Windows 上请从 release 下载 `duo_windows_amd64.tar.gz`，解压后把 `duo.
 ```
 
 该脚本一次构建并安装 `duo`、`xduo` 和 driver 可执行文件到 `~/.local/bin`，同时安装 bridge。请将该目录加入 PATH。
+
+Termux（Android）用同一套源码安装脚本即可，发布版安装脚本同样可用，因为 Termux 报告 `Linux aarch64`，运行的就是 Linux arm64 归档；`duo upgrade` 取的也是同一个归档。那里只有 `pi` 和 `opencode` 有可用 CLI，所以 `codex` 与 `agy` 装得上但会报告 CLI 缺失，`xduo` 需要 tmux。Android 会杀死后台进程，所以长任务前先执行 `termux-wake-lock` 并固定 Termux 通知，否则 agent 会在任务中途被杀。`pkg install termux-api` 提供 Duo 使用的剪贴板与打开链接工具；没有 Termux:API 应用时这些功能不可用，其余功能不受影响。
 
 安装 bridge 后请重启正在运行的 Pi 或 OpenCode 进程。
 
