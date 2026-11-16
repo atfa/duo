@@ -371,24 +371,41 @@ func (o *onboarding) ensureObserver(root string) error {
 	case 1:
 		return o.setUpObserver(root)
 	case 2:
-		// Record the dismissal where the dashboard records its own, so the setup
-		// panel does not ask again on the next start.
-		if err := o.saveObserver(root, observer.Settings{Enabled: false}); err != nil {
-			return err
-		}
-		fmt.Fprintln(o.out, "The observer stays off. /observer opens the settings at any time.")
+		return o.deferObserver(root)
 	}
 	// A blank or unreadable answer changes nothing: the dashboard panel will offer
 	// the same choice once the session is up.
 	return nil
 }
 
+// deferObserver records the choice to leave the observer alone, in the place the
+// dashboard records its own, so the setup panel does not ask again on the next
+// start.
+func (o *onboarding) deferObserver(root string) error {
+	if err := o.saveObserver(root, observer.Settings{Enabled: false}); err != nil {
+		return err
+	}
+	fmt.Fprintln(o.out, "The observer stays off. /observer opens the settings at any time.")
+	return nil
+}
+
 // setUpObserver collects the three settings a working observer needs, keeping the
-// documented defaults when the human just presses Enter.
+// documented defaults when the human just presses Enter. Every one of the three
+// accepts "s" to decline the whole setup: a human who has not decided yet leaves
+// with the observer off, recorded as deferred exactly like the "later" choice.
 func (o *onboarding) setUpObserver(root string) error {
-	endpoint := o.askText("Observer base URL", observer.DefaultEndpoint)
-	model := o.askText("Observer model", observer.DefaultModel)
-	key := o.askText("Observer API key (blank keeps DUO_OBSERVER_API_KEY or the saved key)", "")
+	endpoint, ok := o.askText("Observer base URL", observer.DefaultEndpoint)
+	if !ok {
+		return o.deferObserver(root)
+	}
+	model, ok := o.askText("Observer model", observer.DefaultModel)
+	if !ok {
+		return o.deferObserver(root)
+	}
+	key, ok := o.askText("Observer API key (blank keeps DUO_OBSERVER_API_KEY or the saved key)", "")
+	if !ok {
+		return o.deferObserver(root)
+	}
 
 	chosen := observer.Config{Enabled: true, Endpoint: endpoint, Model: model}.Normalized()
 	if err := chosen.Validate(); err != nil {
@@ -478,19 +495,34 @@ func countPaths(porcelain string) int {
 
 // askText reads one free-form answer. A blank answer keeps the offered default,
 // which is how the endpoint and model keep the values Duo documents; a question
-// without a default (the API key) treats a blank answer as "nothing".
-func (o *onboarding) askText(question, fallback string) string {
+// without a default (the API key) treats a blank answer as "nothing". The answer
+// "s" declines the question, reported as ok=false: the observer is optional, and
+// Ctrl+C cannot mean "not now" here because SIGINT cancels the whole launch.
+func (o *onboarding) askText(question, fallback string) (string, bool) {
 	if fallback != "" {
-		fmt.Fprintf(o.out, "%s [%s]: ", question, fallback)
+		fmt.Fprintf(o.out, "%s [%s] (blank accepts, s skips): ", question, fallback)
 	} else {
-		fmt.Fprintf(o.out, "%s: ", question)
+		fmt.Fprintf(o.out, "%s (blank keeps it, s skips): ", question)
 	}
 	answer, err := o.readAnswer()
 	if err != nil || answer == "" {
-		return fallback
+		return fallback, true
 	}
 	fmt.Fprintln(o.out)
-	return answer
+	if isSkipAnswer(answer) {
+		return "", false
+	}
+	return answer, true
+}
+
+// isSkipAnswer recognises the ways a human says "leave this alone": the word and
+// its first letter, in any case.
+func isSkipAnswer(answer string) bool {
+	switch strings.ToLower(strings.TrimSpace(answer)) {
+	case "s", "skip":
+		return true
+	}
+	return false
 }
 
 // askChoice prints a numbered question and returns the 1-based option the human

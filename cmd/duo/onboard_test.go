@@ -500,6 +500,37 @@ func TestObserverGuideLaterRecordsTheDismissal(t *testing.T) {
 	}
 }
 
+// The three observer questions are optional: answering "s" at any of them leaves
+// the observer unconfigured and records the deferral exactly like "later", so a
+// human who has not decided yet is asked neither again here nor by the panel.
+func TestObserverGuideSkipAnswerLeavesTheObserverUnconfigured(t *testing.T) {
+	repo := onboardRepo(t)
+	for _, answers := range []string{"1\ns\n", "1\n\nskip\n", "1\n\n\nS\n"} {
+		o, _, out := newTestOnboarding(t, repo, answers)
+		var savedKeys []string
+		o.saveAPIKey = func(key string) (string, error) {
+			savedKeys = append(savedKeys, key)
+			return "", nil
+		}
+		if err := o.ensureObserver(repo); err != nil {
+			t.Fatalf("answers %q: %v\n%s", answers, err, out.String())
+		}
+		if len(savedKeys) != 0 {
+			t.Fatalf("answers %q saved an API key: %v", answers, savedKeys)
+		}
+		settings := projectObserver(t, repo)
+		if settings == nil {
+			t.Fatalf("answers %q wrote no deferral, so the dashboard asks again:\n%s", answers, out.String())
+		}
+		if settings.Enabled {
+			t.Fatalf("answers %q enabled the observer: %+v", answers, settings)
+		}
+		if !strings.Contains(out.String(), "/observer") {
+			t.Errorf("answers %q did not say how to configure it later:\n%s", answers, out.String())
+		}
+	}
+}
+
 // Configuring it stores exactly the three answers, with Duo's documented
 // defaults kept for the two fields a blank line accepted.
 func TestObserverGuideSavesWhatTheHumanEntered(t *testing.T) {
