@@ -2,6 +2,23 @@
 
 All notable project milestones are documented here.
 
+## v0.16.1 — 2026-11-17
+
+### Termux on Android
+
+- Duo and xduo run on Termux: a session starts instead of being refused as `unsupported platform android`, because Go reports `GOOS=android` there while the PTY, process group and shell are the Unix ones.
+- `duo upgrade` asks for the Linux arm64 release archive on Termux, the one the release publishes and the installer already used, rather than a `duo_android_arm64` asset that does not exist.
+- Link and file opening use `termux-open`, and clipboard copy uses `termux-clipboard-set`; both come from Termux:API where it is installed, and a host without it keeps the degradation messages.
+- Clipboard image paste is named as unavailable on Termux, so `Ctrl+V` points at the agent's attach keys instead of calling a `termux-clipboard-get --image` option that does not exist.
+- The agy fixture skips when the `sqlite3` CLI is missing, and the install script builds before testing with the install directory on `PATH`, so a fresh Termux box no longer reports driver executables that do not exist yet.
+
+### Fixes
+
+- The session picker can resume completed sessions again.
+- LOOP observation events are capped at 100, dropping only the oldest step observations and never question, reply, human or timer events, which also bounds the snapshot written on every observe.
+- The coordinator marks the final summary owed before sending the request, closing a race that let a fast bridge reply reach the timeline unmarked.
+- The first-run observer questions accept `s` to decline setup, matching `later`, instead of forcing an answer that Ctrl+C cannot mean.
+
 ## v0.16.0 — 2026-11-07
 
 ### LOOP mode

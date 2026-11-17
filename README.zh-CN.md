@@ -54,7 +54,7 @@ Duo 通过 `XDUO_STATUS_FILE` 约每秒发布状态。面板显示 `playing`、`
 
 ## 安装
 
-**最新发布版 v0.16.0**（macOS/Linux/Windows，amd64；macOS/Linux 另有 arm64）：
+**最新发布版 v0.16.1**（macOS/Linux/Windows，amd64；macOS/Linux 另有 arm64）：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/atfa/duo/main/scripts/install-release.sh | bash
